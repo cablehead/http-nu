@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use http_body_util::BodyExt;
-    use hyper::{Request, body::Incoming};
+    use hyper::{body::Incoming, Request};
 
     #[tokio::test]
     async fn test_handle_request() {
