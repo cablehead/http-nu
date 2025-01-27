@@ -1,17 +1,17 @@
 #[cfg(test)]
 mod tests {
     use http_body_util::BodyExt;
-    use hyper::{body::Incoming, Request};
+    use hyper::body::Incoming;
 
     #[tokio::test]
     async fn test_handle_request() {
         let engine = crate::Engine::new().unwrap();
         let handler = crate::Handler::new(engine);
 
-        let req = Request::builder()
+        let req = hyper::Request::builder()
             .method("GET")
             .uri("/")
-            .body(Incoming::default().boxed())
+            .body(hyper::body::Incoming::new())
             .unwrap();
 
         let resp = handler.handle_request(req).await.unwrap();
