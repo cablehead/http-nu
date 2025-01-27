@@ -1,4 +1,4 @@
-use http_body_util::{combinators::BoxBody, Empty, Full};
+use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Bytes;
 use std::sync::Arc;
 use tokio::sync::Mutex;

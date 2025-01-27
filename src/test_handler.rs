@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use http_body_util::BodyExt;
-    use hyper::body::Incoming;
+    use hyper::body::Empty;
 
     #[tokio::test]
     async fn test_handle_request() {
@@ -11,7 +11,7 @@ mod tests {
         let req = hyper::Request::builder()
             .method("GET")
             .uri("/")
-            .body(hyper::body::Incoming::new())
+            .body(Empty::new())
             .unwrap();
 
         let resp = handler.handle_request(req).await.unwrap();
