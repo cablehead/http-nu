@@ -1,10 +1,7 @@
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Bytes;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
-type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 pub struct Handler {
     engine: Arc<crate::Engine>,
@@ -19,8 +16,11 @@ impl Handler {
         }
     }
 
-    pub async fn handle_request(&self, req: hyper::Request<hyper::body::Incoming>) -> HTTPResult {
-        let (parts, body) = req.into_parts();
+    pub async fn handle_request(
+        &self,
+        req: hyper::Request<hyper::body::Incoming>,
+    ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError> {
+        let (parts, _body) = req.into_parts();
 
         let request = crate::Request {
             method: parts.method.to_string(),
@@ -57,10 +57,4 @@ impl Handler {
             .status(status)
             .body(full(format!("{:?}", result)))?)
     }
-}
-
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, BoxError> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
 }

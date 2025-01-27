@@ -1,4 +1,3 @@
-use hyper::http;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

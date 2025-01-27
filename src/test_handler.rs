@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use bytes::Bytes;
     use http_body_util::BodyExt;
-    use hyper::Request;
+    use hyper::{Request, body::Incoming};
 
     #[tokio::test]
     async fn test_handle_request() {
@@ -12,7 +11,7 @@ mod tests {
         let req = Request::builder()
             .method("GET")
             .uri("/")
-            .body(hyper::body::Incoming::default())
+            .body(Incoming::default().boxed())
             .unwrap();
 
         let resp = handler.handle_request(req).await.unwrap();
