@@ -1,6 +1,17 @@
-use std::collections::HashMap;
 use hyper::http;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+mod engine;
+mod handler;
+
+pub use engine::Engine;
+pub use handler::Handler;
+
+#[cfg(test)]
+mod test_engine;
+#[cfg(test)]
+mod test_handler;
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
