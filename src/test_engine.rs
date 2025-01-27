@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{Engine, Request};
 
     #[test]
@@ -22,7 +21,7 @@ mod tests {
         assert!(result
             .into_value(nu_protocol::Span::test_data())
             .unwrap()
-            .as_string()
+            .as_str()
             .unwrap()
             .contains("hello world"));
     }

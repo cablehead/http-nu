@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use hyper::{Body, Request};
+    use bytes::Bytes;
+    use http_body_util::BodyExt;
+    use hyper::Request;
 
     #[tokio::test]
     async fn test_handle_request() {
@@ -11,14 +12,13 @@ mod tests {
         let req = Request::builder()
             .method("GET")
             .uri("/")
-            .body(Body::empty())
+            .body(hyper::body::Incoming::default())
             .unwrap();
 
         let resp = handler.handle_request(req).await.unwrap();
-
         assert_eq!(resp.status(), 200);
 
-        let body = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
         let body = String::from_utf8(body.to_vec()).unwrap();
         assert!(body.contains("hello world"));
     }
