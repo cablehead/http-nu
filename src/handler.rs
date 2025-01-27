@@ -1,5 +1,10 @@
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use hyper::body::Bytes;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 pub struct Handler {
     engine: Arc<crate::Engine>,
@@ -14,10 +19,7 @@ impl Handler {
         }
     }
 
-    pub async fn handle_request(
-        &self,
-        req: hyper::Request<hyper::Body>,
-    ) -> Result<hyper::Response<hyper::Body>, crate::Error> {
+    pub async fn handle_request(&self, req: hyper::Request<hyper::body::Incoming>) -> HTTPResult {
         let (parts, body) = req.into_parts();
 
         let request = crate::Request {
@@ -40,10 +42,8 @@ impl Handler {
                 .unwrap_or_default(),
         };
 
-        // Create response building infrastructure
         let response = self.response.clone();
 
-        // Run in separate thread
         let engine = self.engine.clone();
         let result = tokio::task::spawn_blocking(move || {
             engine.eval_closure("{ echo 'hello world' }".into(), request)
@@ -55,6 +55,12 @@ impl Handler {
 
         Ok(hyper::Response::builder()
             .status(status)
-            .body(hyper::Body::from(format!("{:?}", result)))?)
+            .body(full(format!("{:?}", result)))?)
     }
+}
+
+fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, BoxError> {
+    Full::new(chunk.into())
+        .map_err(|never| match never {})
+        .boxed()
 }
