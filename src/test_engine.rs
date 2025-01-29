@@ -15,7 +15,7 @@ mod tests {
         };
 
         let result = engine
-            .eval_closure("{ echo 'hello world' }".into(), request)
+            .eval_closure(r#"{|| "hello world" }"#.into(), request)
             .unwrap();
 
         assert!(result

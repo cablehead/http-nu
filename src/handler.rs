@@ -1,4 +1,5 @@
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
+use hyper::body::Body;
 use hyper::body::Bytes;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -18,10 +19,15 @@ impl Handler {
         }
     }
 
-    pub async fn handle_request(
+    pub async fn handle_request<B>(
         &self,
-        req: hyper::Request<hyper::body::Incoming>,
-    ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError> {
+        req: hyper::Request<B>,
+    ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
+    where
+        B: Body + Send + 'static,
+        B::Data: Send,
+        B::Error: Into<BoxError>,
+    {
         let (parts, _body) = req.into_parts();
 
         let request = crate::Request {
