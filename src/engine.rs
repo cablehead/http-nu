@@ -22,7 +22,7 @@ impl Engine {
     pub fn eval_closure(
         &self,
         closure: String,
-        request: crate::Request,
+        _request: crate::Request, // Will use this later
     ) -> Result<PipelineData, crate::Error> {
         let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, closure.as_bytes(), false);

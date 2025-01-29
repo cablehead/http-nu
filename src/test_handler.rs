@@ -1,17 +1,19 @@
+// test_handler.rs
 #[cfg(test)]
 mod tests {
-    use http_body_util::BodyExt;
-    use hyper::body::Empty;
+    use bytes::Bytes;
+    use http_body_util::{BodyExt, Empty};
+    use hyper::Request;
 
     #[tokio::test]
     async fn test_handle_request() {
         let engine = crate::Engine::new().unwrap();
         let handler = crate::Handler::new(engine);
 
-        let req = hyper::Request::builder()
+        let req = Request::builder()
             .method("GET")
             .uri("/")
-            .body(Empty::new())
+            .body(Empty::<Bytes>::new())
             .unwrap();
 
         let resp = handler.handle_request(req).await.unwrap();
