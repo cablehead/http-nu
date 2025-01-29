@@ -1,5 +1,8 @@
 use clap::Parser;
-use http_nu::{Engine, Handler};
+
+use hyper::service::service_fn;
+
+use http_nu::{handle, Engine, Listener};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -19,18 +22,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut engine = Engine::new()?;
     engine.parse_closure(&args.closure)?;
-    let handler = Handler::new(engine);
 
-    let mut listener = http_nu::listener::Listener::bind(&args.addr).await?;
+    let mut listener = Listener::bind(&args.addr).await?;
     println!("Listening on {}", listener);
 
     while let Ok((stream, _)) = listener.accept().await {
         let io = hyper_util::rt::TokioIo::new(stream);
-        let handler = handler.clone();
+
+        let engine = engine.clone();
 
         tokio::task::spawn(async move {
+            let service = service_fn(move |req| handle(engine.clone(), req));
             if let Err(err) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, handler)
+                .serve_connection(io, service)
                 .await
             {
                 eprintln!("Error serving connection: {}", err);

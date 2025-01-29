@@ -6,7 +6,8 @@ mod handler;
 mod listener;
 
 pub use engine::Engine;
-pub use handler::Handler;
+pub use handler::handle;
+pub use listener::Listener;
 
 #[cfg(test)]
 mod test_engine;

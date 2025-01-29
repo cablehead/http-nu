@@ -8,6 +8,7 @@ use nu_protocol::{
     PipelineData, Span,
 };
 
+#[derive(Clone)]
 pub struct Engine {
     pub state: EngineState,
     closure: Option<Closure>,
