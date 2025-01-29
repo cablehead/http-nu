@@ -5,10 +5,12 @@ use hyper::Request;
 
 #[tokio::test]
 async fn test_handle_request() {
-    let engine = crate::Engine::new().unwrap();
+    let mut engine = crate::Engine::new().unwrap();
+    engine
+        .parse_closure(r#"{|request| "hello world" }"#)
+        .unwrap();
     let handler = crate::Handler::new(engine);
 
-    // Use Empty body which implements Body trait
     let req = Request::builder()
         .method("GET")
         .uri("/")

@@ -4,7 +4,12 @@ mod tests {
 
     #[test]
     fn test_engine_eval() {
-        let engine = Engine::new().unwrap();
+        let mut engine = Engine::new().unwrap();
+
+        // First parse the closure
+        engine
+            .parse_closure(r#"{|request| "hello world" }"#)
+            .unwrap();
 
         let request = Request {
             method: "GET".into(),
@@ -14,9 +19,8 @@ mod tests {
             query: Default::default(),
         };
 
-        let result = engine
-            .eval_closure(r#"{|| "hello world" }"#.into(), request)
-            .unwrap();
+        // Then eval with request
+        let result = engine.eval(request).unwrap();
 
         assert!(result
             .into_value(nu_protocol::Span::test_data())

@@ -2,20 +2,17 @@ use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Body;
 use hyper::body::Bytes;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 pub struct Handler {
     engine: Arc<crate::Engine>,
-    response: Arc<Mutex<Option<crate::Response>>>,
 }
 
 impl Handler {
     pub fn new(engine: crate::Engine) -> Self {
         Self {
             engine: Arc::new(engine),
-            response: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -50,17 +47,10 @@ impl Handler {
                 .unwrap_or_default(),
         };
 
-        let response = self.response.clone();
         let engine = self.engine.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            engine.eval_closure("{ echo 'hello world' }".into(), request)
-        })
-        .await??;
+        let result = tokio::task::spawn_blocking(move || engine.eval(request)).await??;
 
-        let response = response.lock().await;
-        let status = response.as_ref().map(|r| r.status).unwrap_or(200);
-
-        Ok(hyper::Response::builder().status(status).body(
+        Ok(hyper::Response::builder().status(200).body(
             Full::new(format!("{:?}", result).into())
                 .map_err(|never| match never {})
                 .boxed(),
