@@ -112,7 +112,7 @@ impl Engine {
         Ok(())
     }
 
-    pub fn eval(&self, request: Request) -> Result<PipelineData, Error> {
+    pub fn eval(&self, request: Request, input: PipelineData) -> Result<PipelineData, Error> {
         let closure = self.closure.as_ref().ok_or("Closure not parsed")?;
         let mut stack = Stack::new();
         let block = self.state.get_block(closure.block_id);
@@ -126,7 +126,7 @@ impl Engine {
             &self.state,
             &mut stack,
             block,
-            PipelineData::empty(),
+            input,
         )?)
     }
 }

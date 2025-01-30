@@ -47,8 +47,7 @@ async fn handle_inner<B>(
     req: Request<B>,
 ) -> HTTPResult
 where
-    B: hyper::body::Body + Send + 'static,
-    B::Data: Send,
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<BoxError>,
 {
     // Create channel for response metadata
@@ -63,8 +62,51 @@ where
     // --> https://chatgpt.com/share/679bf135-87cc-800c-9a75-45052bc1cdb0
     engine.parse_closure(&script)?;
 
-    // Convert request into our format
-    let (parts, _body) = req.into_parts();
+    let (parts, body) = req.into_parts();
+
+    // Create channels for body streaming
+    let (body_tx, mut body_rx) = tokio::sync::mpsc::channel(32);
+
+    // Spawn task to read body frames
+    tokio::task::spawn(async move {
+        let mut body = std::pin::Pin::new(body);
+        while let Some(frame) = body.frame().await {
+            match frame {
+                Ok(frame) => {
+                    if let Some(data) = frame.data_ref() {
+                        if body_tx.send(Ok(data.clone().to_vec())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(err) => {
+                    let _ = body_tx.send(Err(err.into())).await;
+                    break;
+                }
+            }
+        }
+    });
+
+    // Create ByteStream for Nu pipeline
+    let stream = nu_protocol::ByteStream::from_fn(
+        nu_protocol::Span::unknown(),
+        engine.state.signals().clone(),
+        nu_protocol::ByteStreamType::Unknown,
+        move |buffer: &mut Vec<u8>| match body_rx.blocking_recv() {
+            Some(Ok(bytes)) => {
+                buffer.extend_from_slice(&bytes);
+                Ok(true)
+            }
+            Some(Err(err)) => Err(nu_protocol::ShellError::GenericError {
+                error: "Body read error".into(),
+                msg: err.to_string(),
+                span: None,
+                help: None,
+                inner: vec![],
+            }),
+            None => Ok(false),
+        },
+    );
 
     let uri = parts.uri.clone().into_parts();
     let path = parts.uri.path().to_string();
@@ -97,7 +139,8 @@ where
     };
 
     // Run engine eval in blocking task
-    let result = tokio::task::spawn_blocking(move || engine.eval(request)).await??;
+    let result = tokio::task::spawn_blocking(move || engine.eval(request, stream.into())).await??;
+
     let value = result.into_value(nu_protocol::Span::unknown())?;
 
     // Get response metadata (or default if command wasn't used)
