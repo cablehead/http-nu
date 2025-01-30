@@ -23,8 +23,8 @@ pub async fn handle<B>(
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
     B: hyper::body::Body + Unpin + Send + 'static,
-    B::Data: Into<Bytes> + Clone,
-    B::Error: Into<BoxError>,
+    B::Data: Into<Bytes> + Clone + Send,
+    B::Error: Into<BoxError> + Send,
 {
     match handle_inner(engine, script, addr, req).await {
         Ok(response) => Ok(response),
@@ -48,8 +48,8 @@ async fn handle_inner<B>(
 ) -> HTTPResult
 where
     B: hyper::body::Body + Unpin + Send + 'static,
-    B::Data: Into<Bytes> + Clone,
-    B::Error: Into<BoxError>,
+    B::Data: Into<Bytes> + Clone + Send,
+    B::Error: Into<BoxError> + Send,
 {
     // Create channel for response metadata
     let (tx, rx) = tokio::sync::oneshot::channel();
