@@ -22,8 +22,8 @@ pub async fn handle<B>(
     req: Request<B>,
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
-    B: hyper::body::Body + Send + 'static,
-    B::Data: Send,
+    B: hyper::body::Body + Unpin + Send + 'static,
+    B::Data: Into<Bytes>,
     B::Error: Into<BoxError>,
 {
     match handle_inner(engine, script, addr, req).await {
@@ -47,7 +47,8 @@ async fn handle_inner<B>(
     req: Request<B>,
 ) -> HTTPResult
 where
-    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B: hyper::body::Body + Unpin + Send + 'static,
+    B::Data: Into<Bytes>,
     B::Error: Into<BoxError>,
 {
     // Create channel for response metadata
@@ -62,19 +63,19 @@ where
     // --> https://chatgpt.com/share/679bf135-87cc-800c-9a75-45052bc1cdb0
     engine.parse_closure(&script)?;
 
-    let (parts, body) = req.into_parts();
+    let (parts, mut body) = req.into_parts();
 
     // Create channels for body streaming
     let (body_tx, mut body_rx) = tokio::sync::mpsc::channel(32);
 
     // Spawn task to read body frames
     tokio::task::spawn(async move {
-        let mut body = std::pin::Pin::new(body);
         while let Some(frame) = body.frame().await {
             match frame {
                 Ok(frame) => {
                     if let Some(data) = frame.data_ref() {
-                        if body_tx.send(Ok(data.clone().to_vec())).await.is_err() {
+                        let bytes = data.clone().into();
+                        if body_tx.send(Ok(bytes.to_vec())).await.is_err() {
                             break;
                         }
                     }
