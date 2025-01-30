@@ -16,6 +16,9 @@ http-nu :3001 r##'{|req|
       }
       "<h1>Welcome to http-nu!</h1>"
     }
+    {uri: "/echo" method: "POST"} => {
+        $in
+    }
   }
 }'##
 ```
