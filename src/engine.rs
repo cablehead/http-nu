@@ -1,4 +1,6 @@
+use nu_cli::{add_cli_context, gather_parent_env_vars};
 use nu_cmd_lang::create_default_context;
+use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::engine::Command;
@@ -19,7 +21,14 @@ pub struct Engine {
 
 impl Engine {
     pub fn new() -> Result<Self, Error> {
-        let engine_state = create_default_context();
+        let mut engine_state = create_default_context();
+
+        engine_state = add_shell_command_context(engine_state);
+        engine_state = add_cli_context(engine_state);
+
+        let init_cwd = std::env::current_dir()?;
+        gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
+
         Ok(Self {
             state: engine_state,
             closure: None,
@@ -54,9 +63,9 @@ impl Engine {
         // Handle compile errors
         if let Some(err) = working_set.compile_errors.first() {
             let shell_error = ShellError::GenericError {
-                error: "Compile error".into(),
-                msg: format!("{:?}", err),
-                span: None, // Compile errors don't have spans
+                error: format!("Compile error {}", err),
+                msg: "".into(),
+                span: None,
                 help: None,
                 inner: vec![],
             };
