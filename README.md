@@ -8,7 +8,7 @@
 http-nu :3001 r##'{|req|
   match $req {
     {uri: "/" method: "GET"} => {
-      response start {
+      .response {
         status: 200
         headers: {
           Content-Type: "text/html"
