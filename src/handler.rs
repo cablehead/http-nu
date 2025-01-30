@@ -101,6 +101,6 @@ fn value_to_string(value: Value) -> String {
         Value::Record { .. } => {
             serde_json::to_string(&value_to_json(&value)).unwrap_or_else(|_| String::new())
         }
-        _ => todo!(),
+        _ => todo!("value_to_string: {:?}", value),
     }
 }
