@@ -7,6 +7,7 @@ use hyper::body::Bytes;
 use hyper::{Request, Response};
 use tokio::sync::oneshot;
 
+use nu_engine::command_prelude::Type;
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
 use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Value};
@@ -51,7 +52,7 @@ where
     // Create channel for response metadata
     let (tx, rx) = tokio::sync::oneshot::channel();
 
-    // Add response start command to engine
+    // Add .response command to engine
     engine.add_commands(vec![Box::new(ResponseStartCommand::new(tx))])?;
 
     // Convert request into our format
@@ -175,7 +176,7 @@ impl ResponseStartCommand {
 
 impl Command for ResponseStartCommand {
     fn name(&self) -> &str {
-        "response start"
+        ".response"
     }
 
     fn description(&self) -> &str {
@@ -183,12 +184,13 @@ impl Command for ResponseStartCommand {
     }
 
     fn signature(&self) -> Signature {
-        Signature::build("response start")
+        Signature::build(".response")
             .required(
-                "config",
+                "meta",
                 SyntaxShape::Record(vec![]), // Add empty vec argument
                 "response configuration with optional status and headers",
             )
+            .input_output_types(vec![(Type::Nothing, Type::Nothing)])
             .category(Category::Custom("http".into()))
     }
 
@@ -199,8 +201,8 @@ impl Command for ResponseStartCommand {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        let config: Value = call.req(engine_state, stack, 0)?;
-        let record = config.as_record()?;
+        let meta: Value = call.req(engine_state, stack, 0)?;
+        let record = meta.as_record()?;
 
         // Extract optional status, default to 200
         let status = match record.get("status") {

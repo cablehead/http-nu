@@ -33,15 +33,15 @@ async fn test_handle_with_response_start() {
     engine
         .parse_closure(
             r#"{|request|
-        response start {
-            status: 201
-            headers: {
-                "Content-Type": "text/plain"
-                "X-Custom": "test"
-            }
-        }
-        "created resource"
-    }"#,
+              .response {
+                status: 201
+                headers: {
+                  "Content-Type": "text/plain"
+                  "X-Custom": "test"
+                }
+              }
+              "created resource"
+            }"#,
         )
         .unwrap();
 
