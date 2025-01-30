@@ -1,12 +1,13 @@
-use crate::{Error, Request};
 use nu_cmd_lang::create_default_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Stack, StateWorkingSet},
-    PipelineData, Span,
+    PipelineData, Record, Span, Value,
 };
+
+use crate::{Error, Request};
 
 #[derive(Clone)]
 pub struct Engine {
@@ -50,11 +51,9 @@ impl Engine {
         let mut stack = Stack::new();
         let block = self.state.get_block(closure.block_id);
 
-        let request_value = nu_protocol::Value::record(request.into_record()?, Span::unknown());
-
         stack.add_var(
             block.signature.required_positional[0].var_id.unwrap(),
-            request_value,
+            request_to_value(&request, Span::unknown()),
         );
 
         Ok(eval_block_with_early_return::<WithoutDebug>(
@@ -66,24 +65,42 @@ impl Engine {
     }
 }
 
-// Add trait to convert Request into nu_protocol Record
-trait IntoRecord {
-    fn into_record(self) -> Result<nu_protocol::Record, Error>;
-}
+pub fn request_to_value(request: &Request, span: Span) -> Value {
+    let mut record = Record::new();
 
-impl IntoRecord for Request {
-    fn into_record(self) -> Result<nu_protocol::Record, Error> {
-        let mut record = nu_protocol::Record::new();
-        record.push(
-            "method",
-            nu_protocol::Value::string(self.method, Span::unknown()),
-        );
-        record.push("uri", nu_protocol::Value::string(self.uri, Span::unknown()));
-        record.push(
-            "path",
-            nu_protocol::Value::string(self.path, Span::unknown()),
-        );
-        // Add headers and query params...
-        Ok(record)
+    record.push("proto", Value::string(request.proto.clone(), span));
+    record.push("method", Value::string(request.method.to_string(), span));
+    record.push("uri", Value::string(request.uri.to_string(), span));
+    record.push("path", Value::string(request.path.clone(), span));
+
+    if let Some(authority) = &request.authority {
+        record.push("authority", Value::string(authority.clone(), span));
     }
+
+    if let Some(remote_ip) = &request.remote_ip {
+        record.push("remote_ip", Value::string(remote_ip.to_string(), span));
+    }
+
+    if let Some(remote_port) = &request.remote_port {
+        record.push("remote_port", Value::int(*remote_port as i64, span));
+    }
+
+    // Convert headers to a record
+    let mut headers_record = Record::new();
+    for (key, value) in request.headers.iter() {
+        headers_record.push(
+            key.to_string(),
+            Value::string(value.to_str().unwrap_or_default().to_string(), span),
+        );
+    }
+    record.push("headers", Value::record(headers_record, span));
+
+    // Convert query parameters to a record
+    let mut query_record = Record::new();
+    for (key, value) in &request.query {
+        query_record.push(key.clone(), Value::string(value.clone(), span));
+    }
+    record.push("query", Value::record(query_record, span));
+
+    Value::record(record, span)
 }

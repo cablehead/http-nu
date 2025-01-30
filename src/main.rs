@@ -26,13 +26,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut listener = Listener::bind(&args.addr).await?;
     println!("Listening on {}", listener);
 
-    while let Ok((stream, _)) = listener.accept().await {
+    while let Ok((stream, remote_addr)) = listener.accept().await {
         let io = hyper_util::rt::TokioIo::new(stream);
 
         let engine = engine.clone();
 
         tokio::task::spawn(async move {
-            let service = service_fn(move |req| handle(engine.clone(), req));
+            let service = service_fn(move |req| handle(engine.clone(), remote_addr, req));
             if let Err(err) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(io, service)
                 .await

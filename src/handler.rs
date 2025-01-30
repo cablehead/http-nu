@@ -1,12 +1,20 @@
+use std::collections::HashMap;
+use std::net::SocketAddr;
+
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::{Request, Response};
+
 use nu_protocol::Value;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-pub async fn handle<B>(engine: crate::Engine, req: Request<B>) -> HTTPResult
+pub async fn handle<B>(
+    engine: crate::Engine,
+    addr: Option<SocketAddr>,
+    req: Request<B>,
+) -> HTTPResult
 where
     B: hyper::body::Body + Send + 'static,
     B::Data: Send,
@@ -14,24 +22,37 @@ where
 {
     let (parts, _body) = req.into_parts();
 
-    let request = crate::Request {
-        method: parts.method.to_string(),
-        uri: parts.uri.to_string(),
-        path: parts.uri.path().to_string(),
-        headers: parts
+    let uri = parts.uri.clone().into_parts();
+
+    let authority: Option<String> = uri.authority.as_ref().map(|a| a.to_string()).or_else(|| {
+        parts
             .headers
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
-            .collect(),
-        query: parts
-            .uri
-            .query()
-            .map(|q| {
-                url::form_urlencoded::parse(q.as_bytes())
-                    .into_owned()
-                    .collect()
-            })
-            .unwrap_or_default(),
+            .get("host")
+            .map(|a| a.to_str().unwrap().to_owned())
+    });
+
+    let path = parts.uri.path().to_string();
+
+    let query: HashMap<String, String> = parts
+        .uri
+        .query()
+        .map(|v| {
+            url::form_urlencoded::parse(v.as_bytes())
+                .into_owned()
+                .collect()
+        })
+        .unwrap_or_else(HashMap::new);
+
+    let request = crate::Request {
+        proto: format!("{:?}", parts.version),
+        method: parts.method,
+        authority,
+        remote_ip: addr.as_ref().map(|a| a.ip()),
+        remote_port: addr.as_ref().map(|a| a.port()),
+        headers: parts.headers,
+        uri: parts.uri,
+        path,
+        query,
     };
 
     let result = tokio::task::spawn_blocking(move || engine.eval(request)).await??;
@@ -43,8 +64,6 @@ where
             .boxed(),
     )?)
 }
-
-use serde_json;
 
 fn value_to_json(value: &Value) -> serde_json::Value {
     match value {
@@ -65,7 +84,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
-        _ => serde_json::Value::Null,
+        _ => todo!(),
     }
 }
 
@@ -82,6 +101,6 @@ fn value_to_string(value: Value) -> String {
         Value::Record { .. } => {
             serde_json::to_string(&value_to_json(&value)).unwrap_or_else(|_| String::new())
         }
-        _ => String::new(),
+        _ => todo!(),
     }
 }

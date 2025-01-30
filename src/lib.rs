@@ -18,10 +18,20 @@ pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Request {
-    pub method: String,
-    pub uri: String,
+    pub proto: String,
+    #[serde(with = "http_serde::method")]
+    pub method: http::method::Method,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_ip: Option<std::net::IpAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_port: Option<u16>,
+    #[serde(with = "http_serde::header_map")]
+    pub headers: http::header::HeaderMap,
+    #[serde(with = "http_serde::uri")]
+    pub uri: http::Uri,
     pub path: String,
-    pub headers: HashMap<String, String>,
     pub query: HashMap<String, String>,
 }
 

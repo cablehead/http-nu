@@ -24,6 +24,7 @@ nu-cmd-lang = "0.101.0"
 nu-engine = "0.101.0"
 nu-parser = "0.101.0"
 nu-protocol = "0.101.0"
+http-serde = "2.1.1"
 
 [dev-dependencies]
 tokio-test = "0.4"

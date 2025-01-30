@@ -1,4 +1,5 @@
 use bytes::Bytes;
+
 use http_body_util::BodyExt;
 use http_body_util::Empty;
 use hyper::Request;
@@ -18,7 +19,7 @@ async fn test_handle() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, req).await.unwrap();
+    let resp = handle(engine, None, req).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
