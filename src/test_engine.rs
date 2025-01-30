@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use nu_protocol::PipelineData;
+
 use http::header::HeaderMap;
 use http::{Method, Uri};
 
@@ -27,7 +29,7 @@ fn test_engine_eval() {
     };
 
     // Then eval with request
-    let result = engine.eval(request).unwrap();
+    let result = engine.eval(request, PipelineData::empty()).unwrap();
 
     assert!(result
         .into_value(nu_protocol::Span::test_data())
