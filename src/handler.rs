@@ -98,14 +98,20 @@ where
 
     // Run engine eval in blocking task
     let result = tokio::task::spawn_blocking(move || engine.eval(request)).await??;
-    let body = value_to_string(result.into_value(nu_protocol::Span::unknown())?);
+    let value = result.into_value(nu_protocol::Span::unknown())?;
 
     // Get response metadata (or default if command wasn't used)
     let response_meta = match rx.await {
         Ok(meta) => meta,
-        Err(_) => crate::Response {
-            status: 200,
-            headers: HashMap::new(),
+        Err(_) => match &value {
+            Value::Nothing { .. } => crate::Response {
+                status: 404,
+                headers: HashMap::new(),
+            },
+            _ => crate::Response {
+                status: 200,
+                headers: HashMap::new(),
+            },
         },
     };
 
@@ -122,6 +128,7 @@ where
         }
     }
 
+    let body = value_to_string(value);
     Ok(builder.body(
         Full::new(body.into())
             .map_err(|never| match never {})
