@@ -1,10 +1,12 @@
 use nu_cmd_lang::create_default_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
+use nu_protocol::engine::Command;
+use nu_protocol::format_shell_error;
 use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Stack, StateWorkingSet},
-    PipelineData, Record, Span, Value,
+    PipelineData, Record, ShellError, Span, Value,
 };
 
 use crate::{Error, Request};
@@ -24,12 +26,41 @@ impl Engine {
         })
     }
 
+    pub fn add_commands(&mut self, commands: Vec<Box<dyn Command>>) -> Result<(), Error> {
+        let mut working_set = StateWorkingSet::new(&self.state);
+        for command in commands {
+            working_set.add_decl(command);
+        }
+        self.state.merge_delta(working_set.render())?;
+        Ok(())
+    }
+
     pub fn parse_closure(&mut self, script: &str) -> Result<(), Error> {
         let mut working_set = StateWorkingSet::new(&self.state);
         let block = parse(&mut working_set, None, script.as_bytes(), false);
 
-        if !working_set.parse_errors.is_empty() {
-            return Err("Parse error".into());
+        // Handle parse errors
+        if let Some(err) = working_set.parse_errors.first() {
+            let shell_error = ShellError::GenericError {
+                error: "Parse error".into(),
+                msg: format!("{:?}", err),
+                span: Some(err.span()),
+                help: None,
+                inner: vec![],
+            };
+            return Err(Error::from(format_shell_error(&working_set, &shell_error)));
+        }
+
+        // Handle compile errors
+        if let Some(err) = working_set.compile_errors.first() {
+            let shell_error = ShellError::GenericError {
+                error: "Compile error".into(),
+                msg: format!("{:?}", err),
+                span: None, // Compile errors don't have spans
+                help: None,
+                inner: vec![],
+            };
+            return Err(Error::from(format_shell_error(&working_set, &shell_error)));
         }
 
         self.state.merge_delta(working_set.render())?;
@@ -40,9 +71,35 @@ impl Engine {
             &mut stack,
             &block,
             PipelineData::empty(),
-        )?;
+        )
+        .map_err(|err| {
+            let working_set = StateWorkingSet::new(&self.state);
+            Error::from(format_shell_error(&working_set, &err))
+        })?;
 
-        self.closure = Some(result.into_value(Span::unknown())?.into_closure()?);
+        let closure = result
+            .into_value(Span::unknown())
+            .map_err(|err| {
+                let working_set = StateWorkingSet::new(&self.state);
+                Error::from(format_shell_error(&working_set, &err))
+            })?
+            .into_closure()
+            .map_err(|err| {
+                let working_set = StateWorkingSet::new(&self.state);
+                Error::from(format_shell_error(&working_set, &err))
+            })?;
+
+        // Verify closure accepts exactly one argument
+        let block = self.state.get_block(closure.block_id);
+        if block.signature.required_positional.len() != 1 {
+            return Err(format!(
+                "Closure must accept exactly one request argument, found {}",
+                block.signature.required_positional.len()
+            )
+            .into());
+        }
+
+        self.closure = Some(closure);
         Ok(())
     }
 
