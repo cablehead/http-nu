@@ -15,6 +15,30 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 pub async fn handle<B>(
+    engine: crate::Engine,
+    addr: Option<SocketAddr>,
+    req: Request<B>,
+) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError>
+where
+    B: hyper::body::Body + Send + 'static,
+    B::Data: Send,
+    B::Error: Into<BoxError>,
+{
+    match handle_inner(engine, addr, req).await {
+        Ok(response) => Ok(response),
+        Err(err) => {
+            eprintln!("Handler error: {:?}", err);
+            let response = Response::builder().status(500).body(
+                Full::new("Internal Server Error".into())
+                    .map_err(|never| match never {})
+                    .boxed(),
+            )?;
+            Ok(response)
+        }
+    }
+}
+
+async fn handle_inner<B>(
     mut engine: crate::Engine,
     addr: Option<SocketAddr>,
     req: Request<B>,
