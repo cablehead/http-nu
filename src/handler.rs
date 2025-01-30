@@ -66,7 +66,7 @@ where
     let (parts, mut body) = req.into_parts();
 
     // Create channels for body streaming
-    let (body_tx, mut body_rx) = tokio::sync::mpsc::channel(32);
+    let (body_tx, mut body_rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, BoxError>>(32);
 
     // Spawn task to read body frames
     tokio::task::spawn(async move {
@@ -74,7 +74,7 @@ where
             match frame {
                 Ok(frame) => {
                     if let Some(data) = frame.data_ref() {
-                        let bytes = data.clone().into();
+                        let bytes: Bytes = data.clone().into();
                         if body_tx.send(Ok(bytes.to_vec())).await.is_err() {
                             break;
                         }
