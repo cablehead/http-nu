@@ -23,7 +23,7 @@ pub async fn handle<B>(
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
     B: hyper::body::Body + Unpin + Send + 'static,
-    B::Data: Into<Bytes>,
+    B::Data: Into<Bytes> + Clone,
     B::Error: Into<BoxError>,
 {
     match handle_inner(engine, script, addr, req).await {
@@ -48,7 +48,7 @@ async fn handle_inner<B>(
 ) -> HTTPResult
 where
     B: hyper::body::Body + Unpin + Send + 'static,
-    B::Data: Into<Bytes>,
+    B::Data: Into<Bytes> + Clone,
     B::Error: Into<BoxError>,
 {
     // Create channel for response metadata
