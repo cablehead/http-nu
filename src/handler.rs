@@ -74,9 +74,8 @@ where
             match frame {
                 Ok(frame) => {
                     if let Some(data) = frame.data_ref() {
-                        // Convert data to Vec<u8> directly
-                        let bytes = data.to_vec();
-                        if body_tx.send(Ok(bytes)).await.is_err() {
+                        let bytes: Bytes = (*data).clone().into();
+                        if body_tx.send(Ok(bytes.to_vec())).await.is_err() {
                             break;
                         }
                     }
