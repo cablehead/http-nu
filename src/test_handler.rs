@@ -8,10 +8,7 @@ use crate::handle;
 
 #[tokio::test]
 async fn test_handle() {
-    let mut engine = crate::Engine::new().unwrap();
-    engine
-        .parse_closure(r#"{|request| "hello world" }"#)
-        .unwrap();
+    let engine = crate::Engine::new().unwrap();
 
     let req = Request::builder()
         .method("GET")
@@ -19,7 +16,9 @@ async fn test_handle() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, r#"{|request| "hello world" }"#.into(), None, req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -29,10 +28,17 @@ async fn test_handle() {
 
 #[tokio::test]
 async fn test_handle_with_response_start() {
-    let mut engine = crate::Engine::new().unwrap();
-    engine
-        .parse_closure(
-            r#"{|request|
+    let engine = crate::Engine::new().unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/resource")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(
+        engine,
+        r#"{|request|
               .response {
                 status: 201
                 headers: {
@@ -41,17 +47,12 @@ async fn test_handle_with_response_start() {
                 }
               }
               "created resource"
-            }"#,
-        )
-        .unwrap();
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/resource")
-        .body(Empty::<Bytes>::new())
-        .unwrap();
-
-    let resp = handle(engine, None, req).await.unwrap();
+            }"#.into(),
+        None,
+        req,
+    )
+    .await
+    .unwrap();
 
     // Verify response metadata
     assert_eq!(resp.status(), 201);

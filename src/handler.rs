@@ -17,6 +17,7 @@ type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 pub async fn handle<B>(
     engine: crate::Engine,
+    script: String,
     addr: Option<SocketAddr>,
     req: Request<B>,
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError>
@@ -25,7 +26,7 @@ where
     B::Data: Send,
     B::Error: Into<BoxError>,
 {
-    match handle_inner(engine, addr, req).await {
+    match handle_inner(engine, script, addr, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Handler error: {:?}", err);
@@ -41,6 +42,7 @@ where
 
 async fn handle_inner<B>(
     mut engine: crate::Engine,
+    script: String,
     addr: Option<SocketAddr>,
     req: Request<B>,
 ) -> HTTPResult
@@ -54,6 +56,12 @@ where
 
     // Add .response command to engine
     engine.add_commands(vec![Box::new(ResponseStartCommand::new(tx))])?;
+
+    // parse the closure: we need to parse the closure after adding the .response command so that
+    // it's visible to the closure
+    // is there a way around this?
+    // --> https://chatgpt.com/share/679bf135-87cc-800c-9a75-45052bc1cdb0
+    engine.parse_closure(&script)?;
 
     // Convert request into our format
     let (parts, _body) = req.into_parts();

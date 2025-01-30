@@ -20,8 +20,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
-    let mut engine = Engine::new()?;
-    engine.parse_closure(&args.closure)?;
+    let engine = Engine::new()?;
 
     let mut listener = Listener::bind(&args.addr).await?;
     println!("Listening on {}", listener);
@@ -30,9 +29,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let io = hyper_util::rt::TokioIo::new(stream);
 
         let engine = engine.clone();
+        let closure = args.closure.clone();
 
         tokio::task::spawn(async move {
-            let service = service_fn(move |req| handle(engine.clone(), remote_addr, req));
+            let service =
+                service_fn(move |req| handle(engine.clone(), closure.clone(), remote_addr, req));
             if let Err(err) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(io, service)
                 .await
