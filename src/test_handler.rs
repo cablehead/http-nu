@@ -1,4 +1,8 @@
+use std::time::Instant;
+
 use bytes::Bytes;
+
+use tokio::time::Duration;
 
 use http_body_util::BodyExt;
 use http_body_util::Empty;
@@ -97,11 +101,6 @@ async fn test_handle_post() {
 
 #[tokio::test]
 async fn test_handle_streaming() {
-    use bytes::Bytes;
-    use http_body_util::Empty;
-    use std::time::Instant;
-    use tokio::time::Duration;
-
     let engine = crate::Engine::new().unwrap();
     let script = r#"{|req|
         .response {status: 200}
