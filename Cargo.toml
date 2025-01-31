@@ -2,6 +2,12 @@
 name = "http-nu"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/cablehead/http-nu"
+readme = "README.md"
+homepage = "https://github.com/cablehead/http-nu"
+keywords = ["http", "shell", "nushell", "server"]
+categories = ["web-programming", "command-line-utilities"]
 
 [[bin]]
 name = "http-nu"
