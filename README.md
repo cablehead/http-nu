@@ -1,6 +1,8 @@
 ## http-nu
 
-`http-nu` lets you attach a Nushell closure to an HTTP interface.
+`http-nu` lets you attach a Nushell closure to an HTTP interface. If you prefer
+POSIX to Nushell, this project has a cousin called
+[http-sh](https://github.com/cablehead/http-sh).
 
 ### Example Usage
 
