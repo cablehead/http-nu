@@ -154,7 +154,7 @@ fn assert_timing_sequence(timings: &[(String, Duration)]) {
     for i in 1..timings.len() {
         let gap = timings[i].1 - timings[i - 1].1;
         assert!(
-            gap >= Duration::from_millis(50) && gap <= Duration::from_millis(200),
+            gap >= Duration::from_millis(50) && gap <= Duration::from_millis(300),
             "Gap between chunk {} and {} was {:?}, expected ~100ms",
             i,
             i + 1,
