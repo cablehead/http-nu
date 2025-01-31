@@ -142,13 +142,14 @@ where
     // Run engine eval in blocking task
     let result = tokio::task::spawn_blocking(move || engine.eval(request, stream.into())).await??;
 
-    let value = result.into_value(nu_protocol::Span::unknown())?;
+    // Convert pipeline data to bridged body first
+    let body = BridgedBody::from_pipeline_data(result)?;
 
-    // Get response metadata (or default if command wasn't used)
+    // Get response metadata (or default based on body type)
     let response_meta = match rx.await {
         Ok(meta) => meta,
-        Err(_) => match &value {
-            Value::Nothing { .. } => crate::Response {
+        Err(_) => match &body {
+            BridgedBody::Empty => crate::Response {
                 status: 404,
                 headers: HashMap::new(),
             },
@@ -159,25 +160,26 @@ where
         },
     };
 
-    // Build final response
+    // Build response with appropriate headers based on body type
     let mut builder = Response::builder().status(response_meta.status);
+    let mut headers = response_meta.headers;
+
+    // Add content-length for Full and Empty bodies
+    if let BridgedBody::Full(data) = &body {
+        headers.insert("content-length".to_string(), data.len().to_string());
+    }
 
     // Add headers
-    if let Some(headers) = builder.headers_mut() {
-        for (k, v) in response_meta.headers {
-            headers.insert(
-                http::header::HeaderName::from_bytes(k.as_bytes())?,
-                http::header::HeaderValue::from_str(&v)?,
+    if let Some(header_map) = builder.headers_mut() {
+        for (k, v) in headers {
+            header_map.insert(
+                HeaderName::from_bytes(k.as_bytes())?,
+                HeaderValue::from_str(&v)?,
             );
         }
     }
 
-    let body = value_to_string(value);
-    Ok(builder.body(
-        Full::new(body.into())
-            .map_err(|never| match never {})
-            .boxed(),
-    )?)
+    Ok(builder.body(body.into_http_body())?)
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {
@@ -307,5 +309,55 @@ impl Command for ResponseStartCommand {
         })?;
 
         Ok(PipelineData::Empty)
+    }
+}
+
+pub enum BridgedBody {
+    Empty,
+    Full(Vec<u8>),
+    Stream(tokio::sync::mpsc::Receiver<Vec<u8>>),
+}
+
+impl BridgedBody {
+    pub fn from_pipeline_data(data: PipelineData) -> Result<Body, Error> {
+        match data {
+            PipelineData::Value(Value::Nothing { .. }, _) => Ok(Body::Empty),
+            PipelineData::Value(value, _) => {
+                let s = value_to_string(value);
+                Ok(Body::Full(s.into_bytes()))
+            }
+            PipelineData::ListStream(mut stream, _) => {
+                let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+                // Spawn a task to process the stream
+                std::thread::spawn(move || {
+                    while let Some(value) = stream.next() {
+                        let s = value_to_string(value);
+                        if tx.blocking_send(s.into_bytes()).is_err() {
+                            break;
+                        }
+                    }
+                });
+
+                Ok(Body::Stream(rx))
+            }
+            PipelineData::Empty => Ok(BridgedBody::Empty),
+        }
+    }
+
+    pub fn into_http_body(
+        self,
+    ) -> Pin<Box<dyn http_body::Body<Data = Bytes, Error = BoxError> + Send>> {
+        match self {
+            BridgedBody::Empty => Box::pin(Empty::<Bytes>::new().map_err(|never| match never {})),
+            BridgedBody::Full(data) => {
+                Box::pin(Full::new(Bytes::from(data)).map_err(|never| match never {}))
+            }
+            BridgedBody::Stream(rx) => {
+                let stream = ReceiverStream::new(rx);
+                let stream = stream.map(|data| Ok(Frame::data(Bytes::from(data))));
+                Box::pin(StreamBody::new(stream))
+            }
+        }
     }
 }
