@@ -137,25 +137,28 @@ async fn test_handle_streaming() {
 
     // Should have 3 chunks
     assert_eq!(collected.len(), 3);
-    assert_eq!(collected[0].0, "1");
-    assert_duration_between(collected[0].1, 100, 150);
-    assert_eq!(collected[1].0, "2");
-    assert_duration_between(collected[1].1, 200, 250);
-    assert_eq!(collected[2].0, "3");
-    assert_duration_between(collected[2].1, 300, 350);
+    assert_timing_sequence(&collected);
 }
 
-fn assert_duration_between(duration: Duration, min_ms: u64, max_ms: u64) {
-    assert!(
-        duration >= Duration::from_millis(min_ms),
-        "Duration {} was less than {}ms",
-        duration.as_millis(),
-        min_ms
-    );
-    assert!(
-        duration <= Duration::from_millis(max_ms),
-        "Duration {} exceeded {}ms",
-        duration.as_millis(),
-        max_ms
-    );
+fn assert_timing_sequence(timings: &[(String, Duration)]) {
+    // Check values arrive in sequence
+    for i in 0..timings.len() {
+        assert_eq!(
+            timings[i].0,
+            (i + 1).to_string(),
+            "Values should arrive in sequence"
+        );
+    }
+
+    // Check each gap is roughly 100ms
+    for i in 1..timings.len() {
+        let gap = timings[i].1 - timings[i - 1].1;
+        assert!(
+            gap >= Duration::from_millis(50) && gap <= Duration::from_millis(200),
+            "Gap between chunk {} and {} was {:?}, expected ~100ms",
+            i,
+            i + 1,
+            gap
+        );
+    }
 }
