@@ -93,8 +93,14 @@ sorry, eh
 Note: for streaming responses, be sure to always call `.response` as the
 response cannot not be initiated without it.
 
-```
-$ http-nu :3001 '{|req| .response {status: 200}; generate {|_| sleep 1sec; {out: (date now | to text | $in + "\n") next: true }} true}'
+```bash
+$ http-nu :3001 '{|req|
+  .response {status: 200}
+  generate {|_|
+    sleep 1sec
+    {out: (date now | to text | $in + "\n") next: true }
+  } true
+}'
 $ curl -s localhost:3001
 Fri, 31 Jan 2025 03:47:59 -0500 (now)
 Fri, 31 Jan 2025 03:48:00 -0500 (now)
@@ -105,3 +111,35 @@ Fri, 31 Jan 2025 03:48:03 -0500 (now)
 ```
 
 ### [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
+
+```bash
+$ http-nu :3001 '{|req|
+  .response {headers: {"content-type": "text/event-stream"}}
+  tail -F source.json | lines | each {|line| $"data: ($line)\n\n"}
+}'
+
+# simulate generating events in a seperate process
+$ loop {
+  {date: (date now)} | to json -r | $in + "\n" | save -a source.json
+  sleep 1sec
+}
+
+$ curl -si localhost:3001/
+HTTP/1.1 200 OK
+content-type: text/event-stream
+transfer-encoding: chunked
+date: Fri, 31 Jan 2025 09:01:20 GMT
+
+data: {"date":"2025-01-31 04:01:23.371514 -05:00"}
+
+data: {"date":"2025-01-31 04:01:24.376864 -05:00"}
+
+data: {"date":"2025-01-31 04:01:25.382756 -05:00"}
+
+data: {"date":"2025-01-31 04:01:26.385418 -05:00"}
+
+data: {"date":"2025-01-31 04:01:27.387723 -05:00"}
+
+data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
+...
+```
