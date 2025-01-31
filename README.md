@@ -32,7 +32,7 @@ Hello world
 
 ```bash
 $ http-nu :3001 '{|req| $in}'
-$ curl -s -d Hai localhost:5000
+$ curl -s -d Hai localhost:3001
 Hai
 ```
 
