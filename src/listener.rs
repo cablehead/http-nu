@@ -26,6 +26,7 @@ impl Listener {
                 let (stream, addr) = listener.accept().await?;
                 Ok((Box::new(stream), Some(addr)))
             }
+            #[cfg(unix)]
             Listener::Unix(listener) => {
                 let (stream, _) = listener.accept().await?;
                 Ok((Box::new(stream), None))
@@ -34,16 +35,29 @@ impl Listener {
     }
 
     pub async fn bind(addr: &str) -> io::Result<Self> {
-        if addr.starts_with('/') || addr.starts_with('.') {
-            // attempt to remove the socket unconditionally
-            let _ = std::fs::remove_file(addr);
-            let listener = UnixListener::bind(addr)?;
-            Ok(Listener::Unix(listener))
-        } else {
+        #[cfg(windows)]
+        {
+            // On Windows, treat all addresses as TCP
             let mut addr = addr.to_owned();
             if addr.starts_with(':') {
                 addr = format!("127.0.0.1{}", addr);
-            };
+            }
+            let listener = TcpListener::bind(addr).await?;
+            return Ok(Listener::Tcp(listener));
+        }
+
+        #[cfg(unix)]
+        {
+            if addr.starts_with('/') || addr.starts_with('.') {
+                let _ = std::fs::remove_file(addr);
+                let listener = UnixListener::bind(addr)?;
+                return Ok(Listener::Unix(listener));
+            }
+
+            let mut addr = addr.to_owned();
+            if addr.starts_with(':') {
+                addr = format!("127.0.0.1{}", addr);
+            }
             let listener = TcpListener::bind(addr).await?;
             Ok(Listener::Tcp(listener))
         }
@@ -56,6 +70,7 @@ impl Listener {
                 let stream = TcpStream::connect(listener.local_addr()?).await?;
                 Ok(Box::new(stream))
             }
+            #[cfg(unix)]
             Listener::Unix(listener) => {
                 let stream =
                     UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
@@ -72,6 +87,7 @@ impl std::fmt::Display for Listener {
                 let addr = listener.local_addr().unwrap();
                 write!(f, "{}:{}", addr.ip(), addr.port())
             }
+            #[cfg(unix)]
             Listener::Unix(listener) => {
                 let addr = listener.local_addr().unwrap();
                 let path = addr.as_pathname().unwrap();
