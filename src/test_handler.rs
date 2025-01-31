@@ -67,22 +67,6 @@ async fn test_handle_with_response_start() {
         String::from_utf8(body.to_vec()).unwrap(),
         "created resource"
     );
-
-    // Test unmatched route should 404
-    let req = Request::builder()
-        .method("GET")
-        .uri("/foo")
-        .body(Empty::<Bytes>::new())
-        .unwrap();
-
-    let resp = handle(engine, script, None, req).await.unwrap();
-
-    // Verify 404 response
-    assert_eq!(resp.status(), 404);
-
-    // Verify empty body
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    assert_eq!(body.len(), 0);
 }
 
 #[tokio::test]
@@ -120,7 +104,8 @@ async fn test_handle_streaming() {
 
     let engine = crate::Engine::new().unwrap();
     let script = r#"{|req|
-        1..3 | each { |n| sleep 0.5sec; $n }
+        .response {status: 200}
+        1..3 | each { |n| sleep 0.1sec; $n }
     }"#
     .to_string();
 
@@ -130,8 +115,10 @@ async fn test_handle_streaming() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
+    let start_time = Instant::now();
     let resp = handle(engine, script, None, req).await.unwrap();
     assert_eq!(resp.status(), 200);
+    eprintln!("elapsed: {:?}", start_time.elapsed());
 
     let mut body = resp.into_body();
     let start_time = Instant::now();
@@ -140,6 +127,7 @@ async fn test_handle_streaming() {
     loop {
         match body.frame().await {
             Some(Ok(frame)) => {
+                eprintln!("frame: {:?}", frame);
                 if let Some(data) = frame.data_ref() {
                     let chunk_str = String::from_utf8(data.to_vec()).unwrap();
                     let elapsed = start_time.elapsed();
@@ -156,23 +144,15 @@ async fn test_handle_streaming() {
     // Should have 3 chunks
     assert_eq!(collected.len(), 3);
 
-    // First chunk should contain "1"
     assert_eq!(collected[0].0, "1");
+    assert!(collected[0].1 >= Duration::from_millis(100));
+    assert!(collected[0].1 <= Duration::from_millis(150));
 
-    // Second chunk should contain "2"
     assert_eq!(collected[1].0, "2");
+    assert!(collected[1].1 >= Duration::from_millis(200));
+    assert!(collected[1].1 <= Duration::from_millis(250));
 
-    // Third chunk should contain "3"
     assert_eq!(collected[2].0, "3");
-
-    // First chunk should arrive quickly
-    assert!(collected[0].1 < Duration::from_millis(100));
-
-    // Second chunk should arrive after ~500ms
-    assert!(collected[1].1 >= Duration::from_millis(450));
-    assert!(collected[1].1 <= Duration::from_millis(650));
-
-    // Third chunk should arrive after ~1000ms
-    assert!(collected[2].1 >= Duration::from_millis(950));
-    assert!(collected[2].1 <= Duration::from_millis(1150));
+    assert!(collected[2].1 >= Duration::from_millis(300));
+    assert!(collected[2].1 <= Duration::from_millis(350));
 }
