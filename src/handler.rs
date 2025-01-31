@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
@@ -321,23 +320,23 @@ pub enum BridgedBody {
     Stream(tokio::sync::mpsc::Receiver<Vec<u8>>),
 }
 
+use tokio_stream::StreamExt; // Change this import
+
 impl BridgedBody {
     pub fn from_pipeline_data(data: PipelineData) -> Result<BridgedBody, BoxError> {
         match data {
             PipelineData::Value(Value::Nothing { .. }, _) => Ok(BridgedBody::Empty),
+
             PipelineData::Value(value, _) => {
                 let s = value_to_string(value);
                 Ok(BridgedBody::Full(s.into_bytes()))
             }
-            PipelineData::ListStream(mut stream, _) => {
+
+            PipelineData::ListStream(stream, _) => {
                 let (tx, rx) = tokio::sync::mpsc::channel(32);
 
-                // Use iter() instead of next() for ListStream
-                let stream_iter = stream.iter();
-
-                // Spawn a task to process the stream
                 std::thread::spawn(move || {
-                    for value in stream_iter {
+                    for value in stream.into_inner() {
                         let s = value_to_string(value);
                         if tx.blocking_send(s.into_bytes()).is_err() {
                             break;
@@ -347,22 +346,25 @@ impl BridgedBody {
 
                 Ok(BridgedBody::Stream(rx))
             }
+
             PipelineData::Empty => Ok(BridgedBody::Empty),
+
+            PipelineData::ByteStream(_, _) => todo!(),
         }
     }
 
-    pub fn into_http_body(
-        self,
-    ) -> Pin<Box<dyn http_body::Body<Data = Bytes, Error = BoxError> + Send>> {
+    pub fn into_http_body(self) -> BoxBody<Bytes, BoxError> {
         match self {
-            BridgedBody::Empty => Box::pin(Empty::<Bytes>::new().map_err(|never| match never {})),
-            BridgedBody::Full(data) => {
-                Box::pin(Full::new(Bytes::from(data)).map_err(|never| match never {}))
-            }
+            BridgedBody::Empty => Empty::<Bytes>::new()
+                .map_err(|never| match never {})
+                .boxed(),
+            BridgedBody::Full(data) => Full::new(Bytes::from(data))
+                .map_err(|never| match never {})
+                .boxed(),
             BridgedBody::Stream(rx) => {
                 let stream = ReceiverStream::new(rx);
                 let stream = stream.map(|data| Ok(Frame::data(Bytes::from(data))));
-                Box::pin(StreamBody::new(stream))
+                StreamBody::new(stream).boxed()
             }
         }
     }
