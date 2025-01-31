@@ -123,6 +123,7 @@ mod tests {
         exercise_listener(":0").await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_bind_unix() {
         let temp_dir = tempfile::tempdir().unwrap();
