@@ -43,7 +43,7 @@ impl Listener {
                 addr = format!("127.0.0.1{}", addr);
             }
             let listener = TcpListener::bind(addr).await?;
-            return Ok(Listener::Tcp(listener));
+            Ok(Listener::Tcp(listener))
         }
 
         #[cfg(unix)]
@@ -51,15 +51,15 @@ impl Listener {
             if addr.starts_with('/') || addr.starts_with('.') {
                 let _ = std::fs::remove_file(addr);
                 let listener = UnixListener::bind(addr)?;
-                return Ok(Listener::Unix(listener));
+                Ok(Listener::Unix(listener))
+            } else {
+                let mut addr = addr.to_owned();
+                if addr.starts_with(':') {
+                    addr = format!("127.0.0.1{}", addr);
+                }
+                let listener = TcpListener::bind(addr).await?;
+                Ok(Listener::Tcp(listener))
             }
-
-            let mut addr = addr.to_owned();
-            if addr.starts_with(':') {
-                addr = format!("127.0.0.1{}", addr);
-            }
-            let listener = TcpListener::bind(addr).await?;
-            Ok(Listener::Tcp(listener))
         }
     }
 
