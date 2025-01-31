@@ -13,7 +13,7 @@ jobs:
   test:
     name: Test - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: true  # Continue running other platforms if one fails
+    continue-on-error: true
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
@@ -22,26 +22,16 @@ jobs:
     - uses: actions/checkout@v3
     
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-        components: clippy
+      run: |
+        rustup update stable
+        rustup default stable
+        rustup component add clippy
         
     - name: Clippy
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: -- -D warnings
+      run: cargo clippy -- -D warnings
 
     - name: Build
-      uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: --verbose
+      run: cargo build --verbose
 
     - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --verbose
+      run: cargo test --verbose
