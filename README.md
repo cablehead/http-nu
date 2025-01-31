@@ -26,8 +26,7 @@ http-nu :3001 r##'{|req|
 ### The `.response` Command
 
 The `.response` command lets you customize the HTTP response status code and
-headers. If not used, http-nu will use default behavior (200 for returned
-values, 404 for `Nothing`).
+headers.
 
 #### Syntax
 
@@ -39,13 +38,3 @@ values, 404 for `Nothing`).
   }
 }
 ```
-
-#### Default Behavior
-
-When your closure doesn't use `.response` to specify response metadata:
-
-- If the closure returns a value (string, number, record, etc.), it responds
-  with 200 and that value as the body
-- If the closure returns `Nothing` (like from an unmatched `match` case), it
-  responds with 404
-- You can override any response status/headers using `.response`

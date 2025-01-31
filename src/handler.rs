@@ -2,10 +2,14 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use http_body_util::{combinators::BoxBody, BodyExt, Full};
-use hyper::body::Bytes;
-use hyper::{Request, Response};
 use tokio::sync::oneshot;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
+
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
+use hyper::body::{Bytes, Frame};
+use hyper::header::{HeaderName, HeaderValue};
+use hyper::{Request, Response};
 
 use nu_engine::command_prelude::Type;
 use nu_engine::CallExt;
@@ -51,24 +55,19 @@ where
     B::Data: Into<Bytes> + Clone + Send,
     B::Error: Into<BoxError> + Send,
 {
-    // Create channel for response metadata
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    // Create channels for response metadata
+    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
 
     // Add .response command to engine
-    engine.add_commands(vec![Box::new(ResponseStartCommand::new(tx))])?;
-
-    // parse the closure: we need to parse the closure after adding the .response command so that
-    // it's visible to the closure
-    // is there a way around this?
-    // --> https://chatgpt.com/share/679bf135-87cc-800c-9a75-45052bc1cdb0
+    engine.add_commands(vec![Box::new(ResponseStartCommand::new(meta_tx))])?;
     engine.parse_closure(&script)?;
 
     let (parts, mut body) = req.into_parts();
 
-    // Create channels for body streaming
+    // Create channels for request body streaming
     let (body_tx, mut body_rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, BoxError>>(32);
 
-    // Spawn task to read body frames
+    // Spawn task to read request body frames
     tokio::task::spawn(async move {
         while let Some(frame) = body.frame().await {
             match frame {
@@ -109,75 +108,85 @@ where
         },
     );
 
-    let uri = parts.uri.clone().into_parts();
-    let path = parts.uri.path().to_string();
-    let query = parts
-        .uri
-        .query()
-        .map(|v| {
-            url::form_urlencoded::parse(v.as_bytes())
-                .into_owned()
-                .collect()
-        })
-        .unwrap_or_else(HashMap::new);
-    let authority = uri.authority.as_ref().map(|a| a.to_string()).or_else(|| {
-        parts
-            .headers
-            .get("host")
-            .map(|a| a.to_str().unwrap().to_owned())
-    });
-
     let request = crate::Request {
         proto: format!("{:?}", parts.version),
         method: parts.method,
-        authority,
+        authority: parts.uri.authority().map(|a| a.to_string()),
         remote_ip: addr.as_ref().map(|a| a.ip()),
         remote_port: addr.as_ref().map(|a| a.port()),
         headers: parts.headers,
         uri: parts.uri.clone(),
-        path,
-        query,
+        path: parts.uri.path().to_string(),
+        query: parts
+            .uri
+            .query()
+            .map(|v| {
+                url::form_urlencoded::parse(v.as_bytes())
+                    .into_owned()
+                    .collect()
+            })
+            .unwrap_or_else(HashMap::new),
     };
 
-    // Run engine eval in blocking task
-    let result = tokio::task::spawn_blocking(move || engine.eval(request, stream.into())).await??;
+    // Create the bridged body synchronously but start streaming right away
+    let bridged_body = {
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
 
-    let value = result.into_value(nu_protocol::Span::unknown())?;
+        // Spawn the evaluation thread
+        std::thread::spawn(move || -> Result<(), BoxError> {
+            match engine.eval(request, stream.into())? {
+                PipelineData::Value(Value::Nothing { .. }, _) => Ok(()), // Empty response, no need to send anything
+                PipelineData::Value(value, _) => {
+                    let s = value_to_string(value);
+                    tx.blocking_send(s.into_bytes())?;
+                    Ok(())
+                }
+                PipelineData::ListStream(stream, _) => {
+                    for value in stream.into_inner() {
+                        let s = value_to_string(value);
+                        if tx.blocking_send(s.into_bytes()).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(())
+                }
+                PipelineData::ByteStream(_, _) => todo!(),
+                PipelineData::Empty => Ok(()),
+            }
+        });
 
-    // Get response metadata (or default if command wasn't used)
-    let response_meta = match rx.await {
+        rx
+    };
+
+    // Get response metadata (or default based on body type)
+    let response_meta = match meta_rx.await {
         Ok(meta) => meta,
-        Err(_) => match &value {
-            Value::Nothing { .. } => crate::Response {
-                status: 404,
-                headers: HashMap::new(),
-            },
-            _ => crate::Response {
-                status: 200,
-                headers: HashMap::new(),
-            },
+        Err(_) => crate::Response {
+            status: 200,
+            headers: HashMap::new(),
         },
     };
 
-    // Build final response
+    // Build response with appropriate headers
     let mut builder = Response::builder().status(response_meta.status);
+    let mut headers = response_meta.headers;
+
+    // Create the streaming body
+    let stream = ReceiverStream::new(bridged_body);
+    let stream = stream.map(|data| Ok(Frame::data(Bytes::from(data))));
+    let body = StreamBody::new(stream).boxed();
 
     // Add headers
-    if let Some(headers) = builder.headers_mut() {
-        for (k, v) in response_meta.headers {
-            headers.insert(
-                http::header::HeaderName::from_bytes(k.as_bytes())?,
-                http::header::HeaderValue::from_str(&v)?,
+    if let Some(header_map) = builder.headers_mut() {
+        for (k, v) in headers {
+            header_map.insert(
+                HeaderName::from_bytes(k.as_bytes())?,
+                HeaderValue::from_str(&v)?,
             );
         }
     }
 
-    let body = value_to_string(value);
-    Ok(builder.body(
-        Full::new(body.into())
-            .map_err(|never| match never {})
-            .boxed(),
-    )?)
+    Ok(builder.body(body)?)
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {

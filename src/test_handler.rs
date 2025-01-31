@@ -67,22 +67,6 @@ async fn test_handle_with_response_start() {
         String::from_utf8(body.to_vec()).unwrap(),
         "created resource"
     );
-
-    // Test unmatched route should 404
-    let req = Request::builder()
-        .method("GET")
-        .uri("/foo")
-        .body(Empty::<Bytes>::new())
-        .unwrap();
-
-    let resp = handle(engine, script, None, req).await.unwrap();
-
-    // Verify 404 response
-    assert_eq!(resp.status(), 404);
-
-    // Verify empty body
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    assert_eq!(body.len(), 0);
 }
 
 #[tokio::test]
@@ -109,4 +93,62 @@ async fn test_handle_post() {
     // Verify body is echoed back
     let resp_body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(String::from_utf8(resp_body.to_vec()).unwrap(), body);
+}
+
+#[tokio::test]
+async fn test_handle_streaming() {
+    use bytes::Bytes;
+    use http_body_util::Empty;
+    use std::time::Instant;
+    use tokio::time::Duration;
+
+    let engine = crate::Engine::new().unwrap();
+    let script = r#"{|req|
+        .response {status: 200}
+        1..3 | each { |n| sleep 0.1sec; $n }
+    }"#
+    .to_string();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/stream")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let start_time = Instant::now();
+    let resp = handle(engine, script, None, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let mut body = resp.into_body();
+    let start_time = Instant::now();
+    let mut collected = Vec::new();
+
+    loop {
+        match body.frame().await {
+            Some(Ok(frame)) => {
+                if let Some(data) = frame.data_ref() {
+                    let chunk_str = String::from_utf8(data.to_vec()).unwrap();
+                    let elapsed = start_time.elapsed();
+                    collected.push((chunk_str.trim().to_string(), elapsed));
+                }
+            }
+            Some(Err(e)) => panic!("Error reading frame: {}", e),
+            None => break,
+        }
+    }
+
+    // Should have 3 chunks
+    assert_eq!(collected.len(), 3);
+
+    assert_eq!(collected[0].0, "1");
+    assert!(collected[0].1 >= Duration::from_millis(100));
+    assert!(collected[0].1 <= Duration::from_millis(150));
+
+    assert_eq!(collected[1].0, "2");
+    assert!(collected[1].1 >= Duration::from_millis(200));
+    assert!(collected[1].1 <= Duration::from_millis(250));
+
+    assert_eq!(collected[2].0, "3");
+    assert!(collected[2].1 >= Duration::from_millis(300));
+    assert!(collected[2].1 <= Duration::from_millis(350));
 }
