@@ -1,28 +1,38 @@
 ## http-nu
 
-`http-nu` lets you attach a Nushell closure to an HTTP interface. If you prefer
-POSIX to Nushell, this project has a cousin called
-[http-sh](https://github.com/cablehead/http-sh).
+`http-nu` lets you attach a [Nushell](https://www.nushell.sh) closure to an HTTP
+interface. If you prefer POSIX to [Nushell](https://www.nushell.sh), this
+project has a cousin called [http-sh](https://github.com/cablehead/http-sh).
 
-### Example Usage
+## Install
 
-```nushell
-http-nu :3001 r##'{|req|
-  match $req {
-    {uri: "/" method: "GET"} => {
-      .response {
-        status: 200
-        headers: {
-          Content-Type: "text/html"
-        }
-      }
-      "<h1>Welcome to http-nu!</h1>"
-    }
-    {uri: "/echo" method: "POST"} => {
-        $in
-    }
-  }
-}'##
+```bash
+cargo install http-nu --locked
+```
+
+## Overview
+
+### GET: Hello world
+
+```bash
+$ http-nu :3001 '{|req| "Hello world"}'
+$ curl -s localhost:3001
+Hello world
+```
+
+You can listen to UNIX domain sockets as well
+
+```bash
+$ http-nu ./sock '{|req| "Hello world"}'
+$ curl -s --unix-socket ./sock localhost
+Hello world
+```
+
+### POST: echo
+
+```
+$ http-nu :3001 '{|req| $in}'
+$ curl -s -d Hai localhost:5000
 ```
 
 ### The `.response` Command
