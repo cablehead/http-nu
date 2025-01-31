@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use http_body_util::{combinators::BoxBody, BodyExt, Full};
-use hyper::body::Bytes;
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
+use hyper::body::{Bytes, Frame};
+use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Request, Response};
 use tokio::sync::oneshot;
+use tokio_stream::wrappers::ReceiverStream;
 
 use nu_engine::command_prelude::Type;
 use nu_engine::CallExt;
@@ -319,19 +322,22 @@ pub enum BridgedBody {
 }
 
 impl BridgedBody {
-    pub fn from_pipeline_data(data: PipelineData) -> Result<Body, Error> {
+    pub fn from_pipeline_data(data: PipelineData) -> Result<BridgedBody, BoxError> {
         match data {
-            PipelineData::Value(Value::Nothing { .. }, _) => Ok(Body::Empty),
+            PipelineData::Value(Value::Nothing { .. }, _) => Ok(BridgedBody::Empty),
             PipelineData::Value(value, _) => {
                 let s = value_to_string(value);
-                Ok(Body::Full(s.into_bytes()))
+                Ok(BridgedBody::Full(s.into_bytes()))
             }
             PipelineData::ListStream(mut stream, _) => {
                 let (tx, rx) = tokio::sync::mpsc::channel(32);
 
+                // Use iter() instead of next() for ListStream
+                let stream_iter = stream.iter();
+
                 // Spawn a task to process the stream
                 std::thread::spawn(move || {
-                    while let Some(value) = stream.next() {
+                    for value in stream_iter {
                         let s = value_to_string(value);
                         if tx.blocking_send(s.into_bytes()).is_err() {
                             break;
@@ -339,7 +345,7 @@ impl BridgedBody {
                     }
                 });
 
-                Ok(Body::Stream(rx))
+                Ok(BridgedBody::Stream(rx))
             }
             PipelineData::Empty => Ok(BridgedBody::Empty),
         }
