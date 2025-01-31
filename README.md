@@ -30,17 +30,46 @@ Hello world
 
 ### POST: echo
 
-```
+```bash
 $ http-nu :3001 '{|req| $in}'
 $ curl -s -d Hai localhost:5000
+Hai
 ```
 
-### The `.response` Command
+### Request metadata
 
-The `.response` command lets you customize the HTTP response status code and
-headers.
+The Request metadata is passed as an argument to the closure.
 
-#### Syntax
+```bash
+$ http-nu :3001 '{|req| $req}'
+$ curl -s 'localhost:3001/segment?foo=bar&abc=123' # or
+$ http get 'http://localhost:3001/segment?foo=bar&abc=123' | from json
+─────────────┬───────────────────────────────
+ proto       │ HTTP/1.1
+ method      │ GET
+ uri         │ /segment?foo=bar&abc=123
+ path        │ /segment
+ remote_ip   │ 127.0.0.1
+ remote_port │ 52007
+             │ ────────────┬────────────────
+ headers     │  host       │ localhost:3001
+             │  user-agent │ curl/8.7.1
+             │  accept     │ */*
+             │ ────────────┴────────────────
+             │ ─────┬─────
+ query       │  abc │ 123
+             │  foo │ bar
+             │ ─────┴─────
+─────────────┴───────────────────────────────
+
+$ http-nu :3001 '{|req| $"hello: ($req.path)"}'
+$ http get 'http://localhost:3001/yello'
+hello: /yello
+```
+
+### Response metadata
+
+You can set the Response metadata using the `.response` custom command.
 
 ```nushell
 .response {
@@ -50,3 +79,29 @@ headers.
   }
 }
 ```
+
+```
+$ http-nu :3001 '{|req| .response {status: 404}; "sorry, eh"}'
+$ curl -si localhost:3001
+HTTP/1.1 404 Not Found
+transfer-encoding: chunked
+date: Fri, 31 Jan 2025 08:20:28 GMT
+
+sorry, eh
+```
+
+Note: for streaming responses, be sure to always call `.response` as the
+response cannot not be initiated without it.
+
+```
+$ http-nu :3001 '{|req| .response {status: 200}; generate {|_| sleep 1sec; {out: (date now | to text | $in + "\n") next: true }} true}'
+$ curl -s localhost:3001
+Fri, 31 Jan 2025 03:47:59 -0500 (now)
+Fri, 31 Jan 2025 03:48:00 -0500 (now)
+Fri, 31 Jan 2025 03:48:01 -0500 (now)
+Fri, 31 Jan 2025 03:48:02 -0500 (now)
+Fri, 31 Jan 2025 03:48:03 -0500 (now)
+...
+```
+
+### [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
