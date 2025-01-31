@@ -118,7 +118,6 @@ async fn test_handle_streaming() {
     let start_time = Instant::now();
     let resp = handle(engine, script, None, req).await.unwrap();
     assert_eq!(resp.status(), 200);
-    eprintln!("elapsed: {:?}", start_time.elapsed());
 
     let mut body = resp.into_body();
     let start_time = Instant::now();
@@ -127,7 +126,6 @@ async fn test_handle_streaming() {
     loop {
         match body.frame().await {
             Some(Ok(frame)) => {
-                eprintln!("frame: {:?}", frame);
                 if let Some(data) = frame.data_ref() {
                     let chunk_str = String::from_utf8(data.to_vec()).unwrap();
                     let elapsed = start_time.elapsed();
@@ -138,8 +136,6 @@ async fn test_handle_streaming() {
             None => break,
         }
     }
-
-    eprintln!("{:?}", collected);
 
     // Should have 3 chunks
     assert_eq!(collected.len(), 3);
