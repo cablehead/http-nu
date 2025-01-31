@@ -138,16 +138,25 @@ async fn test_handle_streaming() {
 
     // Should have 3 chunks
     assert_eq!(collected.len(), 3);
-
     assert_eq!(collected[0].0, "1");
-    assert!(collected[0].1 >= Duration::from_millis(100));
-    assert!(collected[0].1 <= Duration::from_millis(150));
-
+    assert_duration_between(collected[0].1, 100, 150);
     assert_eq!(collected[1].0, "2");
-    assert!(collected[1].1 >= Duration::from_millis(200));
-    assert!(collected[1].1 <= Duration::from_millis(250));
-
+    assert_duration_between(collected[1].1, 200, 250);
     assert_eq!(collected[2].0, "3");
-    assert!(collected[2].1 >= Duration::from_millis(300));
-    assert!(collected[2].1 <= Duration::from_millis(350));
+    assert_duration_between(collected[2].1, 300, 350);
+}
+
+fn assert_duration_between(duration: Duration, min_ms: u64, max_ms: u64) {
+    assert!(
+        duration >= Duration::from_millis(min_ms),
+        "Duration {} was less than {}ms",
+        duration.as_millis(),
+        min_ms
+    );
+    assert!(
+        duration <= Duration::from_millis(max_ms),
+        "Duration {} exceeded {}ms",
+        duration.as_millis(),
+        max_ms
+    );
 }
