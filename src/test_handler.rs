@@ -115,7 +115,6 @@ async fn test_handle_streaming() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let start_time = Instant::now();
     let resp = handle(engine, script, None, req).await.unwrap();
     assert_eq!(resp.status(), 200);
 

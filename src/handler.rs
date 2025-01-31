@@ -6,7 +6,7 @@ use tokio::sync::oneshot;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
+use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Request, Response};
@@ -169,7 +169,7 @@ where
 
     // Build response with appropriate headers
     let mut builder = Response::builder().status(response_meta.status);
-    let mut headers = response_meta.headers;
+    let headers = response_meta.headers;
 
     // Create the streaming body
     let stream = ReceiverStream::new(bridged_body);
