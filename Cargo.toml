@@ -2,6 +2,7 @@
 name = "http-nu"
 version = "0.1.0"
 edition = "2021"
+description = "Serve a Nushell closure over HTTP."
 license = "MIT"
 repository = "https://github.com/cablehead/http-nu"
 readme = "README.md"
