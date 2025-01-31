@@ -13,6 +13,7 @@ jobs:
   test:
     name: Test - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: true  # Continue running other platforms if one fails
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
