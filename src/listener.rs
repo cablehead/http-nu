@@ -1,7 +1,9 @@
 use std::io;
 
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
+use tokio::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -11,6 +13,7 @@ pub type AsyncReadWriteBox = Box<dyn AsyncReadWrite + Unpin + Send>;
 
 pub enum Listener {
     Tcp(TcpListener),
+    #[cfg(unix)]
     Unix(UnixListener),
 }
 
