@@ -1,4 +1,4 @@
-## http-nu
+## http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
 
 `http-nu` lets you attach a [Nushell](https://www.nushell.sh) closure to an HTTP
 interface. If you prefer POSIX to [Nushell](https://www.nushell.sh), this
