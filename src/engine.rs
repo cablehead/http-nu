@@ -1,6 +1,7 @@
 use nu_cli::{add_cli_context, gather_parent_env_vars};
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
+use nu_cmd_extra::add_extra_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::engine::Command;
@@ -24,6 +25,7 @@ impl Engine {
         let mut engine_state = create_default_context();
 
         engine_state = add_shell_command_context(engine_state);
+        engine_state = add_extra_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
 
         let init_cwd = std::env::current_dir()?;

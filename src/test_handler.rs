@@ -140,6 +140,29 @@ async fn test_handle_streaming() {
     assert_timing_sequence(&collected);
 }
 
+#[tokio::test]
+async fn test_extra_commands() {
+    let engine = crate::Engine::new().unwrap();
+    let script = r#"{|req|
+        scope commands | where name == "to html" | get name.0? | to json
+    }"#
+    .to_string();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, script, None, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(body, r#""to html""#);
+}
+
 fn assert_timing_sequence(timings: &[(String, Duration)]) {
     // Check values arrive in sequence
     for i in 0..timings.len() {
