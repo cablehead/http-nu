@@ -33,6 +33,7 @@ url = "2.5.0"
 
 nu-cli = "0.101.0"
 nu-cmd-lang = "0.101.0"
+nu-cmd-extra = "0.101.0"
 nu-command = "0.101.0"
 nu-engine = "0.101.0"
 nu-parser = "0.101.0"

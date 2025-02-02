@@ -1257,6 +1257,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "nu-cli",
+ "nu-cmd-extra",
  "nu-cmd-lang",
  "nu-command",
  "nu-engine",
@@ -2038,6 +2039,30 @@ dependencies = [
  "nu-parser",
  "nu-path",
  "nu-protocol",
+]
+
+[[package]]
+name = "nu-cmd-extra"
+version = "0.101.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15ed601da77f8dc3e57a652edf4279f0bc43e2c95e220e80d99331e4775554e9"
+dependencies = [
+ "fancy-regex",
+ "heck",
+ "itertools 0.13.0",
+ "nu-ansi-term",
+ "nu-cmd-base",
+ "nu-engine",
+ "nu-json",
+ "nu-parser",
+ "nu-pretty-hex",
+ "nu-protocol",
+ "nu-utils",
+ "num-traits",
+ "rust-embed",
+ "serde",
+ "serde_urlencoded",
+ "v_htmlescape",
 ]
 
 [[package]]
@@ -3073,6 +3098,40 @@ dependencies = [
  "hashlink",
  "libsqlite3-sys",
  "smallvec",
+]
+
+[[package]]
+name = "rust-embed"
+version = "8.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa66af4a4fdd5e7ebc276f115e895611a34739a9c1c01028383d612d550953c0"
+dependencies = [
+ "rust-embed-impl",
+ "rust-embed-utils",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-impl"
+version = "8.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6125dbc8867951125eec87294137f4e9c2c96566e61bf72c45095a7c77761478"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rust-embed-utils",
+ "syn 2.0.96",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-utils"
+version = "8.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e5347777e9aacb56039b0e1f28785929a8a3b709e87482e7442c72e7c12529d"
+dependencies = [
+ "sha2",
+ "walkdir",
 ]
 
 [[package]]

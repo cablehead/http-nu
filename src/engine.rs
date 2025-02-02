@@ -25,6 +25,7 @@ impl Engine {
 
         engine_state = add_shell_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
+        engine_state = nu_cmd_extra::extra::add_extra_command_context(engine_state);
 
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
