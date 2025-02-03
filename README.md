@@ -92,22 +92,42 @@ sorry, eh
 
 ### Content-Type Inference
 
-- The default Content-Type is `text/html; charset=utf-8`. (TBD / make
-  configurable?)
-- If you return a Record value, the Content-Type will be `application/json` and
-  the Value is serialized to JSON.
-- If you return a pipeline which has Content-Type set in the pipeline's
-  metadata, that Content-Type will be used. e.g.
+Content-type is determined in the following order of precedence:
+
+1. Headers set via `.response` command:
+   ```nushell
+   .response {
+     headers: {
+       "Content-Type": "text/plain"
+     }
+   }
+   ```
+
+2. Pipeline metadata content-type (e.g., from `to yaml`)
+3. For Record values with no content-type, defaults to `application/json`
+4. Otherwise defaults to `text/html; charset=utf-8`
+
+Examples:
 
 ```nushell
-{|req|
-  ls | to yaml  # sets Content-Type to application/x-yaml
-}
+# 1. Explicit header takes precedence
+{|req| .response {headers: {"Content-Type": "text/plain"}}; {foo: "bar"} }  # Returns as text/plain
+
+# 2. Pipeline metadata
+{|req| ls | to yaml }  # Returns as application/x-yaml
+
+# 3. Record auto-converts to JSON
+{|req| {foo: "bar"} }  # Returns as application/json
+
+# 4. Default
+{|req| "Hello" }  # Returns as text/html; charset=utf-8
 ```
 
 ### Streaming responses
 
-Streaming pipelines will be streamed to the client using chunked transfer encoding, as Value's are produced.
+Values returned by streaming pipelines (like `generate`) are sent to the client
+immediately as HTTP chunks. This allows real-time data transmission without
+waiting for the entire response to be ready.
 
 ```bash
 $ http-nu :3001 '{|req|
@@ -124,7 +144,7 @@ Fri, 31 Jan 2025 03:48:01 -0500 (now)
 Fri, 31 Jan 2025 03:48:02 -0500 (now)
 Fri, 31 Jan 2025 03:48:03 -0500 (now)
 ...
-````
+```
 
 ### [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
 

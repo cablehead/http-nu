@@ -162,3 +162,89 @@ fn assert_timing_sequence(timings: &[(String, Duration)]) {
         );
     }
 }
+
+#[tokio::test]
+async fn test_content_type_precedence() {
+    let engine = crate::Engine::new().unwrap();
+
+    // 1. Explicit header should take precedence
+    let req1 = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp1 = handle(
+        engine.clone(),
+        r#"{|req|
+       .response {headers: {"Content-Type": "text/plain"}}
+       {foo: "bar"}
+   }"#
+        .into(),
+        None,
+        req1,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(resp1.headers()["content-type"], "text/plain");
+
+    // 2. Pipeline metadata
+    let req2 = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp2 = handle(
+        engine.clone(),
+        r#"{|req|
+       ls | to yaml
+   }"#
+        .into(),
+        None,
+        req2,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(resp2.headers()["content-type"], "application/yaml");
+
+    // 3. Record defaults to JSON
+    let req3 = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp3 = handle(
+        engine.clone(),
+        r#"{|req|
+       {foo: "bar"}
+   }"#
+        .into(),
+        None,
+        req3,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(resp3.headers()["content-type"], "application/json");
+
+    // 4. Plain text defaults to text/html
+    let req4 = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp4 = handle(
+        engine.clone(),
+        r#"{|req|
+       "Hello World"
+   }"#
+        .into(),
+        None,
+        req4,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(resp4.headers()["content-type"], "text/html; charset=utf-8");
+}

@@ -62,7 +62,7 @@ where
     B::Error: Into<BoxError> + Send,
 {
     // Create channels for response metadata
-    let (meta_tx, mut meta_rx) = tokio::sync::oneshot::channel();
+    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
 
     // Add .response command to engine
     engine.add_commands(vec![Box::new(ResponseStartCommand::new(meta_tx))])?;
@@ -134,7 +134,7 @@ where
             .unwrap_or_else(HashMap::new),
     };
 
-    let mut bridged_body = {
+    let bridged_body = {
         let (body_tx, body_rx) = tokio::sync::oneshot::channel();
 
         std::thread::spawn(move || -> Result<(), BoxError> {
@@ -190,38 +190,48 @@ where
         body_rx
     };
 
-    // Get response metadata and body type. We use a select here to avoid blocking for metadata, if
-    // the closure returns a pipeline without call .response
-    let (meta, inferred_content_type, body) = tokio::select! {
-        meta = &mut meta_rx => {
-            let meta = meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() });
-            let (ct, body) = bridged_body.await?;
-            (meta, ct, body)
+    // Wait for both:
+    // 1. Metadata - either from .response or default values when closure skips .response
+    // 2. Body pipeline to start (but not necessarily complete as it may stream)
+    let (meta, body_result) = tokio::join!(
+        async {
+            meta_rx.await.unwrap_or(crate::Response {
+                status: 200,
+                headers: HashMap::new(),
+            })
         },
-        body = &mut bridged_body => {
-            let (ct, resp) = body?;
-            let meta = meta_rx.await.unwrap_or(crate::Response { status: 200, headers: HashMap::new() });
-            (meta, ct, resp)
-        }
-    };
+        bridged_body
+    );
+    let (inferred_content_type, body) = body_result?;
 
     // Build response with appropriate headers
     let mut builder = hyper::Response::builder().status(meta.status);
-
-    // Convert custom headers to HeaderMap
     let mut header_map = hyper::header::HeaderMap::new();
-    for (k, v) in meta.headers {
-        header_map.insert(
-            hyper::header::HeaderName::from_bytes(k.as_bytes())?,
-            hyper::header::HeaderValue::from_str(&v)?,
-        );
-    }
 
-    if let Some(ct) = inferred_content_type {
-        header_map.insert(
-            hyper::header::CONTENT_TYPE,
-            hyper::header::HeaderValue::from_str(&ct)?,
-        );
+    // First apply content-type from .response headers if present
+    let content_type = meta
+        .headers
+        .get("content-type")
+        .or(meta.headers.get("Content-Type"))
+        .cloned()
+        // Then pipeline metadata
+        .or(inferred_content_type)
+        // Finally default
+        .unwrap_or("text/html; charset=utf-8".to_string());
+
+    header_map.insert(
+        hyper::header::CONTENT_TYPE,
+        hyper::header::HeaderValue::from_str(&content_type)?,
+    );
+
+    // Add rest of custom headers
+    for (k, v) in meta.headers {
+        if k.to_lowercase() != "content-type" {
+            header_map.insert(
+                hyper::header::HeaderName::from_bytes(k.as_bytes())?,
+                hyper::header::HeaderValue::from_str(&v)?,
+            );
+        }
     }
 
     *builder.headers_mut().unwrap() = header_map;
