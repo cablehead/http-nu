@@ -90,7 +90,7 @@ date: Fri, 31 Jan 2025 08:20:28 GMT
 sorry, eh
 ```
 
-### Content-Type inference
+### Content-Type Inference
 
 - The default Content-Type is `text/html; charset=utf-8`. (TBD / make
   configurable?)
@@ -104,9 +104,6 @@ sorry, eh
   ls | to yaml  # sets Content-Type to application/x-yaml
 }
 ```
-
-- `| metadata set -c <content-type>` can be used as a shorthand for
-  `.response {headers: {"content-type": <content-type>}}`
 
 ````bash
 ### Streaming responses
