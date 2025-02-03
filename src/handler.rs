@@ -21,8 +21,8 @@ type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 enum ResponseTransport {
     Empty,
-    Full(Vec<u8>, Option<String>), // bytes + content-type
-    Stream(mpsc::Receiver<Vec<u8>>, Option<String>), // stream + content-type
+    Full(Vec<u8>),
+    Stream(mpsc::Receiver<Vec<u8>>),
 }
 
 pub async fn handle<B>(
@@ -140,105 +140,96 @@ where
         std::thread::spawn(move || -> Result<(), BoxError> {
             let output = engine.eval(request, stream.into())?;
 
-            match output {
-                PipelineData::Value(Value::Nothing { .. }, _) => {
-                    let _ = body_tx.send(ResponseTransport::Empty);
+            let inferred_content_type = match &output {
+                PipelineData::Value(Value::Record { .. }, meta)
+                    if meta.as_ref().and_then(|m| m.content_type).is_none() =>
+                {
+                    Some("application/json".to_string())
                 }
-                PipelineData::Value(value, meta) => {
-                    let mut content_type = meta.and_then(|m| m.content_type);
-                    if matches!(value, Value::Record { .. }) && content_type.is_none() {
-                        content_type = Some("application/json".to_string());
-                    }
-                    let bytes = value_to_string(value).into_bytes();
-                    let _ = body_tx.send(ResponseTransport::Full(bytes, content_type));
+                PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
+                    meta.and_then(|m| m.content_type)
                 }
-                PipelineData::ListStream(stream, meta) => {
-                    let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
-                    let _ = body_tx.send(ResponseTransport::Stream(
-                        stream_rx,
-                        meta.and_then(|m| m.content_type),
-                    ));
+                _ => None,
+            };
 
+            let response = match output {
+                PipelineData::Value(Value::Nothing { .. }, _) => ResponseTransport::Empty,
+                PipelineData::Value(value, _) => {
+                    ResponseTransport::Full(value_to_string(value).into_bytes())
+                }
+                PipelineData::ListStream(stream, _) => {
+                    let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
                     for value in stream.into_inner() {
                         let s = value_to_string(value);
                         if stream_tx.blocking_send(s.into_bytes()).is_err() {
                             break;
                         }
                     }
+                    ResponseTransport::Stream(stream_rx)
                 }
                 PipelineData::ByteStream(_, _) => todo!(),
-            }
+            };
+
+            let _ = body_tx.send((inferred_content_type, response));
             Ok(())
         });
 
         body_rx
     };
 
-    // Get response metadata and body type
-    let (meta, body) = tokio::select! {
+    // Get response metadata and body type. We use a select here to avoid blocking for metadata, if
+    // the closure returns a pipeline without call .response
+    let (meta, inferred_content_type, body) = tokio::select! {
         meta = meta_rx => (
             meta.unwrap_or(Response { status: 200, headers: HashMap::new() }),
+            None,
             None
         ),
-        body = bridged_body => (
-            Response { status: 200, headers: HashMap::new() },
-            Some(body?)
-        )
+        body = bridged_body => {
+            let (content_type, response) = body?;
+            (
+                Response { status: 200, headers: HashMap::new() },
+                content_type,
+                Some(response)
+            )
+        }
     };
 
     let body = match body {
         Some(b) => b,
-        None => bridged_body.await?,
+        None => bridged_body.await?.1,
     };
 
     // Build response with appropriate headers
-    let mut builder = Response::builder().status(response_meta.status);
-    let mut headers = response_meta.headers;
+    let mut builder = Response::builder().status(meta.status);
+    let mut headers = meta.headers;
 
-    let body = match body {
-        ResponseTransport::Empty => builder.body(Empty::<Bytes>::new().boxed())?,
-        ResponseTransport::Full(bytes, content_type) => {
-            // Add content-type header if available
-            if let Some(ct) = content_type {
-                headers.insert("content-type".to_string(), ct);
-            }
+    // Set content-type from inferred metadata, if available
+    if let Some(ct) = inferred_content_type {
+        headers.insert("content-type".to_string(), ct);
+    }
 
-            // Add headers to builder
-            if let Some(header_map) = builder.headers_mut() {
-                for (k, v) in headers {
-                    header_map.insert(
-                        HeaderName::from_bytes(k.as_bytes())?,
-                        HeaderValue::from_str(&v)?,
-                    );
-                }
-            }
-
-            builder.body(Full::new(bytes.into()).boxed())?
+    // Apply headers to the builder
+    if let Some(header_map) = builder.headers_mut() {
+        for (k, v) in headers {
+            header_map.insert(
+                HeaderName::from_bytes(k.as_bytes())?,
+                HeaderValue::from_str(&v)?,
+            );
         }
-        ResponseTransport::Stream(rx, content_type) => {
-            // Add content-type header if available
-            if let Some(ct) = content_type {
-                headers.insert("content-type".to_string(), ct);
-            }
+    }
 
-            // Add headers to builder
-            if let Some(header_map) = builder.headers_mut() {
-                for (k, v) in headers {
-                    header_map.insert(
-                        HeaderName::from_bytes(k.as_bytes())?,
-                        HeaderValue::from_str(&v)?,
-                    );
-                }
-            }
-
-            // Create streaming body
-            let stream = ReceiverStream::new(rx);
-            let stream = stream.map(|data| Ok(Frame::data(Bytes::from(data))));
-            builder.body(StreamBody::new(stream).boxed())?
+    // Set response body
+    let body = match body {
+        ResponseTransport::Empty => Empty::<Bytes>::new().boxed(),
+        ResponseTransport::Full(bytes) => Full::new(bytes.into()).boxed(),
+        ResponseTransport::Stream(rx) => {
+            let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
+            StreamBody::new(stream).boxed()
         }
     };
 
-    Ok(body)
+    Ok(builder.body(body)?)
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {
