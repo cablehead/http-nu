@@ -142,7 +142,7 @@ where
 
             let inferred_content_type = match &output {
                 PipelineData::Value(Value::Record { .. }, meta)
-                    if meta.as_ref().and_then(|m| m.content_type).is_none() =>
+                    if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
                 {
                     Some("application/json".to_string())
                 }
@@ -153,6 +153,7 @@ where
             };
 
             let response = match output {
+                PipelineData::Empty => ResponseTransport::Empty,
                 PipelineData::Value(Value::Nothing { .. }, _) => ResponseTransport::Empty,
                 PipelineData::Value(value, _) => {
                     ResponseTransport::Full(value_to_string(value).into_bytes())
@@ -160,8 +161,10 @@ where
                 PipelineData::ListStream(stream, _) => {
                     let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
                     for value in stream.into_inner() {
-                        let s = value_to_string(value);
-                        if stream_tx.blocking_send(s.into_bytes()).is_err() {
+                        if stream_tx
+                            .blocking_send(value_to_string(value).into_bytes())
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -197,7 +200,7 @@ where
 
     let body = match body {
         Some(b) => b,
-        None => bridged_body.await?.1,
+        None => bridged_body.clone().await?.1,
     };
 
     // Build response with appropriate headers
