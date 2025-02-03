@@ -105,7 +105,6 @@ sorry, eh
 }
 ```
 
-````bash
 ### Streaming responses
 
 Streaming pipelines will be streamed to the client using chunked transfer encoding, as Value's are produced.
