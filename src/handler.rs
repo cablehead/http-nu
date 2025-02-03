@@ -183,24 +183,19 @@ where
     // Get response metadata and body type. We use a select here to avoid blocking for metadata, if
     // the closure returns a pipeline without call .response
     let (meta, inferred_content_type, body) = tokio::select! {
-       meta = meta_rx => (
-           meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() }),
-           None,
-           None
-       ),
-       body = &mut bridged_body => {
-           let (ct, resp) = body?;
-           (
-               crate::Response { status: 200, headers: HashMap::new() },
-               ct,
-               Some(resp)
-           )
-       }
-    };
-
-    let body = match body {
-        Some(b) => b,
-        None => bridged_body.await?.1,
+        meta = meta_rx => {
+            let meta = meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() });
+            let (ct, body) = bridged_body.await?;
+            (meta, ct, body)
+        },
+        body = &mut bridged_body => {
+            let (ct, resp) = body?;
+            let meta = match meta_rx.await {
+                Ok(meta) => meta,
+                Err(_) => crate::Response { status: 200, headers: HashMap::new() }
+            };
+            (meta, ct, resp)
+        }
     };
 
     // Build response with appropriate headers
