@@ -134,7 +134,7 @@ where
             .unwrap_or_else(HashMap::new),
     };
 
-    let bridged_body = {
+    let mut bridged_body = {
         let (body_tx, body_rx) = tokio::sync::oneshot::channel();
 
         std::thread::spawn(move || -> Result<(), BoxError> {
@@ -147,7 +147,7 @@ where
                     Some("application/json".to_string())
                 }
                 PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
-                    meta.and_then(|m| m.content_type)
+                    meta.as_ref().and_then(|m| m.content_type.clone())
                 }
                 _ => None,
             };
@@ -183,24 +183,24 @@ where
     // Get response metadata and body type. We use a select here to avoid blocking for metadata, if
     // the closure returns a pipeline without call .response
     let (meta, inferred_content_type, body) = tokio::select! {
-        meta = meta_rx => (
-            meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() }),
-            None,
-            None
-        ),
-        body = bridged_body => {
-            let (content_type, response) = body?;
-            (
-                crate::Response { status: 200, headers: HashMap::new() },
-                content_type,
-                Some(response)
-            )
-        }
+       meta = meta_rx => (
+           meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() }),
+           None,
+           None
+       ),
+       body = &mut bridged_body => {
+           let (ct, resp) = body?;
+           (
+               crate::Response { status: 200, headers: HashMap::new() },
+               ct,
+               Some(resp)
+           )
+       }
     };
 
     let body = match body {
         Some(b) => b,
-        None => bridged_body.clone().await?.1,
+        None => bridged_body.await?.1,
     };
 
     // Build response with appropriate headers
