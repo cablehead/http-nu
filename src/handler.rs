@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
-use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
-use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Request, Response};
 
 use nu_engine::command_prelude::Type;
@@ -181,14 +181,14 @@ where
     // the closure returns a pipeline without call .response
     let (meta, inferred_content_type, body) = tokio::select! {
         meta = meta_rx => (
-            meta.unwrap_or(Response { status: 200, headers: HashMap::new() }),
+            meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() }),
             None,
             None
         ),
         body = bridged_body => {
             let (content_type, response) = body?;
             (
-                Response { status: 200, headers: HashMap::new() },
+                crate::Response { status: 200, headers: HashMap::new() },
                 content_type,
                 Some(response)
             )
@@ -201,35 +201,41 @@ where
     };
 
     // Build response with appropriate headers
-    let mut builder = Response::builder().status(meta.status);
-    let mut headers = meta.headers;
+    let mut builder = hyper::Response::builder().status(meta.status);
 
-    // Set content-type from inferred metadata, if available
+    // Convert custom headers to HeaderMap
+    let mut header_map = hyper::header::HeaderMap::new();
+    for (k, v) in meta.headers {
+        header_map.insert(
+            hyper::header::HeaderName::from_bytes(k.as_bytes())?,
+            hyper::header::HeaderValue::from_str(&v)?,
+        );
+    }
+
     if let Some(ct) = inferred_content_type {
-        headers.insert("content-type".to_string(), ct);
+        header_map.insert(
+            hyper::header::CONTENT_TYPE,
+            hyper::header::HeaderValue::from_str(&ct)?,
+        );
     }
 
-    // Apply headers to the builder
-    if let Some(header_map) = builder.headers_mut() {
-        for (k, v) in headers {
-            header_map.insert(
-                HeaderName::from_bytes(k.as_bytes())?,
-                HeaderValue::from_str(&v)?,
-            );
-        }
-    }
+    *builder.headers_mut().unwrap() = header_map;
 
     // Set response body
     let body = match body {
-        ResponseTransport::Empty => Empty::<Bytes>::new().boxed(),
-        ResponseTransport::Full(bytes) => Full::new(bytes.into()).boxed(),
+        ResponseTransport::Empty => Empty::<Bytes>::new()
+            .map_err(|never| match never {})
+            .boxed(),
+        ResponseTransport::Full(bytes) => Full::new(bytes.into())
+            .map_err(|never| match never {})
+            .boxed(),
         ResponseTransport::Stream(rx) => {
             let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
             StreamBody::new(stream).boxed()
         }
     };
 
-    Ok(builder.body(body)?)
+    Ok(builder.body(body).unwrap())
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {
