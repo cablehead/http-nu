@@ -62,7 +62,7 @@ where
     B::Error: Into<BoxError> + Send,
 {
     // Create channels for response metadata
-    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
+    let (meta_tx, mut meta_rx) = tokio::sync::oneshot::channel();
 
     // Add .response command to engine
     engine.add_commands(vec![Box::new(ResponseStartCommand::new(meta_tx))])?;
@@ -183,17 +183,14 @@ where
     // Get response metadata and body type. We use a select here to avoid blocking for metadata, if
     // the closure returns a pipeline without call .response
     let (meta, inferred_content_type, body) = tokio::select! {
-        meta = meta_rx => {
+        meta = &mut meta_rx => {
             let meta = meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() });
             let (ct, body) = bridged_body.await?;
             (meta, ct, body)
         },
         body = &mut bridged_body => {
             let (ct, resp) = body?;
-            let meta = match meta_rx.await {
-                Ok(meta) => meta,
-                Err(_) => crate::Response { status: 200, headers: HashMap::new() }
-            };
+            let meta = meta_rx.await.unwrap_or(crate::Response { status: 200, headers: HashMap::new() });
             (meta, ct, resp)
         }
     };
