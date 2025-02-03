@@ -19,6 +19,7 @@ use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Va
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
+#[derive(Debug)]
 enum ResponseTransport {
     Empty,
     Full(Vec<u8>),
@@ -38,8 +39,7 @@ where
 {
     match handle_inner(engine, script, addr, req).await {
         Ok(response) => Ok(response),
-        Err(err) => {
-            eprintln!("Handler error: {:?}", err);
+        Err(_) => {
             let response = Response::builder().status(500).body(
                 Full::new("Internal Server Error".into())
                     .map_err(|never| match never {})
@@ -152,14 +152,27 @@ where
                 _ => None,
             };
 
-            let response = match output {
-                PipelineData::Empty => ResponseTransport::Empty,
-                PipelineData::Value(Value::Nothing { .. }, _) => ResponseTransport::Empty,
+            match output {
+                PipelineData::Empty => {
+                    let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+                    Ok(())
+                }
+                PipelineData::Value(Value::Nothing { .. }, _) => {
+                    let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+                    Ok(())
+                }
                 PipelineData::Value(value, _) => {
-                    ResponseTransport::Full(value_to_string(value).into_bytes())
+                    let _ = body_tx.send((
+                        inferred_content_type,
+                        ResponseTransport::Full(value_to_string(value).into_bytes()),
+                    ));
+                    Ok(())
                 }
                 PipelineData::ListStream(stream, _) => {
                     let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                    let _ =
+                        body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
+
                     for value in stream.into_inner() {
                         if stream_tx
                             .blocking_send(value_to_string(value).into_bytes())
@@ -168,13 +181,10 @@ where
                             break;
                         }
                     }
-                    ResponseTransport::Stream(stream_rx)
+                    Ok(())
                 }
                 PipelineData::ByteStream(_, _) => todo!(),
-            };
-
-            let _ = body_tx.send((inferred_content_type, response));
-            Ok(())
+            }
         });
 
         body_rx
