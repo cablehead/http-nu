@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -183,7 +184,32 @@ where
                     }
                     Ok(())
                 }
-                PipelineData::ByteStream(_, _) => todo!(),
+
+                PipelineData::ByteStream(stream, meta) => {
+                    let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                    let _ = body_tx.send((
+                        meta.as_ref().and_then(|m| m.content_type.clone()),
+                        ResponseTransport::Stream(stream_rx),
+                    ));
+
+                    let mut reader = stream
+                        .reader()
+                        .ok_or_else(|| "ByteStream has no reader".to_string())?;
+                    let mut buf = vec![0; 8192];
+
+                    loop {
+                        match reader.read(&mut buf) {
+                            Ok(0) => break, // EOF
+                            Ok(n) => {
+                                if stream_tx.blocking_send(buf[..n].to_vec()).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(err) => return Err(err.into()),
+                        }
+                    }
+                    Ok(())
+                }
             }
         });
 

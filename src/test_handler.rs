@@ -248,3 +248,29 @@ async fn test_content_type_precedence() {
 
     assert_eq!(resp4.headers()["content-type"], "text/html; charset=utf-8");
 }
+
+#[tokio::test]
+async fn test_handle_bytestream() {
+    let engine = crate::Engine::new().unwrap();
+    // `to csv` returns a ByteStream with content-type text/csv
+    let script = r#"{|req| ls | to csv }"#.to_string();
+
+    let req = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, script, None, req).await.unwrap();
+
+    // Verify CSV content type
+    assert_eq!(resp.headers()["content-type"], "text/csv");
+
+    // Collect and verify body
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let content = String::from_utf8(body.to_vec()).unwrap();
+
+    // Basic CSV format validation
+    assert!(content.contains("name"));
+    assert!(content.contains("type"));
+    assert!(content.contains(","));
+}
