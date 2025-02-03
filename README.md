@@ -90,8 +90,28 @@ date: Fri, 31 Jan 2025 08:20:28 GMT
 sorry, eh
 ```
 
-Note: for streaming responses, be sure to always call `.response` as the
-response cannot not be initiated without it.
+### Content-Type inference
+
+- The default Content-Type is `text/html; charset=utf-8`. (TBD / make
+  configurable?)
+- If you return a Record value, the Content-Type will be `application/json` and
+  the Value is serialized to JSON.
+- If you return a pipeline which has Content-Type set in the pipeline's
+  metadata, that Content-Type will be used. e.g.
+
+```nushell
+{|req|
+  ls | to yaml  # sets Content-Type to application/x-yaml
+}
+```
+
+- `| metadata set -c <content-type>` can be used as a shorthand for
+  `.response {headers: {"content-type": <content-type>}}`
+
+````bash
+### Streaming responses
+
+Streaming pipelines will be streamed to the client using chunked transfer encoding, as Value's are produced.
 
 ```bash
 $ http-nu :3001 '{|req|
@@ -108,9 +128,11 @@ Fri, 31 Jan 2025 03:48:01 -0500 (now)
 Fri, 31 Jan 2025 03:48:02 -0500 (now)
 Fri, 31 Jan 2025 03:48:03 -0500 (now)
 ...
-```
+````
 
 ### [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
+
+TODO: we should provide a `to sse` built-in
 
 ```bash
 $ http-nu :3001 '{|req|
