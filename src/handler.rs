@@ -19,6 +19,12 @@ use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Va
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
+enum ResponseTransport {
+    Empty,
+    Full(Vec<u8>, Option<String>), // bytes + content-type
+    Stream(mpsc::Receiver<Vec<u8>>, Option<String>), // stream + content-type
+}
+
 pub async fn handle<B>(
     engine: crate::Engine,
     script: String,
@@ -128,65 +134,111 @@ where
             .unwrap_or_else(HashMap::new),
     };
 
-    // Create the bridged body synchronously but start streaming right away
     let bridged_body = {
-        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        let (body_tx, body_rx) = tokio::sync::oneshot::channel();
 
-        // Spawn the evaluation thread
         std::thread::spawn(move || -> Result<(), BoxError> {
-            match engine.eval(request, stream.into())? {
-                PipelineData::Value(Value::Nothing { .. }, _) => Ok(()), // Empty response, no need to send anything
-                PipelineData::Value(value, _) => {
-                    let s = value_to_string(value);
-                    tx.blocking_send(s.into_bytes())?;
-                    Ok(())
+            let output = engine.eval(request, stream.into())?;
+
+            match output {
+                PipelineData::Value(Value::Nothing { .. }, _) => {
+                    let _ = body_tx.send(ResponseTransport::Empty);
                 }
-                PipelineData::ListStream(stream, _) => {
+                PipelineData::Value(value, meta) => {
+                    let mut content_type = meta.and_then(|m| m.content_type);
+                    if matches!(value, Value::Record { .. }) && content_type.is_none() {
+                        content_type = Some("application/json".to_string());
+                    }
+                    let bytes = value_to_string(value).into_bytes();
+                    let _ = body_tx.send(ResponseTransport::Full(bytes, content_type));
+                }
+                PipelineData::ListStream(stream, meta) => {
+                    let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                    let _ = body_tx.send(ResponseTransport::Stream(
+                        stream_rx,
+                        meta.and_then(|m| m.content_type),
+                    ));
+
                     for value in stream.into_inner() {
                         let s = value_to_string(value);
-                        if tx.blocking_send(s.into_bytes()).is_err() {
+                        if stream_tx.blocking_send(s.into_bytes()).is_err() {
                             break;
                         }
                     }
-                    Ok(())
                 }
                 PipelineData::ByteStream(_, _) => todo!(),
-                PipelineData::Empty => Ok(()),
             }
+            Ok(())
         });
 
-        rx
+        body_rx
     };
 
-    // Get response metadata (or default based on body type)
-    let response_meta = match meta_rx.await {
-        Ok(meta) => meta,
-        Err(_) => crate::Response {
-            status: 200,
-            headers: HashMap::new(),
-        },
+    // Get response metadata and body type
+    let (meta, body) = tokio::select! {
+        meta = meta_rx => (
+            meta.unwrap_or(Response { status: 200, headers: HashMap::new() }),
+            None
+        ),
+        body = bridged_body => (
+            Response { status: 200, headers: HashMap::new() },
+            Some(body?)
+        )
+    };
+
+    let body = match body {
+        Some(b) => b,
+        None => bridged_body.await?,
     };
 
     // Build response with appropriate headers
     let mut builder = Response::builder().status(response_meta.status);
-    let headers = response_meta.headers;
+    let mut headers = response_meta.headers;
 
-    // Create the streaming body
-    let stream = ReceiverStream::new(bridged_body);
-    let stream = stream.map(|data| Ok(Frame::data(Bytes::from(data))));
-    let body = StreamBody::new(stream).boxed();
+    let body = match body {
+        ResponseTransport::Empty => builder.body(Empty::<Bytes>::new().boxed())?,
+        ResponseTransport::Full(bytes, content_type) => {
+            // Add content-type header if available
+            if let Some(ct) = content_type {
+                headers.insert("content-type".to_string(), ct);
+            }
 
-    // Add headers
-    if let Some(header_map) = builder.headers_mut() {
-        for (k, v) in headers {
-            header_map.insert(
-                HeaderName::from_bytes(k.as_bytes())?,
-                HeaderValue::from_str(&v)?,
-            );
+            // Add headers to builder
+            if let Some(header_map) = builder.headers_mut() {
+                for (k, v) in headers {
+                    header_map.insert(
+                        HeaderName::from_bytes(k.as_bytes())?,
+                        HeaderValue::from_str(&v)?,
+                    );
+                }
+            }
+
+            builder.body(Full::new(bytes.into()).boxed())?
         }
-    }
+        ResponseTransport::Stream(rx, content_type) => {
+            // Add content-type header if available
+            if let Some(ct) = content_type {
+                headers.insert("content-type".to_string(), ct);
+            }
 
-    Ok(builder.body(body)?)
+            // Add headers to builder
+            if let Some(header_map) = builder.headers_mut() {
+                for (k, v) in headers {
+                    header_map.insert(
+                        HeaderName::from_bytes(k.as_bytes())?,
+                        HeaderValue::from_str(&v)?,
+                    );
+                }
+            }
+
+            // Create streaming body
+            let stream = ReceiverStream::new(rx);
+            let stream = stream.map(|data| Ok(Frame::data(Bytes::from(data))));
+            builder.body(StreamBody::new(stream).boxed())?
+        }
+    };
+
+    Ok(body)
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {
