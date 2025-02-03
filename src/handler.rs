@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
-use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
-use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Request, Response};
 
 use nu_engine::command_prelude::Type;
@@ -18,6 +18,13 @@ use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Va
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
+
+#[derive(Debug)]
+enum ResponseTransport {
+    Empty,
+    Full(Vec<u8>),
+    Stream(mpsc::Receiver<Vec<u8>>),
+}
 
 pub async fn handle<B>(
     engine: crate::Engine,
@@ -32,8 +39,7 @@ where
 {
     match handle_inner(engine, script, addr, req).await {
         Ok(response) => Ok(response),
-        Err(err) => {
-            eprintln!("Handler error: {:?}", err);
+        Err(_) => {
             let response = Response::builder().status(500).body(
                 Full::new("Internal Server Error".into())
                     .map_err(|never| match never {})
@@ -56,7 +62,7 @@ where
     B::Error: Into<BoxError> + Send,
 {
     // Create channels for response metadata
-    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
+    let (meta_tx, mut meta_rx) = tokio::sync::oneshot::channel();
 
     // Add .response command to engine
     engine.add_commands(vec![Box::new(ResponseStartCommand::new(meta_tx))])?;
@@ -128,65 +134,113 @@ where
             .unwrap_or_else(HashMap::new),
     };
 
-    // Create the bridged body synchronously but start streaming right away
-    let bridged_body = {
-        let (tx, rx) = tokio::sync::mpsc::channel(32);
+    let mut bridged_body = {
+        let (body_tx, body_rx) = tokio::sync::oneshot::channel();
 
-        // Spawn the evaluation thread
         std::thread::spawn(move || -> Result<(), BoxError> {
-            match engine.eval(request, stream.into())? {
-                PipelineData::Value(Value::Nothing { .. }, _) => Ok(()), // Empty response, no need to send anything
+            let output = engine.eval(request, stream.into())?;
+
+            let inferred_content_type = match &output {
+                PipelineData::Value(Value::Record { .. }, meta)
+                    if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+                {
+                    Some("application/json".to_string())
+                }
+                PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
+                    meta.as_ref().and_then(|m| m.content_type.clone())
+                }
+                _ => None,
+            };
+
+            match output {
+                PipelineData::Empty => {
+                    let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+                    Ok(())
+                }
+                PipelineData::Value(Value::Nothing { .. }, _) => {
+                    let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+                    Ok(())
+                }
                 PipelineData::Value(value, _) => {
-                    let s = value_to_string(value);
-                    tx.blocking_send(s.into_bytes())?;
+                    let _ = body_tx.send((
+                        inferred_content_type,
+                        ResponseTransport::Full(value_to_string(value).into_bytes()),
+                    ));
                     Ok(())
                 }
                 PipelineData::ListStream(stream, _) => {
+                    let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                    let _ =
+                        body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
+
                     for value in stream.into_inner() {
-                        let s = value_to_string(value);
-                        if tx.blocking_send(s.into_bytes()).is_err() {
+                        if stream_tx
+                            .blocking_send(value_to_string(value).into_bytes())
+                            .is_err()
+                        {
                             break;
                         }
                     }
                     Ok(())
                 }
                 PipelineData::ByteStream(_, _) => todo!(),
-                PipelineData::Empty => Ok(()),
             }
         });
 
-        rx
+        body_rx
     };
 
-    // Get response metadata (or default based on body type)
-    let response_meta = match meta_rx.await {
-        Ok(meta) => meta,
-        Err(_) => crate::Response {
-            status: 200,
-            headers: HashMap::new(),
+    // Get response metadata and body type. We use a select here to avoid blocking for metadata, if
+    // the closure returns a pipeline without call .response
+    let (meta, inferred_content_type, body) = tokio::select! {
+        meta = &mut meta_rx => {
+            let meta = meta.unwrap_or(crate::Response { status: 200, headers: HashMap::new() });
+            let (ct, body) = bridged_body.await?;
+            (meta, ct, body)
         },
+        body = &mut bridged_body => {
+            let (ct, resp) = body?;
+            let meta = meta_rx.await.unwrap_or(crate::Response { status: 200, headers: HashMap::new() });
+            (meta, ct, resp)
+        }
     };
 
     // Build response with appropriate headers
-    let mut builder = Response::builder().status(response_meta.status);
-    let headers = response_meta.headers;
+    let mut builder = hyper::Response::builder().status(meta.status);
 
-    // Create the streaming body
-    let stream = ReceiverStream::new(bridged_body);
-    let stream = stream.map(|data| Ok(Frame::data(Bytes::from(data))));
-    let body = StreamBody::new(stream).boxed();
-
-    // Add headers
-    if let Some(header_map) = builder.headers_mut() {
-        for (k, v) in headers {
-            header_map.insert(
-                HeaderName::from_bytes(k.as_bytes())?,
-                HeaderValue::from_str(&v)?,
-            );
-        }
+    // Convert custom headers to HeaderMap
+    let mut header_map = hyper::header::HeaderMap::new();
+    for (k, v) in meta.headers {
+        header_map.insert(
+            hyper::header::HeaderName::from_bytes(k.as_bytes())?,
+            hyper::header::HeaderValue::from_str(&v)?,
+        );
     }
 
-    Ok(builder.body(body)?)
+    if let Some(ct) = inferred_content_type {
+        header_map.insert(
+            hyper::header::CONTENT_TYPE,
+            hyper::header::HeaderValue::from_str(&ct)?,
+        );
+    }
+
+    *builder.headers_mut().unwrap() = header_map;
+
+    // Set response body
+    let body = match body {
+        ResponseTransport::Empty => Empty::<Bytes>::new()
+            .map_err(|never| match never {})
+            .boxed(),
+        ResponseTransport::Full(bytes) => Full::new(bytes.into())
+            .map_err(|never| match never {})
+            .boxed(),
+        ResponseTransport::Stream(rx) => {
+            let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
+            StreamBody::new(stream).boxed()
+        }
+    };
+
+    Ok(builder.body(body).unwrap())
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {
