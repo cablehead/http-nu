@@ -43,7 +43,7 @@ The Request metadata is passed as an argument to the closure.
 ```bash
 $ http-nu :3001 '{|req| $req}'
 $ curl -s 'localhost:3001/segment?foo=bar&abc=123' # or
-$ http get 'http://localhost:3001/segment?foo=bar&abc=123' | from json
+$ http get 'http://localhost:3001/segment?foo=bar&abc=123'
 ─────────────┬───────────────────────────────
  proto       │ HTTP/1.1
  method      │ GET
