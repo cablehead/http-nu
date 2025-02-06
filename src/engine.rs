@@ -7,8 +7,8 @@ use nu_protocol::engine::Command;
 use nu_protocol::format_shell_error;
 use nu_protocol::{
     debugger::WithoutDebug,
-    engine::{Closure, EngineState, Stack, StateWorkingSet},
-    PipelineData, Record, ShellError, Span, Value,
+    engine::{Closure, EngineState, Redirection, Stack, StateWorkingSet},
+    OutDest, PipelineData, Record, ShellError, Span, Value,
 };
 
 use crate::{Error, Request};
@@ -117,7 +117,13 @@ impl Engine {
 
     pub fn eval(&self, request: Request, input: PipelineData) -> Result<PipelineData, Error> {
         let closure = self.closure.as_ref().ok_or("Closure not parsed")?;
+
         let mut stack = Stack::new();
+
+        // we need to push a redirection to ensure that the output of the closure is captured
+        let mut stack =
+            stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
+
         let block = self.state.get_block(closure.block_id);
 
         stack.add_var(
