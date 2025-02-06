@@ -2,7 +2,10 @@ use clap::Parser;
 
 use hyper::service::service_fn;
 
-use http_nu::{handle, Engine, Listener};
+use http_nu::{
+    handler::{handle, ResponseStartCommand},
+    Engine, Listener,
+};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -20,7 +23,11 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
-    let engine = Engine::new()?;
+    let mut engine = Engine::new()?;
+    // Add .response command to engine
+    engine.add_commands(vec![Box::new(ResponseStartCommand::new())])?;
+    // And the user supplied closure
+    engine.parse_closure(&args.closure)?;
 
     let mut listener = Listener::bind(&args.addr).await?;
     println!("Listening on {}", listener);
@@ -29,11 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let io = hyper_util::rt::TokioIo::new(stream);
 
         let engine = engine.clone();
-        let closure = args.closure.clone();
 
         tokio::task::spawn(async move {
-            let service =
-                service_fn(move |req| handle(engine.clone(), closure.clone(), remote_addr, req));
+            let service = service_fn(move |req| handle(engine.clone(), remote_addr, req));
             if let Err(err) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(io, service)
                 .await

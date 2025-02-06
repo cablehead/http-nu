@@ -2,11 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 mod engine;
-mod handler;
+pub mod handler;
 mod listener;
 
 pub use engine::Engine;
-pub use handler::handle;
 pub use listener::Listener;
 
 #[cfg(test)]

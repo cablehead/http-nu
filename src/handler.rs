@@ -1,7 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -29,7 +29,6 @@ enum ResponseTransport {
 
 pub async fn handle<B>(
     engine: crate::Engine,
-    script: String,
     addr: Option<SocketAddr>,
     req: Request<B>,
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError>
@@ -38,7 +37,7 @@ where
     B::Data: Into<Bytes> + Clone + Send,
     B::Error: Into<BoxError> + Send,
 {
-    match handle_inner(engine, script, addr, req).await {
+    match handle_inner(engine, addr, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {}", err);
@@ -53,8 +52,7 @@ where
 }
 
 async fn handle_inner<B>(
-    mut engine: crate::Engine,
-    script: String,
+    engine: crate::Engine,
     addr: Option<SocketAddr>,
     req: Request<B>,
 ) -> HTTPResult
@@ -63,13 +61,6 @@ where
     B::Data: Into<Bytes> + Clone + Send,
     B::Error: Into<BoxError> + Send,
 {
-    // Create channels for response metadata
-    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
-
-    // Add .response command to engine
-    engine.add_commands(vec![Box::new(ResponseStartCommand::new(meta_tx))])?;
-    engine.parse_closure(&script)?;
-
     let (parts, mut body) = req.into_parts();
 
     // Create channels for request body streaming
@@ -136,11 +127,23 @@ where
             .unwrap_or_else(HashMap::new),
     };
 
-    let bridged_body = {
+    let (meta_rx, bridged_body) = {
+        let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
         let (body_tx, body_rx) = tokio::sync::oneshot::channel();
 
         std::thread::spawn(move || -> Result<(), BoxError> {
-            let output = engine.eval(request, stream.into())?;
+            RESPONSE_TX.with(|tx| {
+                *tx.borrow_mut() = Some(meta_tx);
+            });
+
+            let result = engine.eval(request, stream.into());
+
+            // Always clear the thread local storage after eval completes
+            RESPONSE_TX.with(|tx| {
+                let _ = tx.borrow_mut().take(); // This will drop the sender if it wasn't used
+            });
+
+            let output = result?;
 
             let inferred_content_type = match &output {
                 PipelineData::Value(Value::Record { .. }, meta)
@@ -214,7 +217,7 @@ where
             }
         });
 
-        body_rx
+        (meta_rx, body_rx)
     };
 
     // Wait for both:
@@ -321,15 +324,17 @@ fn value_to_string(value: Value) -> String {
 }
 
 #[derive(Clone)]
-pub struct ResponseStartCommand {
-    tx: Arc<Mutex<Option<oneshot::Sender<crate::Response>>>>,
+pub struct ResponseStartCommand;
+
+impl Default for ResponseStartCommand {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ResponseStartCommand {
-    pub fn new(tx: oneshot::Sender<crate::Response>) -> Self {
-        Self {
-            tx: Arc::new(Mutex::new(Some(tx))),
-        }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -385,27 +390,23 @@ impl Command for ResponseStartCommand {
         // Create response and send through channel
         let response = crate::Response { status, headers };
 
-        let tx = self
-            .tx
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| ShellError::GenericError {
-                error: "Response already sent".into(),
-                msg: "Channel was already consumed".into(),
-                span: Some(call.head),
-                help: None,
-                inner: vec![],
-            })?;
-
-        tx.send(response).map_err(|_| ShellError::GenericError {
-            error: "Failed to send response".into(),
-            msg: "Channel closed".into(),
-            span: Some(call.head),
-            help: None,
-            inner: vec![],
+        RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
+            if let Some(tx) = tx.borrow_mut().take() {
+                tx.send(response).map_err(|_| ShellError::GenericError {
+                    error: "Failed to send response".into(),
+                    msg: "Channel closed".into(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?;
+            }
+            Ok(())
         })?;
 
         Ok(PipelineData::Empty)
     }
+}
+
+thread_local! {
+    static RESPONSE_TX: RefCell<Option<oneshot::Sender<crate::Response>>> = const { RefCell::new(None) };
 }

@@ -1,18 +1,18 @@
 use std::time::Instant;
 
-use bytes::Bytes;
-
 use tokio::time::Duration;
 
 use http_body_util::BodyExt;
 use http_body_util::Empty;
+use http_body_util::Full;
+use hyper::body::Bytes;
 use hyper::Request;
 
-use crate::handle;
+use crate::handler::handle;
 
 #[tokio::test]
 async fn test_handle() {
-    let engine = crate::Engine::new().unwrap();
+    let engine = test_engine(r#"{|req| "hello world" }"#);
 
     let req = Request::builder()
         .method("GET")
@@ -20,9 +20,7 @@ async fn test_handle() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, r#"{|req| "hello world" }"#.into(), None, req)
-        .await
-        .unwrap();
+    let resp = handle(engine, None, req).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -32,8 +30,8 @@ async fn test_handle() {
 
 #[tokio::test]
 async fn test_handle_with_response_start() {
-    let engine = crate::Engine::new().unwrap();
-    let script = r#"{|req|
+    let engine = test_engine(
+        r#"{|req|
         match $req {
             {uri: "/resource" method: "POST"} => {
                 .response {
@@ -46,8 +44,8 @@ async fn test_handle_with_response_start() {
                 "created resource"
             }
         }
-    }"#
-    .to_string();
+    }"#,
+    );
 
     // Test successful POST to /resource
     let req = Request::builder()
@@ -56,9 +54,7 @@ async fn test_handle_with_response_start() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine.clone(), script.clone(), None, req)
-        .await
-        .unwrap();
+    let resp = handle(engine.clone(), None, req).await.unwrap();
 
     // Verify response metadata
     assert_eq!(resp.status(), 201);
@@ -75,11 +71,7 @@ async fn test_handle_with_response_start() {
 
 #[tokio::test]
 async fn test_handle_post() {
-    use http_body_util::Full;
-    use hyper::body::Bytes;
-
-    let engine = crate::Engine::new().unwrap();
-    let script = r#"{|req| $in }"#.to_string();
+    let engine = test_engine(r#"{|req| $in }"#);
 
     // Create POST request with a body
     let body = "Hello from the request body!";
@@ -89,7 +81,7 @@ async fn test_handle_post() {
         .body(Full::new(Bytes::from(body)))
         .unwrap();
 
-    let resp = handle(engine, script, None, req).await.unwrap();
+    let resp = handle(engine, None, req).await.unwrap();
 
     // Verify response status
     assert_eq!(resp.status(), 200);
@@ -101,12 +93,11 @@ async fn test_handle_post() {
 
 #[tokio::test]
 async fn test_handle_streaming() {
-    let engine = crate::Engine::new().unwrap();
-    let script = r#"{|req|
-        .response {status: 200}
-        1..3 | each { |n| sleep 0.1sec; $n }
-    }"#
-    .to_string();
+    let engine = test_engine(
+        r#"{|req|
+            1..3 | each { |n| sleep 0.1sec; $n }
+        }"#,
+    );
 
     let req = Request::builder()
         .method("GET")
@@ -114,7 +105,7 @@ async fn test_handle_streaming() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, script, None, req).await.unwrap();
+    let resp = handle(engine, None, req).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let mut body = resp.into_body();
@@ -165,27 +156,18 @@ fn assert_timing_sequence(timings: &[(String, Duration)]) {
 
 #[tokio::test]
 async fn test_content_type_precedence() {
-    let engine = crate::Engine::new().unwrap();
-
     // 1. Explicit header should take precedence
+    let engine = test_engine(
+        r#"{|req|
+           .response {headers: {"Content-Type": "text/plain"}}
+           {foo: "bar"}
+       }"#,
+    );
     let req1 = Request::builder()
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-
-    let resp1 = handle(
-        engine.clone(),
-        r#"{|req|
-       .response {headers: {"Content-Type": "text/plain"}}
-       {foo: "bar"}
-   }"#
-        .into(),
-        None,
-        req1,
-    )
-    .await
-    .unwrap();
-
+    let resp1 = handle(engine.clone(), None, req1).await.unwrap();
     assert_eq!(resp1.headers()["content-type"], "text/plain");
 
     // 2. Pipeline metadata
@@ -193,19 +175,8 @@ async fn test_content_type_precedence() {
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-
-    let resp2 = handle(
-        engine.clone(),
-        r#"{|req|
-       ls | to yaml
-   }"#
-        .into(),
-        None,
-        req2,
-    )
-    .await
-    .unwrap();
-
+    let engine = test_engine(r#"{|req| ls | to yaml }"#);
+    let resp2 = handle(engine.clone(), None, req2).await.unwrap();
     assert_eq!(resp2.headers()["content-type"], "application/yaml");
 
     // 3. Record defaults to JSON
@@ -213,19 +184,8 @@ async fn test_content_type_precedence() {
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-
-    let resp3 = handle(
-        engine.clone(),
-        r#"{|req|
-       {foo: "bar"}
-   }"#
-        .into(),
-        None,
-        req3,
-    )
-    .await
-    .unwrap();
-
+    let engine = test_engine(r#"{|req| {foo: "bar"} }"#);
+    let resp3 = handle(engine.clone(), None, req3).await.unwrap();
     assert_eq!(resp3.headers()["content-type"], "application/json");
 
     // 4. Plain text defaults to text/html
@@ -233,34 +193,22 @@ async fn test_content_type_precedence() {
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-
-    let resp4 = handle(
-        engine.clone(),
-        r#"{|req|
-       "Hello World"
-   }"#
-        .into(),
-        None,
-        req4,
-    )
-    .await
-    .unwrap();
-
+    let engine = test_engine(r#"{|req| "Hello World"}"#);
+    let resp4 = handle(engine.clone(), None, req4).await.unwrap();
     assert_eq!(resp4.headers()["content-type"], "text/html; charset=utf-8");
 }
 
 #[tokio::test]
 async fn test_handle_bytestream() {
-    let engine = crate::Engine::new().unwrap();
     // `to csv` returns a ByteStream with content-type text/csv
-    let script = r#"{|req| ls | to csv }"#.to_string();
+    let engine = test_engine(r#"{|req| ls | to csv }"#);
 
     let req = Request::builder()
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, script, None, req).await.unwrap();
+    let resp = handle(engine, None, req).await.unwrap();
 
     // Verify CSV content type
     assert_eq!(resp.headers()["content-type"], "text/csv");
@@ -277,9 +225,8 @@ async fn test_handle_bytestream() {
 
 #[tokio::test]
 async fn test_handle_preserve_preamble() {
-    let engine = crate::Engine::new().unwrap();
-
-    let script = r#"
+    let engine = test_engine(
+        r#"
         def do-foo [more: string] {
           "foo" + $more
         }
@@ -287,18 +234,29 @@ async fn test_handle_preserve_preamble() {
         {|req|
           do-foo $req.path
         }
-        "#
-    .to_string();
+        "#,
+    );
 
     let req = Request::builder()
         .uri("/bar")
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, script, None, req).await.unwrap();
+    let resp = handle(engine, None, req).await.unwrap();
 
     // Collect and verify body
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     let content = String::from_utf8(body.to_vec()).unwrap();
     assert_eq!(content, "foo/bar");
+}
+
+fn test_engine(script: &str) -> crate::Engine {
+    let mut engine = crate::Engine::new().unwrap();
+    // Add .response command to engine
+    engine
+        .add_commands(vec![Box::new(super::handler::ResponseStartCommand::new())])
+        .unwrap();
+    // Parse the test script
+    engine.parse_closure(script).unwrap();
+    engine
 }
