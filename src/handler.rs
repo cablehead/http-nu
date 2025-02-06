@@ -40,7 +40,8 @@ where
 {
     match handle_inner(engine, script, addr, req).await {
         Ok(response) => Ok(response),
-        Err(_) => {
+        Err(err) => {
+            eprintln!("Error handling request: {}", err);
             let response = Response::builder().status(500).body(
                 Full::new("Internal Server Error".into())
                     .map_err(|never| match never {})

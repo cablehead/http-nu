@@ -274,3 +274,31 @@ async fn test_handle_bytestream() {
     assert!(content.contains("type"));
     assert!(content.contains(","));
 }
+
+#[tokio::test]
+async fn test_handle_preserve_preamble() {
+    let engine = crate::Engine::new().unwrap();
+
+    let script = r#"
+        def do-foo [more: string] {
+          "foo" + $more
+        }
+
+        {|req|
+          do-foo $req.path
+        }
+        "#
+    .to_string();
+
+    let req = Request::builder()
+        .uri("/bar")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, script, None, req).await.unwrap();
+
+    // Collect and verify body
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let content = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(content, "foo/bar");
+}

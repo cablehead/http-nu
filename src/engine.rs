@@ -109,6 +109,8 @@ impl Engine {
             .into());
         }
 
+        self.state.merge_env(&mut stack)?;
+
         self.closure = Some(closure);
         Ok(())
     }
