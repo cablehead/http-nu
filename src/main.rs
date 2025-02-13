@@ -11,9 +11,12 @@ use clap::Parser;
 
 use http_nu::{
     handler::{handle, ResponseStartCommand},
-    Engine, Listener,
+    listener::AsyncReadWrite, // Import the existing trait
+    Engine,
+    Listener,
 };
 
+#[clap(version)]
 #[derive(Parser, Debug)]
 struct Args {
     /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
@@ -68,11 +71,10 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
         let stream = if let Some(tls) = &tls_acceptor {
             // Handle TLS connection
             let tls_stream = tls.accept(stream).await?;
-            Box::new(tls_stream)
-                as Box<dyn tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin>
+            Box::new(tls_stream) as Box<dyn AsyncReadWrite + Send + Unpin>
         } else {
             // Handle plain TCP connection
-            Box::new(stream) as Box<dyn tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin>
+            stream
         };
 
         let io = TokioIo::new(stream);
