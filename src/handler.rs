@@ -127,98 +127,7 @@ where
             .unwrap_or_else(HashMap::new),
     };
 
-    let (meta_rx, bridged_body) = {
-        let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
-        let (body_tx, body_rx) = tokio::sync::oneshot::channel();
-
-        std::thread::spawn(move || -> Result<(), BoxError> {
-            RESPONSE_TX.with(|tx| {
-                *tx.borrow_mut() = Some(meta_tx);
-            });
-
-            let result = engine.eval(request, stream.into());
-
-            // Always clear the thread local storage after eval completes
-            RESPONSE_TX.with(|tx| {
-                let _ = tx.borrow_mut().take(); // This will drop the sender if it wasn't used
-            });
-
-            let output = result?;
-
-            let inferred_content_type = match &output {
-                PipelineData::Value(Value::Record { .. }, meta)
-                    if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
-                {
-                    Some("application/json".to_string())
-                }
-                PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
-                    meta.as_ref().and_then(|m| m.content_type.clone())
-                }
-                _ => None,
-            };
-
-            match output {
-                PipelineData::Empty => {
-                    let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
-                    Ok(())
-                }
-                PipelineData::Value(Value::Nothing { .. }, _) => {
-                    let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
-                    Ok(())
-                }
-                PipelineData::Value(value, _) => {
-                    let _ = body_tx.send((
-                        inferred_content_type,
-                        ResponseTransport::Full(value_to_string(value).into_bytes()),
-                    ));
-                    Ok(())
-                }
-                PipelineData::ListStream(stream, _) => {
-                    let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
-                    let _ =
-                        body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
-
-                    for value in stream.into_inner() {
-                        if stream_tx
-                            .blocking_send(value_to_string(value).into_bytes())
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Ok(())
-                }
-
-                PipelineData::ByteStream(stream, meta) => {
-                    let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
-                    let _ = body_tx.send((
-                        meta.as_ref().and_then(|m| m.content_type.clone()),
-                        ResponseTransport::Stream(stream_rx),
-                    ));
-
-                    let mut reader = stream
-                        .reader()
-                        .ok_or_else(|| "ByteStream has no reader".to_string())?;
-                    let mut buf = vec![0; 8192];
-
-                    loop {
-                        match reader.read(&mut buf) {
-                            Ok(0) => break, // EOF
-                            Ok(n) => {
-                                if stream_tx.blocking_send(buf[..n].to_vec()).is_err() {
-                                    break;
-                                }
-                            }
-                            Err(err) => return Err(err.into()),
-                        }
-                    }
-                    Ok(())
-                }
-            }
-        });
-
-        (meta_rx, body_rx)
-    };
+    let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 
     // Wait for both:
     // 1. Metadata - either from .response or default values when closure skips .response
@@ -281,6 +190,109 @@ where
     };
 
     Ok(builder.body(body).unwrap())
+}
+
+fn spawn_eval_thread(
+    engine: crate::Engine,
+    request: crate::Request,
+    stream: nu_protocol::ByteStream,
+) -> (
+    oneshot::Receiver<crate::Response>,
+    oneshot::Receiver<(Option<String>, ResponseTransport)>,
+) {
+    let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
+    let (body_tx, body_rx) = tokio::sync::oneshot::channel();
+
+    fn inner(
+        engine: crate::Engine,
+        request: crate::Request,
+        stream: nu_protocol::ByteStream,
+        meta_tx: oneshot::Sender<crate::Response>,
+        body_tx: oneshot::Sender<(Option<String>, ResponseTransport)>,
+    ) -> Result<(), BoxError> {
+        RESPONSE_TX.with(|tx| {
+            *tx.borrow_mut() = Some(meta_tx);
+        });
+        let result = engine.eval(request, stream.into());
+        // Always clear the thread local storage after eval completes
+        RESPONSE_TX.with(|tx| {
+            let _ = tx.borrow_mut().take(); // This will drop the sender if it wasn't used
+        });
+        let output = result?;
+        let inferred_content_type = match &output {
+            PipelineData::Value(Value::Record { .. }, meta)
+                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+            {
+                Some("application/json".to_string())
+            }
+            PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
+                meta.as_ref().and_then(|m| m.content_type.clone())
+            }
+            _ => None,
+        };
+        match output {
+            PipelineData::Empty => {
+                let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+                Ok(())
+            }
+            PipelineData::Value(Value::Nothing { .. }, _) => {
+                let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+                Ok(())
+            }
+            PipelineData::Value(value, _) => {
+                let _ = body_tx.send((
+                    inferred_content_type,
+                    ResponseTransport::Full(value_to_string(value).into_bytes()),
+                ));
+                Ok(())
+            }
+            PipelineData::ListStream(stream, _) => {
+                let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                let _ = body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
+                for value in stream.into_inner() {
+                    if stream_tx
+                        .blocking_send(value_to_string(value).into_bytes())
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(())
+            }
+            PipelineData::ByteStream(stream, meta) => {
+                let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                let _ = body_tx.send((
+                    meta.as_ref().and_then(|m| m.content_type.clone()),
+                    ResponseTransport::Stream(stream_rx),
+                ));
+                let mut reader = stream
+                    .reader()
+                    .ok_or_else(|| "ByteStream has no reader".to_string())?;
+                let mut buf = vec![0; 8192];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            if stream_tx.blocking_send(buf[..n].to_vec()).is_err() {
+                                break;
+                            }
+                        }
+                        Err(err) => return Err(err.into()),
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
+        if let Err(e) = inner(engine, request, stream, meta_tx, body_tx) {
+            eprintln!("Error in eval thread: {}", e);
+        }
+        Ok(())
+    });
+
+    (meta_rx, body_rx)
 }
 
 fn value_to_json(value: &Value) -> serde_json::Value {

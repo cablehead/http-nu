@@ -119,11 +119,9 @@ impl Engine {
         let closure = self.closure.as_ref().ok_or("Closure not parsed")?;
 
         let mut stack = Stack::new();
-
         // we need to push a redirection to ensure that the output of the closure is captured
         let mut stack =
             stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
-
         let block = self.state.get_block(closure.block_id);
 
         stack.add_var(
@@ -131,12 +129,12 @@ impl Engine {
             request_to_value(&request, Span::unknown()),
         );
 
-        Ok(eval_block_with_early_return::<WithoutDebug>(
-            &self.state,
-            &mut stack,
-            block,
-            input,
-        )?)
+        eval_block_with_early_return::<WithoutDebug>(&self.state, &mut stack, block, input).map_err(
+            |err| {
+                let working_set = StateWorkingSet::new(&self.state);
+                Error::from(format_shell_error(&working_set, &err))
+            },
+        )
     }
 }
 
