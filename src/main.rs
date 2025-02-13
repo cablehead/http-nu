@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::PrivateKeyDer;
 use tokio_rustls::TlsAcceptor;
 
 use clap::Parser;
@@ -65,15 +65,17 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
     };
 
     while let Ok((stream, remote_addr)) = listener.accept().await {
-        let io = if let Some(tls) = &tls_acceptor {
+        let stream = if let Some(tls) = &tls_acceptor {
             // Handle TLS connection
             let tls_stream = tls.accept(stream).await?;
-            TokioIo::new(tls_stream)
+            Box::new(tls_stream)
+                as Box<dyn tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin>
         } else {
             // Handle plain TCP connection
-            TokioIo::new(stream)
+            Box::new(stream) as Box<dyn tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin>
         };
 
+        let io = TokioIo::new(stream);
         let engine = engine.clone();
 
         tokio::task::spawn(async move {
