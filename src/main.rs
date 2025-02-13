@@ -1,6 +1,12 @@
-use clap::Parser;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
+use rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
+
+use clap::Parser;
 
 use http_nu::{
     handler::{handle, ResponseStartCommand},
@@ -14,31 +20,75 @@ struct Args {
     #[clap(value_parser)]
     addr: String,
 
+    /// Path to PEM file containing certificate and private key
+    #[clap(short, long)]
+    tls: Option<PathBuf>,
+
     /// Nushell closure to handle requests
     #[clap(value_parser)]
     closure: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let args = Args::parse();
+fn configure_tls(pem: PathBuf) -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>> {
+    let pem = std::fs::File::open(pem)?;
+    let mut pem = std::io::BufReader::new(pem);
 
-    let mut engine = Engine::new()?;
-    // Add .response command to engine
-    engine.add_commands(vec![Box::new(ResponseStartCommand::new())])?;
-    // And the user supplied closure
-    engine.parse_closure(&args.closure)?;
+    let items = rustls_pemfile::read_all(&mut pem)?;
 
+    // Extract certificates
+    let certs: Vec<rustls::Certificate> = items
+        .iter()
+        .filter_map(|item| match item {
+            rustls_pemfile::Item::X509Certificate(cert) => Some(rustls::Certificate(cert.to_vec())),
+            _ => None,
+        })
+        .collect();
+
+    // Extract private key
+    let key = items
+        .into_iter()
+        .find_map(|item| match item {
+            rustls_pemfile::Item::RSAKey(key) => Some(rustls::PrivateKey(key)),
+            rustls_pemfile::Item::PKCS8Key(key) => Some(rustls::PrivateKey(key)),
+            rustls_pemfile::Item::ECKey(key) => Some(rustls::PrivateKey(key)),
+            _ => None,
+        })
+        .ok_or("No private key found in PEM file")?;
+
+    let config = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)?;
+
+    Ok(TlsAcceptor::from(Arc::new(config)))
+}
+
+async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut listener = Listener::bind(&args.addr).await?;
     println!("Listening on {}", listener);
 
+    // Configure TLS if enabled
+    let tls_acceptor = if let Some(pem_path) = args.tls {
+        Some(configure_tls(pem_path)?)
+    } else {
+        None
+    };
+
     while let Ok((stream, remote_addr)) = listener.accept().await {
-        let io = hyper_util::rt::TokioIo::new(stream);
+        let io = if let Some(tls) = &tls_acceptor {
+            // Handle TLS connection
+            let tls_stream = tls.accept(stream).await?;
+            TokioIo::new(tls_stream)
+        } else {
+            // Handle plain TCP connection
+            TokioIo::new(stream)
+        };
 
         let engine = engine.clone();
 
         tokio::task::spawn(async move {
             let service = service_fn(move |req| handle(engine.clone(), remote_addr, req));
+
             if let Err(err) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(io, service)
                 .await
@@ -49,4 +99,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let args = Args::parse();
+
+    let mut engine = Engine::new()?;
+    engine.add_commands(vec![Box::new(ResponseStartCommand::new())])?;
+    engine.parse_closure(&args.closure)?;
+
+    serve(args, engine).await
 }
