@@ -1,4 +1,4 @@
-use std::io::{self, Seek};
+use std::io::{self, Error, ErrorKind, Seek};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,32 +20,42 @@ pub struct TlsConfig {
 
 impl TlsConfig {
     pub fn from_pem(pem_path: PathBuf) -> io::Result<Self> {
-        let pem = std::fs::File::open(pem_path)?;
+        let pem = std::fs::File::open(&pem_path).map_err(|e| {
+            Error::new(
+                ErrorKind::NotFound,
+                format!("Failed to open PEM file {}: {}", pem_path.display(), e),
+            )
+        })?;
         let mut pem = std::io::BufReader::new(pem);
 
-        // Read certificates
-        let mut certs = Vec::new();
-        for cert in rustls_pemfile::certs(&mut pem) {
-            certs.push(cert.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?);
-        }
-
-        // Reset reader to start
-        pem.seek(std::io::SeekFrom::Start(0))?;
-
-        // Read private key
-        let key = rustls_pemfile::private_key(&mut pem)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "No private key found in PEM file",
+        let certs = rustls_pemfile::certs(&mut pem)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Invalid certificate: {}", e),
                 )
             })?;
+
+        if certs.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidData, "No certificates found"));
+        }
+
+        pem.seek(std::io::SeekFrom::Start(0))?;
+
+        let key = rustls_pemfile::private_key(&mut pem)
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Invalid private key: {}", e),
+                )
+            })?
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No private key found"))?;
 
         let config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("TLS config error: {}", e)))?;
 
         Ok(Self {
             acceptor: TlsAcceptor::from(Arc::new(config)),
