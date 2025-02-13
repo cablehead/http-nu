@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use rustls::pki_types::PrivateKeyDer;
 use tokio_rustls::TlsAcceptor;
 
 use clap::Parser;
@@ -38,7 +37,7 @@ fn configure_tls(pem: PathBuf) -> Result<TlsAcceptor, Box<dyn std::error::Error 
     // Read certificates
     let mut certs = Vec::new();
     for cert in rustls_pemfile::certs(&mut pem) {
-        certs.push(cert?.into());
+        certs.push(cert?);
     }
 
     // Reset reader to start
@@ -46,7 +45,6 @@ fn configure_tls(pem: PathBuf) -> Result<TlsAcceptor, Box<dyn std::error::Error 
 
     // Read private key
     let key = rustls_pemfile::private_key(&mut pem)?.ok_or("No private key found in PEM file")?;
-    let key = PrivateKeyDer::from(key);
 
     let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
