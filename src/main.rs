@@ -16,8 +16,8 @@ use http_nu::{
     Listener,
 };
 
-#[clap(version)]
 #[derive(Parser, Debug)]
+#[clap(version)]
 struct Args {
     /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(value_parser)]
