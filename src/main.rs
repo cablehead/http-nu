@@ -1,9 +1,10 @@
+use std::io::Seek;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use rustls::ServerConfig;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::TlsAcceptor;
 
 use clap::Parser;
@@ -14,7 +15,6 @@ use http_nu::{
 };
 
 #[derive(Parser, Debug)]
-#[clap(version)]
 struct Args {
     /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(value_parser)]
@@ -33,30 +33,20 @@ fn configure_tls(pem: PathBuf) -> Result<TlsAcceptor, Box<dyn std::error::Error 
     let pem = std::fs::File::open(pem)?;
     let mut pem = std::io::BufReader::new(pem);
 
-    let items = rustls_pemfile::read_all(&mut pem)?;
+    // Read certificates
+    let mut certs = Vec::new();
+    for cert in rustls_pemfile::certs(&mut pem) {
+        certs.push(cert?.into());
+    }
 
-    // Extract certificates
-    let certs: Vec<rustls::Certificate> = items
-        .iter()
-        .filter_map(|item| match item {
-            rustls_pemfile::Item::X509Certificate(cert) => Some(rustls::Certificate(cert.to_vec())),
-            _ => None,
-        })
-        .collect();
+    // Reset reader to start
+    pem.seek(std::io::SeekFrom::Start(0))?;
 
-    // Extract private key
-    let key = items
-        .into_iter()
-        .find_map(|item| match item {
-            rustls_pemfile::Item::RSAKey(key) => Some(rustls::PrivateKey(key)),
-            rustls_pemfile::Item::PKCS8Key(key) => Some(rustls::PrivateKey(key)),
-            rustls_pemfile::Item::ECKey(key) => Some(rustls::PrivateKey(key)),
-            _ => None,
-        })
-        .ok_or("No private key found in PEM file")?;
+    // Read private key
+    let key = rustls_pemfile::private_key(&mut pem)?.ok_or("No private key found in PEM file")?;
+    let key = PrivateKeyDer::from(key);
 
-    let config = ServerConfig::builder()
-        .with_safe_defaults()
+    let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
 
