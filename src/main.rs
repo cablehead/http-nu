@@ -11,9 +11,8 @@ use clap::Parser;
 
 use http_nu::{
     handler::{handle, ResponseStartCommand},
-    listener::AsyncReadWrite, // Import the existing trait
-    Engine,
-    Listener,
+    listener::AsyncReadWrite,
+    Engine, Listener,
 };
 
 #[derive(Parser, Debug)]
@@ -70,8 +69,13 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
     while let Ok((stream, remote_addr)) = listener.accept().await {
         let stream = if let Some(tls) = &tls_acceptor {
             // Handle TLS connection
-            let tls_stream = tls.accept(stream).await?;
-            Box::new(tls_stream) as Box<dyn AsyncReadWrite + Send + Unpin>
+            match tls.accept(stream).await {
+                Ok(tls_stream) => Box::new(tls_stream) as Box<dyn AsyncReadWrite + Send + Unpin>,
+                Err(e) => {
+                    eprintln!("TLS error: {}", e);
+                    continue;
+                }
+            }
         } else {
             // Handle plain TCP connection
             stream
@@ -87,7 +91,7 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
                 .serve_connection(io, service)
                 .await
             {
-                eprintln!("Error serving connection: {}", err);
+                eprintln!("Connection error: {}", err);
             }
         });
     }
