@@ -1,35 +1,16 @@
-use std::collections::HashMap;
+use nu_protocol::{PipelineData, Value};
 
-use nu_protocol::PipelineData;
-
-use http::header::HeaderMap;
-use http::{Method, Uri};
-
-use crate::{Engine, Request};
+use crate::Engine;
 
 #[test]
 fn test_engine_eval() {
     let mut engine = Engine::new().unwrap();
-
-    // First parse the closure
     engine
         .parse_closure(r#"{|request| "hello world" }"#)
         .unwrap();
 
-    let request = Request {
-        proto: "HTTP/1.1".into(),
-        method: Method::GET,
-        uri: "/".parse::<Uri>().unwrap(),
-        path: "/".into(),
-        authority: None,
-        remote_ip: None,
-        remote_port: None,
-        headers: HeaderMap::new(),
-        query: HashMap::new(),
-    };
-
-    // Then eval with request
-    let result = engine.eval(request, PipelineData::empty()).unwrap();
+    let test_value = Value::test_string("hello world");
+    let result = engine.eval(test_value, PipelineData::empty()).unwrap();
 
     assert!(result
         .into_value(nu_protocol::Span::test_data())

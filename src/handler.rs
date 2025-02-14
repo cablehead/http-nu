@@ -174,10 +174,36 @@ where
             meta_rx.await.unwrap_or(Response {
                 status: 200,
                 headers: HashMap::new(),
+                body_type: ResponseBodyType::Normal,
             })
         },
         bridged_body
     );
+
+    match &meta.body_type {
+        ResponseBodyType::Normal => {
+            let body_result = body_result?;
+            build_normal_response(&meta, body_result).await
+        }
+        ResponseBodyType::Static { root, path } => {
+            let static_ = Static::new(root);
+            let static_req = hyper::Request::builder().uri(path).body(()).unwrap();
+
+            let static_response = static_.serve(static_req).await.map_err(|e| e.into())?;
+
+            // Convert hyper_staticfile::Body to BoxBody
+            Ok(hyper::Response::from_parts(
+                static_response.into_parts().0,
+                static_response.into_body().boxed(),
+            ))
+        }
+    }
+}
+
+async fn build_normal_response(
+    meta: &Response,
+    body_result: Result<(Option<String>, ResponseTransport), BoxError>,
+) -> HTTPResult {
     let (inferred_content_type, body) = body_result?;
 
     // Build response with appropriate headers
@@ -201,7 +227,7 @@ where
     );
 
     // Add rest of custom headers
-    for (k, v) in meta.headers {
+    for (k, v) in &meta.headers {
         if k.to_lowercase() != "content-type" {
             header_map.insert(
                 hyper::header::HeaderName::from_bytes(k.as_bytes())?,
@@ -250,7 +276,7 @@ fn spawn_eval_thread(
         RESPONSE_TX.with(|tx| {
             *tx.borrow_mut() = Some(meta_tx);
         });
-        let result = engine.eval(request, stream.into());
+        let result = engine.eval(request_to_value(&request, Span::unknown()), stream.into());
         // Always clear the thread local storage after eval completes
         RESPONSE_TX.with(|tx| {
             let _ = tx.borrow_mut().take(); // This will drop the sender if it wasn't used
@@ -437,7 +463,11 @@ impl Command for ResponseStartCommand {
         };
 
         // Create response and send through channel
-        let response = Response { status, headers };
+        let response = Response {
+            status,
+            headers,
+            body_type: ResponseBodyType::Normal,
+        };
 
         RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
             if let Some(tx) = tx.borrow_mut().take() {
@@ -459,9 +489,25 @@ impl Command for ResponseStartCommand {
 #[derive(Clone)]
 pub struct StaticCommand;
 
+impl Default for StaticCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StaticCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 impl Command for StaticCommand {
     fn name(&self) -> &str {
         ".static"
+    }
+
+    fn description(&self) -> &str {
+        "Serve static files from a directory"
     }
 
     fn signature(&self) -> Signature {

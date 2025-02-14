@@ -250,13 +250,41 @@ async fn test_handle_preserve_preamble() {
     assert_eq!(content, "foo/bar");
 }
 
+#[tokio::test]
+async fn test_handle_static() {
+    let tmp = tempfile::tempdir().unwrap();
+    let static_dir = tmp.path().join("static");
+    std::fs::create_dir(&static_dir).unwrap();
+
+    let css = "body { background: blue; }";
+    std::fs::write(static_dir.join("styles.css"), css).unwrap();
+
+    let engine = test_engine(&format!(
+        r#"{{|req| .static "{}" $req.path }}"#,
+        static_dir.to_str().unwrap()
+    ));
+
+    let req = Request::builder()
+        .uri("/styles.css")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers()["content-type"], "text/css");
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(String::from_utf8(body.to_vec()).unwrap(), css);
+}
+
 fn test_engine(script: &str) -> crate::Engine {
     let mut engine = crate::Engine::new().unwrap();
-    // Add .response command to engine
     engine
-        .add_commands(vec![Box::new(super::handler::ResponseStartCommand::new())])
+        .add_commands(vec![
+            Box::new(super::handler::ResponseStartCommand::new()),
+            Box::new(super::handler::StaticCommand::new()),
+        ])
         .unwrap();
-    // Parse the test script
     engine.parse_closure(script).unwrap();
     engine
 }
