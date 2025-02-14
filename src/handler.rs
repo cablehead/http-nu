@@ -181,21 +181,34 @@ where
     );
 
     match &meta.body_type {
-        ResponseBodyType::Normal => {
-            let body_result = body_result?;
-            build_normal_response(&meta, body_result).await
-        }
+        ResponseBodyType::Normal => build_normal_response(&meta, body_result?).await,
         ResponseBodyType::Static { root, path } => {
             let static_ = Static::new(root);
-            let static_req = hyper::Request::builder().uri(path).body(()).unwrap();
+            let static_req = hyper::Request::builder()
+                .uri(path)
+                .body(())
+                .map_err(|e| BoxError::from(e))?;
 
-            let static_response = static_.serve(static_req).await.map_err(|e| e.into())?;
+            let static_response = static_.serve(static_req).await?;
 
             // Convert hyper_staticfile::Body to BoxBody
-            Ok(hyper::Response::from_parts(
-                static_response.into_parts().0,
-                static_response.into_body().boxed(),
-            ))
+            let (parts, body) = static_response.into_parts();
+            let body = match body {
+                hyper_staticfile::Body::Full(bytes) => {
+                    Full::new(bytes).map_err(|never| match never {}).boxed()
+                }
+                hyper_staticfile::Body::Empty => Empty::<Bytes>::new()
+                    .map_err(|never| match never {})
+                    .boxed(),
+                hyper_staticfile::Body::File(file) => {
+                    let stream = tokio_util::io::ReaderStream::new(file)
+                        .map(|result| result.map(Frame::data))
+                        .map_err(|e| e.into());
+                    StreamBody::new(stream).boxed()
+                }
+            };
+
+            Ok(hyper::Response::from_parts(parts, body))
         }
     }
 }
@@ -205,20 +218,15 @@ async fn build_normal_response(
     body_result: Result<(Option<String>, ResponseTransport), BoxError>,
 ) -> HTTPResult {
     let (inferred_content_type, body) = body_result?;
-
-    // Build response with appropriate headers
     let mut builder = hyper::Response::builder().status(meta.status);
     let mut header_map = hyper::header::HeaderMap::new();
 
-    // First apply content-type from .response headers if present
     let content_type = meta
         .headers
         .get("content-type")
         .or(meta.headers.get("Content-Type"))
         .cloned()
-        // Then pipeline metadata
         .or(inferred_content_type)
-        // Finally default
         .unwrap_or("text/html; charset=utf-8".to_string());
 
     header_map.insert(
@@ -226,19 +234,17 @@ async fn build_normal_response(
         hyper::header::HeaderValue::from_str(&content_type)?,
     );
 
-    // Add rest of custom headers
     for (k, v) in &meta.headers {
         if k.to_lowercase() != "content-type" {
             header_map.insert(
                 hyper::header::HeaderName::from_bytes(k.as_bytes())?,
-                hyper::header::HeaderValue::from_str(&v)?,
+                hyper::header::HeaderValue::from_str(v)?,
             );
         }
     }
 
     *builder.headers_mut().unwrap() = header_map;
 
-    // Set response body
     let body = match body {
         ResponseTransport::Empty => Empty::<Bytes>::new()
             .map_err(|never| match never {})
@@ -252,7 +258,7 @@ async fn build_normal_response(
         }
     };
 
-    Ok(builder.body(body).unwrap())
+    Ok(builder.body(body)?)
 }
 
 fn spawn_eval_thread(

@@ -27,6 +27,7 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 bytes = "1.6.0"
 url = "2.5.0"
