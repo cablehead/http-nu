@@ -41,6 +41,7 @@ nu-protocol = "0.101.0"
 tokio-rustls = "0.26.1"
 rustls = "0.23.23"
 rustls-pemfile = "2.2.0"
+hyper-staticfile = "0.10.1"
 
 [dev-dependencies]
 tokio-test = "0.4"
