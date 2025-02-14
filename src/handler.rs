@@ -181,33 +181,18 @@ where
     );
 
     match &meta.body_type {
-        ResponseBodyType::Normal => build_normal_response(&meta, body_result?).await,
+        ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
         ResponseBodyType::Static { root, path } => {
-            let static_ = Static::new(root);
-            let static_req = hyper::Request::builder()
-                .uri(path)
-                .body(())
-                .map_err(|e| BoxError::from(e))?;
+            let resolver = hyper_staticfile::Resolver::new(root);
+            let result = resolver.resolve(path).await?;
 
-            let static_response = static_.serve(static_req).await?;
+            let response = hyper_staticfile::ResponseBuilder::new()
+                .path(path)
+                .request_parts(&parts.method, &parts.uri, &parts.headers)
+                .build(result)?;
 
-            // Convert hyper_staticfile::Body to BoxBody
-            let (parts, body) = static_response.into_parts();
-            let body = match body {
-                hyper_staticfile::Body::Full(bytes) => {
-                    Full::new(bytes).map_err(|never| match never {}).boxed()
-                }
-                hyper_staticfile::Body::Empty => Empty::<Bytes>::new()
-                    .map_err(|never| match never {})
-                    .boxed(),
-                hyper_staticfile::Body::File(file) => {
-                    let stream = tokio_util::io::ReaderStream::new(file)
-                        .map(|result| result.map(Frame::data))
-                        .map_err(|e| e.into());
-                    StreamBody::new(stream).boxed()
-                }
-            };
-
+            let (parts, body) = response.into_parts();
+            let body = body.boxed();
             Ok(hyper::Response::from_parts(parts, body))
         }
     }
