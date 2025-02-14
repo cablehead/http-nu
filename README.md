@@ -28,6 +28,23 @@ $ curl -s --unix-socket ./sock localhost
 Hello world
 ```
 
+### TLS Support
+
+Enable TLS by providing a PEM file containing both certificate and private key:
+
+```bash
+$ http-nu :3001 --tls cert.pem '{|req| "Secure Hello"}'
+$ curl -k https://localhost:3001
+Secure Hello
+```
+
+Generate a self-signed certificate for testing:
+
+```bash
+$ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+$ cat cert.pem key.pem > combined.pem
+```
+
 ### POST: echo
 
 ```bash

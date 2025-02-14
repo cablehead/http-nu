@@ -1,9 +1,12 @@
-use std::io;
+use std::io::{self, Error, ErrorKind, Seek};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 #[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
+use tokio_rustls::TlsAcceptor;
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -11,8 +14,60 @@ impl<T: AsyncRead + AsyncWrite> AsyncReadWrite for T {}
 
 pub type AsyncReadWriteBox = Box<dyn AsyncReadWrite + Unpin + Send>;
 
+pub struct TlsConfig {
+    acceptor: TlsAcceptor,
+}
+
+impl TlsConfig {
+    pub fn from_pem(pem_path: PathBuf) -> io::Result<Self> {
+        let pem = std::fs::File::open(&pem_path).map_err(|e| {
+            Error::new(
+                ErrorKind::NotFound,
+                format!("Failed to open PEM file {}: {}", pem_path.display(), e),
+            )
+        })?;
+        let mut pem = std::io::BufReader::new(pem);
+
+        let certs = rustls_pemfile::certs(&mut pem)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Invalid certificate: {}", e),
+                )
+            })?;
+
+        if certs.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidData, "No certificates found"));
+        }
+
+        pem.seek(std::io::SeekFrom::Start(0))?;
+
+        let key = rustls_pemfile::private_key(&mut pem)
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidData,
+                    format!("Invalid private key: {}", e),
+                )
+            })?
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No private key found"))?;
+
+        let config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("TLS config error: {}", e)))?;
+
+        Ok(Self {
+            acceptor: TlsAcceptor::from(Arc::new(config)),
+        })
+    }
+}
+
 pub enum Listener {
-    Tcp(TcpListener),
+    Tcp {
+        listener: TcpListener,
+        tls_config: Option<TlsConfig>,
+    },
     #[cfg(unix)]
     Unix(UnixListener),
 }
@@ -22,9 +77,29 @@ impl Listener {
         &mut self,
     ) -> io::Result<(AsyncReadWriteBox, Option<std::net::SocketAddr>)> {
         match self {
-            Listener::Tcp(listener) => {
+            Listener::Tcp {
+                listener,
+                tls_config,
+            } => {
                 let (stream, addr) = listener.accept().await?;
-                Ok((Box::new(stream), Some(addr)))
+
+                let stream = if let Some(tls) = tls_config {
+                    // Handle TLS connection
+                    match tls.acceptor.accept(stream).await {
+                        Ok(tls_stream) => Box::new(tls_stream) as AsyncReadWriteBox,
+                        Err(e) => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                format!("TLS error: {}", e),
+                            ));
+                        }
+                    }
+                } else {
+                    // Handle plain TCP connection
+                    Box::new(stream)
+                };
+
+                Ok((stream, Some(addr)))
             }
             #[cfg(unix)]
             Listener::Unix(listener) => {
@@ -34,7 +109,7 @@ impl Listener {
         }
     }
 
-    pub async fn bind(addr: &str) -> io::Result<Self> {
+    pub async fn bind(addr: &str, tls_config: Option<TlsConfig>) -> io::Result<Self> {
         #[cfg(windows)]
         {
             // On Windows, treat all addresses as TCP
@@ -43,12 +118,21 @@ impl Listener {
                 addr = format!("127.0.0.1{}", addr);
             }
             let listener = TcpListener::bind(addr).await?;
-            Ok(Listener::Tcp(listener))
+            Ok(Listener::Tcp {
+                listener,
+                tls_config,
+            })
         }
 
         #[cfg(unix)]
         {
             if addr.starts_with('/') || addr.starts_with('.') {
+                if tls_config.is_some() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "TLS is not supported with Unix domain sockets",
+                    ));
+                }
                 let _ = std::fs::remove_file(addr);
                 let listener = UnixListener::bind(addr)?;
                 Ok(Listener::Unix(listener))
@@ -58,7 +142,10 @@ impl Listener {
                     addr = format!("127.0.0.1{}", addr);
                 }
                 let listener = TcpListener::bind(addr).await?;
-                Ok(Listener::Tcp(listener))
+                Ok(Listener::Tcp {
+                    listener,
+                    tls_config,
+                })
             }
         }
     }
@@ -66,7 +153,7 @@ impl Listener {
     #[allow(dead_code)]
     pub async fn connect(&self) -> io::Result<AsyncReadWriteBox> {
         match self {
-            Listener::Tcp(listener) => {
+            Listener::Tcp { listener, .. } => {
                 let stream = TcpStream::connect(listener.local_addr()?).await?;
                 Ok(Box::new(stream))
             }
@@ -83,9 +170,18 @@ impl Listener {
 impl std::fmt::Display for Listener {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Listener::Tcp(listener) => {
+            Listener::Tcp {
+                listener,
+                tls_config,
+            } => {
                 let addr = listener.local_addr().unwrap();
-                write!(f, "{}:{}", addr.ip(), addr.port())
+                write!(
+                    f,
+                    "{}:{} {}",
+                    addr.ip(),
+                    addr.port(),
+                    if tls_config.is_some() { "(TLS)" } else { "" }
+                )
             }
             #[cfg(unix)]
             Listener::Unix(listener) => {
@@ -105,7 +201,7 @@ mod tests {
     use tokio::io::AsyncWriteExt;
 
     async fn exercise_listener(addr: &str) {
-        let mut listener = Listener::bind(addr).await.unwrap();
+        let mut listener = Listener::bind(addr, None).await.unwrap();
         let mut client = listener.connect().await.unwrap();
 
         let (mut serve, _) = listener.accept().await.unwrap();

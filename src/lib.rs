@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 mod engine;
 pub mod handler;
-mod listener;
+pub mod listener;
 
 pub use engine::Engine;
 pub use listener::Listener;

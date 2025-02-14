@@ -1,9 +1,13 @@
-use clap::Parser;
+use std::path::PathBuf;
 
 use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
+
+use clap::Parser;
 
 use http_nu::{
     handler::{handle, ResponseStartCommand},
+    listener::TlsConfig,
     Engine, Listener,
 };
 
@@ -14,27 +18,28 @@ struct Args {
     #[clap(value_parser)]
     addr: String,
 
+    /// Path to PEM file containing certificate and private key
+    #[clap(short, long)]
+    tls: Option<PathBuf>,
+
     /// Nushell closure to handle requests
     #[clap(value_parser)]
     closure: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let args = Args::parse();
+async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Configure TLS if enabled
+    let tls_config = if let Some(pem_path) = args.tls {
+        Some(TlsConfig::from_pem(pem_path)?)
+    } else {
+        None
+    };
 
-    let mut engine = Engine::new()?;
-    // Add .response command to engine
-    engine.add_commands(vec![Box::new(ResponseStartCommand::new())])?;
-    // And the user supplied closure
-    engine.parse_closure(&args.closure)?;
-
-    let mut listener = Listener::bind(&args.addr).await?;
+    let mut listener = Listener::bind(&args.addr, tls_config).await?;
     println!("Listening on {}", listener);
 
     while let Ok((stream, remote_addr)) = listener.accept().await {
-        let io = hyper_util::rt::TokioIo::new(stream);
-
+        let io = TokioIo::new(stream);
         let engine = engine.clone();
 
         tokio::task::spawn(async move {
@@ -43,10 +48,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .serve_connection(io, service)
                 .await
             {
-                eprintln!("Error serving connection: {}", err);
+                eprintln!("Connection error: {}", err);
             }
         });
     }
 
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let args = Args::parse();
+
+    let mut engine = Engine::new()?;
+    engine.add_commands(vec![Box::new(ResponseStartCommand::new())])?;
+    engine.parse_closure(&args.closure)?;
+
+    serve(args, engine).await
 }
