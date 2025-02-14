@@ -201,7 +201,7 @@ mod tests {
     use tokio::io::AsyncWriteExt;
 
     async fn exercise_listener(addr: &str) {
-        let mut listener = Listener::bind(addr).await.unwrap();
+        let mut listener = Listener::bind(addr, None).await.unwrap();
         let mut client = listener.connect().await.unwrap();
 
         let (mut serve, _) = listener.accept().await.unwrap();
