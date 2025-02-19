@@ -13,7 +13,6 @@ use tokio_stream::StreamExt;
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
-use hyper_staticfile::{Body as StaticBody, Static};
 
 use nu_engine::command_prelude::Type;
 use nu_engine::CallExt;
@@ -146,11 +145,11 @@ where
 
     let request = Request {
         proto: format!("{:?}", parts.version),
-        method: parts.method,
+        method: parts.method.clone(),
         authority: parts.uri.authority().map(|a| a.to_string()),
         remote_ip: addr.as_ref().map(|a| a.ip()),
         remote_port: addr.as_ref().map(|a| a.port()),
-        headers: parts.headers,
+        headers: parts.headers.clone(),
         uri: parts.uri.clone(),
         path: parts.uri.path().to_string(),
         query: parts
@@ -184,15 +183,20 @@ where
         ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
         ResponseBodyType::Static { root, path } => {
             let resolver = hyper_staticfile::Resolver::new(root);
-            let result = resolver.resolve(path).await?;
-
+            let accept_encoding = parts
+                .headers
+                .get("accept-encoding")
+                .and_then(|hv| Some(hyper_staticfile::AcceptEncoding::from_header_value(hv)))
+                .unwrap_or_else(hyper_staticfile::AcceptEncoding::none);
+            let result = resolver.resolve_path(&path, accept_encoding).await?;
             let response = hyper_staticfile::ResponseBuilder::new()
-                .path(path)
+                .path(&path)
                 .request_parts(&parts.method, &parts.uri, &parts.headers)
                 .build(result)?;
-
             let (parts, body) = response.into_parts();
-            let body = body.boxed();
+            let body = body
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>)
+                .boxed();
             Ok(hyper::Response::from_parts(parts, body))
         }
     }
