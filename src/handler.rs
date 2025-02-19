@@ -185,7 +185,8 @@ where
             let resolver = hyper_staticfile::Resolver::new(root);
             let accept_encoding = parts
                 .headers
-                .get("accept-encoding").map(hyper_staticfile::AcceptEncoding::from_header_value)
+                .get("accept-encoding")
+                .map(hyper_staticfile::AcceptEncoding::from_header_value)
                 .unwrap_or_else(hyper_staticfile::AcceptEncoding::none);
             let result = resolver.resolve_path(path, accept_encoding).await?;
             let response = hyper_staticfile::ResponseBuilder::new()
