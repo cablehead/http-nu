@@ -1088,6 +1088,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fstr"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59fd8999da11407ccf70cbe696eb7f819b85429d83ee3c6eb2f514b1751d246b"
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1334,6 +1340,7 @@ dependencies = [
  "nu-protocol",
  "rustls",
  "rustls-pemfile",
+ "scru128",
  "serde",
  "serde_json",
  "tempfile",
@@ -3390,6 +3397,18 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "scru128"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8db8ec4ae75494860073f4ea781388356167027e42757bb193e31145dae5e1f"
+dependencies = [
+ "fstr",
+ "rand",
+ "rand_chacha",
+ "serde",
+]
 
 [[package]]
 name = "seahash"

@@ -36,7 +36,10 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
     };
 
     let mut listener = Listener::bind(&args.addr, tls_config).await?;
-    println!("Listening on {}", listener);
+    println!(
+        "{}",
+        serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
+    );
 
     loop {
         match listener.accept().await {

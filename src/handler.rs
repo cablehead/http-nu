@@ -163,6 +163,11 @@ where
             .unwrap_or_else(HashMap::new),
     };
 
+    println!(
+        "{}",
+        serde_json::json!({"stamp": scru128::new(), "message": "request", "meta": request})
+    );
+
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 
     // Wait for both:
