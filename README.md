@@ -45,6 +45,22 @@ $ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -no
 $ cat cert.pem key.pem > combined.pem
 ```
 
+### Serving Static Files
+
+You can serve static files from a directory using the `.static` command. This
+command takes two arguments: the root directory path and the request path.
+
+When you call `.static`, it sets the response to serve the specified file, and
+any subsequent output in the closure will be ignored. The content type is
+automatically inferred based on the file extension (e.g., `text/css` for `.css`
+files).
+
+Here's an example:
+
+```bash
+$ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path}'
+```
+
 ### POST: echo
 
 ```bash
