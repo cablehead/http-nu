@@ -6,7 +6,7 @@ use hyper_util::rt::TokioIo;
 use clap::Parser;
 
 use http_nu::{
-    handler::{handle, ResponseStartCommand},
+    handler::{handle, ResponseStartCommand, StaticCommand},
     listener::TlsConfig,
     Engine, Listener,
 };
@@ -67,7 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
     let mut engine = Engine::new()?;
-    engine.add_commands(vec![Box::new(ResponseStartCommand::new())])?;
+    engine.add_commands(vec![
+        Box::new(ResponseStartCommand::new()),
+        Box::new(StaticCommand::new()),
+    ])?;
     engine.parse_closure(&args.closure)?;
 
     serve(args, engine).await
