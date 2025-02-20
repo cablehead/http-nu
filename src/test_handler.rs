@@ -260,7 +260,7 @@ async fn test_handle_static() {
     std::fs::write(static_dir.join("styles.css"), css).unwrap();
 
     let engine = test_engine(&format!(
-        r#"{{|req| .static "{}" $req.path }}"#,
+        r#"{{|req| .static '{}' $req.path }}"#,
         static_dir.to_str().unwrap()
     ));
 
