@@ -1323,6 +1323,7 @@ dependencies = [
  "http-body-util",
  "http-serde",
  "hyper",
+ "hyper-staticfile",
  "hyper-util",
  "nu-cli",
  "nu-cmd-extra",
@@ -1340,8 +1341,15 @@ dependencies = [
  "tokio-rustls",
  "tokio-stream",
  "tokio-test",
+ "tokio-util",
  "url",
 ]
+
+[[package]]
+name = "http-range"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21dec9db110f5f872ed9699c3ecf50cf16f423502706ba5c72462e28d3157573"
 
 [[package]]
 name = "http-serde"
@@ -1396,6 +1404,25 @@ dependencies = [
  "smallvec",
  "tokio",
  "want",
+]
+
+[[package]]
+name = "hyper-staticfile"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc4bce64c32578957926e75f832032f81ebb30bcee74f86c5848b13a69e547eb"
+dependencies = [
+ "futures-util",
+ "http",
+ "http-range",
+ "httpdate",
+ "hyper",
+ "mime_guess",
+ "percent-encoding",
+ "rand",
+ "tokio",
+ "url",
+ "winapi",
 ]
 
 [[package]]

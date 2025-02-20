@@ -2,6 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::SocketAddr;
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -10,15 +13,48 @@ use tokio_stream::StreamExt;
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
-use hyper::{Request, Response};
 
 use nu_engine::command_prelude::Type;
 use nu_engine::CallExt;
 use nu_protocol::engine::{Call, Command, EngineState, Stack};
-use nu_protocol::{Category, PipelineData, ShellError, Signature, SyntaxShape, Value};
+use nu_protocol::{
+    Category, PipelineData, Record, ShellError, Signature, Span, SyntaxShape, Value,
+};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Request {
+    pub proto: String,
+    #[serde(with = "http_serde::method")]
+    pub method: http::method::Method,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_ip: Option<std::net::IpAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_port: Option<u16>,
+    #[serde(with = "http_serde::header_map")]
+    pub headers: http::header::HeaderMap,
+    #[serde(with = "http_serde::uri")]
+    pub uri: http::Uri,
+    pub path: String,
+    pub query: HashMap<String, String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Response {
+    pub status: u16,
+    pub headers: HashMap<String, String>,
+    pub body_type: ResponseBodyType,
+}
+
+#[derive(Clone, Debug)]
+pub enum ResponseBodyType {
+    Normal,
+    Static { root: PathBuf, path: String },
+}
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
-type HTTPResult = Result<Response<BoxBody<Bytes, BoxError>>, BoxError>;
+type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 #[derive(Debug)]
 enum ResponseTransport {
@@ -30,8 +66,8 @@ enum ResponseTransport {
 pub async fn handle<B>(
     engine: crate::Engine,
     addr: Option<SocketAddr>,
-    req: Request<B>,
-) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError>
+    req: hyper::Request<B>,
+) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
     B: hyper::body::Body + Unpin + Send + 'static,
     B::Data: Into<Bytes> + Clone + Send,
@@ -41,7 +77,7 @@ where
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {}", err);
-            let response = Response::builder().status(500).body(
+            let response = hyper::Response::builder().status(500).body(
                 Full::new("Internal Server Error".into())
                     .map_err(|never| match never {})
                     .boxed(),
@@ -54,7 +90,7 @@ where
 async fn handle_inner<B>(
     engine: crate::Engine,
     addr: Option<SocketAddr>,
-    req: Request<B>,
+    req: hyper::Request<B>,
 ) -> HTTPResult
 where
     B: hyper::body::Body + Unpin + Send + 'static,
@@ -107,13 +143,13 @@ where
         },
     );
 
-    let request = crate::Request {
+    let request = Request {
         proto: format!("{:?}", parts.version),
-        method: parts.method,
+        method: parts.method.clone(),
         authority: parts.uri.authority().map(|a| a.to_string()),
         remote_ip: addr.as_ref().map(|a| a.ip()),
         remote_port: addr.as_ref().map(|a| a.port()),
-        headers: parts.headers,
+        headers: parts.headers.clone(),
         uri: parts.uri.clone(),
         path: parts.uri.path().to_string(),
         query: parts
@@ -134,28 +170,52 @@ where
     // 2. Body pipeline to start (but not necessarily complete as it may stream)
     let (meta, body_result) = tokio::join!(
         async {
-            meta_rx.await.unwrap_or(crate::Response {
+            meta_rx.await.unwrap_or(Response {
                 status: 200,
                 headers: HashMap::new(),
+                body_type: ResponseBodyType::Normal,
             })
         },
         bridged_body
     );
-    let (inferred_content_type, body) = body_result?;
 
-    // Build response with appropriate headers
+    match &meta.body_type {
+        ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
+        ResponseBodyType::Static { root, path } => {
+            let resolver = hyper_staticfile::Resolver::new(root);
+            let accept_encoding = parts
+                .headers
+                .get("accept-encoding")
+                .map(hyper_staticfile::AcceptEncoding::from_header_value)
+                .unwrap_or_else(hyper_staticfile::AcceptEncoding::none);
+            let result = resolver.resolve_path(path, accept_encoding).await?;
+            let response = hyper_staticfile::ResponseBuilder::new()
+                .path(path)
+                .request_parts(&parts.method, &parts.uri, &parts.headers)
+                .build(result)?;
+            let (parts, body) = response.into_parts();
+            let body = body
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>)
+                .boxed();
+            Ok(hyper::Response::from_parts(parts, body))
+        }
+    }
+}
+
+async fn build_normal_response(
+    meta: &Response,
+    body_result: Result<(Option<String>, ResponseTransport), BoxError>,
+) -> HTTPResult {
+    let (inferred_content_type, body) = body_result?;
     let mut builder = hyper::Response::builder().status(meta.status);
     let mut header_map = hyper::header::HeaderMap::new();
 
-    // First apply content-type from .response headers if present
     let content_type = meta
         .headers
         .get("content-type")
         .or(meta.headers.get("Content-Type"))
         .cloned()
-        // Then pipeline metadata
         .or(inferred_content_type)
-        // Finally default
         .unwrap_or("text/html; charset=utf-8".to_string());
 
     header_map.insert(
@@ -163,19 +223,17 @@ where
         hyper::header::HeaderValue::from_str(&content_type)?,
     );
 
-    // Add rest of custom headers
-    for (k, v) in meta.headers {
+    for (k, v) in &meta.headers {
         if k.to_lowercase() != "content-type" {
             header_map.insert(
                 hyper::header::HeaderName::from_bytes(k.as_bytes())?,
-                hyper::header::HeaderValue::from_str(&v)?,
+                hyper::header::HeaderValue::from_str(v)?,
             );
         }
     }
 
     *builder.headers_mut().unwrap() = header_map;
 
-    // Set response body
     let body = match body {
         ResponseTransport::Empty => Empty::<Bytes>::new()
             .map_err(|never| match never {})
@@ -189,15 +247,15 @@ where
         }
     };
 
-    Ok(builder.body(body).unwrap())
+    Ok(builder.body(body)?)
 }
 
 fn spawn_eval_thread(
     engine: crate::Engine,
-    request: crate::Request,
+    request: Request,
     stream: nu_protocol::ByteStream,
 ) -> (
-    oneshot::Receiver<crate::Response>,
+    oneshot::Receiver<Response>,
     oneshot::Receiver<(Option<String>, ResponseTransport)>,
 ) {
     let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
@@ -205,15 +263,15 @@ fn spawn_eval_thread(
 
     fn inner(
         engine: crate::Engine,
-        request: crate::Request,
+        request: Request,
         stream: nu_protocol::ByteStream,
-        meta_tx: oneshot::Sender<crate::Response>,
+        meta_tx: oneshot::Sender<Response>,
         body_tx: oneshot::Sender<(Option<String>, ResponseTransport)>,
     ) -> Result<(), BoxError> {
         RESPONSE_TX.with(|tx| {
             *tx.borrow_mut() = Some(meta_tx);
         });
-        let result = engine.eval(request, stream.into());
+        let result = engine.eval(request_to_value(&request, Span::unknown()), stream.into());
         // Always clear the thread local storage after eval completes
         RESPONSE_TX.with(|tx| {
             let _ = tx.borrow_mut().take(); // This will drop the sender if it wasn't used
@@ -400,7 +458,79 @@ impl Command for ResponseStartCommand {
         };
 
         // Create response and send through channel
-        let response = crate::Response { status, headers };
+        let response = Response {
+            status,
+            headers,
+            body_type: ResponseBodyType::Normal,
+        };
+
+        RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
+            if let Some(tx) = tx.borrow_mut().take() {
+                tx.send(response).map_err(|_| ShellError::GenericError {
+                    error: "Failed to send response".into(),
+                    msg: "Channel closed".into(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?;
+            }
+            Ok(())
+        })?;
+
+        Ok(PipelineData::Empty)
+    }
+}
+
+#[derive(Clone)]
+pub struct StaticCommand;
+
+impl Default for StaticCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StaticCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for StaticCommand {
+    fn name(&self) -> &str {
+        ".static"
+    }
+
+    fn description(&self) -> &str {
+        "Serve static files from a directory"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".static")
+            .required("root", SyntaxShape::String, "root directory path")
+            .required("path", SyntaxShape::String, "request path")
+            .input_output_types(vec![(Type::Nothing, Type::Nothing)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let root: String = call.req(engine_state, stack, 0)?;
+        let path: String = call.req(engine_state, stack, 1)?;
+
+        let response = Response {
+            status: 200,
+            headers: HashMap::new(),
+            body_type: ResponseBodyType::Static {
+                root: PathBuf::from(root),
+                path,
+            },
+        };
 
         RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
             if let Some(tx) = tx.borrow_mut().take() {
@@ -420,5 +550,45 @@ impl Command for ResponseStartCommand {
 }
 
 thread_local! {
-    static RESPONSE_TX: RefCell<Option<oneshot::Sender<crate::Response>>> = const { RefCell::new(None) };
+    static RESPONSE_TX: RefCell<Option<oneshot::Sender<Response>>> = const { RefCell::new(None) };
+}
+
+pub fn request_to_value(request: &Request, span: Span) -> Value {
+    let mut record = Record::new();
+
+    record.push("proto", Value::string(request.proto.clone(), span));
+    record.push("method", Value::string(request.method.to_string(), span));
+    record.push("uri", Value::string(request.uri.to_string(), span));
+    record.push("path", Value::string(request.path.clone(), span));
+
+    if let Some(authority) = &request.authority {
+        record.push("authority", Value::string(authority.clone(), span));
+    }
+
+    if let Some(remote_ip) = &request.remote_ip {
+        record.push("remote_ip", Value::string(remote_ip.to_string(), span));
+    }
+
+    if let Some(remote_port) = &request.remote_port {
+        record.push("remote_port", Value::int(*remote_port as i64, span));
+    }
+
+    // Convert headers to a record
+    let mut headers_record = Record::new();
+    for (key, value) in request.headers.iter() {
+        headers_record.push(
+            key.to_string(),
+            Value::string(value.to_str().unwrap_or_default().to_string(), span),
+        );
+    }
+    record.push("headers", Value::record(headers_record, span));
+
+    // Convert query parameters to a record
+    let mut query_record = Record::new();
+    for (key, value) in &request.query {
+        query_record.push(key.clone(), Value::string(value.clone(), span));
+    }
+    record.push("query", Value::record(query_record, span));
+
+    Value::record(record, span)
 }

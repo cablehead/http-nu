@@ -27,6 +27,7 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
 
 bytes = "1.6.0"
 url = "2.5.0"
@@ -41,6 +42,7 @@ nu-protocol = "0.101.0"
 tokio-rustls = "0.26.1"
 rustls = "0.23.23"
 rustls-pemfile = "2.2.0"
+hyper-staticfile = "0.10.1"
 
 [dev-dependencies]
 tokio-test = "0.4"
