@@ -305,7 +305,7 @@ fn spawn_eval_thread(
             PipelineData::Value(value, _) => {
                 let _ = body_tx.send((
                     inferred_content_type,
-                    ResponseTransport::Full(value_to_string(value).into_bytes()),
+                    ResponseTransport::Full(value_to_bytes(value)),
                 ));
                 Ok(())
             }
@@ -313,10 +313,7 @@ fn spawn_eval_thread(
                 let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
                 let _ = body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
                 for value in stream.into_inner() {
-                    if stream_tx
-                        .blocking_send(value_to_string(value).into_bytes())
-                        .is_err()
-                    {
+                    if stream_tx.blocking_send(value_to_bytes(value)).is_err() {
                         break;
                     }
                 }
@@ -381,20 +378,21 @@ fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
-fn value_to_string(value: Value) -> String {
+fn value_to_bytes(value: Value) -> Vec<u8> {
     match value {
-        Value::Nothing { .. } => String::new(),
-        Value::String { val, .. } => val,
-        Value::Int { val, .. } => val.to_string(),
-        Value::Float { val, .. } => val.to_string(),
-        Value::List { vals, .. } => {
-            let items: Vec<String> = vals.iter().map(|v| value_to_string(v.clone())).collect();
-            items.join("\n")
-        }
-        Value::Record { .. } => {
-            serde_json::to_string(&value_to_json(&value)).unwrap_or_else(|_| String::new())
-        }
-        _ => todo!("value_to_string: {:?}", value),
+        Value::Nothing { .. } => Vec::new(),
+        Value::String { val, .. } => val.into_bytes(),
+        Value::Int { val, .. } => val.to_string().into_bytes(),
+        Value::Float { val, .. } => val.to_string().into_bytes(),
+        Value::Binary { val, .. } => val,
+        Value::Bool { val, .. } => val.to_string().into_bytes(),
+
+        // Both Lists and Records are encoded as JSON
+        Value::List { .. } | Value::Record { .. } => serde_json::to_string(&value_to_json(&value))
+            .unwrap_or_else(|_| String::new())
+            .into_bytes(),
+
+        _ => todo!("value_to_bytes: {:?}", value),
     }
 }
 

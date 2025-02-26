@@ -288,3 +288,38 @@ fn test_engine(script: &str) -> crate::Engine {
     engine.parse_closure(script).unwrap();
     engine
 }
+
+#[tokio::test]
+async fn test_handle_binary_value() {
+    // Test data: simple binary content (PNG-like header and some bytes)
+    let expected_binary = vec![
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+        0xFF, 0xAA, 0xBB, 0xCC, 0xDD, // Additional bytes
+    ];
+
+    // Create engine that returns a binary value directly
+    let engine = test_engine(
+        r#"{|req|
+        .response {
+            headers: {"Content-Type": "application/octet-stream"}
+        }
+        0x[89 50 4E 47 0D 0A 1A 0A FF AA BB CC DD]  # Creates a Binary value type
+    }"#,
+    );
+
+    let req = Request::builder()
+        .uri("/binary-value")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    // Currently this will panic, but after fixing it should return a response
+    let resp = handle(engine, None, req).await.unwrap();
+
+    // Assert proper content type
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers()["content-type"], "application/octet-stream");
+
+    // Assert binary content matches exactly
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body.to_vec(), expected_binary);
+}
