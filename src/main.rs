@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         buffer
     } else {
         // Use the closure provided as argument
-        args.closure
+        args.closure.clone()
     };
 
     let mut engine = Engine::new()?;
