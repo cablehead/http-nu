@@ -20,6 +20,22 @@ $ curl -s localhost:3001
 Hello world
 ```
 
+### Reading closures from stdin
+
+You can also pass `-` as the closure argument to read the closure from stdin:
+
+```bash
+$ echo '{|req| "Hello from stdin"}' | http-nu :3001 -
+$ curl -s localhost:3001
+Hello from stdin
+```
+
+This is especially useful for more complex closures stored in files:
+
+```bash
+$ cat handler.nu | http-nu :3001 -
+```
+
 You can listen to UNIX domain sockets as well
 
 ```bash

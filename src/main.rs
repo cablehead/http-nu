@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::PathBuf;
 
 use hyper::service::service_fn;
@@ -22,7 +23,7 @@ struct Args {
     #[clap(short, long)]
     tls: Option<PathBuf>,
 
-    /// Nushell closure to handle requests
+    /// Nushell closure to handle requests, or '-' to read from stdin
     #[clap(value_parser)]
     closure: String,
 }
@@ -69,12 +70,23 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
+    // Determine the closure source
+    let closure_content = if args.closure == "-" {
+        // Read closure from stdin
+        let mut buffer = String::new();
+        std::io::stdin().read_to_string(&mut buffer)?;
+        buffer
+    } else {
+        // Use the closure provided as argument
+        args.closure.clone()
+    };
+
     let mut engine = Engine::new()?;
     engine.add_commands(vec![
         Box::new(ResponseStartCommand::new()),
         Box::new(StaticCommand::new()),
     ])?;
-    engine.parse_closure(&args.closure)?;
+    engine.parse_closure(&closure_content)?;
 
     serve(args, engine).await
 }
