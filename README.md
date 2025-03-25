@@ -36,6 +36,8 @@ This is especially useful for more complex closures stored in files:
 $ cat handler.nu | http-nu :3001 -
 ```
 
+Check out the [`examples/basic.nu`](examples/basic.nu) file in the repository for a complete example that implements a mini web server with multiple routes, form handling, and streaming responses.
+
 You can listen to UNIX domain sockets as well
 
 ```bash
