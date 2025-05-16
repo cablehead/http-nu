@@ -1,8 +1,6 @@
 ## http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
 
-`http-nu` lets you attach a [Nushell](https://www.nushell.sh) closure to an HTTP
-interface. If you prefer POSIX to [Nushell](https://www.nushell.sh), this
-project has a cousin called [http-sh](https://github.com/cablehead/http-sh).
+From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh) closure over HTTP.
 
 ## Install
 
@@ -232,3 +230,7 @@ data: {"date":"2025-01-31 04:01:27.387723 -05:00"}
 data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
 ...
 ```
+
+## History
+
+If you prefer POSIX to [Nushell](https://www.nushell.sh), this project has a cousin called [http-sh](https://github.com/cablehead/http-sh).
