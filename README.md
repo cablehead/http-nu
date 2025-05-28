@@ -197,12 +197,39 @@ Fri, 31 Jan 2025 03:48:03 -0500 (now)
 
 ### [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
 
-TODO: we should provide a `to sse` built-in
+Use the `to sse` command to format records for the `text/event-stream` protocol. Each input record may contain the optional fields `data`, `id`, and `event` which will be emitted in the resulting stream.
+
+#### `to sse`
+
+Converts `{data? id? event?}` records into SSE strings. String values are used as-is while other values are serialized to compact JSON. Each event ends with an empty line.
+
+| input | output |
+| ----- | ------ |
+| record | string |
+
+Examples
+
+```bash
+> {data: 'hello'} | to sse
+data: hello
+
+> {id: 1 event: greet data: 'hi'} | to sse
+id: 1
+event: greet
+data: hi
+
+> {data: "foo\nbar"} | to sse
+data: foo
+data: bar
+
+> {data: [1 2 3]} | to sse
+data: [1,2,3]
+```
 
 ```bash
 $ http-nu :3001 '{|req|
   .response {headers: {"content-type": "text/event-stream"}}
-  tail -F source.json | lines | each {|line| $"data: ($line)\n\n"}
+  tail -F source.json | lines | from json | to sse
 }'
 
 # simulate generating events in a seperate process

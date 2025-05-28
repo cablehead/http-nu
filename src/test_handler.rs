@@ -283,6 +283,7 @@ fn test_engine(script: &str) -> crate::Engine {
         .add_commands(vec![
             Box::new(super::handler::ResponseStartCommand::new()),
             Box::new(super::handler::StaticCommand::new()),
+            Box::new(super::ToSse {}),
         ])
         .unwrap();
     engine.parse_closure(script).unwrap();
