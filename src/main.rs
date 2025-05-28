@@ -9,7 +9,7 @@ use clap::Parser;
 use http_nu::{
     handler::{handle, ResponseStartCommand, StaticCommand},
     listener::TlsConfig,
-    Engine, Listener,
+    Engine, Listener, ToSse,
 };
 
 #[derive(Parser, Debug)]
@@ -85,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     engine.add_commands(vec![
         Box::new(ResponseStartCommand::new()),
         Box::new(StaticCommand::new()),
+        Box::new(ToSse {}),
     ])?;
     engine.parse_closure(&closure_content)?;
 
