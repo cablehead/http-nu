@@ -11,7 +11,7 @@ jobs:
     steps:
       # 1) Boot the Dagger Engine inside the runner, pinned to v0.18.10
       - name: Setup Dagger
-        uses: dagger/dagger-for-github@v8.0.0
+        uses: dagger/dagger-for-github@8.0.0    # drop the leading “v” here
         with:
           version: "0.18.10"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
