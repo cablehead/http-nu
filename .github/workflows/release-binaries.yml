@@ -22,11 +22,10 @@ jobs:
 
       # 3) Build all binaries with Dagger
       - name: Build All Binaries
-        shell: dagger {0}
         env:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
-          build-all export --path ./artifacts
+          dagger -c 'build-all $(upload ".") | export --path ./artifacts'
 
       # 4) Create timestamped pre-release
       - name: Create Release
