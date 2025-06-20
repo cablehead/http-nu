@@ -25,7 +25,7 @@ jobs:
         env:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
-          dagger -c 'build-all $(upload ".") | export --path ./artifacts'
+          dagger -c 'build-darwin $(upload ".") | export --path ./artifacts'
 
       # 4) Create timestamped pre-release
       - name: Create Release
