@@ -9,14 +9,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Boot the Dagger Engine inside the runner, pinned to 0.18.10
+      # 1) Checkout source code
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) Boot the Dagger Engine inside the runner, pinned to 0.18.10
       - name: Setup Dagger
         uses: dagger/dagger-for-github@8.0.0    # correct tag per GitHub Releases :contentReference[oaicite:2]{index=2}
         with:
           version: "0.18.10"                     # matches registry.dagger.io/engine:v0.18.10 :contentReference[oaicite:3]{index=3}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 2) Run dagger hello function
+      # 3) Run dagger hello function
       - name: Run Dagger Hello
         shell: dagger {0}
         env:
