@@ -20,10 +20,25 @@ jobs:
           version: "0.18.10"                     # matches registry.dagger.io/engine:v0.18.10 :contentReference[oaicite:3]{index=3}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 3) Run dagger hello function
-      - name: Run Dagger Hello
+      # 3) Build all binaries with Dagger
+      - name: Build All Binaries
         shell: dagger {0}
         env:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
-          hello
+          build-all export --path ./artifacts
+
+      # 4) Create timestamped pre-release
+      - name: Create Release
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          timestamp=$(date '+%Y-%m-%d-%H-%M-%S')
+          tag_name="experiment-${timestamp}"
+          
+          gh release create "${tag_name}" \
+            --title "Experiment Release ${timestamp}" \
+            --notes "Automated experiment build from commit ${{ github.sha }}" \
+            --prerelease \
+            ./artifacts/*.tar.gz
