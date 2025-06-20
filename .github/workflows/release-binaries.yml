@@ -20,17 +20,4 @@ jobs:
       - name: Hello from Alpine
         shell: dagger {0}
         run: |
-          # single-line pipeline fixes indentation syntax error
-          container | from alpine \
-            | with-new-file /hello.txt "Hello, World" \
-            | with-exec cat /hello.txt \
-            | stdout
-
-      # 3) (Optional) Archive your outputs
-      - name: Package Artifacts
-        shell: dagger {0}
-        run: |
-          container | from alpine \
-            | with-new-file /dummy.txt "This simulates your real binaries" \
-            | with-exec tar czf /artifacts.tar.gz /dummy.txt \
-            | export-file /artifacts.tar.gz artifacts.tar.gz
+          container | from alpine
