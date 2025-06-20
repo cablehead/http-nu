@@ -70,7 +70,7 @@ func (m *HttpNu) BuildDarwin(ctx context.Context, src *dagger.Directory) *dagger
 		From("joseluisq/rust-linux-darwin-builder:latest").
 		WithMountedDirectory("/app", src).
 		WithWorkdir("/app").
-		WithExec([]string{"./scripts/cross-build-darwin.sh"}).
+		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-darwin-arm64.tar.gz", "-C", "/app/target/aarch64-apple-darwin/release", "http-nu"}).
 		File("/tmp/http-nu-darwin-arm64.tar.gz")
 }
