@@ -27,6 +27,15 @@ jobs:
         run: |
           dagger -c 'build-darwin $(upload ".") | export ./artifacts'
 
+      # 3.5) Debug: List artifacts directory
+      - name: List Artifacts
+        run: |
+          echo "Contents of current directory:"
+          ls -la
+          echo "Contents of artifacts directory:"
+          ls -la ./artifacts/ || echo "artifacts directory doesn't exist"
+          find . -name "*.tar.gz" || echo "No tar.gz files found"
+
       # 4) Create timestamped pre-release
       - name: Create Release
         id: create_release
