@@ -16,10 +16,10 @@ jobs:
           version: "0.18.10"                     # matches registry.dagger.io/engine:v0.18.10 :contentReference[oaicite:3]{index=3}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 2) Run a tiny Alpine container and print "Hello, World"
-      - name: Hello from Alpine
+      # 2) Run dagger hello function
+      - name: Run Dagger Hello
         shell: dagger {0}
         env:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
-          container | from alpine
+          hello
