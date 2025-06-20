@@ -19,5 +19,7 @@ jobs:
       # 2) Run a tiny Alpine container and print "Hello, World"
       - name: Hello from Alpine
         shell: dagger {0}
+        env:
+          DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
           container | from alpine
