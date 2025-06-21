@@ -3,6 +3,9 @@ name: release-binaries
 on:
   push: {}
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build & Release Binaries
