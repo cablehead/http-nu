@@ -7,6 +7,15 @@ import (
 
 type HttpNu struct{}
 
+func (m *HttpNu) withCaches(container *dagger.Container) *dagger.Container {
+	registryCache := dag.CacheVolume("cargo-registry-shared")
+	gitCache := dag.CacheVolume("cargo-git-shared")
+	
+	return container.
+		WithMountedCache("/root/.cargo/registry", registryCache).
+		WithMountedCache("/root/.cargo/git", gitCache)
+}
+
 func (m *HttpNu) Hello(ctx context.Context) string {
 	return "Hello"
 }
@@ -22,30 +31,34 @@ func (m *HttpNu) Upload(
 func (m *HttpNu) DarwinEnv(
 	ctx context.Context,
 	src *dagger.Directory) *dagger.Container {
-	return dag.Container().
-		From("joseluisq/rust-linux-darwin-builder:latest").
-		WithMountedDirectory("/app", src).
-		WithWorkdir("/app")
+	return m.withCaches(
+		dag.Container().
+			From("joseluisq/rust-linux-darwin-builder:latest").
+			WithMountedDirectory("/app", src).
+			WithWorkdir("/app"),
+	)
 }
 
 func (m *HttpNu) WindowsEnv(
 	ctx context.Context,
 	src *dagger.Directory) *dagger.Container {
-	return dag.Container().
-		From("joseluisq/rust-linux-darwin-builder:latest").
-		WithExec([]string{"apt", "update"}).
-		WithExec([]string{"apt", "install", "-y", "nasm", "gcc-mingw-w64-i686", "mingw-w64", "mingw-w64-tools"}).
-		WithExec([]string{"rustup", "target", "add", "x86_64-pc-windows-gnu"}).
-		WithEnvVariable("CARGO_BUILD_TARGET", "x86_64-pc-windows-gnu").
-		WithEnvVariable("CC_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc").
-		WithEnvVariable("CXX_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-g++").
-		WithEnvVariable("AR_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc-ar").
-		WithEnvVariable("DLLTOOL_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-dlltool").
-		WithEnvVariable("CFLAGS_x86_64_pc_windows_gnu", "-m64").
-		WithEnvVariable("ASM_NASM_x86_64_pc_windows_gnu", "/usr/bin/nasm").
-		WithEnvVariable("AWS_LC_SYS_PREBUILT_NASM", "0").
-		WithMountedDirectory("/app", src).
-		WithWorkdir("/app")
+	return m.withCaches(
+		dag.Container().
+			From("joseluisq/rust-linux-darwin-builder:latest").
+			WithExec([]string{"apt", "update"}).
+			WithExec([]string{"apt", "install", "-y", "nasm", "gcc-mingw-w64-i686", "mingw-w64", "mingw-w64-tools"}).
+			WithExec([]string{"rustup", "target", "add", "x86_64-pc-windows-gnu"}).
+			WithEnvVariable("CARGO_BUILD_TARGET", "x86_64-pc-windows-gnu").
+			WithEnvVariable("CC_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc").
+			WithEnvVariable("CXX_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-g++").
+			WithEnvVariable("AR_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc-ar").
+			WithEnvVariable("DLLTOOL_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-dlltool").
+			WithEnvVariable("CFLAGS_x86_64_pc_windows_gnu", "-m64").
+			WithEnvVariable("ASM_NASM_x86_64_pc_windows_gnu", "/usr/bin/nasm").
+			WithEnvVariable("AWS_LC_SYS_PREBUILT_NASM", "0").
+			WithMountedDirectory("/app", src).
+			WithWorkdir("/app"),
+	)
 }
 
 func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
@@ -73,11 +86,13 @@ func (m *HttpNu) BuildWindows(ctx context.Context, src *dagger.Directory) *dagge
 func (m *HttpNu) LinuxArm64Env(
 	ctx context.Context,
 	src *dagger.Directory) *dagger.Container {
-	return dag.Container().
-		From("joseluisq/rust-linux-darwin-builder:latest").
-		WithMountedDirectory("/app", src).
-		WithWorkdir("/app").
-		WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"})
+	return m.withCaches(
+		dag.Container().
+			From("joseluisq/rust-linux-darwin-builder:latest").
+			WithMountedDirectory("/app", src).
+			WithWorkdir("/app").
+			WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"}),
+	)
 }
 
 func (m *HttpNu) LinuxArm64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
@@ -94,11 +109,13 @@ func (m *HttpNu) BuildLinuxArm64(ctx context.Context, src *dagger.Directory) *da
 func (m *HttpNu) LinuxAmd64Env(
 	ctx context.Context,
 	src *dagger.Directory) *dagger.Container {
-	return dag.Container().
-		From("joseluisq/rust-linux-darwin-builder:latest").
-		WithMountedDirectory("/app", src).
-		WithWorkdir("/app").
-		WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"})
+	return m.withCaches(
+		dag.Container().
+			From("joseluisq/rust-linux-darwin-builder:latest").
+			WithMountedDirectory("/app", src).
+			WithWorkdir("/app").
+			WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"}),
+	)
 }
 
 func (m *HttpNu) LinuxAmd64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
