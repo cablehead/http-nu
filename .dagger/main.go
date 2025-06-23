@@ -19,38 +19,23 @@ func (m *HttpNu) Upload(
 }
 
 
-func (m *HttpNu) CrossBuilderOsx(
+func (m *HttpNu) DarwinEnv(
 	ctx context.Context,
 	src *dagger.Directory) *dagger.Container {
-
-
 	return dag.Container().
 		From("joseluisq/rust-linux-darwin-builder:latest").
-
-		// mount Rust project
 		WithMountedDirectory("/app", src).
 		WithWorkdir("/app")
-
-	// Build your app
-	// WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-apple-darwin"})
 }
 
-
-
-func (m *HttpNu) CrossBuilderWindows(
+func (m *HttpNu) WindowsEnv(
 	ctx context.Context,
 	src *dagger.Directory) *dagger.Container {
 	return dag.Container().
 		From("joseluisq/rust-linux-darwin-builder:latest").
-
-		// install Windows cross-compilation tools
 		WithExec([]string{"apt", "update"}).
 		WithExec([]string{"apt", "install", "-y", "nasm", "gcc-mingw-w64-i686", "mingw-w64", "mingw-w64-tools"}).
-
-		// add Windows target
 		WithExec([]string{"rustup", "target", "add", "x86_64-pc-windows-gnu"}).
-
-		// set cross-compilation environment variables
 		WithEnvVariable("CARGO_BUILD_TARGET", "x86_64-pc-windows-gnu").
 		WithEnvVariable("CC_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-gcc").
 		WithEnvVariable("CXX_x86_64_pc_windows_gnu", "x86_64-w64-mingw32-g++").
@@ -59,57 +44,80 @@ func (m *HttpNu) CrossBuilderWindows(
 		WithEnvVariable("CFLAGS_x86_64_pc_windows_gnu", "-m64").
 		WithEnvVariable("ASM_NASM_x86_64_pc_windows_gnu", "/usr/bin/nasm").
 		WithEnvVariable("AWS_LC_SYS_PREBUILT_NASM", "0").
-
-		// mount Rust project
 		WithMountedDirectory("/app", src).
 		WithWorkdir("/app")
 }
 
-func (m *HttpNu) BuildDarwin(ctx context.Context, src *dagger.Directory) *dagger.File {
-	return dag.Container().
-		From("joseluisq/rust-linux-darwin-builder:latest").
-		WithMountedDirectory("/app", src).
-		WithWorkdir("/app").
+func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.DarwinEnv(ctx, src).
 		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-darwin-arm64.tar.gz", "-C", "/app/target/aarch64-apple-darwin/release", "http-nu"}).
 		File("/tmp/http-nu-darwin-arm64.tar.gz")
 }
 
-func (m *HttpNu) BuildWindows(ctx context.Context, src *dagger.Directory) *dagger.File {
-	return m.CrossBuilderWindows(ctx, src).
+func (m *HttpNu) BuildDarwin(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.DarwinBuild(ctx, src)
+}
+
+func (m *HttpNu) WindowsBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.WindowsEnv(ctx, src).
 		WithExec([]string{"cargo", "build", "--release"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-windows-amd64.tar.gz", "-C", "/app/target/x86_64-pc-windows-gnu/release", "http-nu.exe"}).
 		File("/tmp/http-nu-windows-amd64.tar.gz")
 }
 
-func (m *HttpNu) BuildLinuxArm64(ctx context.Context, src *dagger.Directory) *dagger.File {
+func (m *HttpNu) BuildWindows(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.WindowsBuild(ctx, src)
+}
+
+func (m *HttpNu) LinuxArm64Env(
+	ctx context.Context,
+	src *dagger.Directory) *dagger.Container {
 	return dag.Container().
 		From("joseluisq/rust-linux-darwin-builder:latest").
 		WithMountedDirectory("/app", src).
 		WithWorkdir("/app").
-		WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"}).
+		WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"})
+}
+
+func (m *HttpNu) LinuxArm64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.LinuxArm64Env(ctx, src).
 		WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-unknown-linux-musl"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-linux-arm64.tar.gz", "-C", "/app/target/aarch64-unknown-linux-musl/release", "http-nu"}).
 		File("/tmp/http-nu-linux-arm64.tar.gz")
 }
 
-func (m *HttpNu) BuildLinuxAmd64(ctx context.Context, src *dagger.Directory) *dagger.File {
+func (m *HttpNu) BuildLinuxArm64(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.LinuxArm64Build(ctx, src)
+}
+
+func (m *HttpNu) LinuxAmd64Env(
+	ctx context.Context,
+	src *dagger.Directory) *dagger.Container {
 	return dag.Container().
 		From("joseluisq/rust-linux-darwin-builder:latest").
 		WithMountedDirectory("/app", src).
 		WithWorkdir("/app").
-		WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"}).
+		WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"})
+}
+
+func (m *HttpNu) LinuxAmd64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.LinuxAmd64Env(ctx, src).
 		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-linux-amd64.tar.gz", "-C", "/app/target/x86_64-unknown-linux-musl/release", "http-nu"}).
 		File("/tmp/http-nu-linux-amd64.tar.gz")
 }
 
+func (m *HttpNu) BuildLinuxAmd64(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.LinuxAmd64Build(ctx, src)
+}
+
 func (m *HttpNu) BuildAll(ctx context.Context, src *dagger.Directory) *dagger.Directory {
 	return dag.Directory().
-		WithFile("http-nu-darwin-arm64.tar.gz", m.BuildDarwin(ctx, src)).
-		WithFile("http-nu-windows-amd64.tar.gz", m.BuildWindows(ctx, src)).
-		WithFile("http-nu-linux-arm64.tar.gz", m.BuildLinuxArm64(ctx, src)).
-		WithFile("http-nu-linux-amd64.tar.gz", m.BuildLinuxAmd64(ctx, src))
+		WithFile("http-nu-darwin-arm64.tar.gz", m.DarwinBuild(ctx, src)).
+		WithFile("http-nu-windows-amd64.tar.gz", m.WindowsBuild(ctx, src)).
+		WithFile("http-nu-linux-arm64.tar.gz", m.LinuxArm64Build(ctx, src)).
+		WithFile("http-nu-linux-amd64.tar.gz", m.LinuxAmd64Build(ctx, src))
 }
 
 
