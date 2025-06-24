@@ -15,7 +15,8 @@ func (m *HttpNu) withCaches(container *dagger.Container, targetSuffix string) *d
 	targetCache := dag.CacheVolume("dagger-cargo-target-" + targetSuffix)
 
 	return container.
-		WithMountedCache("/root/.cargo", sharedCache).
+		WithMountedCache("/root/.cargo/registry", sharedCache).
+		WithMountedCache("/root/.cargo/git", sharedCache).
 		WithMountedCache("/app/target", targetCache)
 }
 
