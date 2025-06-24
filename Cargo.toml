@@ -45,8 +45,6 @@ rustls-pemfile = "2.2.0"
 hyper-staticfile = "0.10.1"
 scru128 = { version = "3", features = ["serde"] }
 
-openssl = { version = "0.10", features = ["vendored"] }
-
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.10.1"
