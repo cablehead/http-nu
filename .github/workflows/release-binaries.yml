@@ -4,62 +4,98 @@ on:
   push: {}
 
 permissions:
-  contents: write
+  contents: write   # needed by gh release
 
 jobs:
+  #-----------------------------------------------------------
+  # 1. Build matrix – one VM per target
+  #-----------------------------------------------------------
   build:
-    name: Build & Release Binaries
+    name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
 
-    steps:
-      # 1) Checkout source code
-      - name: Checkout
-        uses: actions/checkout@v4
+    strategy:
+      matrix:
+        include:
+          - target: darwin-arm64
+            dagger_fn: darwin-build
+            artifact: http-nu-darwin-arm64.tar.gz
 
-      # 2) Boot the Dagger Engine inside the runner, pinned to 0.18.10
+          - target: windows-amd64
+            dagger_fn: windows-build
+            artifact: http-nu-windows-amd64.tar.gz
+
+          - target: linux-arm64
+            dagger_fn: linux-arm64-build
+            artifact: http-nu-linux-arm64.tar.gz
+
+          - target: linux-amd64
+            dagger_fn: linux-amd64-build
+            artifact: http-nu-linux-amd64.tar.gz
+
+    steps:
+      # 1) Source
+      - uses: actions/checkout@v4
+
+      # 2) (optional) restore Dagger cache to speed re‑runs
+      - name: Restore Dagger cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/dagger
+          key: dagger-${{ runner.os }}-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: |
+            dagger-${{ runner.os }}-${{ matrix.target }}-
+
+      # 3) Boot the Engine
       - name: Setup Dagger
         uses: dagger/dagger-for-github@8.0.0
         with:
           version: "0.18.10"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 2.5) Pre-pull Dagger engine image to avoid registry issues
-      - name: Pre-pull Dagger Engine
-        run: |
-          echo "Pre-pulling Dagger engine image..."
-          docker pull registry.dagger.io/engine:v0.18.10 || {
-            echo "Failed to pull engine image, retrying..."
-            sleep 5
-            docker pull registry.dagger.io/engine:v0.18.10
-          }
+      # 4) (defensive) pre‑pull Engine image
+      - run: docker pull registry.dagger.io/engine:v0.18.10
 
-      # 3) Build all binaries with Dagger
-      - name: Build All Binaries
+      # 5) Run **one** Dagger build function, export artefact
+      - name: Build with Dagger
         env:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
-          dagger -c 'build-all $(upload ".") | export ./artifacts'
+          dagger -c '${{ matrix.dagger_fn }} $(upload ".") | export ./artifacts'
 
-      # 3.5) Debug: List artifacts directory
-      - name: List Artifacts
-        run: |
-          echo "Contents of current directory:"
-          ls -la
-          echo "Contents of artifacts directory:"
-          ls -la ./artifacts/ || echo "artifacts directory doesn't exist"
-          find . -name "*.tar.gz" || echo "No tar.gz files found"
+      # 6) Save artefact for downstream job
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ./artifacts/${{ matrix.artifact }}
 
-      # 4) Create timestamped pre-release
-      - name: Create Release
-        id: create_release
+  #-----------------------------------------------------------
+  # 2. Gather artefacts & create prerelease
+  #-----------------------------------------------------------
+  release:
+    name: Create GitHub prerelease
+    runs-on: ubuntu-latest
+    needs: build      # waits for every target
+    steps:
+      - name: Download artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create prerelease
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           timestamp=$(date '+%Y-%m-%d-%H-%M-%S')
-          tag_name="experiment-${timestamp}"
-          
-          gh release create "${tag_name}" \
-            --title "Experiment Release ${timestamp}" \
+          tag="experiment-${timestamp}"
+
+          # list contents for debugging
+          find artifacts -maxdepth 2 -type f -print
+
+          gh release create "$tag" \
+            --title "Experiment Release $timestamp" \
             --notes "Automated experiment build from commit ${{ github.sha }}" \
             --prerelease \
-            ./artifacts
+            artifacts/**/*
+
