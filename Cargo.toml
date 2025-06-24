@@ -50,3 +50,8 @@ openssl = { version = "0.10", features = ["vendored"] }
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.10.1"
+
+
+# Target specific dependencies for musl builds to vendor OpenSSL
+[target.aarch64-unknown-linux-musl.dependencies]
+openssl = { version = "0.10.69", features = ["vendored"] }
