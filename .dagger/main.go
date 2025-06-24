@@ -8,15 +8,14 @@ import (
 type HttpNu struct{}
 
 func (m *HttpNu) withCaches(container *dagger.Container, targetSuffix string) *dagger.Container {
-	// Shared across all targets (registry + git combined)
-	sharedCache := dag.CacheVolume("dagger-cargo-shared")
-
-	// Separate per target (avoid build blocking)
+	// Separate caches per target
+	registryCache := dag.CacheVolume("dagger-cargo-registry-" + targetSuffix)
+	gitCache := dag.CacheVolume("dagger-cargo-git-" + targetSuffix)
 	targetCache := dag.CacheVolume("dagger-cargo-target-" + targetSuffix)
 
 	return container.
-		WithMountedCache("/root/.cargo/registry", sharedCache).
-		WithMountedCache("/root/.cargo/git", sharedCache).
+		WithMountedCache("/root/.cargo/registry", registryCache).
+		WithMountedCache("/root/.cargo/git", gitCache).
 		WithMountedCache("/app/target", targetCache)
 }
 
