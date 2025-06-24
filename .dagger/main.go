@@ -7,14 +7,15 @@ import (
 
 type HttpNu struct{}
 
-func (m *HttpNu) withCaches(container *dagger.Container) *dagger.Container {
-	registryCache := dag.CacheVolume("cargo-registry-shared")
-	gitCache := dag.CacheVolume("cargo-git-shared")
-	targetCache := dag.CacheVolume("cargo-target-shared")
+func (m *HttpNu) withCaches(container *dagger.Container, targetSuffix string) *dagger.Container {
+	// Shared across all targets (registry + git combined)
+	sharedCache := dag.CacheVolume("dagger-cargo-shared")
+
+	// Separate per target (avoid build blocking)
+	targetCache := dag.CacheVolume("dagger-cargo-target-" + targetSuffix)
 
 	return container.
-		WithMountedCache("/root/.cargo/registry", registryCache).
-		WithMountedCache("/root/.cargo/git", gitCache).
+		WithMountedCache("/root/.cargo", sharedCache).
 		WithMountedCache("/app/target", targetCache)
 }
 
@@ -37,6 +38,7 @@ func (m *HttpNu) DarwinEnv(
 			From("joseluisq/rust-linux-darwin-builder:latest").
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
+		"darwin-arm64",
 	)
 }
 
@@ -59,6 +61,7 @@ func (m *HttpNu) WindowsEnv(
 			WithEnvVariable("AWS_LC_SYS_PREBUILT_NASM", "0").
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
+		"windows-amd64",
 	)
 }
 
@@ -85,6 +88,7 @@ func (m *HttpNu) LinuxArm64Env(
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app").
 			WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"}),
+		"linux-arm64",
 	)
 }
 
@@ -104,6 +108,7 @@ func (m *HttpNu) LinuxAmd64Env(
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app").
 			WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"}),
+		"linux-amd64",
 	)
 }
 
