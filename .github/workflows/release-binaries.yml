@@ -38,7 +38,7 @@ jobs:
         env:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
-          dagger -c 'build-darwin $(upload ".") | export ./artifacts'
+          dagger -c 'build-all $(upload ".") | export ./artifacts'
 
       # 3.5) Debug: List artifacts directory
       - name: List Artifacts
