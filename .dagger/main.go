@@ -10,10 +10,12 @@ type HttpNu struct{}
 func (m *HttpNu) withCaches(container *dagger.Container) *dagger.Container {
 	registryCache := dag.CacheVolume("cargo-registry-shared")
 	gitCache := dag.CacheVolume("cargo-git-shared")
-	
+	targetCache := dag.CacheVolume("cargo-target-shared")
+
 	return container.
 		WithMountedCache("/root/.cargo/registry", registryCache).
-		WithMountedCache("/root/.cargo/git", gitCache)
+		WithMountedCache("/root/.cargo/git", gitCache).
+		WithMountedCache("/app/target", targetCache)
 }
 
 func (m *HttpNu) Hello(ctx context.Context) string {
@@ -24,9 +26,8 @@ func (m *HttpNu) Upload(
 	ctx context.Context,
 	// +ignore=["**", "!Cargo.toml", "!Cargo.lock", "!src/**", "!xs.nu", "!scripts/**"]
 	src *dagger.Directory) *dagger.Directory {
-		return src
+	return src
 }
-
 
 func (m *HttpNu) DarwinEnv(
 	ctx context.Context,
@@ -120,6 +121,3 @@ func (m *HttpNu) BuildAll(ctx context.Context, src *dagger.Directory) *dagger.Di
 		WithFile("http-nu-linux-arm64.tar.gz", m.LinuxArm64Build(ctx, src)).
 		WithFile("http-nu-linux-amd64.tar.gz", m.LinuxAmd64Build(ctx, src))
 }
-
-
-
