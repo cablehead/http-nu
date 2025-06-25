@@ -82,11 +82,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Download artefacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
+      # Create fake artifacts for testing
+      - name: Create fake artifacts
+        run: |
+          mkdir -p artifacts
+          echo "fake" > artifacts/http-nu-linux-amd64.tar.gz
+          echo "fake" > artifacts/http-nu-linux-arm64.tar.gz
+          echo "fake" > artifacts/http-nu-windows-amd64.tar.gz
+          echo "fake" > artifacts/http-nu-darwin-arm64.tar.gz
+      # - name: Download artefacts
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     path: artifacts
+      #     merge-multiple: true
 
       - name: Create GitHub prerelease
         env:
