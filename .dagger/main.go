@@ -80,10 +80,9 @@ func (m *HttpNu) LinuxArm64Env(
 	src *dagger.Directory) *dagger.Container {
 	return m.withCaches(
 		dag.Container().
-			From("joseluisq/rust-linux-darwin-builder:latest").
+			From("messense/rust-musl-cross:aarch64-musl").
 			WithMountedDirectory("/app", src).
-			WithWorkdir("/app").
-			WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"}),
+			WithWorkdir("/app"),
 		"linux-arm64",
 	)
 }
@@ -100,10 +99,9 @@ func (m *HttpNu) LinuxAmd64Env(
 	src *dagger.Directory) *dagger.Container {
 	return m.withCaches(
 		dag.Container().
-			From("joseluisq/rust-linux-darwin-builder:latest").
+			From("messense/rust-musl-cross:x86_64-musl").
 			WithMountedDirectory("/app", src).
-			WithWorkdir("/app").
-			WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"}),
+			WithWorkdir("/app"),
 		"linux-amd64",
 	)
 }
