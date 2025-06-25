@@ -19,10 +19,6 @@ func (m *HttpNu) withCaches(container *dagger.Container, targetSuffix string) *d
 		WithMountedCache("/app/target", targetCache)
 }
 
-func (m *HttpNu) Hello(ctx context.Context) string {
-	return "Hello"
-}
-
 func (m *HttpNu) Upload(
 	ctx context.Context,
 	// +ignore=["**", "!Cargo.toml", "!Cargo.lock", "!src/**", "!xs.nu", "!scripts/**"]
@@ -40,6 +36,13 @@ func (m *HttpNu) DarwinEnv(
 			WithWorkdir("/app"),
 		"darwin-arm64",
 	)
+}
+
+func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
+	return m.DarwinEnv(ctx, src).
+		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"}).
+		WithExec([]string{"tar", "-czf", "/tmp/http-nu-darwin-arm64.tar.gz", "-C", "/app/target/aarch64-apple-darwin/release", "http-nu"}).
+		File("/tmp/http-nu-darwin-arm64.tar.gz")
 }
 
 func (m *HttpNu) WindowsEnv(
@@ -63,13 +66,6 @@ func (m *HttpNu) WindowsEnv(
 			WithWorkdir("/app"),
 		"windows-amd64",
 	)
-}
-
-func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
-	return m.DarwinEnv(ctx, src).
-		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"}).
-		WithExec([]string{"tar", "-czf", "/tmp/http-nu-darwin-arm64.tar.gz", "-C", "/app/target/aarch64-apple-darwin/release", "http-nu"}).
-		File("/tmp/http-nu-darwin-arm64.tar.gz")
 }
 
 func (m *HttpNu) WindowsBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
@@ -117,12 +113,4 @@ func (m *HttpNu) LinuxAmd64Build(ctx context.Context, src *dagger.Directory) *da
 		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-linux-amd64.tar.gz", "-C", "/app/target/x86_64-unknown-linux-musl/release", "http-nu"}).
 		File("/tmp/http-nu-linux-amd64.tar.gz")
-}
-
-func (m *HttpNu) BuildAll(ctx context.Context, src *dagger.Directory) *dagger.Directory {
-	return dag.Directory().
-		WithFile("http-nu-darwin-arm64.tar.gz", m.DarwinBuild(ctx, src)).
-		WithFile("http-nu-windows-amd64.tar.gz", m.WindowsBuild(ctx, src)).
-		WithFile("http-nu-linux-arm64.tar.gz", m.LinuxArm64Build(ctx, src)).
-		WithFile("http-nu-linux-amd64.tar.gz", m.LinuxAmd64Build(ctx, src))
 }
