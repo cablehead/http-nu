@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   #-----------------------------------------------------------
-  # 1. Build matrix – each row runs on its own VM
+  # 1. Build matrix - each row runs on its own VM
   #-----------------------------------------------------------
   build:
     name: Build ${{ matrix.target }}
@@ -55,11 +55,11 @@ jobs:
           version: "0.18.10"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 4) Defensive: pre‑pull the engine image
-      - name: Pre‑pull Dagger Engine
+      # 4) Defensive: pre-pull the engine image
+      - name: Pre-pull Dagger Engine
         run: docker pull registry.dagger.io/engine:v0.18.10
 
-      # 5) Run one Dagger build function and export artefact
+      # 5) Run one Dagger build function and export artifact
       - name: Build with Dagger
         uses: dagger/dagger-for-github@8.0.0
         with:
@@ -67,15 +67,15 @@ jobs:
           call: ${{ matrix.dagger_fn }} --src upload --src . export --path ./artifacts/${{ matrix.artifact }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 6) Upload artefact for fan‑in job
-      - name: Upload artefact
+      # 6) Upload artifact for fan-in job
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ./artifacts/${{ matrix.artifact }}
 
   #-----------------------------------------------------------
-  # 2. Fan‑in job – gather artefacts and create prerelease
+  # 2. Fan-in job - gather artifacts and create prerelease
   #-----------------------------------------------------------
   release:
     name: Create prerelease
@@ -84,7 +84,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Download artefacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
