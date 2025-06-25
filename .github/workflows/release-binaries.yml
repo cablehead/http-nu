@@ -1,7 +1,9 @@
 name: release-binaries
 
 on:
-  push: {}            # run on every branch/tag push so you can test before merging to main
+  push:
+    tags:
+      - 'v*'            # run only when a tag starting with 'v' is pushed
 
 permissions:
   contents: write      # required for gh release
@@ -88,18 +90,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Create GitHub prerelease
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          timestamp=$(date '+%Y-%m-%d-%H-%M-%S')
-          tag="experiment-${timestamp}"
-
-          # List files for log visibility
-          find artifacts -type f -print
-
-          gh release create "$tag" \
-            --title "Experiment Release $timestamp" \
-            --notes "Automated experiment build from commit ${{ github.sha }}" \
-            --prerelease \
-            artifacts/*
+        with:
+          tag_name:   ${{ github.ref_name }}
+          name:       Release ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-dev.') }}
+          draft:      false
+          files: artifacts/*
