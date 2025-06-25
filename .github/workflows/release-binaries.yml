@@ -26,11 +26,11 @@ jobs:
             artifact: http-nu-windows-amd64.tar.gz
 
           - target: linux-arm64
-            dagger_fn: linux-arm64-build
+            dagger_fn: linux-arm-64-build
             artifact: http-nu-linux-arm64.tar.gz
 
           - target: linux-amd64
-            dagger_fn: linux-amd64-build
+            dagger_fn: linux-amd-64-build
             artifact: http-nu-linux-amd64.tar.gz
 
     steps:
