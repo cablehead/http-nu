@@ -5,6 +5,14 @@ closure over HTTP.
 
 ## Install
 
+### [eget](https://github.com/zyedidia/eget)
+
+```bash
+eget cablehead/http-nu
+```
+
+### cargo
+
 ```bash
 cargo install http-nu --locked
 ```
