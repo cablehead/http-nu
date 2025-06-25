@@ -78,23 +78,15 @@ jobs:
   release:
     name: Create prerelease
     runs-on: ubuntu-latest
-    # needs: build
+    needs: build
 
     steps:
       - uses: actions/checkout@v4
-      # Create fake artifacts for testing
-      - name: Create fake artifacts
-        run: |
-          mkdir -p artifacts
-          echo "fake" > artifacts/http-nu-linux-amd64.tar.gz
-          echo "fake" > artifacts/http-nu-linux-arm64.tar.gz
-          echo "fake" > artifacts/http-nu-windows-amd64.tar.gz
-          echo "fake" > artifacts/http-nu-darwin-arm64.tar.gz
-      # - name: Download artefacts
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     path: artifacts
-      #     merge-multiple: true
+      - name: Download artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Create GitHub prerelease
         env:
