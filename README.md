@@ -258,6 +258,35 @@ data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
 ...
 ```
 
+## Building and Releases
+
+This project uses [Dagger](https://dagger.io) for cross-platform containerized builds that run identically locally and in CI. This means you can test builds on your machine before pushing tags to trigger releases.
+
+### Available Build Targets
+
+- **Windows** (`windows-build`)
+- **macOS ARM64** (`darwin-build`) 
+- **Linux ARM64** (`linux-arm-64-build`)
+- **Linux AMD64** (`linux-amd-64-build`)
+
+### Examples
+
+Build a Windows binary locally:
+```bash
+dagger call windows-build --src upload --src "." export --path ./dist/
+```
+
+Get a throwaway terminal inside the Windows builder for debugging:
+```bash
+dagger call windows-env --src upload --src "." terminal
+```
+
+**Note:** Requires Docker and the [Dagger CLI](https://docs.dagger.io/install). The `upload` function filters files to avoid uploading everything in your local directory.
+
+### GitHub Releases
+
+The GitHub workflow automatically builds all platforms and creates releases when you push a version tag (e.g., `v1.0.0`). Development tags containing `-dev.` are marked as prereleases.
+
 ## History
 
 If you prefer POSIX to [Nushell](https://www.nushell.sh), this project has a cousin called [http-sh](https://github.com/cablehead/http-sh).
