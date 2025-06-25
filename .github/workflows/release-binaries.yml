@@ -101,4 +101,4 @@ jobs:
             --title "Experiment Release $timestamp" \
             --notes "Automated experiment build from commit ${{ github.sha }}" \
             --prerelease \
-            artifacts/**/*
+            artifacts/*
