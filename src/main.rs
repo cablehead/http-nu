@@ -68,6 +68,9 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install default rustls CryptoProvider");
     let args = Args::parse();
 
     // Determine the closure source
