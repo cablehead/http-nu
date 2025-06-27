@@ -30,12 +30,7 @@ impl TlsConfig {
 
         let certs = rustls_pemfile::certs(&mut pem)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                Error::new(
-                    ErrorKind::InvalidData,
-                    format!("Invalid certificate: {}", e),
-                )
-            })?;
+            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("Invalid certificate: {e}")))?;
 
         if certs.is_empty() {
             return Err(Error::new(ErrorKind::InvalidData, "No certificates found"));
@@ -44,18 +39,13 @@ impl TlsConfig {
         pem.seek(std::io::SeekFrom::Start(0))?;
 
         let key = rustls_pemfile::private_key(&mut pem)
-            .map_err(|e| {
-                Error::new(
-                    ErrorKind::InvalidData,
-                    format!("Invalid private key: {}", e),
-                )
-            })?
+            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("Invalid private key: {e}")))?
             .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No private key found"))?;
 
         let config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("TLS config error: {}", e)))?;
+            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("TLS config error: {e}")))?;
 
         Ok(Self {
             acceptor: TlsAcceptor::from(Arc::new(config)),
@@ -115,7 +105,7 @@ impl Listener {
             // On Windows, treat all addresses as TCP
             let mut addr = addr.to_owned();
             if addr.starts_with(':') {
-                addr = format!("127.0.0.1{}", addr);
+                addr = format!("127.0.0.1{addr}");
             }
             let listener = TcpListener::bind(addr).await?;
             Ok(Listener::Tcp {
@@ -139,7 +129,7 @@ impl Listener {
             } else {
                 let mut addr = addr.to_owned();
                 if addr.starts_with(':') {
-                    addr = format!("127.0.0.1{}", addr);
+                    addr = format!("127.0.0.1{addr}");
                 }
                 let listener = TcpListener::bind(addr).await?;
                 Ok(Listener::Tcp {

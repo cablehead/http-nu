@@ -76,7 +76,7 @@ where
     match handle_inner(engine, addr, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
-            eprintln!("Error handling request: {}", err);
+            eprintln!("Error handling request: {err}");
             let response = hyper::Response::builder().status(500).body(
                 Full::new("Internal Server Error".into())
                     .map_err(|never| match never {})
@@ -347,7 +347,7 @@ fn spawn_eval_thread(
 
     std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
         if let Err(e) = inner(engine, request, stream, meta_tx, body_tx) {
-            eprintln!("Error in eval thread: {}", e);
+            eprintln!("Error in eval thread: {e}");
         }
         Ok(())
     });
