@@ -80,7 +80,7 @@ impl Listener {
                         Err(e) => {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
-                                format!("TLS error: {}", e),
+                                format!("TLS error: {e}"),
                             ));
                         }
                     }
