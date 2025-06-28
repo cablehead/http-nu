@@ -54,12 +54,12 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
                         .serve_connection(io, service)
                         .await
                     {
-                        eprintln!("Connection error: {}", err);
+                        eprintln!("Connection error: {err}");
                     }
                 });
             }
             Err(e) => {
-                eprintln!("Error accepting connection: {}", e);
+                eprintln!("Error accepting connection: {e}");
                 continue;
             }
         }
@@ -68,6 +68,9 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install default rustls CryptoProvider");
     let args = Args::parse();
 
     // Determine the closure source

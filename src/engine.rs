@@ -53,7 +53,7 @@ impl Engine {
         if let Some(err) = working_set.parse_errors.first() {
             let shell_error = ShellError::GenericError {
                 error: "Parse error".into(),
-                msg: format!("{:?}", err),
+                msg: format!("{err:?}"),
                 span: Some(err.span()),
                 help: None,
                 inner: vec![],
@@ -64,7 +64,7 @@ impl Engine {
         // Handle compile errors
         if let Some(err) = working_set.compile_errors.first() {
             let shell_error = ShellError::GenericError {
-                error: format!("Compile error {}", err),
+                error: format!("Compile error {err}"),
                 msg: "".into(),
                 span: None,
                 help: None,
