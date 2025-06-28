@@ -3,6 +3,13 @@
 From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh)
 closure over HTTP.
 
+## Features
+
+- **Streaming responses**
+- **Static file serving**
+- **Server-sent events**
+- **Reverse Proxy**: Forward requests to backend servers with configurable headers, timeouts, and path manipulation
+
 ## Install
 
 ### [eget](https://github.com/zyedidia/eget)
@@ -86,6 +93,48 @@ Here's an example:
 
 ```bash
 $ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path}'
+```
+
+### Reverse Proxy
+
+Forward requests to backend servers using the `.reverse-proxy` command:
+
+```bash
+$ http-nu :3001 '{|req| .reverse-proxy "http://backend:8080"}'
+$ curl -s localhost:3001/api/users
+# Request forwarded to http://backend:8080/api/users
+```
+
+#### Configuration Options
+
+```bash
+$ http-nu :3001 '{|req|
+  .reverse-proxy "http://api.backend.com" {
+    headers: {
+      "X-API-Key": "secret123"
+      "X-Forwarded-For": $req.remote_ip
+    }
+    timeout: 10sec
+    preserve_host: false
+    strip_prefix: "/api"
+  }
+}'
+```
+
+Available options:
+- `headers`: Additional headers to send to backend
+- `timeout`: Request timeout duration (default: 30sec)  
+- `preserve_host`: Keep original Host header (default: false)
+- `strip_prefix`: Remove path prefix before forwarding
+
+#### Load Balancing Example
+
+```bash
+$ http-nu :3001 '{|req|
+  let backends = ["http://backend1:8080", "http://backend2:8080"]
+  let selected = ($backends | get (random int 0..1))
+  .reverse-proxy $selected
+}'
 ```
 
 ### POST: echo

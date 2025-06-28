@@ -6,10 +6,62 @@ use http_body_util::BodyExt;
 use http_body_util::Empty;
 use http_body_util::Full;
 use hyper::body::Bytes;
+use hyper::service::service_fn;
 use hyper::Request;
+use hyper::Server;
+use hyper::{Body, Response};
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
+
+use serde_json::Value as JsonValue;
 
 use crate::handler::handle;
 
+struct TestServer {
+    addr: SocketAddr,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl TestServer {
+    fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+async fn setup_test_backend() -> TestServer {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let service = service_fn(|req: Request<hyper::body::Incoming>| async move {
+        if req.uri().path() == "/slow" {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let host = req
+            .headers()
+            .get("host")
+            .map(|v| v.to_str().unwrap().to_string())
+            .unwrap_or_default();
+        let api_key = req
+            .headers()
+            .get("x-api-key")
+            .map(|v| v.to_str().unwrap().to_string());
+        let body = if let Some(key) = api_key {
+            key
+        } else {
+            format!("{}|{}", req.uri().path(), host)
+        };
+        Ok::<_, hyper::Error>(Response::new(Body::from(body)))
+    });
+
+    let server =
+        hyper::Server::builder(listener).serve(hyper::service::make_service_fn(move |_| {
+            let svc = service.clone();
+            async move { Ok::<_, hyper::Error>(svc) }
+        }));
+
+    let handle = tokio::spawn(server);
+    TestServer { addr, handle }
+}
 #[tokio::test]
 async fn test_handle() {
     let engine = test_engine(r#"{|req| "hello world" }"#);
@@ -283,6 +335,7 @@ fn test_engine(script: &str) -> crate::Engine {
         .add_commands(vec![
             Box::new(super::handler::ResponseStartCommand::new()),
             Box::new(super::handler::StaticCommand::new()),
+            Box::new(super::handler::ReverseProxyCommand::new()),
             Box::new(super::ToSse {}),
         ])
         .unwrap();
@@ -323,4 +376,100 @@ async fn test_handle_binary_value() {
     // Assert binary content matches exactly
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body.to_vec(), expected_binary);
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_basic() {
+    let backend = setup_test_backend().await;
+    let engine = test_engine(&format!(r#"{{|req| .reverse-proxy "{}" }}"#, backend.url()));
+
+    let req = Request::builder()
+        .uri("/test")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "/test|".to_string() + &backend.addr.to_string()
+    );
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_with_headers() {
+    let backend = setup_test_backend().await;
+    let engine = test_engine(&format!(
+        r#"{{|req| .reverse-proxy "{}" {{ headers: {{"X-API-Key": "secret"}} }} }}"#,
+        backend.url()
+    ));
+
+    let req = Request::builder()
+        .uri("/header")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, req).await.unwrap();
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(String::from_utf8(body.to_vec()).unwrap(), "secret");
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_path_stripping() {
+    let backend = setup_test_backend().await;
+    let engine = test_engine(&format!(
+        r#"{{|req| .reverse-proxy "{}" {{ strip_prefix: "/api" }} }}"#,
+        backend.url()
+    ));
+
+    let req = Request::builder()
+        .uri("/api/foo")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, req).await.unwrap();
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8(body.to_vec())
+        .unwrap()
+        .starts_with("/foo"));
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_timeout() {
+    let backend = setup_test_backend().await;
+    let engine = test_engine(&format!(
+        r#"{{|req| .reverse-proxy "{}" {{ timeout: 50ms }} }}"#,
+        backend.url()
+    ));
+
+    let req = Request::builder()
+        .uri("/slow")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let result = handle(engine, None, req).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_preserve_host() {
+    let backend = setup_test_backend().await;
+    let engine = test_engine(&format!(
+        r#"{{|req| .reverse-proxy "{}" {{ preserve_host: true }} }}"#,
+        backend.url()
+    ));
+
+    let req = Request::builder()
+        .uri("/host")
+        .header("host", "example.com")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, req).await.unwrap();
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8(body.to_vec())
+        .unwrap()
+        .contains("example.com"));
 }
