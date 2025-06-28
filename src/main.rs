@@ -7,7 +7,7 @@ use hyper_util::rt::TokioIo;
 use clap::Parser;
 
 use http_nu::{
-    handler::{handle, ResponseStartCommand, StaticCommand},
+    handler::{handle, ResponseStartCommand, ReverseProxyCommand, StaticCommand},
     listener::TlsConfig,
     Engine, Listener, ToSse,
 };
@@ -85,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     engine.add_commands(vec![
         Box::new(ResponseStartCommand::new()),
         Box::new(StaticCommand::new()),
+        Box::new(ReverseProxyCommand::new()),
         Box::new(ToSse {}),
     ])?;
     engine.parse_closure(&closure_content)?;

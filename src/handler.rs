@@ -50,7 +50,22 @@ pub struct Response {
 #[derive(Clone, Debug)]
 pub enum ResponseBodyType {
     Normal,
-    Static { root: PathBuf, path: String },
+    Static {
+        root: PathBuf,
+        path: String,
+    },
+    ReverseProxy {
+        target_url: String,
+        config: ReverseProxyConfig,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct ReverseProxyConfig {
+    pub headers: HashMap<String, String>,
+    pub timeout: std::time::Duration,
+    pub preserve_host: bool,
+    pub strip_prefix: Option<String>,
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -204,6 +219,9 @@ where
                 .boxed();
             Ok(hyper::Response::from_parts(parts, body))
         }
+        ResponseBodyType::ReverseProxy { target_url, config } => {
+            build_reverse_proxy_response(&parts, target_url, config).await
+        }
     }
 }
 
@@ -253,6 +271,85 @@ async fn build_normal_response(
     };
 
     Ok(builder.body(body)?)
+}
+
+async fn build_reverse_proxy_response(
+    parts: &hyper::http::request::Parts,
+    target_url: &str,
+    config: &ReverseProxyConfig,
+) -> HTTPResult {
+    use hyper_reverse_proxy;
+
+    let target_uri: hyper::Uri = target_url
+        .parse()
+        .map_err(|e| format!("Invalid target URL: {}", e))?;
+
+    let mut path = parts.uri.path();
+    if let Some(prefix) = &config.strip_prefix {
+        if path.starts_with(prefix) {
+            path = &path[prefix.len()..];
+            if !path.starts_with('/') {
+                path = &format!("/{}", path)[..];
+            }
+        }
+    }
+
+    let new_uri = format!(
+        "{}://{}{}{}",
+        target_uri.scheme_str().unwrap_or("http"),
+        target_uri
+            .authority()
+            .ok_or("Missing authority in target URL")?,
+        path,
+        parts
+            .uri
+            .query()
+            .map(|q| format!("?{}", q))
+            .unwrap_or_default()
+    )
+    .parse::<hyper::Uri>()
+    .map_err(|e| format!("Failed to construct target URI: {}", e))?;
+
+    let mut req_builder = hyper::Request::builder().method(&parts.method).uri(new_uri);
+
+    let mut headers = parts.headers.clone();
+    for (key, value) in &config.headers {
+        headers.insert(
+            hyper::header::HeaderName::from_bytes(key.as_bytes())?,
+            hyper::header::HeaderValue::from_str(value)?,
+        );
+    }
+
+    if !config.preserve_host {
+        if let Some(authority) = target_uri.authority() {
+            headers.insert(
+                hyper::header::HOST,
+                hyper::header::HeaderValue::from_str(&authority.to_string())?,
+            );
+        }
+    }
+
+    *req_builder.headers_mut().unwrap() = headers;
+
+    let new_request = req_builder.body(hyper::body::Incoming::default())?;
+
+    let response = tokio::time::timeout(
+        config.timeout,
+        hyper_reverse_proxy::call(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+            target_url,
+            new_request,
+        ),
+    )
+    .await
+    .map_err(|_| "Request timeout")?
+    .map_err(|e| format!("Proxy error: {}", e))?;
+
+    let (parts, body) = response.into_parts();
+    let body = body
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>)
+        .boxed();
+    Ok(hyper::Response::from_parts(parts, body))
 }
 
 fn spawn_eval_thread(
@@ -550,6 +647,118 @@ impl Command for StaticCommand {
 
         Ok(PipelineData::Empty)
     }
+}
+
+#[derive(Clone)]
+pub struct ReverseProxyCommand;
+
+impl Default for ReverseProxyCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ReverseProxyCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for ReverseProxyCommand {
+    fn name(&self) -> &str {
+        ".reverse-proxy"
+    }
+
+    fn description(&self) -> &str {
+        "Forward request to backend server"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".reverse-proxy")
+            .required("target_url", SyntaxShape::String, "backend server URL")
+            .optional("config", SyntaxShape::Record(vec![]), "proxy configuration")
+            .input_output_types(vec![(Type::Nothing, Type::Nothing)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let target_url: String = call.req(engine_state, stack, 0)?;
+
+        let config = if let Ok(config_value) = call.opt::<Value>(engine_state, stack, 1) {
+            if let Some(config_value) = config_value {
+                parse_config(config_value, call.head)?
+            } else {
+                ReverseProxyConfig::default()
+            }
+        } else {
+            ReverseProxyConfig::default()
+        };
+
+        let response = Response {
+            status: 200,
+            headers: HashMap::new(),
+            body_type: ResponseBodyType::ReverseProxy { target_url, config },
+        };
+
+        RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
+            if let Some(tx) = tx.borrow_mut().take() {
+                tx.send(response).map_err(|_| ShellError::GenericError {
+                    error: "Failed to send response".into(),
+                    msg: "Channel closed".into(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?;
+            }
+            Ok(())
+        })?;
+
+        Ok(PipelineData::Empty)
+    }
+}
+
+impl Default for ReverseProxyConfig {
+    fn default() -> Self {
+        Self {
+            headers: HashMap::new(),
+            timeout: std::time::Duration::from_secs(30),
+            preserve_host: false,
+            strip_prefix: None,
+        }
+    }
+}
+
+fn parse_config(value: Value, span: Span) -> Result<ReverseProxyConfig, ShellError> {
+    let record = value.as_record()?;
+    let mut config = ReverseProxyConfig::default();
+
+    if let Some(headers_value) = record.get("headers") {
+        let headers_record = headers_value.as_record()?;
+        for (k, v) in headers_record.iter() {
+            config.headers.insert(k.clone(), v.as_str()?.to_string());
+        }
+    }
+
+    if let Some(timeout_value) = record.get("timeout") {
+        config.timeout =
+            std::time::Duration::from_nanos(timeout_value.as_duration()?.as_nanos() as u64);
+    }
+
+    if let Some(preserve_host_value) = record.get("preserve_host") {
+        config.preserve_host = preserve_host_value.as_bool()?;
+    }
+
+    if let Some(strip_prefix_value) = record.get("strip_prefix") {
+        config.strip_prefix = Some(strip_prefix_value.as_str()?.to_string());
+    }
+
+    Ok(config)
 }
 
 thread_local! {
