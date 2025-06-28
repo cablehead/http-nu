@@ -54,12 +54,12 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
                         .serve_connection(io, service)
                         .await
                     {
-                        eprintln!("Connection error: {}", err);
+                        eprintln!("Connection error: {err}");
                     }
                 });
             }
             Err(e) => {
-                eprintln!("Error accepting connection: {}", e);
+                eprintln!("Error accepting connection: {e}");
                 continue;
             }
         }
