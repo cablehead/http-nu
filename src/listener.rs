@@ -1,12 +1,12 @@
-use std::io::{self, Error, ErrorKind, Seek};
+use std::io::{self, Seek};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rustls::ServerConfig;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio_rustls::TlsAcceptor;
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -15,14 +15,14 @@ impl<T: AsyncRead + AsyncWrite> AsyncReadWrite for T {}
 pub type AsyncReadWriteBox = Box<dyn AsyncReadWrite + Unpin + Send>;
 
 pub struct TlsConfig {
-    acceptor: TlsAcceptor,
+    pub config: Arc<ServerConfig>,
 }
 
 impl TlsConfig {
     pub fn from_pem(pem_path: PathBuf) -> io::Result<Self> {
         let pem = std::fs::File::open(&pem_path).map_err(|e| {
-            Error::new(
-                ErrorKind::NotFound,
+            io::Error::new(
+                io::ErrorKind::NotFound,
                 format!("Failed to open PEM file {}: {}", pem_path.display(), e),
             )
         })?;
@@ -30,26 +30,40 @@ impl TlsConfig {
 
         let certs = rustls_pemfile::certs(&mut pem)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("Invalid certificate: {e}")))?;
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid certificate: {e}"),
+                )
+            })?;
 
         if certs.is_empty() {
-            return Err(Error::new(ErrorKind::InvalidData, "No certificates found"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "No certificates found",
+            ));
         }
 
         pem.seek(std::io::SeekFrom::Start(0))?;
 
         let key = rustls_pemfile::private_key(&mut pem)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("Invalid private key: {e}")))?
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "No private key found"))?;
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid private key: {e}"),
+                )
+            })?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "No private key found"))?;
 
         let config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("TLS config error: {e}")))?;
+            .map_err(|e| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("TLS config error: {e}"))
+            })?;
 
-        Ok(Self {
-            acceptor: TlsAcceptor::from(Arc::new(config)),
-        })
+        let config = Arc::new(config);
+        Ok(Self { config })
     }
 }
 
@@ -67,29 +81,9 @@ impl Listener {
         &mut self,
     ) -> io::Result<(AsyncReadWriteBox, Option<std::net::SocketAddr>)> {
         match self {
-            Listener::Tcp {
-                listener,
-                tls_config,
-            } => {
+            Listener::Tcp { listener, .. } => {
                 let (stream, addr) = listener.accept().await?;
-
-                let stream = if let Some(tls) = tls_config {
-                    // Handle TLS connection
-                    match tls.acceptor.accept(stream).await {
-                        Ok(tls_stream) => Box::new(tls_stream) as AsyncReadWriteBox,
-                        Err(e) => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::ConnectionAborted,
-                                format!("TLS error: {e}"),
-                            ));
-                        }
-                    }
-                } else {
-                    // Handle plain TCP connection
-                    Box::new(stream)
-                };
-
-                Ok((stream, Some(addr)))
+                Ok((Box::new(stream), Some(addr)))
             }
             #[cfg(unix)]
             Listener::Unix(listener) => {
@@ -162,7 +156,7 @@ impl Clone for Listener {
 impl Clone for TlsConfig {
     fn clone(&self) -> Self {
         TlsConfig {
-            acceptor: self.acceptor.clone(),
+            config: self.config.clone(),
         }
     }
 }

@@ -82,12 +82,26 @@ async fn serve(
         serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
     );
 
+    use axum_server::tls_rustls::RustlsConfig;
+
+    // ...
+
     match listener {
-        Listener::Tcp { listener, .. } => {
+        Listener::Tcp {
+            listener,
+            tls_config,
+        } => {
             let listener = Arc::try_unwrap(listener).expect("listener is not shared");
-            axum::serve(listener, app.into_make_service())
-                .with_graceful_shutdown(shutdown_signal(interrupt.clone()))
-                .await?;
+            if let Some(tls) = tls_config {
+                let config = RustlsConfig::from_config(tls.config);
+                axum_server::from_tcp_rustls(listener.into_std()?, config)
+                    .serve(app.into_make_service())
+                    .await?;
+            } else {
+                axum::serve(listener, app.into_make_service())
+                    .with_graceful_shutdown(shutdown_signal(interrupt.clone()))
+                    .await?;
+            }
         }
         #[cfg(unix)]
         Listener::Unix(listener) => {

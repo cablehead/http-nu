@@ -114,10 +114,82 @@ async fn test_tcp_socket() {
     child.kill().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_tls_tcp_socket() {
+    // Start TLS server with a simple closure and get the port
+    let (mut child, address) = spawn_server_with_tls("127.0.0.1:0", "{|req| $req.method}").await;
+
+    // Give server time to start
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Curl the server to confirm it's working
+    let output = tokio::process::Command::new("curl")
+        .arg("-vk")
+        .arg(format!("https://{address}"))
+        .output()
+        .await
+        .expect("Failed to execute curl");
+    eprintln!("curl output: {:?}", String::from_utf8_lossy(&output.stderr));
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "GET");
+
+    // Clean shutdown
+    child.kill().await.unwrap();
+}
+
 async fn spawn_server(addr: &str, closure: &str) -> (Child, String) {
     let mut child = tokio::process::Command::new(cargo_bin("http-nu"))
         .arg(addr)
         .arg(closure)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start http-nu server");
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+
+    // Spawn tasks to read output
+    let mut addr_tx = Some(addr_tx);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDOUT] {line}");
+            if let Some(tx) = addr_tx.take() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                        let _ = tx.send(addr_str.trim().to_string());
+                    }
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDERR] {line}");
+        }
+    });
+
+    let address = timeout(Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Failed to get address from http-nu server")
+        .expect("Channel closed before address received");
+
+    (child, address)
+}
+
+async fn spawn_server_with_tls(addr: &str, closure: &str) -> (Child, String) {
+    let mut child = tokio::process::Command::new(cargo_bin("http-nu"))
+        .arg(addr)
+        .arg(closure)
+        .arg("--tls")
+        .arg("tests/combined.pem")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
