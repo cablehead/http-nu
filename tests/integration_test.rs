@@ -85,7 +85,20 @@ async fn test_unix_socket() {
     let mut child = spawn_http_nu_server(socket_path, "{|req| $req.method}").await;
 
     // Give server time to start
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Curl the socket to confirm the server is working
+    let output = tokio::process::Command::new("curl")
+        .arg("--unix-socket")
+        .arg(socket_path)
+        .arg("http://localhost")
+        .output()
+        .await
+        .expect("Failed to execute curl");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "GET");
 
     // Clean shutdown
     child.kill().await.unwrap();
