@@ -170,18 +170,9 @@ impl Clone for TlsConfig {
 impl std::fmt::Display for Listener {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Listener::Tcp {
-                listener,
-                tls_config,
-            } => {
+            Listener::Tcp { listener, .. } => {
                 let addr = listener.local_addr().unwrap();
-                write!(
-                    f,
-                    "{}:{} {}",
-                    addr.ip(),
-                    addr.port(),
-                    if tls_config.is_some() { "(TLS)" } else { "" }
-                )
+                write!(f, "{}:{}", addr.ip(), addr.port())
             }
             #[cfg(unix)]
             Listener::Unix(listener) => {
@@ -203,24 +194,24 @@ mod tests {
 
     async fn exercise_listener(addr: &str) {
         let mut listener = Listener::bind(addr, None).await.unwrap();
-        let addr = addr.to_string();
+        let listener_addr = listener.to_string();
 
         let client_task: tokio::task::JoinHandle<
             Result<Box<dyn AsyncReadWrite + Send + Unpin>, std::io::Error>,
         > = tokio::spawn(async move {
-            let listener_clone = Listener::bind(&addr, None).await.unwrap();
-            match listener_clone {
-                Listener::Tcp { listener, .. } => {
-                    let stream = TcpStream::connect(listener.local_addr().unwrap())
-                        .await
-                        .unwrap();
-                    Ok(Box::new(stream) as AsyncReadWriteBox)
-                }
+            if listener_addr.starts_with('/') {
                 #[cfg(unix)]
-                Listener::Unix(_) => {
-                    let stream = UnixStream::connect(&addr).await.unwrap();
+                {
+                    let stream = UnixStream::connect(&listener_addr).await?;
                     Ok(Box::new(stream) as AsyncReadWriteBox)
                 }
+                #[cfg(not(unix))]
+                {
+                    panic!("Unix sockets not supported on this platform");
+                }
+            } else {
+                let stream = TcpStream::connect(&listener_addr).await?;
+                Ok(Box::new(stream) as AsyncReadWriteBox)
             }
         });
 
@@ -237,7 +228,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bind_tcp() {
-        exercise_listener(":0").await;
+        exercise_listener("127.0.0.1:0").await;
     }
 
     #[cfg(unix)]
