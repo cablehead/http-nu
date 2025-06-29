@@ -8,7 +8,8 @@ use std::sync::{
 use axum::{routing::any, Router};
 use clap::Parser;
 use http_nu::{
-    handler::{handle, ResponseStartCommand, StaticCommand},
+    commands::{ResponseStartCommand, StaticCommand},
+    handler::handle,
     listener::TlsConfig,
     Engine, Listener, ToSse,
 };
