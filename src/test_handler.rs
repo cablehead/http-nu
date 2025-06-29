@@ -1,11 +1,9 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use tokio::time::Duration;
 
 use http_body_util::BodyExt;
-use http_body_util::Empty;
-use http_body_util::Full;
-use hyper::body::Bytes;
 use hyper::Request;
 
 use crate::handler::handle;
@@ -17,10 +15,10 @@ async fn test_handle() {
     let req = Request::builder()
         .method("GET")
         .uri("/")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(Arc::new(engine), None, req).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -30,7 +28,7 @@ async fn test_handle() {
 
 #[tokio::test]
 async fn test_handle_with_response_start() {
-    let engine = test_engine(
+    let engine = Arc::new(test_engine(
         r#"{|req|
         match $req {
             {uri: "/resource" method: "POST"} => {
@@ -45,13 +43,13 @@ async fn test_handle_with_response_start() {
             }
         }
     }"#,
-    );
+    ));
 
     // Test successful POST to /resource
     let req = Request::builder()
         .method("POST")
         .uri("/resource")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
 
     let resp = handle(engine.clone(), None, req).await.unwrap();
@@ -71,14 +69,14 @@ async fn test_handle_with_response_start() {
 
 #[tokio::test]
 async fn test_handle_post() {
-    let engine = test_engine(r#"{|req| $in }"#);
+    let engine = Arc::new(test_engine(r#"{|req| $in }"#));
 
     // Create POST request with a body
     let body = "Hello from the request body!";
     let req = Request::builder()
         .method("POST")
         .uri("/echo")
-        .body(Full::new(Bytes::from(body)))
+        .body(axum::body::Body::from(body))
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -93,16 +91,16 @@ async fn test_handle_post() {
 
 #[tokio::test]
 async fn test_handle_streaming() {
-    let engine = test_engine(
+    let engine = Arc::new(test_engine(
         r#"{|req|
             1..3 | each { |n| sleep 0.1sec; $n }
         }"#,
-    );
+    ));
 
     let req = Request::builder()
         .method("GET")
         .uri("/stream")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -121,7 +119,7 @@ async fn test_handle_streaming() {
                     collected.push((chunk_str.trim().to_string(), elapsed));
                 }
             }
-            Some(Err(e)) => panic!("Error reading frame: {}", e),
+            Some(Err(e)) => panic!("Error reading frame: {e}"),
             None => break,
         }
     }
@@ -133,10 +131,10 @@ async fn test_handle_streaming() {
 
 fn assert_timing_sequence(timings: &[(String, Duration)]) {
     // Check values arrive in sequence
-    for i in 0..timings.len() {
+    for (i, (value, _)) in timings.iter().enumerate() {
         assert_eq!(
-            timings[i].0,
-            (i + 1).to_string(),
+            value,
+            &(i + 1).to_string(),
             "Values should arrive in sequence"
         );
     }
@@ -157,15 +155,15 @@ fn assert_timing_sequence(timings: &[(String, Duration)]) {
 #[tokio::test]
 async fn test_content_type_precedence() {
     // 1. Explicit header should take precedence
-    let engine = test_engine(
+    let engine = Arc::new(test_engine(
         r#"{|req|
            .response {headers: {"Content-Type": "text/plain"}}
            {foo: "bar"}
        }"#,
-    );
+    ));
     let req1 = Request::builder()
         .uri("/")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
     let resp1 = handle(engine.clone(), None, req1).await.unwrap();
     assert_eq!(resp1.headers()["content-type"], "text/plain");
@@ -173,27 +171,27 @@ async fn test_content_type_precedence() {
     // 2. Pipeline metadata
     let req2 = Request::builder()
         .uri("/")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
-    let engine = test_engine(r#"{|req| ls | to yaml }"#);
+    let engine = Arc::new(test_engine(r#"{|req| ls | to yaml }"#));
     let resp2 = handle(engine.clone(), None, req2).await.unwrap();
     assert_eq!(resp2.headers()["content-type"], "application/yaml");
 
     // 3. Record defaults to JSON
     let req3 = Request::builder()
         .uri("/")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
-    let engine = test_engine(r#"{|req| {foo: "bar"} }"#);
+    let engine = Arc::new(test_engine(r#"{|req| {foo: "bar"} }"#));
     let resp3 = handle(engine.clone(), None, req3).await.unwrap();
     assert_eq!(resp3.headers()["content-type"], "application/json");
 
     // 4. Plain text defaults to text/html
     let req4 = Request::builder()
         .uri("/")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
-    let engine = test_engine(r#"{|req| "Hello World"}"#);
+    let engine = Arc::new(test_engine(r#"{|req| "Hello World"}"#));
     let resp4 = handle(engine.clone(), None, req4).await.unwrap();
     assert_eq!(resp4.headers()["content-type"], "text/html; charset=utf-8");
 }
@@ -201,11 +199,11 @@ async fn test_content_type_precedence() {
 #[tokio::test]
 async fn test_handle_bytestream() {
     // `to csv` returns a ByteStream with content-type text/csv
-    let engine = test_engine(r#"{|req| ls | to csv }"#);
+    let engine = Arc::new(test_engine(r#"{|req| ls | to csv }"#));
 
     let req = Request::builder()
         .uri("/")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -225,7 +223,7 @@ async fn test_handle_bytestream() {
 
 #[tokio::test]
 async fn test_handle_preserve_preamble() {
-    let engine = test_engine(
+    let engine = Arc::new(test_engine(
         r#"
         def do-foo [more: string] {
           "foo" + $more
@@ -235,11 +233,11 @@ async fn test_handle_preserve_preamble() {
           do-foo $req.path
         }
         "#,
-    );
+    ));
 
     let req = Request::builder()
         .uri("/bar")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -259,14 +257,14 @@ async fn test_handle_static() {
     let css = "body { background: blue; }";
     std::fs::write(static_dir.join("styles.css"), css).unwrap();
 
-    let engine = test_engine(&format!(
+    let engine = Arc::new(test_engine(&format!(
         r#"{{|req| .static '{}' $req.path }}"#,
         static_dir.to_str().unwrap()
-    ));
+    )));
 
     let req = Request::builder()
         .uri("/styles.css")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -299,18 +297,18 @@ async fn test_handle_binary_value() {
     ];
 
     // Create engine that returns a binary value directly
-    let engine = test_engine(
+    let engine = Arc::new(test_engine(
         r#"{|req|
         .response {
             headers: {"Content-Type": "application/octet-stream"}
         }
         0x[89 50 4E 47 0D 0A 1A 0A FF AA BB CC DD]  # Creates a Binary value type
     }"#,
-    );
+    ));
 
     let req = Request::builder()
         .uri("/binary-value")
-        .body(Empty::<Bytes>::new())
+        .body(axum::body::Body::empty())
         .unwrap();
 
     // Currently this will panic, but after fixing it should return a response

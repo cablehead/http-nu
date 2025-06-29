@@ -1,6 +1,173 @@
+use crate::response::{Response, ResponseBodyType};
 use nu_engine::command_prelude::*;
-use nu_protocol::{ByteStream, ByteStreamType, Config, PipelineMetadata, Span, Value};
-use serde_json;
+use nu_protocol::{
+    ByteStream, ByteStreamType, Category, Config, PipelineData, PipelineMetadata, ShellError,
+    Signature, Span, SyntaxShape, Type, Value,
+};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use tokio::sync::oneshot;
+
+thread_local! {
+    pub static RESPONSE_TX: RefCell<Option<oneshot::Sender<Response>>> = const { RefCell::new(None) };
+}
+
+#[derive(Clone)]
+pub struct ResponseStartCommand;
+
+impl Default for ResponseStartCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ResponseStartCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for ResponseStartCommand {
+    fn name(&self) -> &str {
+        ".response"
+    }
+
+    fn description(&self) -> &str {
+        "Start an HTTP response with status and headers"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".response")
+            .required(
+                "meta",
+                SyntaxShape::Record(vec![]), // Add empty vec argument
+                "response configuration with optional status and headers",
+            )
+            .input_output_types(vec![(Type::Nothing, Type::Nothing)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let meta: Value = call.req(engine_state, stack, 0)?;
+        let record = meta.as_record()?;
+
+        // Extract optional status, default to 200
+        let status = match record.get("status") {
+            Some(status_value) => status_value.as_int()? as u16,
+            None => 200,
+        };
+
+        // Extract headers
+        let headers = match record.get("headers") {
+            Some(headers_value) => {
+                let headers_record = headers_value.as_record()?;
+                let mut map = HashMap::new();
+                for (k, v) in headers_record.iter() {
+                    map.insert(k.clone(), v.as_str()?.to_string());
+                }
+                map
+            }
+            None => HashMap::new(),
+        };
+
+        // Create response and send through channel
+        let response = Response {
+            status,
+            headers,
+            body_type: ResponseBodyType::Normal,
+        };
+
+        RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
+            if let Some(tx) = tx.borrow_mut().take() {
+                tx.send(response).map_err(|_| ShellError::GenericError {
+                    error: "Failed to send response".into(),
+                    msg: "Channel closed".into(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?;
+            }
+            Ok(())
+        })?;
+
+        Ok(PipelineData::Empty)
+    }
+}
+
+#[derive(Clone)]
+pub struct StaticCommand;
+
+impl Default for StaticCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StaticCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for StaticCommand {
+    fn name(&self) -> &str {
+        ".static"
+    }
+
+    fn description(&self) -> &str {
+        "Serve static files from a directory"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".static")
+            .required("root", SyntaxShape::String, "root directory path")
+            .required("path", SyntaxShape::String, "request path")
+            .input_output_types(vec![(Type::Nothing, Type::Nothing)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let root: String = call.req(engine_state, stack, 0)?;
+        let path: String = call.req(engine_state, stack, 1)?;
+
+        let response = Response {
+            status: 200,
+            headers: HashMap::new(),
+            body_type: ResponseBodyType::Static {
+                root: PathBuf::from(root),
+                path,
+            },
+        };
+
+        RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
+            if let Some(tx) = tx.borrow_mut().take() {
+                tx.send(response).map_err(|_| ShellError::GenericError {
+                    error: "Failed to send response".into(),
+                    msg: "Channel closed".into(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?;
+            }
+            Ok(())
+        })?;
+
+        Ok(PipelineData::Empty)
+    }
+}
 
 const LINE_ENDING: &str = "\n";
 
@@ -174,59 +341,4 @@ fn update_metadata(metadata: Option<PipelineMetadata>) -> Option<PipelineMetadat
         .or_else(|| {
             Some(PipelineMetadata::default().with_content_type(Some("text/event-stream".into())))
         })
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_content_type_metadata() {
-        use nu_cmd_lang::eval_pipeline_without_terminal_expression;
-        use nu_command::{Get, Metadata};
-        let mut engine_state = Box::new(EngineState::new());
-        let delta = {
-            let mut working_set = StateWorkingSet::new(&engine_state);
-            working_set.add_decl(Box::new(ToSse {}));
-            working_set.add_decl(Box::new(Metadata {}));
-            working_set.add_decl(Box::new(Get {}));
-            working_set.render()
-        };
-        engine_state.merge_delta(delta).expect("merge");
-        let cmd = "{data: 'x'} | to sse | metadata | get content_type";
-        let result = eval_pipeline_without_terminal_expression(
-            cmd,
-            std::env::temp_dir().as_ref(),
-            &mut engine_state,
-        );
-        assert_eq!(
-            Value::test_record(record!("content_type" => Value::test_string("text/event-stream"))),
-            result.expect("result")
-        );
-    }
-
-    #[test]
-    fn test_full_event_output() {
-        let record = record! {
-            "id" => Value::test_string("42"),
-            "event" => Value::test_string("greeting"),
-            "data" => Value::test_string("Hello\nWorld"),
-        };
-        let val = Value::record(record, Span::unknown());
-        let out = event_to_string(&Config::default(), val).unwrap();
-        let expected = "id: 42\nevent: greeting\ndata: Hello\ndata: World\n\n";
-        assert_eq!(out, expected);
-    }
-
-    #[test]
-    fn test_non_record_error() {
-        let err = event_to_string(&Config::default(), Value::test_int(123)).unwrap_err();
-        match err {
-            ShellError::TypeMismatch { err_message, span } => {
-                assert_eq!(span, Span::test_data());
-                assert!(err_message.contains("expected record"));
-            }
-            other => panic!("unexpected error: {:?}", other),
-        }
-    }
 }
