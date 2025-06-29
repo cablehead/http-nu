@@ -68,7 +68,7 @@ async fn serve(
 
     let engine = Arc::new(engine);
     let app = Router::new()
-        .route("/*path", any(move |req| handle(engine, None, req)))
+        .route("/.*", any(move |req| handle(engine, None, req)))
         .with_state(());
 
     // Configure TLS if enabled
