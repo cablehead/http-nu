@@ -67,9 +67,7 @@ async fn serve(
     let interrupt = setup_ctrlc_handler(&mut engine)?;
 
     let engine = Arc::new(engine);
-    let app = Router::new()
-        .route("/.*", any(move |req| handle(engine, None, req)))
-        .with_state(());
+    let app = Router::new().fallback(any(move |req| handle(engine, None, req)));
 
     // Configure TLS if enabled
     let tls_config = if let Some(pem_path) = args.tls {

@@ -57,6 +57,7 @@ async fn test_external_process_cleanup() {
     // Start server with external command
     let mut child = spawn_http_nu_server("127.0.0.1:0", "{|req| ^echo 'test'; $req.path}").await;
 
+    // Give server time to start
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Send interrupt signal
