@@ -1,16 +1,16 @@
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
-
+use axum::{routing::any, Router};
 use clap::Parser;
-
 use http_nu::{
     handler::{handle, ResponseStartCommand, StaticCommand},
     listener::TlsConfig,
     Engine, Listener, ToSse,
 };
+use tokio::signal;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -29,6 +29,11 @@ struct Args {
 }
 
 async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let engine = Arc::new(engine);
+    let app = Router::new()
+        .route("/*path", any(move |req| handle(engine, None, req)))
+        .with_state(());
+
     // Configure TLS if enabled
     let tls_config = if let Some(pem_path) = args.tls {
         Some(TlsConfig::from_pem(pem_path)?)
@@ -36,38 +41,65 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
         None
     };
 
-    let mut listener = Listener::bind(&args.addr, tls_config).await?;
+    let listener = Listener::bind(&args.addr, tls_config).await?;
     println!(
         "{}",
         serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
     );
 
-    loop {
-        match listener.accept().await {
-            Ok((stream, remote_addr)) => {
-                let io = TokioIo::new(stream);
-                let engine = engine.clone();
-
-                tokio::task::spawn(async move {
-                    let service = service_fn(move |req| handle(engine.clone(), remote_addr, req));
-                    if let Err(err) = hyper::server::conn::http1::Builder::new()
-                        .serve_connection(io, service)
-                        .await
-                    {
-                        eprintln!("Connection error: {err}");
-                    }
-                });
-            }
-            Err(e) => {
-                eprintln!("Error accepting connection: {e}");
-                continue;
-            }
+    match listener {
+        Listener::Tcp { listener, .. } => {
+            let listener = Arc::try_unwrap(listener).expect("listener is not shared");
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown_signal())
+                .await?;
         }
+        #[cfg(unix)]
+        Listener::Unix(listener) => {
+            let listener = Arc::try_unwrap(listener).expect("listener is not shared");
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown_signal())
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "http_nu=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("failed to install default rustls CryptoProvider");

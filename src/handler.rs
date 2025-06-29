@@ -3,8 +3,11 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use tower::util::ServiceExt;
+use tower_http::services::ServeDir;
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -63,40 +66,33 @@ enum ResponseTransport {
     Stream(mpsc::Receiver<Vec<u8>>),
 }
 
-pub async fn handle<B>(
-    engine: crate::Engine,
+pub async fn handle(
+    engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
-    req: hyper::Request<B>,
-) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
-where
-    B: hyper::body::Body + Unpin + Send + 'static,
-    B::Data: Into<Bytes> + Clone + Send,
-    B::Error: Into<BoxError> + Send,
-{
+    req: hyper::Request<axum::body::Body>,
+) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, std::convert::Infallible> {
     match handle_inner(engine, addr, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {err}");
-            let response = hyper::Response::builder().status(500).body(
-                Full::new("Internal Server Error".into())
-                    .map_err(|never| match never {})
-                    .boxed(),
-            )?;
+            let response = hyper::Response::builder()
+                .status(500)
+                .body(
+                    Full::new("Internal Server Error".into())
+                        .map_err(|never| match never {})
+                        .boxed(),
+                )
+                .unwrap();
             Ok(response)
         }
     }
 }
 
-async fn handle_inner<B>(
-    engine: crate::Engine,
+async fn handle_inner(
+    engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
-    req: hyper::Request<B>,
-) -> HTTPResult
-where
-    B: hyper::body::Body + Unpin + Send + 'static,
-    B::Data: Into<Bytes> + Clone + Send,
-    B::Error: Into<BoxError> + Send,
-{
+    req: hyper::Request<axum::body::Body>,
+) -> HTTPResult {
     let (parts, mut body) = req.into_parts();
 
     // Create channels for request body streaming
@@ -187,22 +183,17 @@ where
     match &meta.body_type {
         ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
         ResponseBodyType::Static { root, path } => {
-            let resolver = hyper_staticfile::Resolver::new(root);
-            let accept_encoding = parts
-                .headers
-                .get("accept-encoding")
-                .map(hyper_staticfile::AcceptEncoding::from_header_value)
-                .unwrap_or_else(hyper_staticfile::AcceptEncoding::none);
-            let result = resolver.resolve_path(path, accept_encoding).await?;
-            let response = hyper_staticfile::ResponseBuilder::new()
-                .path(path)
-                .request_parts(&parts.method, &parts.uri, &parts.headers)
-                .build(result)?;
-            let (parts, body) = response.into_parts();
-            let body = body
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync + 'static>)
-                .boxed();
-            Ok(hyper::Response::from_parts(parts, body))
+            let mut static_req = hyper::Request::new(axum::body::Body::empty());
+            *static_req.uri_mut() = format!("/{}", path).parse().unwrap();
+            *static_req.method_mut() = parts.method.clone();
+            *static_req.headers_mut() = parts.headers.clone();
+
+            let service = ServeDir::new(root);
+            let res = service.oneshot(static_req).await.unwrap();
+            let (parts, body) = res.into_parts();
+            let bytes = body.collect().await.unwrap().to_bytes();
+            let res = hyper::Response::from_parts(parts, Full::new(bytes).map_err(|e| match e {}).boxed());
+            Ok(res)
         }
     }
 }
@@ -256,7 +247,7 @@ async fn build_normal_response(
 }
 
 fn spawn_eval_thread(
-    engine: crate::Engine,
+    engine: Arc<crate::Engine>,
     request: Request,
     stream: nu_protocol::ByteStream,
 ) -> (
@@ -267,7 +258,7 @@ fn spawn_eval_thread(
     let (body_tx, body_rx) = tokio::sync::oneshot::channel();
 
     fn inner(
-        engine: crate::Engine,
+        engine: Arc<crate::Engine>,
         request: Request,
         stream: nu_protocol::ByteStream,
         meta_tx: oneshot::Sender<Response>,

@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 #[cfg(unix)]
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixListener;
 use tokio_rustls::TlsAcceptor;
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
@@ -55,11 +55,11 @@ impl TlsConfig {
 
 pub enum Listener {
     Tcp {
-        listener: TcpListener,
+        listener: Arc<TcpListener>,
         tls_config: Option<TlsConfig>,
     },
     #[cfg(unix)]
-    Unix(UnixListener),
+    Unix(Arc<UnixListener>),
 }
 
 impl Listener {
@@ -109,7 +109,7 @@ impl Listener {
             }
             let listener = TcpListener::bind(addr).await?;
             Ok(Listener::Tcp {
-                listener,
+                listener: Arc::new(listener),
                 tls_config,
             })
         }
@@ -125,7 +125,7 @@ impl Listener {
                 }
                 let _ = std::fs::remove_file(addr);
                 let listener = UnixListener::bind(addr)?;
-                Ok(Listener::Unix(listener))
+                Ok(Listener::Unix(Arc::new(listener)))
             } else {
                 let mut addr = addr.to_owned();
                 if addr.starts_with(':') {
@@ -133,26 +133,34 @@ impl Listener {
                 }
                 let listener = TcpListener::bind(addr).await?;
                 Ok(Listener::Tcp {
-                    listener,
+                    listener: Arc::new(listener),
                     tls_config,
                 })
             }
         }
     }
+}
 
-    #[allow(dead_code)]
-    pub async fn connect(&self) -> io::Result<AsyncReadWriteBox> {
+impl Clone for Listener {
+    fn clone(&self) -> Self {
         match self {
-            Listener::Tcp { listener, .. } => {
-                let stream = TcpStream::connect(listener.local_addr()?).await?;
-                Ok(Box::new(stream))
-            }
+            Listener::Tcp {
+                listener,
+                tls_config,
+            } => Listener::Tcp {
+                listener: listener.clone(),
+                tls_config: tls_config.clone(),
+            },
             #[cfg(unix)]
-            Listener::Unix(listener) => {
-                let stream =
-                    UnixStream::connect(listener.local_addr()?.as_pathname().unwrap()).await?;
-                Ok(Box::new(stream))
-            }
+            Listener::Unix(listener) => Listener::Unix(listener.clone()),
+        }
+    }
+}
+
+impl Clone for TlsConfig {
+    fn clone(&self) -> Self {
+        TlsConfig {
+            acceptor: self.acceptor.clone(),
         }
     }
 }
@@ -186,19 +194,35 @@ impl std::fmt::Display for Listener {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::net::{TcpStream, UnixStream};
 
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
     async fn exercise_listener(addr: &str) {
         let mut listener = Listener::bind(addr, None).await.unwrap();
-        let mut client = listener.connect().await.unwrap();
+        
+        let listener_clone = listener.clone();
+        let client_task: tokio::task::JoinHandle<Result<Box<dyn AsyncReadWrite + Send + Unpin>, std::io::Error>> = tokio::spawn(async move {
+            match listener_clone {
+                Listener::Tcp { listener, .. } => {
+                    let stream = TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+                    Ok(Box::new(stream) as AsyncReadWriteBox)
+                }
+                #[cfg(unix)]
+                Listener::Unix(listener) => {
+                    let stream = UnixStream::connect(listener.local_addr().unwrap().as_pathname().unwrap()).await.unwrap();
+                    Ok(Box::new(stream) as AsyncReadWriteBox)
+                }
+            }
+        });
 
         let (mut serve, _) = listener.accept().await.unwrap();
         let want = b"Hello from server!";
         serve.write_all(want).await.unwrap();
         drop(serve);
 
+        let mut client = client_task.await.unwrap().unwrap();
         let mut got = Vec::new();
         client.read_to_end(&mut got).await.unwrap();
         assert_eq!(want.to_vec(), got);
