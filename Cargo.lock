@@ -1408,6 +1408,7 @@ dependencies = [
  "scru128",
  "serde",
  "serde_json",
+ "sysinfo 0.30.13",
  "tempfile",
  "tokio",
  "tokio-rustls",
@@ -2294,7 +2295,7 @@ dependencies = [
  "percent-encoding",
  "reedline",
  "strum",
- "sysinfo",
+ "sysinfo 0.33.1",
  "unicode-segmentation",
  "uuid",
  "which 7.0.1",
@@ -2446,7 +2447,7 @@ dependencies = [
  "serde_urlencoded",
  "serde_yaml",
  "sha2",
- "sysinfo",
+ "sysinfo 0.33.1",
  "tabled",
  "titlecase",
  "toml",
@@ -2608,7 +2609,7 @@ dependencies = [
  "nix 0.29.0",
  "ntapi",
  "procfs",
- "sysinfo",
+ "sysinfo 0.33.1",
  "web-time",
  "windows 0.56.0",
 ]
@@ -4134,6 +4135,21 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
+version = "0.30.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a5b4ddaee55fb2bea2bf0e5000747e5f5c0de765e5a5ff87f4cd106439f4bb3"
+dependencies = [
+ "cfg-if",
+ "core-foundation-sys",
+ "libc",
+ "ntapi",
+ "once_cell",
+ "rayon",
+ "windows 0.52.0",
+]
+
+[[package]]
+name = "sysinfo"
 version = "0.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fc858248ea01b66f19d8e8a6d55f41deaf91e9d495246fd01368d99935c6c01"
@@ -5194,6 +5210,16 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "windows"
+version = "0.52.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48a53791691ab099e5e2ad123536d0fff50652600abaf43bbf952894110d0be"
+dependencies = [
+ "windows-core 0.52.0",
+ "windows-targets 0.52.6",
+]
 
 [[package]]
 name = "windows"
