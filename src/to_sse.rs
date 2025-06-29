@@ -226,7 +226,7 @@ mod test {
                 assert_eq!(span, Span::test_data());
                 assert!(err_message.contains("expected record"));
             }
-            other => panic!("unexpected error: {:?}", other),
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 }

@@ -43,8 +43,7 @@ async fn test_background_job_cleanup_on_interrupt() {
         let process_exists = sys.process(Pid::from_u32(pid_val)).is_some();
         assert!(
             !process_exists,
-            "Child process {} should have been terminated",
-            pid_val
+            "Child process {pid_val} should have been terminated"
         );
     }
 }
@@ -107,14 +106,14 @@ async fn spawn_http_nu_server(addr: &str, closure: &str) -> Child {
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            eprintln!("[HTTP-NU STDOUT] {}", line);
+            eprintln!("[HTTP-NU STDOUT] {line}");
         }
     });
 
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            eprintln!("[HTTP-NU STDERR] {}", line);
+            eprintln!("[HTTP-NU STDERR] {line}");
         }
     });
 

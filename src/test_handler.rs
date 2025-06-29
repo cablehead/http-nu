@@ -119,7 +119,7 @@ async fn test_handle_streaming() {
                     collected.push((chunk_str.trim().to_string(), elapsed));
                 }
             }
-            Some(Err(e)) => panic!("Error reading frame: {}", e),
+            Some(Err(e)) => panic!("Error reading frame: {e}"),
             None => break,
         }
     }

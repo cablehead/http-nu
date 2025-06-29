@@ -184,7 +184,7 @@ async fn handle_inner(
         ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
         ResponseBodyType::Static { root, path } => {
             let mut static_req = hyper::Request::new(axum::body::Body::empty());
-            *static_req.uri_mut() = format!("/{}", path).parse().unwrap();
+            *static_req.uri_mut() = format!("/{path}").parse().unwrap();
             *static_req.method_mut() = parts.method.clone();
             *static_req.headers_mut() = parts.headers.clone();
 
