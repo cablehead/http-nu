@@ -139,6 +139,36 @@ async fn test_tls_tcp_socket() {
     child.kill().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_static_command() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("test.txt");
+    std::fs::write(&file_path, "Hello from static file").unwrap();
+
+    let closure = format!(
+        "{{|req| .static '{}' $req.path }}",
+        tmp.path().to_str().unwrap()
+    );
+    let (mut child, address) = spawn_server("127.0.0.1:0", &closure, false).await;
+
+    // Give server time to start
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Curl the server to confirm it's working
+    let output = tokio::process::Command::new("curl")
+        .arg(format!("http://{address}/test.txt"))
+        .output()
+        .await
+        .expect("Failed to execute curl");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "Hello from static file");
+
+    // Clean shutdown
+    child.kill().await.unwrap();
+}
+
 async fn spawn_server(addr: &str, closure: &str, tls: bool) -> (Child, String) {
     let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
     cmd.arg(addr).arg(closure);
