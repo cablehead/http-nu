@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 
 use serde::{Deserialize, Serialize};
 use tower::util::ServiceExt;
 use tower_http::services::ServeDir;
 
-use tokio::sync::mpsc;
+use tokio::sync::mpsc as tokio_mpsc;
 use tokio::sync::oneshot;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
@@ -19,7 +19,7 @@ use hyper::body::{Bytes, Frame};
 
 use nu_engine::command_prelude::Type;
 use nu_engine::CallExt;
-use nu_protocol::engine::{Call, Command, EngineState, Stack};
+use nu_protocol::engine::{Call, Command, EngineState, Job, Stack, ThreadJob};
 use nu_protocol::{
     Category, PipelineData, Record, ShellError, Signature, Span, SyntaxShape, Value,
 };
@@ -63,7 +63,7 @@ type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 enum ResponseTransport {
     Empty,
     Full(Vec<u8>),
-    Stream(mpsc::Receiver<Vec<u8>>),
+    Stream(tokio_mpsc::Receiver<Vec<u8>>),
 }
 
 pub async fn handle(
@@ -301,7 +301,7 @@ fn spawn_eval_thread(
                 Ok(())
             }
             PipelineData::ListStream(stream, _) => {
-                let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
                 let _ = body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
                 for value in stream.into_inner() {
                     if stream_tx.blocking_send(value_to_bytes(value)).is_err() {
@@ -311,7 +311,7 @@ fn spawn_eval_thread(
                 Ok(())
             }
             PipelineData::ByteStream(stream, meta) => {
-                let (stream_tx, stream_rx) = tokio::sync::mpsc::channel(32);
+                let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
                 let _ = body_tx.send((
                     meta.as_ref().and_then(|m| m.content_type.clone()),
                     ResponseTransport::Stream(stream_rx),
@@ -336,10 +336,38 @@ fn spawn_eval_thread(
         }
     }
 
+    // Create a thread job for this evaluation
+    let (sender, _receiver) = mpsc::channel();
+    let signals = engine.state.signals().clone();
+    let job = ThreadJob::new(signals, Some("HTTP Request".to_string()), sender);
+
+    // Add the job to the engine's job table
+    let job_id = {
+        let mut jobs = engine.state.jobs.lock().expect("jobs mutex poisoned");
+        jobs.add_job(Job::Thread(job.clone()))
+    };
+
     std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
-        if let Err(e) = inner(engine, request, stream, meta_tx, body_tx) {
+        // Create a local engine state with the job context
+        let mut local_engine_state = engine.state.clone();
+        local_engine_state.current_job.background_thread_job = Some(job);
+        
+        // Create a local engine with the job-aware state
+        let local_engine = crate::Engine {
+            state: local_engine_state.clone(),
+            closure: engine.closure.clone(),
+        };
+
+        if let Err(e) = inner(Arc::new(local_engine), request, stream, meta_tx, body_tx) {
             eprintln!("Error in eval thread: {e}");
         }
+
+        // Clean up job when done
+        {
+            let mut jobs = local_engine_state.jobs.lock().expect("jobs mutex poisoned");
+            jobs.remove_job(job_id);
+        }
+        
         Ok(())
     });
 

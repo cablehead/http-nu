@@ -1,6 +1,9 @@
 use std::io::Read;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use axum::{routing::any, Router};
 use clap::Parser;
@@ -28,7 +31,35 @@ struct Args {
     closure: String,
 }
 
-async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// Sets up Ctrl-C handling for clean shutdown
+fn setup_ctrlc_handler(
+    engine: &mut Engine,
+) -> Result<Arc<AtomicBool>, Box<dyn std::error::Error + Send + Sync>> {
+    let interrupt = Arc::new(AtomicBool::new(false));
+    engine.set_signals(interrupt.clone());
+
+    ctrlc::set_handler({
+        let interrupt = interrupt.clone();
+        let engine_state = engine.state.clone();
+        move || {
+            interrupt.store(true, Ordering::Relaxed);
+            // Kill all active jobs
+            if let Ok(mut jobs) = engine_state.jobs.lock() {
+                let job_ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
+                for id in job_ids {
+                    let _ = jobs.kill_and_remove(id);
+                }
+            }
+        }
+    })?;
+
+    Ok(interrupt)
+}
+
+async fn serve(args: Args, mut engine: Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Set up Ctrl-C handling for clean shutdown
+    let interrupt = setup_ctrlc_handler(&mut engine)?;
+    
     let engine = Arc::new(engine);
     let app = Router::new()
         .route("/*path", any(move |req| handle(engine, None, req)))
@@ -51,14 +82,14 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
         Listener::Tcp { listener, .. } => {
             let listener = Arc::try_unwrap(listener).expect("listener is not shared");
             axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal())
+                .with_graceful_shutdown(shutdown_signal(interrupt.clone()))
                 .await?;
         }
         #[cfg(unix)]
         Listener::Unix(listener) => {
             let listener = Arc::try_unwrap(listener).expect("listener is not shared");
             axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal())
+                .with_graceful_shutdown(shutdown_signal(interrupt.clone()))
                 .await?;
         }
     }
@@ -66,7 +97,9 @@ async fn serve(args: Args, engine: Engine) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(interrupt: Arc<AtomicBool>) {
+    use tokio::time::{interval, Duration};
+    
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -84,9 +117,20 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
+    let interrupt_check = async {
+        let mut interval = interval(Duration::from_millis(100));
+        loop {
+            interval.tick().await;
+            if interrupt.load(Ordering::Relaxed) {
+                break;
+            }
+        }
+    };
+
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
+        _ = interrupt_check => {},
     }
 }
 
