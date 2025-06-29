@@ -131,10 +131,10 @@ async fn test_handle_streaming() {
 
 fn assert_timing_sequence(timings: &[(String, Duration)]) {
     // Check values arrive in sequence
-    for i in 0..timings.len() {
+    for (i, (value, _)) in timings.iter().enumerate() {
         assert_eq!(
-            timings[i].0,
-            (i + 1).to_string(),
+            value,
+            &(i + 1).to_string(),
             "Values should arrive in sequence"
         );
     }
