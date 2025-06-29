@@ -351,15 +351,8 @@ fn spawn_eval_thread(
     };
 
     std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
-        // Create a local engine state with the job context
-        let mut local_engine_state = engine.state.clone();
-        local_engine_state.current_job.background_thread_job = Some(job);
-
-        // Create a local engine with the job-aware state
-        let local_engine = crate::Engine {
-            state: local_engine_state.clone(),
-            closure: engine.closure.clone(),
-        };
+        let mut local_engine = (*engine).clone();
+        local_engine.state.current_job.background_thread_job = Some(job);
 
         if let Err(e) = inner(Arc::new(local_engine), request, stream, meta_tx, body_tx) {
             eprintln!("Error in eval thread: {e}");
@@ -367,7 +360,7 @@ fn spawn_eval_thread(
 
         // Clean up job when done
         {
-            let mut jobs = local_engine_state.jobs.lock().expect("jobs mutex poisoned");
+            let mut jobs = engine.state.jobs.lock().expect("jobs mutex poisoned");
             jobs.remove_job(job_id);
         }
 
