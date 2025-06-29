@@ -12,7 +12,10 @@ use http_nu::{
     listener::TlsConfig,
     Engine, Listener, ToSse,
 };
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
 use tokio::signal;
+use tower::Service;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
@@ -84,16 +87,48 @@ async fn serve(
     match listener {
         Listener::Tcp { listener, .. } => {
             let listener = Arc::try_unwrap(listener).expect("listener is not shared");
-            axum::serve(listener, app)
+            axum::serve(listener, app.into_make_service())
                 .with_graceful_shutdown(shutdown_signal(interrupt.clone()))
                 .await?;
         }
         #[cfg(unix)]
         Listener::Unix(listener) => {
-            let listener = Arc::try_unwrap(listener).expect("listener is not shared");
-            axum::serve(listener, app)
-                .with_graceful_shutdown(shutdown_signal(interrupt.clone()))
-                .await?;
+            let shutdown = shutdown_signal(interrupt.clone());
+            tokio::pin!(shutdown);
+
+            let service = service_fn(move |req| {
+                let mut app = app.clone();
+                async move { app.call(req).await }
+            });
+
+            loop {
+                tokio::select! {
+                    res = listener.accept() => {
+                        match res {
+                            Ok((stream, _addr)) => {
+                                let io = TokioIo::new(stream);
+                                let service = service.clone();
+
+                                tokio::task::spawn(async move {
+                                    if let Err(err) = hyper::server::conn::http1::Builder::new()
+                                        .serve_connection(io, service)
+                                        .await
+                                    {
+                                        eprintln!("Connection error: {err}");
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                eprintln!("Error accepting connection: {e}");
+                                continue;
+                            }
+                        }
+                    },
+                    _ = &mut shutdown => {
+                        break;
+                    }
+                }
+            }
         }
     }
 

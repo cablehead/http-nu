@@ -59,7 +59,7 @@ pub enum Listener {
         tls_config: Option<TlsConfig>,
     },
     #[cfg(unix)]
-    Unix(Arc<UnixListener>),
+    Unix(UnixListener),
 }
 
 impl Listener {
@@ -125,7 +125,7 @@ impl Listener {
                 }
                 let _ = std::fs::remove_file(addr);
                 let listener = UnixListener::bind(addr)?;
-                Ok(Listener::Unix(Arc::new(listener)))
+                Ok(Listener::Unix(listener))
             } else {
                 let mut addr = addr.to_owned();
                 if addr.starts_with(':') {
@@ -152,7 +152,9 @@ impl Clone for Listener {
                 tls_config: tls_config.clone(),
             },
             #[cfg(unix)]
-            Listener::Unix(listener) => Listener::Unix(listener.clone()),
+            Listener::Unix(_) => {
+                panic!("Cannot clone a Unix listener")
+            }
         }
     }
 }
@@ -202,10 +204,10 @@ mod tests {
     async fn exercise_listener(addr: &str) {
         let mut listener = Listener::bind(addr, None).await.unwrap();
 
-        let listener_clone = listener.clone();
         let client_task: tokio::task::JoinHandle<
             Result<Box<dyn AsyncReadWrite + Send + Unpin>, std::io::Error>,
         > = tokio::spawn(async move {
+            let listener_clone = Listener::bind(addr, None).await.unwrap();
             match listener_clone {
                 Listener::Tcp { listener, .. } => {
                     let stream = TcpStream::connect(listener.local_addr().unwrap())
@@ -214,11 +216,8 @@ mod tests {
                     Ok(Box::new(stream) as AsyncReadWriteBox)
                 }
                 #[cfg(unix)]
-                Listener::Unix(listener) => {
-                    let stream =
-                        UnixStream::connect(listener.local_addr().unwrap().as_pathname().unwrap())
-                            .await
-                            .unwrap();
+                Listener::Unix(_) => {
+                    let stream = UnixStream::connect(addr).await.unwrap();
                     Ok(Box::new(stream) as AsyncReadWriteBox)
                 }
             }
