@@ -56,10 +56,13 @@ fn setup_ctrlc_handler(
     Ok(interrupt)
 }
 
-async fn serve(args: Args, mut engine: Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn serve(
+    args: Args,
+    mut engine: Engine,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Set up Ctrl-C handling for clean shutdown
     let interrupt = setup_ctrlc_handler(&mut engine)?;
-    
+
     let engine = Arc::new(engine);
     let app = Router::new()
         .route("/*path", any(move |req| handle(engine, None, req)))
@@ -99,7 +102,7 @@ async fn serve(args: Args, mut engine: Engine) -> Result<(), Box<dyn std::error:
 
 async fn shutdown_signal(interrupt: Arc<AtomicBool>) {
     use tokio::time::{interval, Duration};
-    
+
     let ctrl_c = async {
         signal::ctrl_c()
             .await

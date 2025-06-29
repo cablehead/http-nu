@@ -104,7 +104,7 @@ async fn handle_inner(
             match frame {
                 Ok(frame) => {
                     if let Some(data) = frame.data_ref() {
-                        let bytes: Bytes = (*data).clone().into();
+                        let bytes: Bytes = (*data).clone();
                         if body_tx.send(Ok(bytes.to_vec())).await.is_err() {
                             break;
                         }
@@ -192,7 +192,10 @@ async fn handle_inner(
             let res = service.oneshot(static_req).await.unwrap();
             let (parts, body) = res.into_parts();
             let bytes = body.collect().await.unwrap().to_bytes();
-            let res = hyper::Response::from_parts(parts, Full::new(bytes).map_err(|e| match e {}).boxed());
+            let res = hyper::Response::from_parts(
+                parts,
+                Full::new(bytes).map_err(|e| match e {}).boxed(),
+            );
             Ok(res)
         }
     }
@@ -351,7 +354,7 @@ fn spawn_eval_thread(
         // Create a local engine state with the job context
         let mut local_engine_state = engine.state.clone();
         local_engine_state.current_job.background_thread_job = Some(job);
-        
+
         // Create a local engine with the job-aware state
         let local_engine = crate::Engine {
             state: local_engine_state.clone(),
@@ -367,7 +370,7 @@ fn spawn_eval_thread(
             let mut jobs = local_engine_state.jobs.lock().expect("jobs mutex poisoned");
             jobs.remove_job(job_id);
         }
-        
+
         Ok(())
     });
 

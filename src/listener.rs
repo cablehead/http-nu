@@ -201,17 +201,24 @@ mod tests {
 
     async fn exercise_listener(addr: &str) {
         let mut listener = Listener::bind(addr, None).await.unwrap();
-        
+
         let listener_clone = listener.clone();
-        let client_task: tokio::task::JoinHandle<Result<Box<dyn AsyncReadWrite + Send + Unpin>, std::io::Error>> = tokio::spawn(async move {
+        let client_task: tokio::task::JoinHandle<
+            Result<Box<dyn AsyncReadWrite + Send + Unpin>, std::io::Error>,
+        > = tokio::spawn(async move {
             match listener_clone {
                 Listener::Tcp { listener, .. } => {
-                    let stream = TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+                    let stream = TcpStream::connect(listener.local_addr().unwrap())
+                        .await
+                        .unwrap();
                     Ok(Box::new(stream) as AsyncReadWriteBox)
                 }
                 #[cfg(unix)]
                 Listener::Unix(listener) => {
-                    let stream = UnixStream::connect(listener.local_addr().unwrap().as_pathname().unwrap()).await.unwrap();
+                    let stream =
+                        UnixStream::connect(listener.local_addr().unwrap().as_pathname().unwrap())
+                            .await
+                            .unwrap();
                     Ok(Box::new(stream) as AsyncReadWriteBox)
                 }
             }
