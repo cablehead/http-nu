@@ -8,7 +8,7 @@ use tokio::time::timeout;
 #[tokio::test]
 async fn test_background_job_cleanup_on_interrupt() {
     // Start server with a long-running external command
-    let mut child = spawn_http_nu_server("127.0.0.1:0", "{|req| ^sleep 99999; 'done'}").await;
+    let (mut child, _) = spawn_server("127.0.0.1:0", "{|req| ^sleep 99999; 'done'}").await;
 
     // Give server time to start and for the sleep command to start
     tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -51,7 +51,7 @@ async fn test_background_job_cleanup_on_interrupt() {
 #[tokio::test]
 async fn test_server_starts_and_shuts_down() {
     // Start server with a simple closure
-    let mut child = spawn_http_nu_server("127.0.0.1:0", "{|req| $req.method}").await;
+    let (mut child, _) = spawn_server("127.0.0.1:0", "{|req| $req.method}").await;
 
     // Give server time to start
     tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -65,10 +65,11 @@ async fn test_server_starts_and_shuts_down() {
 async fn test_unix_socket() {
     let tmp = tempfile::tempdir().unwrap();
     let socket_path = tmp.path().join("test.sock");
-    let socket_path = socket_path.to_str().unwrap();
+    let socket_path_str = socket_path.to_str().unwrap();
 
     // Start server with a simple closure
-    let mut child = spawn_http_nu_server(socket_path, "{|req| $req.method}").await;
+    let (mut child, address) = spawn_server(socket_path_str, "{|req| $req.method}").await;
+    assert_eq!(address, socket_path_str);
 
     // Give server time to start
     tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -90,7 +91,30 @@ async fn test_unix_socket() {
     child.kill().await.unwrap();
 }
 
-async fn spawn_http_nu_server(addr: &str, closure: &str) -> Child {
+#[tokio::test]
+async fn test_tcp_socket() {
+    // Start server with a simple closure and get the port
+    let (mut child, address) = spawn_server("127.0.0.1:0", "{|req| $req.method}").await;
+
+    // Give server time to start
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Curl the server to confirm it's working
+    let output = tokio::process::Command::new("curl")
+        .arg(format!("http://{address}"))
+        .output()
+        .await
+        .expect("Failed to execute curl");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "GET");
+
+    // Clean shutdown
+    child.kill().await.unwrap();
+}
+
+async fn spawn_server(addr: &str, closure: &str) -> (Child, String) {
     let mut child = tokio::process::Command::new(cargo_bin("http-nu"))
         .arg(addr)
         .arg(closure)
@@ -102,11 +126,21 @@ async fn spawn_http_nu_server(addr: &str, closure: &str) -> Child {
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
+    let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+
     // Spawn tasks to read output
+    let mut addr_tx = Some(addr_tx);
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
             eprintln!("[HTTP-NU STDOUT] {line}");
+            if let Some(tx) = addr_tx.take() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                        let _ = tx.send(addr_str.trim().to_string());
+                    }
+                }
+            }
         }
     });
 
@@ -117,7 +151,12 @@ async fn spawn_http_nu_server(addr: &str, closure: &str) -> Child {
         }
     });
 
-    child
+    let address = timeout(Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Failed to get address from http-nu server")
+        .expect("Channel closed before address received");
+
+    (child, address)
 }
 
 fn get_child_pids(target_pid_val: u32) -> Vec<u32> {
