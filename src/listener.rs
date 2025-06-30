@@ -181,7 +181,7 @@ impl std::fmt::Display for Listener {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::net::{TcpStream, UnixStream};
+    use tokio::net::TcpStream;
 
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
@@ -196,6 +196,7 @@ mod tests {
             if listener_addr.starts_with('/') {
                 #[cfg(unix)]
                 {
+                    use tokio::net::UnixStream;
                     let stream = UnixStream::connect(&listener_addr).await?;
                     Ok(Box::new(stream) as AsyncReadWriteBox)
                 }
