@@ -1,4 +1,4 @@
-## http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
+# http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
 
 From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh)
 closure over HTTP.
