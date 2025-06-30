@@ -88,6 +88,84 @@ Here's an example:
 $ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path}'
 ```
 
+### Reverse Proxy
+
+You can proxy HTTP requests to backend servers using the `.reverse-proxy`
+command. This command takes a target URL and an optional configuration record.
+
+When you call `.reverse-proxy`, it forwards the incoming request to the
+specified backend server and returns the response. Any subsequent output in the
+closure will be ignored.
+
+#### Basic Usage
+
+```bash
+# Simple proxy to backend server
+$ http-nu :3001 '{|req| .reverse-proxy "http://localhost:8080"}'
+```
+
+#### Configuration Options
+
+The optional second parameter allows you to customize the proxy behavior:
+
+```nushell
+.reverse-proxy <target_url> {
+  headers?: {<key>: <value>}     # Additional headers to add
+  timeout?: duration             # Request timeout (default: 30sec)
+  preserve_host?: bool           # Keep original Host header (default: false)
+  strip_prefix?: string          # Remove path prefix before forwarding
+}
+```
+
+#### Examples
+
+**Add custom headers:**
+
+```bash
+$ http-nu :3001 '{|req|
+  .reverse-proxy "http://api.example.com" {
+    headers: {
+      "X-API-Key": "secret123"
+      "X-Forwarded-Proto": "https"
+    }
+  }
+}'
+```
+
+**API gateway with path stripping:**
+
+```bash
+$ http-nu :3001 '{|req|
+  .reverse-proxy "http://localhost:8080" {
+    strip_prefix: "/api/v1"
+  }
+}'
+# Request to /api/v1/users becomes /users at the backend
+```
+
+**Load balancer with routing:**
+
+```bash
+$ http-nu :3001 '{|req|
+  let backend = if ($req.path | str starts-with "/api") {
+    "http://api-server:8080"
+  } else {
+    "http://web-server:3000"
+  }
+  .reverse-proxy $backend
+}'
+```
+
+**Preserve original host header:**
+
+```bash
+$ http-nu :3001 '{|req|
+  .reverse-proxy "http://backend:8080" {
+    preserve_host: true
+  }
+}'
+```
+
 ### POST: echo
 
 ```bash
