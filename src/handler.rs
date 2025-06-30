@@ -170,9 +170,9 @@ async fn handle_inner(
 
             // Build target URI
             let target_uri = if let Some(query) = parts.uri.query() {
-                format!("{}{path}?{query}", target_url)
+                format!("{target_url}{path}?{query}")
             } else {
-                format!("{}{path}", target_url)
+                format!("{target_url}{path}")
             };
 
             *proxy_req.uri_mut() = target_uri.parse().map_err(|e| Box::new(e) as BoxError)?;
@@ -195,7 +195,7 @@ async fn handle_inner(
                     if let Some(authority) = target_uri.authority() {
                         header_map.insert(
                             hyper::header::HOST,
-                            hyper::header::HeaderValue::from_str(&authority.to_string())?,
+                            hyper::header::HeaderValue::from_str(authority.as_ref())?,
                         );
                     }
                 }
