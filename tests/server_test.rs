@@ -140,10 +140,7 @@ async fn test_reverse_proxy_with_body() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start proxy server that forwards the original body (implicit $in)
-    let proxy_closure = format!(
-        r#"{{|req| .reverse-proxy "http://{}" }}"#,
-        backend.address
-    );
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -178,9 +175,9 @@ async fn test_reverse_proxy_with_override_body() {
     let mut cmd = tokio::process::Command::new("curl");
     cmd.arg("-s")
         .arg("-d")
-        .arg("foo")  // Original body is "foo"
+        .arg("foo") // Original body is "foo"
         .arg(format!("http://{}", proxy.address));
-    
+
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
