@@ -157,29 +157,6 @@ $ http-nu :3001 '{|req|
 # Request to /api/v1/users becomes /users at the backend
 ```
 
-**Load balancer with routing:**
-
-```bash
-$ http-nu :3001 '{|req|
-  let backend = if ($req.path | str starts-with "/api") {
-    "http://api-server:8080"
-  } else {
-    "http://web-server:3000"
-  }
-  .reverse-proxy $backend
-}'
-```
-
-**Preserve original host header:**
-
-```bash
-$ http-nu :3001 '{|req|
-  .reverse-proxy "http://backend:8080" {
-    preserve_host: true
-  }
-}'
-```
-
 **Forward original request body:**
 
 ```bash
