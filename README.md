@@ -1,7 +1,32 @@
-## http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
+# http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
 
 From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh)
 closure over HTTP.
+
+<!-- BEGIN mktoc -->
+
+- [Install](#install)
+  - [eget](#eget)
+  - [cargo](#cargo)
+- [Overview](#overview)
+  - [GET: Hello world](#get-hello-world)
+  - [Reading closures from stdin](#reading-closures-from-stdin)
+  - [POST: echo](#post-echo)
+  - [Request metadata](#request-metadata)
+  - [Response metadata](#response-metadata)
+  - [Content-Type Inference](#content-type-inference)
+  - [TLS Support](#tls-support)
+  - [Serving Static Files](#serving-static-files)
+  - [Streaming responses](#streaming-responses)
+  - [server-sent events](#server-sent-events)
+  - [Reverse Proxy](#reverse-proxy)
+- [Building and Releases](#building-and-releases)
+  - [Available Build Targets](#available-build-targets)
+  - [Examples](#examples)
+  - [GitHub Releases](#github-releases)
+- [History](#history)
+
+<!-- END mktoc -->
 
 ## Install
 
@@ -53,39 +78,6 @@ You can listen to UNIX domain sockets as well
 $ http-nu ./sock '{|req| "Hello world"}'
 $ curl -s --unix-socket ./sock localhost
 Hello world
-```
-
-### TLS Support
-
-Enable TLS by providing a PEM file containing both certificate and private key:
-
-```bash
-$ http-nu :3001 --tls cert.pem '{|req| "Secure Hello"}'
-$ curl -k https://localhost:3001
-Secure Hello
-```
-
-Generate a self-signed certificate for testing:
-
-```bash
-$ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
-$ cat cert.pem key.pem > combined.pem
-```
-
-### Serving Static Files
-
-You can serve static files from a directory using the `.static` command. This
-command takes two arguments: the root directory path and the request path.
-
-When you call `.static`, it sets the response to serve the specified file, and
-any subsequent output in the closure will be ignored. The content type is
-automatically inferred based on the file extension (e.g., `text/css` for `.css`
-files).
-
-Here's an example:
-
-```bash
-$ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path}'
 ```
 
 ### POST: echo
@@ -183,6 +175,39 @@ Examples:
 {|req| "Hello" }  # Returns as text/html; charset=utf-8
 ```
 
+### TLS Support
+
+Enable TLS by providing a PEM file containing both certificate and private key:
+
+```bash
+$ http-nu :3001 --tls cert.pem '{|req| "Secure Hello"}'
+$ curl -k https://localhost:3001
+Secure Hello
+```
+
+Generate a self-signed certificate for testing:
+
+```bash
+$ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+$ cat cert.pem key.pem > combined.pem
+```
+
+### Serving Static Files
+
+You can serve static files from a directory using the `.static` command. This
+command takes two arguments: the root directory path and the request path.
+
+When you call `.static`, it sets the response to serve the specified file, and
+any subsequent output in the closure will be ignored. The content type is
+automatically inferred based on the file extension (e.g., `text/css` for `.css`
+files).
+
+Here's an example:
+
+```bash
+$ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path}'
+```
+
 ### Streaming responses
 
 Values returned by streaming pipelines (like `generate`) are sent to the client
@@ -271,6 +296,88 @@ data: {"date":"2025-01-31 04:01:27.387723 -05:00"}
 
 data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
 ...
+```
+
+### Reverse Proxy
+
+You can proxy HTTP requests to backend servers using the `.reverse-proxy`
+command. This command takes a target URL and an optional configuration record.
+
+When you call `.reverse-proxy`, it forwards the incoming request to the
+specified backend server and returns the response. Any subsequent output in the
+closure will be ignored.
+
+**What gets forwarded:**
+
+- HTTP method (GET, POST, PUT, etc.)
+- Request path and query parameters
+- All request headers (with Host header handling based on `preserve_host`)
+- Request body (whatever you pipe into the command)
+
+**Host header behavior:**
+
+- By default: Preserves the original client's Host header
+  (`preserve_host: true`)
+- With `preserve_host: false`: Sets Host header to match the target backend
+  hostname
+
+#### Basic Usage
+
+```bash
+# Simple proxy to backend server
+$ http-nu :3001 '{|req| .reverse-proxy "http://localhost:8080"}'
+```
+
+#### Configuration Options
+
+The optional second parameter allows you to customize the proxy behavior:
+
+```nushell
+.reverse-proxy <target_url> {
+  headers?: {<key>: <value>}     # Additional headers to add
+  preserve_host?: bool           # Keep original Host header (default: true)
+  strip_prefix?: string          # Remove path prefix before forwarding
+}
+```
+
+#### Examples
+
+**Add custom headers:**
+
+```bash
+$ http-nu :3001 '{|req|
+  .reverse-proxy "http://api.example.com" {
+    headers: {
+      "X-API-Key": "secret123"
+      "X-Forwarded-Proto": "https"
+    }
+  }
+}'
+```
+
+**API gateway with path stripping:**
+
+```bash
+$ http-nu :3001 '{|req|
+  .reverse-proxy "http://localhost:8080" {
+    strip_prefix: "/api/v1"
+  }
+}'
+# Request to /api/v1/users becomes /users at the backend
+```
+
+**Forward original request body:**
+
+```bash
+$ http-nu :3001 '{|req| .reverse-proxy "http://backend:8080"}'
+# If .reverse-proxy is first in closure, original body is forwarded (implicit $in)
+```
+
+**Override request body:**
+
+```bash
+$ http-nu :3001 '{|req| "custom body" | .reverse-proxy "http://backend:8080"}'
+# Whatever you pipe into .reverse-proxy becomes the request body
 ```
 
 ## Building and Releases

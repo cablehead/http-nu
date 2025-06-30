@@ -1,6 +1,6 @@
 [package]
 name = "http-nu"
-version = "0.4.3"
+version = "0.4.4-dev.1"
 edition = "2021"
 description = "Serve a Nushell closure over HTTP."
 license = "MIT"
@@ -24,7 +24,7 @@ http-serde = "2.1.1"
 http = "1.1.0"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full", "server-auto"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
@@ -39,17 +39,27 @@ nu-command = "0.105.1"
 nu-engine = "0.105.1"
 nu-parser = "0.105.1"
 nu-protocol = "0.105.1"
-tokio-rustls = "0.26.1"
-rustls = "0.23.23"
-rustls-pemfile = "2.2.0"
-hyper-staticfile = "0.10.1"
+ctrlc = "3.4"
+rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
+rustls-pemfile = "2.1.0"
 scru128 = { version = "3", features = ["serde"] }
+axum = { version = "0.8.4", features = ["http1", "http2"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tower-http = { version = "0.6.6", features = ["fs"] }
+tower = "0.5.2"
+axum-server = { version = "0.7.2", features = ["tls-rustls"] }
+ureq = { version = "2.12.1", default-features = false, features = ["tls"] }
+
+
 
 [dev-dependencies]
-tokio-test = "0.4"
 tempfile = "3.10.1"
+assert_cmd = "2.0"
+nix = { version = "0.30", features = ["signal", "process"] }
+sysinfo = "0.30.12"
 
 
-# Target specific dependencies for musl builds to vendor OpenSSL
-[target.aarch64-unknown-linux-musl.dependencies]
-openssl = { version = "0.10.69", features = ["vendored"] }
+
+
+

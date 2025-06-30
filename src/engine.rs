@@ -8,15 +8,16 @@ use nu_protocol::format_shell_error;
 use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Redirection, Stack, StateWorkingSet},
-    OutDest, PipelineData, ShellError, Span, Value,
+    OutDest, PipelineData, ShellError, Signals, Span, Value,
 };
+use std::sync::{atomic::AtomicBool, Arc};
 
 use crate::Error;
 
 #[derive(Clone)]
 pub struct Engine {
     pub state: EngineState,
-    closure: Option<Closure>,
+    pub closure: Option<Closure>,
 }
 
 impl Engine {
@@ -113,6 +114,11 @@ impl Engine {
 
         self.closure = Some(closure);
         Ok(())
+    }
+
+    /// Sets the interrupt signal for the engine
+    pub fn set_signals(&mut self, interrupt: Arc<AtomicBool>) {
+        self.state.set_signals(Signals::new(interrupt));
     }
 
     pub fn eval(&self, input: Value, pipeline_data: PipelineData) -> Result<PipelineData, Error> {
