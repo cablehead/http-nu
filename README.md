@@ -1,9 +1,11 @@
 # http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
 
-<img width="456" alt="image" src="https://github.com/user-attachments/assets/5a208b01-ed6d-4f17-a3e9-b070cbdea163" />
-
 From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh)
 closure over HTTP.
+
+<img width="456" alt="image" src="https://github.com/user-attachments/assets/5a208b01-ed6d-4f17-a3e9-b070cbdea163" />
+
+---
 
 <!-- BEGIN mktoc -->
 
