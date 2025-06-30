@@ -106,8 +106,8 @@ closure will be ignored.
 
 **Host header behavior:**
 
-- By default: Sets Host header to match the target backend hostname
-- With `preserve_host: true`: Preserves the original client's Host header
+- By default: Preserves the original client's Host header (`preserve_host: true`)
+- With `preserve_host: false`: Sets Host header to match the target backend hostname
 
 #### Basic Usage
 
@@ -124,7 +124,7 @@ The optional second parameter allows you to customize the proxy behavior:
 .reverse-proxy <target_url> {
   headers?: {<key>: <value>}     # Additional headers to add
   timeout?: duration             # Request timeout (default: 30sec)
-  preserve_host?: bool           # Keep original Host header (default: false)
+  preserve_host?: bool           # Keep original Host header (default: true)
   strip_prefix?: string          # Remove path prefix before forwarding
 }
 ```

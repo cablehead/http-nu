@@ -432,7 +432,7 @@ impl Command for ReverseProxyCommand {
 
         let mut headers = HashMap::new();
         let mut timeout = Duration::from_secs(30);
-        let mut preserve_host = false;
+        let mut preserve_host = true;
         let mut strip_prefix: Option<String> = None;
 
         if let Ok(Some(config_value)) = config {

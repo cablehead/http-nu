@@ -135,8 +135,8 @@ async fn test_reverse_proxy_strip_prefix() {
 
 #[tokio::test]
 async fn test_reverse_proxy_with_body() {
-    // Start backend that echoes the request body
-    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $in}"#, false).await;
+    // Start backend that echoes method and body
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $"($req.method): ($in)"}"#, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start proxy server that forwards the original body (implicit $in)
@@ -144,9 +144,11 @@ async fn test_reverse_proxy_with_body() {
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Test that original request body is forwarded
+    // Test that original request body and method are forwarded
     let mut cmd = tokio::process::Command::new("curl");
     cmd.arg("-s")
+        .arg("-X")
+        .arg("POST")
         .arg("-d")
         .arg("foo")
         .arg(format!("http://{}", proxy.address));
@@ -154,7 +156,7 @@ async fn test_reverse_proxy_with_body() {
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.trim(), "foo");
+    assert_eq!(stdout.trim(), "POST: foo");
 }
 
 #[tokio::test]
