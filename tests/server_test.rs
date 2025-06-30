@@ -66,7 +66,12 @@ async fn test_static_command() {
 #[tokio::test]
 async fn test_reverse_proxy_command() {
     // Start backend server
-    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $"Backend: ($req.method) ($req.path)"}"#, false).await;
+    let backend = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req| $"Backend: ($req.method) ($req.path)"}"#,
+        false,
+    )
+    .await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start proxy server that forwards to backend
@@ -84,7 +89,12 @@ async fn test_reverse_proxy_command() {
 #[tokio::test]
 async fn test_reverse_proxy_with_config() {
     // Start backend that echoes headers
-    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $req.headers | get "x-custom-header" | default "not-found"}"#, false).await;
+    let backend = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req| $req.headers | get "x-custom-header" | default "not-found"}"#,
+        false,
+    )
+    .await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start proxy server with custom headers

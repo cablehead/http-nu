@@ -373,8 +373,8 @@ impl Command for ReverseProxyCommand {
             .required("target_url", SyntaxShape::String, "backend URL to proxy to")
             .optional(
                 "config",
-                SyntaxShape::Record(vec![]), 
-                "optional configuration (headers, timeout, preserve_host, strip_prefix)"
+                SyntaxShape::Record(vec![]),
+                "optional configuration (headers, timeout, preserve_host, strip_prefix)",
             )
             .input_output_types(vec![(Type::Nothing, Type::Nothing)])
             .category(Category::Custom("http".into()))
@@ -388,7 +388,7 @@ impl Command for ReverseProxyCommand {
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let target_url: String = call.req(engine_state, stack, 0)?;
-        
+
         // Parse optional config
         let config = call.opt::<Value>(engine_state, stack, 1);
 
