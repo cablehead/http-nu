@@ -106,8 +106,10 @@ closure will be ignored.
 
 **Host header behavior:**
 
-- By default: Preserves the original client's Host header (`preserve_host: true`)
-- With `preserve_host: false`: Sets Host header to match the target backend hostname
+- By default: Preserves the original client's Host header
+  (`preserve_host: true`)
+- With `preserve_host: false`: Sets Host header to match the target backend
+  hostname
 
 #### Basic Usage
 
