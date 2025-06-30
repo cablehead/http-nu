@@ -62,3 +62,63 @@ async fn test_static_command() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout.trim(), "Hello from static file");
 }
+
+#[tokio::test]
+async fn test_reverse_proxy_command() {
+    // Start backend server
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $"Backend: ($req.method) ($req.path)"}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start proxy server that forwards to backend
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Test basic proxying
+    let output = proxy.curl("/test").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "Backend: GET /test");
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_with_config() {
+    // Start backend that echoes headers
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $req.headers | get "x-custom-header" | default "not-found"}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start proxy server with custom headers
+    let proxy_closure = format!(
+        r#"{{|req| .reverse-proxy "http://{}" {{ headers: {{ "x-custom-header": "proxy-added" }} }} }}"#,
+        backend.address
+    );
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Test that custom header is added
+    let output = proxy.curl("").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "proxy-added");
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_strip_prefix() {
+    // Start backend that returns the path
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $"Path: ($req.path)"}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start proxy server with prefix stripping
+    let proxy_closure = format!(
+        r#"{{|req| .reverse-proxy "http://{}" {{ strip_prefix: "/api" }} }}"#,
+        backend.address
+    );
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Test that /api prefix is stripped
+    let output = proxy.curl("/api/users").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "Path: /users");
+}
