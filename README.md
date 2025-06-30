@@ -25,6 +25,7 @@ closure over HTTP.
   - [Examples](#examples)
   - [GitHub Releases](#github-releases)
 - [History](#history)
+
 <!-- END mktoc -->
 
 ## Install

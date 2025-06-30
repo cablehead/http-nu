@@ -64,40 +64,23 @@ async fn test_static_command() {
 }
 
 #[tokio::test]
-async fn test_reverse_proxy_command() {
-    // Start backend server that echoes method, path and query
+async fn test_reverse_proxy() {
+    // Start a backend server that echoes the method, path, query, and a custom header.
     let backend = TestServer::new(
         "127.0.0.1:0",
-        r#"{|req| $"Backend: ($req.method) ($req.path) ($req.query | get foo | default 'none')"}"#,
+        r#"{|req|
+            let method = $req.method
+            let path = $req.path
+            let query = ($req.query | get foo | default 'none')
+            let header = ($req.headers | get "x-custom-header" | default "not-found")
+            $"Backend: ($method) ($path) ($query) ($header)"
+        }"#,
         false,
     )
     .await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Start proxy server that forwards to backend
-    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
-    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // Test basic proxying with query params
-    let output = proxy.curl("/test?foo=bar").await;
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.trim(), "Backend: GET /test bar");
-}
-
-#[tokio::test]
-async fn test_reverse_proxy_with_config() {
-    // Start backend that echoes headers
-    let backend = TestServer::new(
-        "127.0.0.1:0",
-        r#"{|req| $req.headers | get "x-custom-header" | default "not-found"}"#,
-        false,
-    )
-    .await;
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // Start proxy server with custom headers
+    // Start a proxy server that forwards to the backend with a custom header.
     let proxy_closure = format!(
         r#"{{|req| .reverse-proxy "http://{}" {{ headers: {{ "x-custom-header": "proxy-added" }} }} }}"#,
         backend.address
@@ -105,20 +88,20 @@ async fn test_reverse_proxy_with_config() {
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Test that custom header is added
-    let output = proxy.curl("").await;
+    // Test basic proxying with a query parameter.
+    let output = proxy.curl("/test?foo=bar").await;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.trim(), "proxy-added");
+    assert_eq!(stdout.trim(), "Backend: GET /test bar proxy-added");
 }
 
 #[tokio::test]
 async fn test_reverse_proxy_strip_prefix() {
-    // Start backend that returns the path
+    // Start a backend server that returns the request path.
     let backend = TestServer::new("127.0.0.1:0", r#"{|req| $"Path: ($req.path)"}"#, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Start proxy server with prefix stripping
+    // Start a proxy server with prefix stripping.
     let proxy_closure = format!(
         r#"{{|req| .reverse-proxy "http://{}" {{ strip_prefix: "/api" }} }}"#,
         backend.address
@@ -126,7 +109,7 @@ async fn test_reverse_proxy_strip_prefix() {
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Test that /api prefix is stripped
+    // Test that the /api prefix is stripped from the request path.
     let output = proxy.curl("/api/users").await;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -134,85 +117,67 @@ async fn test_reverse_proxy_strip_prefix() {
 }
 
 #[tokio::test]
-async fn test_reverse_proxy_with_body() {
-    // Start backend that echoes method, body, and query params
-    let backend = TestServer::new(
-        "127.0.0.1:0",
-        r#"{|req| $"($req.method): ($in) query=($req.query | get baz | default 'none')"}"#,
-        false,
-    )
-    .await;
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // Start proxy server that forwards the original body (implicit $in)
-    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
-    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // Test that original request body, method, and query params are forwarded
-    let mut cmd = tokio::process::Command::new("curl");
-    cmd.arg("-s")
-        .arg("-X")
-        .arg("POST")
-        .arg("-d")
-        .arg("foo")
-        .arg(format!("http://{}?baz=qux", proxy.address));
-
-    let output = cmd.output().await.expect("Failed to execute curl");
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.trim(), "POST: foo query=qux");
-}
-
-#[tokio::test]
-async fn test_reverse_proxy_with_override_body() {
-    // Start backend that echoes the request body
+async fn test_reverse_proxy_body_handling() {
+    // Start a backend server that echoes the request body.
     let backend = TestServer::new("127.0.0.1:0", r#"{|req| $in}"#, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Start proxy server that overrides the body with hardcoded value
+    // Start a proxy server that forwards the original request body.
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
+    let proxy_forward = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Test that the original request body is forwarded.
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-d")
+        .arg("forwarded")
+        .arg(format!("http://{}", proxy_forward.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "forwarded");
+
+    // Start a proxy server that overrides the request body.
     let proxy_closure = format!(
         r#"{{|req| "override" | .reverse-proxy "http://{}" }}"#,
         backend.address
     );
-    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    let proxy_override = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Test that overridden body is sent regardless of original request body
+    // Test that the request body is overridden.
     let mut cmd = tokio::process::Command::new("curl");
     cmd.arg("-s")
         .arg("-d")
-        .arg("foo") // Original body is "foo"
-        .arg(format!("http://{}", proxy.address));
-
+        .arg("original")
+        .arg(format!("http://{}", proxy_override.address));
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.trim(), "override"); // But backend receives "override"
+    assert_eq!(stdout.trim(), "override");
 }
 
 #[tokio::test]
 async fn test_reverse_proxy_host_header() {
-    // Start backend that echoes the Host header
+    // Start a backend server that echoes the Host header.
     let backend =
         TestServer::new("127.0.0.1:0", r#"{|req| $req.headers | get "host"}"#, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Start proxy server
+    // Start a proxy server.
     let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Test with custom Host header
+    // Test that the Host header is forwarded correctly.
     let mut cmd = tokio::process::Command::new("curl");
     cmd.arg("-s")
         .arg("-H")
         .arg("Host: example.com")
         .arg(format!("http://{}", proxy.address));
-
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // The backend should receive the original "example.com", not the backend address
     assert_eq!(stdout.trim(), "example.com");
 }
