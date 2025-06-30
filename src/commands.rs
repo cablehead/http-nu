@@ -6,6 +6,7 @@ use nu_protocol::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
 use tokio::sync::oneshot;
 
@@ -341,4 +342,151 @@ fn update_metadata(metadata: Option<PipelineMetadata>) -> Option<PipelineMetadat
         .or_else(|| {
             Some(PipelineMetadata::default().with_content_type(Some("text/event-stream".into())))
         })
+}
+
+#[derive(Clone)]
+pub struct ReverseProxyCommand;
+
+impl Default for ReverseProxyCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ReverseProxyCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for ReverseProxyCommand {
+    fn name(&self) -> &str {
+        ".reverse-proxy"
+    }
+
+    fn description(&self) -> &str {
+        "Forward HTTP requests to a backend server"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".reverse-proxy")
+            .required("target_url", SyntaxShape::String, "backend URL to proxy to")
+            .optional(
+                "config",
+                SyntaxShape::Record(vec![]),
+                "optional configuration (headers, preserve_host, strip_prefix)",
+            )
+            .input_output_types(vec![(Type::Any, Type::Nothing)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let target_url: String = call.req(engine_state, stack, 0)?;
+
+        // Convert input pipeline data to bytes for request body
+        let request_body = match input {
+            PipelineData::Empty => Vec::new(),
+            PipelineData::Value(value, _) => crate::response::value_to_bytes(value),
+            PipelineData::ByteStream(stream, _) => {
+                // Collect all bytes from the stream
+                let mut body_bytes = Vec::new();
+                if let Some(mut reader) = stream.reader() {
+                    loop {
+                        let mut buffer = vec![0; 8192];
+                        match reader.read(&mut buffer) {
+                            Ok(0) => break, // EOF
+                            Ok(n) => {
+                                buffer.truncate(n);
+                                body_bytes.extend_from_slice(&buffer);
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+                body_bytes
+            }
+            PipelineData::ListStream(stream, _) => {
+                // Convert list stream to JSON array
+                let items: Vec<_> = stream.into_iter().collect();
+                let json_value = serde_json::Value::Array(
+                    items
+                        .into_iter()
+                        .map(|v| crate::response::value_to_json(&v))
+                        .collect(),
+                );
+                serde_json::to_string(&json_value)
+                    .unwrap_or_default()
+                    .into_bytes()
+            }
+        };
+
+        // Parse optional config
+        let config = call.opt::<Value>(engine_state, stack, 1);
+
+        let mut headers = HashMap::new();
+        let mut preserve_host = true;
+        let mut strip_prefix: Option<String> = None;
+
+        if let Ok(Some(config_value)) = config {
+            if let Ok(record) = config_value.as_record() {
+                // Extract headers
+                if let Some(headers_value) = record.get("headers") {
+                    if let Ok(headers_record) = headers_value.as_record() {
+                        for (k, v) in headers_record.iter() {
+                            if let Ok(v_str) = v.as_str() {
+                                headers.insert(k.clone(), v_str.to_string());
+                            }
+                        }
+                    }
+                }
+
+                // Extract preserve_host
+                if let Some(preserve_host_value) = record.get("preserve_host") {
+                    if let Ok(ph) = preserve_host_value.as_bool() {
+                        preserve_host = ph;
+                    }
+                }
+
+                // Extract strip_prefix
+                if let Some(strip_prefix_value) = record.get("strip_prefix") {
+                    if let Ok(prefix) = strip_prefix_value.as_str() {
+                        strip_prefix = Some(prefix.to_string());
+                    }
+                }
+            }
+        }
+
+        let response = Response {
+            status: 200,
+            headers: HashMap::new(),
+            body_type: ResponseBodyType::ReverseProxy {
+                target_url,
+                headers,
+                preserve_host,
+                strip_prefix,
+                request_body,
+            },
+        };
+
+        RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
+            if let Some(tx) = tx.borrow_mut().take() {
+                tx.send(response).map_err(|_| ShellError::GenericError {
+                    error: "Failed to send response".into(),
+                    msg: "Channel closed".into(),
+                    span: Some(call.head),
+                    help: None,
+                    inner: vec![],
+                })?;
+            }
+            Ok(())
+        })?;
+
+        Ok(PipelineData::Empty)
+    }
 }

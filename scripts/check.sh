@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
-cargo fmt --check
-cargo clippy -- -D warnings
+deno fmt README.md --check
+cargo fmt --check --all
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test

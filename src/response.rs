@@ -12,7 +12,17 @@ pub struct Response {
 #[derive(Clone, Debug)]
 pub enum ResponseBodyType {
     Normal,
-    Static { root: PathBuf, path: String },
+    Static {
+        root: PathBuf,
+        path: String,
+    },
+    ReverseProxy {
+        target_url: String,
+        headers: HashMap<String, String>,
+        preserve_host: bool,
+        strip_prefix: Option<String>,
+        request_body: Vec<u8>,
+    },
 }
 
 #[derive(Debug)]
