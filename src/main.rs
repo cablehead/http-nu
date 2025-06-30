@@ -8,7 +8,7 @@ use std::sync::{
 use axum::{routing::any, Router};
 use clap::Parser;
 use http_nu::{
-    commands::{ResponseStartCommand, StaticCommand, ToSse},
+    commands::{ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse},
     handler::handle,
     listener::TlsConfig,
     Engine, Listener,
@@ -214,6 +214,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_commands(vec![
         Box::new(ResponseStartCommand::new()),
+        Box::new(ReverseProxyCommand::new()),
         Box::new(StaticCommand::new()),
         Box::new(ToSse {}),
     ])?;

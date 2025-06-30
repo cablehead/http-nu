@@ -1,6 +1,7 @@
 use nu_protocol::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct Response {
@@ -13,6 +14,13 @@ pub struct Response {
 pub enum ResponseBodyType {
     Normal,
     Static { root: PathBuf, path: String },
+    ReverseProxy {
+        target_url: String,
+        headers: HashMap<String, String>,
+        timeout: Duration,
+        preserve_host: bool,
+        strip_prefix: Option<String>,
+    },
 }
 
 #[derive(Debug)]

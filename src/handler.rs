@@ -148,6 +148,78 @@ async fn handle_inner(
             );
             Ok(res)
         }
+        ResponseBodyType::ReverseProxy { target_url, headers, preserve_host, strip_prefix, .. } => {
+            let mut proxy_req = hyper::Request::new(axum::body::Body::empty());
+            
+            // Handle strip_prefix
+            let path = if let Some(prefix) = strip_prefix {
+                parts.uri.path().strip_prefix(prefix).unwrap_or(parts.uri.path())
+            } else {
+                parts.uri.path()
+            };
+            
+            // Build target URI
+            let target_uri = if let Some(query) = parts.uri.query() {
+                format!("{}{path}?{query}", target_url)
+            } else {
+                format!("{}{path}", target_url)
+            };
+            
+            *proxy_req.uri_mut() = target_uri.parse().map_err(|e| Box::new(e) as BoxError)?;
+            *proxy_req.method_mut() = parts.method.clone();
+            
+            // Copy original headers
+            let mut header_map = parts.headers.clone();
+            
+            // Add custom headers
+            for (k, v) in headers {
+                header_map.insert(
+                    hyper::header::HeaderName::from_bytes(k.as_bytes())?,
+                    hyper::header::HeaderValue::from_str(v)?,
+                );
+            }
+            
+            // Handle preserve_host
+            if !preserve_host {
+                if let Ok(target_uri) = target_url.parse::<hyper::Uri>() {
+                    if let Some(authority) = target_uri.authority() {
+                        header_map.insert(
+                            hyper::header::HOST,
+                            hyper::header::HeaderValue::from_str(&authority.to_string())?,
+                        );
+                    }
+                }
+            }
+            
+            *proxy_req.headers_mut() = header_map;
+            
+            // Create a simple HTTP client and forward the request
+            let client = hyper_util::client::legacy::Client::builder(
+                hyper_util::rt::TokioExecutor::new()
+            ).build_http();
+            
+            match client.request(proxy_req).await {
+                Ok(response) => {
+                    let (parts, body) = response.into_parts();
+                    let bytes = body.collect().await?.to_bytes();
+                    let res = hyper::Response::from_parts(
+                        parts,
+                        Full::new(bytes).map_err(|e| match e {}).boxed(),
+                    );
+                    Ok(res)
+                }
+                Err(_e) => {
+                    let response = hyper::Response::builder()
+                        .status(502)
+                        .body(
+                            Full::new("Bad Gateway".into())
+                                .map_err(|never| match never {})
+                                .boxed(),
+                        )?;
+                    Ok(response)
+                }
+            }
+        }
     }
 }
 
