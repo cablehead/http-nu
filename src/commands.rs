@@ -375,7 +375,7 @@ impl Command for ReverseProxyCommand {
             .optional(
                 "config",
                 SyntaxShape::Record(vec![]),
-                "optional configuration (headers, timeout, preserve_host, strip_prefix)",
+                "optional configuration (headers, preserve_host, strip_prefix)",
             )
             .input_output_types(vec![(Type::Any, Type::Nothing)])
             .category(Category::Custom("http".into()))
