@@ -1,6 +1,6 @@
 [package]
 name = "http-nu"
-version = "0.4.3"
+version = "0.4.4-dev.1"
 edition = "2021"
 description = "Serve a Nushell closure over HTTP."
 license = "MIT"
@@ -49,11 +49,9 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tower-http = { version = "0.6.6", features = ["fs"] }
 tower = "0.5.2"
 axum-server = { version = "0.7.2", features = ["tls-rustls"] }
-axum-reverse-proxy = "1.0.2"
 
 
 [dev-dependencies]
-tokio-test = "0.4"
 tempfile = "3.10.1"
 assert_cmd = "2.0"
 nix = { version = "0.30", features = ["signal", "process"] }
