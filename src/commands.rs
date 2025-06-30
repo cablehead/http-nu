@@ -6,6 +6,7 @@ use nu_protocol::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -376,7 +377,7 @@ impl Command for ReverseProxyCommand {
                 SyntaxShape::Record(vec![]),
                 "optional configuration (headers, timeout, preserve_host, strip_prefix)",
             )
-            .input_output_types(vec![(Type::Nothing, Type::Nothing)])
+            .input_output_types(vec![(Type::Any, Type::Nothing)])
             .category(Category::Custom("http".into()))
     }
 
@@ -385,9 +386,46 @@ impl Command for ReverseProxyCommand {
         engine_state: &EngineState,
         stack: &mut Stack,
         call: &Call,
-        _input: PipelineData,
+        input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
         let target_url: String = call.req(engine_state, stack, 0)?;
+
+        // Convert input pipeline data to bytes for request body
+        let request_body = match input {
+            PipelineData::Empty => Vec::new(),
+            PipelineData::Value(value, _) => crate::response::value_to_bytes(value),
+            PipelineData::ByteStream(stream, _) => {
+                // Collect all bytes from the stream
+                let mut body_bytes = Vec::new();
+                if let Some(mut reader) = stream.reader() {
+                    loop {
+                        let mut buffer = vec![0; 8192];
+                        match reader.read(&mut buffer) {
+                            Ok(0) => break, // EOF
+                            Ok(n) => {
+                                buffer.truncate(n);
+                                body_bytes.extend_from_slice(&buffer);
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+                body_bytes
+            }
+            PipelineData::ListStream(stream, _) => {
+                // Convert list stream to JSON array
+                let items: Vec<_> = stream.into_iter().collect();
+                let json_value = serde_json::Value::Array(
+                    items
+                        .into_iter()
+                        .map(|v| crate::response::value_to_json(&v))
+                        .collect(),
+                );
+                serde_json::to_string(&json_value)
+                    .unwrap_or_default()
+                    .into_bytes()
+            }
+        };
 
         // Parse optional config
         let config = call.opt::<Value>(engine_state, stack, 1);
@@ -442,6 +480,7 @@ impl Command for ReverseProxyCommand {
                 timeout,
                 preserve_host,
                 strip_prefix,
+                request_body,
             },
         };
 

@@ -97,6 +97,18 @@ When you call `.reverse-proxy`, it forwards the incoming request to the
 specified backend server and returns the response. Any subsequent output in the
 closure will be ignored.
 
+**What gets forwarded:**
+
+- HTTP method (GET, POST, PUT, etc.)
+- Request path and query parameters
+- All request headers (with Host header handling based on `preserve_host`)
+- Request body (whatever you pipe into the command)
+
+**Host header behavior:**
+
+- By default: Sets Host header to match the target backend hostname
+- With `preserve_host: true`: Preserves the original client's Host header
+
 #### Basic Usage
 
 ```bash
@@ -164,6 +176,20 @@ $ http-nu :3001 '{|req|
     preserve_host: true
   }
 }'
+```
+
+**Forward original request body:**
+
+```bash
+$ http-nu :3001 '{|req| .reverse-proxy "http://backend:8080"}'
+# If .reverse-proxy is first in closure, original body is forwarded (implicit $in)
+```
+
+**Override request body:**
+
+```bash
+$ http-nu :3001 '{|req| "custom body" | .reverse-proxy "http://backend:8080"}'
+# Whatever you pipe into .reverse-proxy becomes the request body
 ```
 
 ### POST: echo

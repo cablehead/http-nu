@@ -132,3 +132,57 @@ async fn test_reverse_proxy_strip_prefix() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout.trim(), "Path: /users");
 }
+
+#[tokio::test]
+async fn test_reverse_proxy_with_body() {
+    // Start backend that echoes the request body
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $in}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start proxy server that forwards the original body (implicit $in)
+    let proxy_closure = format!(
+        r#"{{|req| .reverse-proxy "http://{}" }}"#,
+        backend.address
+    );
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Test that original request body is forwarded
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-d")
+        .arg("foo")
+        .arg(format!("http://{}", proxy.address));
+
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "foo");
+}
+
+#[tokio::test]
+async fn test_reverse_proxy_with_override_body() {
+    // Start backend that echoes the request body
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $in}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start proxy server that overrides the body with hardcoded value
+    let proxy_closure = format!(
+        r#"{{|req| "override" | .reverse-proxy "http://{}" }}"#,
+        backend.address
+    );
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Test that overridden body is sent regardless of original request body
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-d")
+        .arg("foo")  // Original body is "foo"
+        .arg(format!("http://{}", proxy.address));
+    
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "override"); // But backend receives "override"
+}

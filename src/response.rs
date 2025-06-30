@@ -23,6 +23,7 @@ pub enum ResponseBodyType {
         timeout: Duration,
         preserve_host: bool,
         strip_prefix: Option<String>,
+        request_body: Vec<u8>,
     },
 }
 

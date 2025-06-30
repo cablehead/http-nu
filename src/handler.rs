@@ -153,9 +153,11 @@ async fn handle_inner(
             headers,
             preserve_host,
             strip_prefix,
+            request_body,
             ..
         } => {
-            let mut proxy_req = hyper::Request::new(axum::body::Body::empty());
+            let body = axum::body::Body::from(request_body.clone());
+            let mut proxy_req = hyper::Request::new(body);
 
             // Handle strip_prefix
             let path = if let Some(prefix) = strip_prefix {
@@ -180,6 +182,14 @@ async fn handle_inner(
 
             // Copy original headers
             let mut header_map = parts.headers.clone();
+
+            // Update Content-Length to match the new body
+            if !request_body.is_empty() || header_map.contains_key(hyper::header::CONTENT_LENGTH) {
+                header_map.insert(
+                    hyper::header::CONTENT_LENGTH,
+                    hyper::header::HeaderValue::from_str(&request_body.len().to_string())?,
+                );
+            }
 
             // Add custom headers
             for (k, v) in headers {
