@@ -13,10 +13,7 @@ use http_nu::{
     listener::TlsConfig,
     Engine, Listener,
 };
-use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
 use tokio::signal;
-use tower::Service;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
@@ -106,6 +103,10 @@ async fn serve(
         }
         #[cfg(unix)]
         Listener::Unix(listener) => {
+            use hyper::service::service_fn;
+            use hyper_util::rt::TokioIo;
+            use tower::Service;
+
             let shutdown = shutdown_signal(interrupt.clone());
             tokio::pin!(shutdown);
 
