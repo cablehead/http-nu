@@ -20,7 +20,6 @@ pub enum ResponseBodyType {
     ReverseProxy {
         target_url: String,
         headers: HashMap<String, String>,
-        timeout: Duration,
         preserve_host: bool,
         strip_prefix: Option<String>,
         request_body: Vec<u8>,

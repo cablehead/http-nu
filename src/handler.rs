@@ -154,7 +154,6 @@ async fn handle_inner(
             preserve_host,
             strip_prefix,
             request_body,
-            ..
         } => {
             let body = axum::body::Body::from(request_body.clone());
             let mut proxy_req = hyper::Request::new(body);

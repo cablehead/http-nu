@@ -431,7 +431,6 @@ impl Command for ReverseProxyCommand {
         let config = call.opt::<Value>(engine_state, stack, 1);
 
         let mut headers = HashMap::new();
-        let mut timeout = Duration::from_secs(30);
         let mut preserve_host = true;
         let mut strip_prefix: Option<String> = None;
 
@@ -445,13 +444,6 @@ impl Command for ReverseProxyCommand {
                                 headers.insert(k.clone(), v_str.to_string());
                             }
                         }
-                    }
-                }
-
-                // Extract timeout
-                if let Some(timeout_value) = record.get("timeout") {
-                    if let Ok(duration_ns) = timeout_value.as_duration() {
-                        timeout = Duration::from_nanos(duration_ns as u64);
                     }
                 }
 
@@ -477,7 +469,6 @@ impl Command for ReverseProxyCommand {
             body_type: ResponseBodyType::ReverseProxy {
                 target_url,
                 headers,
-                timeout,
                 preserve_host,
                 strip_prefix,
                 request_body,

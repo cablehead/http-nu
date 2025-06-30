@@ -335,7 +335,6 @@ The optional second parameter allows you to customize the proxy behavior:
 ```nushell
 .reverse-proxy <target_url> {
   headers?: {<key>: <value>}     # Additional headers to add
-  timeout?: duration             # Request timeout (default: 30sec)
   preserve_host?: bool           # Keep original Host header (default: true)
   strip_prefix?: string          # Remove path prefix before forwarding
 }
