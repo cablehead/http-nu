@@ -3,6 +3,30 @@
 From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh)
 closure over HTTP.
 
+<!-- BEGIN mktoc -->
+
+- [Install](#install)
+  - [eget](#eget)
+  - [cargo](#cargo)
+- [Overview](#overview)
+  - [GET: Hello world](#get-hello-world)
+  - [Reading closures from stdin](#reading-closures-from-stdin)
+  - [POST: echo](#post-echo)
+  - [Request metadata](#request-metadata)
+  - [Response metadata](#response-metadata)
+  - [Content-Type Inference](#content-type-inference)
+  - [TLS Support](#tls-support)
+  - [Serving Static Files](#serving-static-files)
+  - [Streaming responses](#streaming-responses)
+  - [server-sent events](#server-sent-events)
+  - [Reverse Proxy](#reverse-proxy)
+- [Building and Releases](#building-and-releases)
+  - [Available Build Targets](#available-build-targets)
+  - [Examples](#examples)
+  - [GitHub Releases](#github-releases)
+- [History](#history)
+<!-- END mktoc -->
+
 ## Install
 
 ### [eget](https://github.com/zyedidia/eget)
