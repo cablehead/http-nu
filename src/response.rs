@@ -1,7 +1,6 @@
 use nu_protocol::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct Response {

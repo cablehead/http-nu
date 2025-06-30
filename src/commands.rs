@@ -8,7 +8,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
-use std::time::Duration;
 use tokio::sync::oneshot;
 
 thread_local! {
