@@ -1,13 +1,12 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use http_body_util::{BodyExt, Empty, Full};
+use hyper::{body::Bytes, Request};
 use tokio::time::Duration;
 
-use http_body_util::{BodyExt, Empty, Full};
-use hyper::{Request, body::Bytes};
-
-use crate::handler::handle;
 use crate::commands::{ResponseStartCommand, StaticCommand, ToSse};
+use crate::handler::handle;
 
 #[tokio::test]
 async fn test_handle() {

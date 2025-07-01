@@ -187,13 +187,8 @@ impl std::fmt::Display for Listener {
         match self {
             Listener::Tcp { listener, tls_config } => {
                 let addr = listener.local_addr().unwrap();
-                write!(
-                    f,
-                    "{}:{} {}",
-                    addr.ip(),
-                    addr.port(),
-                    if tls_config.is_some() { "(TLS)" } else { "" }
-                )
+                let tls_suffix = if tls_config.is_some() { " (TLS)" } else { "" };
+                write!(f, "{}:{}{}", addr.ip(), addr.port(), tls_suffix)
             }
             #[cfg(unix)]
             Listener::Unix(listener) => {

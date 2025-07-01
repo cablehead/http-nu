@@ -1,14 +1,16 @@
-use crate::request::Request;
-use crate::response::{Response, ResponseBodyType, ResponseTransport};
-use crate::worker::spawn_eval_thread;
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
-use hyper::body::{Bytes, Frame};
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
+use hyper::body::{Bytes, Frame};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tower::Service;
 use tower_http::services::ServeDir;
+
+use crate::request::Request;
+use crate::response::{Response, ResponseBodyType, ResponseTransport};
+use crate::worker::spawn_eval_thread;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -149,9 +151,9 @@ where
             *static_req.headers_mut() = parts.headers.clone();
 
             let mut service = ServeDir::new(root);
-            let res = service.call(static_req).await.unwrap();
+            let res = service.call(static_req).await?;
             let (parts, body) = res.into_parts();
-            let bytes = body.collect().await.unwrap().to_bytes();
+            let bytes = body.collect().await?.to_bytes();
             let res = hyper::Response::from_parts(
                 parts,
                 Full::new(bytes).map_err(|e| match e {}).boxed(),

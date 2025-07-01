@@ -5,17 +5,18 @@ use std::sync::{
     Arc,
 };
 
+use clap::Parser;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use clap::Parser;
+use tokio::signal;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 use http_nu::{
     commands::{ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse},
     handler::handle,
     listener::TlsConfig,
     Engine, Listener,
 };
-use tokio::signal;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -85,14 +86,16 @@ async fn serve(
 
     loop {
         tokio::select! {
-            res = listener.accept() => {
-                match res {
+            result = listener.accept() => {
+                match result {
                     Ok((stream, remote_addr)) => {
                         let io = TokioIo::new(stream);
                         let engine = engine.clone();
 
                         tokio::task::spawn(async move {
-                            let service = service_fn(move |req| handle(engine.clone(), remote_addr, req));
+                            let service = service_fn(move |req| {
+                                handle(engine.clone(), remote_addr, req)
+                            });
                             if let Err(err) = hyper::server::conn::http1::Builder::new()
                                 .serve_connection(io, service)
                                 .await
@@ -101,12 +104,12 @@ async fn serve(
                             }
                         });
                     }
-                    Err(e) => {
-                        eprintln!("Error accepting connection: {e}");
+                    Err(err) => {
+                        eprintln!("Error accepting connection: {err}");
                         continue;
                     }
                 }
-            },
+            }
             _ = &mut shutdown => {
                 break;
             }
