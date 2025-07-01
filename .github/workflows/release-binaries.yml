@@ -93,6 +93,15 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate changelog if missing
+        run: |
+          tag="${{ github.ref_name }}"
+          changelog="changes/${tag}.md"
+          if [ ! -f "$changelog" ]; then
+            previous_tag=$(git describe --tags --abbrev=0 "$tag^")
+            git log --format=%s "${previous_tag}..${tag}" > "$changelog"
+          fi
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         env:
