@@ -230,10 +230,8 @@ where
                 Ok(response) => {
                     let (parts, body) = response.into_parts();
                     // Stream the response body directly without buffering
-                    let res = hyper::Response::from_parts(
-                        parts,
-                        body.map_err(|e| e.into()).boxed(),
-                    );
+                    let res =
+                        hyper::Response::from_parts(parts, body.map_err(|e| e.into()).boxed());
                     Ok(res)
                 }
                 Err(_e) => {

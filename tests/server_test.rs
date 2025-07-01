@@ -215,71 +215,89 @@ async fn test_reverse_proxy_streaming() {
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to start curl for backend");
-    
+
     let backend_stdout = backend_child.stdout.take().unwrap();
-    use tokio::io::{AsyncReadExt};
+    use tokio::io::AsyncReadExt;
     let mut backend_reader = backend_stdout;
     let mut backend_first_byte = [0u8; 1];
-    
-    backend_reader.read_exact(&mut backend_first_byte).await.unwrap();
+
+    backend_reader
+        .read_exact(&mut backend_first_byte)
+        .await
+        .unwrap();
     let backend_first_byte_time = backend_start.elapsed();
-    
+
     let mut backend_remaining = Vec::new();
-    backend_reader.read_to_end(&mut backend_remaining).await.unwrap();
+    backend_reader
+        .read_to_end(&mut backend_remaining)
+        .await
+        .unwrap();
     let backend_total_time = backend_start.elapsed();
-    
+
     backend_child.wait().await.unwrap();
-    
-    println!("Backend - First byte: {:?}, Total: {:?}, Diff: {:?}", 
-        backend_first_byte_time, backend_total_time, 
-        backend_total_time.saturating_sub(backend_first_byte_time));
-    
+
+    println!(
+        "Backend - First byte: {:?}, Total: {:?}, Diff: {:?}",
+        backend_first_byte_time,
+        backend_total_time,
+        backend_total_time.saturating_sub(backend_first_byte_time)
+    );
+
     // Let's see what data we actually got
     let all_backend_data = [&backend_first_byte[..], &backend_remaining[..]].concat();
-    println!("Backend data: {:?}", String::from_utf8_lossy(&all_backend_data));
+    println!(
+        "Backend data: {:?}",
+        String::from_utf8_lossy(&all_backend_data)
+    );
 
     // Test to prove reverse proxy does NOT stream - it buffers and replays
     // We'll measure when first byte arrives vs when request completes
     let start = std::time::Instant::now();
     let mut child = tokio::process::Command::new("curl")
         .arg("-s")
-        .arg("--raw") // Don't parse chunked encoding  
+        .arg("--raw") // Don't parse chunked encoding
         .arg("-N") // --no-buffer
         .arg(format!("http://{}", proxy.address))
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to start curl");
-    
+
     // Read output as it arrives
     let stdout = child.stdout.take().unwrap();
     let mut reader = stdout;
     let mut first_byte = [0u8; 1];
-    
+
     // Measure when first byte arrives
     reader.read_exact(&mut first_byte).await.unwrap();
     let first_byte_time = start.elapsed();
-    
+
     // Read remaining output
     let mut remaining = Vec::new();
     reader.read_to_end(&mut remaining).await.unwrap();
     let total_time = start.elapsed();
-    
+
     child.wait().await.unwrap();
-    
-    println!("First byte at: {:?}, Total time: {:?}", first_byte_time, total_time);
-    
-    // If proxy were streaming: first byte ~100ms, total ~300ms  
+
+    println!(
+        "First byte at: {:?}, Total time: {:?}",
+        first_byte_time, total_time
+    );
+
+    // If proxy were streaming: first byte ~100ms, total ~300ms
     // Since proxy buffers: first byte arrives ~300ms (same as total time)
     let time_difference = total_time.saturating_sub(first_byte_time);
-    
+
     // Total time should be at least the backend processing time
     assert!(total_time >= std::time::Duration::from_millis(280));
-    
+
     // For true streaming, there should be at least 150ms between first byte and completion
     // This test will FAIL with current implementation (proving no streaming)
     // and should PASS once we implement proper streaming
-    assert!(time_difference >= std::time::Duration::from_millis(150), 
-        "Expected at least 150ms between first byte and completion for streaming. Got: {:?}", time_difference);
+    assert!(
+        time_difference >= std::time::Duration::from_millis(150),
+        "Expected at least 150ms between first byte and completion for streaming. Got: {:?}",
+        time_difference
+    );
 }
 
 #[cfg(unix)]
