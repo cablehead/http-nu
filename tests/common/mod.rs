@@ -94,10 +94,34 @@ impl TestServer {
 
         cmd.output().await.expect("Failed to execute curl")
     }
+
+    #[cfg(unix)]
+    pub fn send_ctrl_c(&self) {
+        use nix::sys::signal::{kill, Signal};
+        use nix::unistd::Pid;
+
+        let pid = Pid::from_raw(self.child.id().expect("child id") as i32);
+        kill(pid, Signal::SIGINT).expect("failed to send SIGINT");
+    }
+
+    #[cfg(unix)]
+    pub async fn wait_for_exit(&mut self) -> std::process::ExitStatus {
+        use tokio::time::{timeout, Duration};
+        timeout(Duration::from_secs(5), self.child.wait())
+            .await
+            .expect("server did not exit in time")
+            .expect("failed waiting for child")
+    }
+
+    pub fn has_exited(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
+    }
 }
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        let _ = self.child.start_kill();
+        if !self.has_exited() {
+            let _ = self.child.start_kill();
+        }
     }
 }

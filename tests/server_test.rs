@@ -181,3 +181,35 @@ async fn test_reverse_proxy_host_header() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout.trim(), "example.com");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tcp_server_stops_on_sigint() {
+    let mut server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    server.send_ctrl_c();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
+#[tokio::test]
+async fn test_tls_server_stops_on_sigint() {
+    let mut server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", true).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    server.send_ctrl_c();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_unix_server_stops_on_sigint() {
+    let tmp = tempfile::tempdir().unwrap();
+    let socket_path = tmp.path().join("test_sigint.sock");
+    let socket_path_str = socket_path.to_str().unwrap();
+    let mut server = TestServer::new(socket_path_str, "{|req| $req.method}", false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    server.send_ctrl_c();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
