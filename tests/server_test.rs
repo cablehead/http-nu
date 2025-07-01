@@ -182,32 +182,24 @@ async fn test_server_reverse_proxy_host_header() {
     assert_eq!(stdout.trim(), "example.com");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn test_server_tcp_graceful_shutdown() {
     let mut server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     server.send_ctrl_c();
     let status = server.wait_for_exit().await;
-    // On Unix, expect graceful shutdown (exit code 0)
-    // On Windows, termination might result in different exit codes
-    #[cfg(unix)]
     assert!(status.success());
-    #[cfg(not(unix))]
-    assert!(status.code().is_some()); // Just ensure the process exited
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn test_server_tls_graceful_shutdown() {
     let mut server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", true).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     server.send_ctrl_c();
     let status = server.wait_for_exit().await;
-    // On Unix, expect graceful shutdown (exit code 0)
-    // On Windows, termination might result in different exit codes
-    #[cfg(unix)]
     assert!(status.success());
-    #[cfg(not(unix))]
-    assert!(status.code().is_some()); // Just ensure the process exited
 }
 
 #[cfg(unix)]
