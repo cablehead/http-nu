@@ -6,6 +6,11 @@ pub mod request;
 pub mod response;
 pub mod worker;
 
+#[cfg(test)]
+mod test_engine;
+#[cfg(test)]
+mod test_handler;
+
 pub use engine::Engine;
 pub use listener::Listener;
 

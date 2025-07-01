@@ -3,10 +3,11 @@ use std::time::Instant;
 
 use tokio::time::Duration;
 
-use http_body_util::BodyExt;
-use hyper::Request;
+use http_body_util::{BodyExt, Empty, Full};
+use hyper::{Request, body::Bytes};
 
 use crate::handler::handle;
+use crate::commands::{ResponseStartCommand, StaticCommand, ToSse};
 
 #[tokio::test]
 async fn test_handle() {
@@ -15,7 +16,7 @@ async fn test_handle() {
     let req = Request::builder()
         .method("GET")
         .uri("/")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     let resp = handle(Arc::new(engine), None, req).await.unwrap();
@@ -49,7 +50,7 @@ async fn test_handle_with_response_start() {
     let req = Request::builder()
         .method("POST")
         .uri("/resource")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     let resp = handle(engine.clone(), None, req).await.unwrap();
@@ -76,7 +77,7 @@ async fn test_handle_post() {
     let req = Request::builder()
         .method("POST")
         .uri("/echo")
-        .body(axum::body::Body::from(body))
+        .body(Full::new(Bytes::from(body)))
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -100,7 +101,7 @@ async fn test_handle_streaming() {
     let req = Request::builder()
         .method("GET")
         .uri("/stream")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -163,7 +164,7 @@ async fn test_content_type_precedence() {
     ));
     let req1 = Request::builder()
         .uri("/")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
     let resp1 = handle(engine.clone(), None, req1).await.unwrap();
     assert_eq!(resp1.headers()["content-type"], "text/plain");
@@ -171,7 +172,7 @@ async fn test_content_type_precedence() {
     // 2. Pipeline metadata
     let req2 = Request::builder()
         .uri("/")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
     let engine = Arc::new(test_engine(r#"{|req| ls | to yaml }"#));
     let resp2 = handle(engine.clone(), None, req2).await.unwrap();
@@ -180,7 +181,7 @@ async fn test_content_type_precedence() {
     // 3. Record defaults to JSON
     let req3 = Request::builder()
         .uri("/")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
     let engine = Arc::new(test_engine(r#"{|req| {foo: "bar"} }"#));
     let resp3 = handle(engine.clone(), None, req3).await.unwrap();
@@ -189,7 +190,7 @@ async fn test_content_type_precedence() {
     // 4. Plain text defaults to text/html
     let req4 = Request::builder()
         .uri("/")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
     let engine = Arc::new(test_engine(r#"{|req| "Hello World"}"#));
     let resp4 = handle(engine.clone(), None, req4).await.unwrap();
@@ -203,7 +204,7 @@ async fn test_handle_bytestream() {
 
     let req = Request::builder()
         .uri("/")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -237,7 +238,7 @@ async fn test_handle_preserve_preamble() {
 
     let req = Request::builder()
         .uri("/bar")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -264,7 +265,7 @@ async fn test_handle_static() {
 
     let req = Request::builder()
         .uri("/styles.css")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     let resp = handle(engine, None, req).await.unwrap();
@@ -279,9 +280,9 @@ fn test_engine(script: &str) -> crate::Engine {
     let mut engine = crate::Engine::new().unwrap();
     engine
         .add_commands(vec![
-            Box::new(super::handler::ResponseStartCommand::new()),
-            Box::new(super::handler::StaticCommand::new()),
-            Box::new(super::ToSse {}),
+            Box::new(ResponseStartCommand::new()),
+            Box::new(StaticCommand::new()),
+            Box::new(ToSse {}),
         ])
         .unwrap();
     engine.parse_closure(script).unwrap();
@@ -308,7 +309,7 @@ async fn test_handle_binary_value() {
 
     let req = Request::builder()
         .uri("/binary-value")
-        .body(axum::body::Body::empty())
+        .body(Empty::<Bytes>::new())
         .unwrap();
 
     // Currently this will panic, but after fixing it should return a response
