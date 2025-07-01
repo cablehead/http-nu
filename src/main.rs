@@ -5,7 +5,8 @@ use std::sync::{
     Arc,
 };
 
-use axum::{routing::any, Router};
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
 use clap::Parser;
 use http_nu::{
     commands::{ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse},
@@ -65,7 +66,6 @@ async fn serve(
     let interrupt = setup_ctrlc_handler(&mut engine)?;
 
     let engine = Arc::new(engine);
-    let app = Router::new().fallback(any(move |req| handle(engine, None, req)));
 
     // Configure TLS if enabled
     let tls_config = if let Some(pem_path) = args.tls {
@@ -74,74 +74,41 @@ async fn serve(
         None
     };
 
-    let listener = Listener::bind(&args.addr, tls_config).await?;
+    let mut listener = Listener::bind(&args.addr, tls_config).await?;
     println!(
         "{}",
         serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
     );
 
-    use axum_server::tls_rustls::RustlsConfig;
+    let shutdown = shutdown_signal(interrupt.clone());
+    tokio::pin!(shutdown);
 
-    // ...
+    loop {
+        tokio::select! {
+            res = listener.accept() => {
+                match res {
+                    Ok((stream, remote_addr)) => {
+                        let io = TokioIo::new(stream);
+                        let engine = engine.clone();
 
-    match listener {
-        Listener::Tcp {
-            listener,
-            tls_config,
-        } => {
-            let listener = Arc::try_unwrap(listener).expect("listener is not shared");
-            if let Some(tls) = tls_config {
-                let config = RustlsConfig::from_config(tls.config);
-                axum_server::from_tcp_rustls(listener.into_std()?, config)
-                    .serve(app.into_make_service())
-                    .await?;
-            } else {
-                axum::serve(listener, app.into_make_service())
-                    .with_graceful_shutdown(shutdown_signal(interrupt.clone()))
-                    .await?;
-            }
-        }
-        #[cfg(unix)]
-        Listener::Unix(listener) => {
-            use hyper::service::service_fn;
-            use hyper_util::rt::TokioIo;
-            use tower::Service;
-
-            let shutdown = shutdown_signal(interrupt.clone());
-            tokio::pin!(shutdown);
-
-            let service = service_fn(move |req| {
-                let mut app = app.clone();
-                async move { app.call(req).await }
-            });
-
-            loop {
-                tokio::select! {
-                    res = listener.accept() => {
-                        match res {
-                            Ok((stream, _addr)) => {
-                                let io = TokioIo::new(stream);
-                                let service = service.clone();
-
-                                tokio::task::spawn(async move {
-                                    if let Err(err) = hyper::server::conn::http1::Builder::new()
-                                        .serve_connection(io, service)
-                                        .await
-                                    {
-                                        eprintln!("Connection error: {err}");
-                                    }
-                                });
+                        tokio::task::spawn(async move {
+                            let service = service_fn(move |req| handle(engine.clone(), remote_addr, req));
+                            if let Err(err) = hyper::server::conn::http1::Builder::new()
+                                .serve_connection(io, service)
+                                .await
+                            {
+                                eprintln!("Connection error: {err}");
                             }
-                            Err(e) => {
-                                eprintln!("Error accepting connection: {e}");
-                                continue;
-                            }
-                        }
-                    },
-                    _ = &mut shutdown => {
-                        break;
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("Error accepting connection: {e}");
+                        continue;
                     }
                 }
+            },
+            _ = &mut shutdown => {
+                break;
             }
         }
     }

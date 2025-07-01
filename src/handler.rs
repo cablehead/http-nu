@@ -7,17 +7,22 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
-use tower::util::ServiceExt;
+use tower::Service;
 use tower_http::services::ServeDir;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-pub async fn handle(
+pub async fn handle<B>(
     engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
-    req: hyper::Request<axum::body::Body>,
-) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, std::convert::Infallible> {
+    req: hyper::Request<B>,
+) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
+where
+    B: hyper::body::Body + Unpin + Send + 'static,
+    B::Data: Into<Bytes> + Clone + Send,
+    B::Error: Into<BoxError> + Send,
+{
     match handle_inner(engine, addr, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
@@ -29,17 +34,22 @@ pub async fn handle(
                         .map_err(|never| match never {})
                         .boxed(),
                 )
-                .unwrap();
+                ?;
             Ok(response)
         }
     }
 }
 
-async fn handle_inner(
+async fn handle_inner<B>(
     engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
-    req: hyper::Request<axum::body::Body>,
-) -> HTTPResult {
+    req: hyper::Request<B>,
+) -> HTTPResult
+where
+    B: hyper::body::Body + Unpin + Send + 'static,
+    B::Data: Into<Bytes> + Clone + Send,
+    B::Error: Into<BoxError> + Send,
+{
     let (parts, mut body) = req.into_parts();
 
     // Create channels for request body streaming
@@ -51,7 +61,7 @@ async fn handle_inner(
             match frame {
                 Ok(frame) => {
                     if let Some(data) = frame.data_ref() {
-                        let bytes: Bytes = (*data).clone();
+                        let bytes: Bytes = (*data).clone().into();
                         if body_tx.send(Ok(bytes.to_vec())).await.is_err() {
                             break;
                         }
@@ -133,13 +143,13 @@ async fn handle_inner(
     match &meta.body_type {
         ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
         ResponseBodyType::Static { root, path } => {
-            let mut static_req = hyper::Request::new(axum::body::Body::empty());
+            let mut static_req = hyper::Request::new(Empty::<Bytes>::new());
             *static_req.uri_mut() = format!("/{path}").parse().unwrap();
             *static_req.method_mut() = parts.method.clone();
             *static_req.headers_mut() = parts.headers.clone();
 
-            let service = ServeDir::new(root);
-            let res = service.oneshot(static_req).await.unwrap();
+            let mut service = ServeDir::new(root);
+            let res = service.call(static_req).await.unwrap();
             let (parts, body) = res.into_parts();
             let bytes = body.collect().await.unwrap().to_bytes();
             let res = hyper::Response::from_parts(
@@ -155,7 +165,7 @@ async fn handle_inner(
             strip_prefix,
             request_body,
         } => {
-            let body = axum::body::Body::from(request_body.clone());
+            let body = Full::new(Bytes::from(request_body.clone()));
             let mut proxy_req = hyper::Request::new(body);
 
             // Handle strip_prefix

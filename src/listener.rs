@@ -7,6 +7,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
+use tokio_rustls::TlsAcceptor;
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -16,6 +17,7 @@ pub type AsyncReadWriteBox = Box<dyn AsyncReadWrite + Unpin + Send>;
 
 pub struct TlsConfig {
     pub config: Arc<ServerConfig>,
+    acceptor: TlsAcceptor,
 }
 
 impl TlsConfig {
@@ -63,7 +65,8 @@ impl TlsConfig {
             })?;
 
         let config = Arc::new(config);
-        Ok(Self { config })
+        let acceptor = TlsAcceptor::from(config.clone());
+        Ok(Self { config, acceptor })
     }
 }
 
@@ -81,9 +84,26 @@ impl Listener {
         &mut self,
     ) -> io::Result<(AsyncReadWriteBox, Option<std::net::SocketAddr>)> {
         match self {
-            Listener::Tcp { listener, .. } => {
+            Listener::Tcp { listener, tls_config } => {
                 let (stream, addr) = listener.accept().await?;
-                Ok((Box::new(stream), Some(addr)))
+
+                let stream = if let Some(tls) = tls_config {
+                    // Handle TLS connection
+                    match tls.acceptor.accept(stream).await {
+                        Ok(tls_stream) => Box::new(tls_stream) as AsyncReadWriteBox,
+                        Err(e) => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                format!("TLS error: {e}"),
+                            ));
+                        }
+                    }
+                } else {
+                    // Handle plain TCP connection
+                    Box::new(stream)
+                };
+
+                Ok((stream, Some(addr)))
             }
             #[cfg(unix)]
             Listener::Unix(listener) => {
@@ -157,6 +177,7 @@ impl Clone for TlsConfig {
     fn clone(&self) -> Self {
         TlsConfig {
             config: self.config.clone(),
+            acceptor: TlsAcceptor::from(self.config.clone()),
         }
     }
 }
@@ -164,9 +185,15 @@ impl Clone for TlsConfig {
 impl std::fmt::Display for Listener {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Listener::Tcp { listener, .. } => {
+            Listener::Tcp { listener, tls_config } => {
                 let addr = listener.local_addr().unwrap();
-                write!(f, "{}:{}", addr.ip(), addr.port())
+                write!(
+                    f,
+                    "{}:{} {}",
+                    addr.ip(),
+                    addr.port(),
+                    if tls_config.is_some() { "(TLS)" } else { "" }
+                )
             }
             #[cfg(unix)]
             Listener::Unix(listener) => {
@@ -188,7 +215,17 @@ mod tests {
 
     async fn exercise_listener(addr: &str) {
         let mut listener = Listener::bind(addr, None).await.unwrap();
-        let listener_addr = listener.to_string();
+        let listener_addr = match &listener {
+            Listener::Tcp { listener, .. } => {
+                let addr = listener.local_addr().unwrap();
+                format!("{}:{}", addr.ip(), addr.port())
+            }
+            #[cfg(unix)]
+            Listener::Unix(listener) => {
+                let addr = listener.local_addr().unwrap();
+                addr.as_pathname().unwrap().to_string_lossy().to_string()
+            }
+        };
 
         let client_task: tokio::task::JoinHandle<
             Result<Box<dyn AsyncReadWrite + Send + Unpin>, std::io::Error>,

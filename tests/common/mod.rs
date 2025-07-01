@@ -77,7 +77,14 @@ impl TestServer {
     }
 
     pub async fn curl_tls(&self, path: &str) -> process::Output {
-        let port = self.address.split(':').next_back().unwrap();
+        // Extract port from address like "127.0.0.1:8080 (TLS)"
+        let port = self.address
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .split(':')
+            .next_back()
+            .unwrap();
         let mut cmd = tokio::process::Command::new("curl");
         cmd.arg("--cacert")
             .arg("tests/cert.pem")
