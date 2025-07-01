@@ -96,7 +96,7 @@ impl TestServer {
         cmd.output().await.expect("Failed to execute curl")
     }
 
-    pub fn send_ctrl_c(&self) {
+    pub fn send_ctrl_c(&mut self) {
         #[cfg(unix)]
         {
             use nix::sys::signal::{kill, Signal};
