@@ -2,14 +2,14 @@ mod common;
 use common::TestServer;
 
 #[tokio::test]
-async fn test_server_starts_and_shuts_down() {
+async fn test_server_startup_and_shutdown() {
     let _server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn test_unix_socket() {
+async fn test_server_unix_socket() {
     let tmp = tempfile::tempdir().unwrap();
     let socket_path = tmp.path().join("test.sock");
     let socket_path_str = socket_path.to_str().unwrap();
@@ -23,7 +23,7 @@ async fn test_unix_socket() {
 }
 
 #[tokio::test]
-async fn test_tcp_socket() {
+async fn test_server_tcp_socket() {
     let server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
@@ -34,7 +34,7 @@ async fn test_tcp_socket() {
 }
 
 #[tokio::test]
-async fn test_tls_tcp_socket() {
+async fn test_server_tls_socket() {
     let server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", true).await;
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
@@ -45,7 +45,7 @@ async fn test_tls_tcp_socket() {
 }
 
 #[tokio::test]
-async fn test_static_command() {
+async fn test_server_static_files() {
     let tmp = tempfile::tempdir().unwrap();
     let file_path = tmp.path().join("test.txt");
     std::fs::write(&file_path, "Hello from static file").unwrap();
@@ -64,7 +64,7 @@ async fn test_static_command() {
 }
 
 #[tokio::test]
-async fn test_reverse_proxy() {
+async fn test_server_reverse_proxy() {
     // Start a backend server that echoes the method, path, query, and a custom header.
     let backend = TestServer::new(
         "127.0.0.1:0",
@@ -96,7 +96,7 @@ async fn test_reverse_proxy() {
 }
 
 #[tokio::test]
-async fn test_reverse_proxy_strip_prefix() {
+async fn test_server_reverse_proxy_strip_prefix() {
     // Start a backend server that returns the request path.
     let backend = TestServer::new("127.0.0.1:0", r#"{|req| $"Path: ($req.path)"}"#, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -117,7 +117,7 @@ async fn test_reverse_proxy_strip_prefix() {
 }
 
 #[tokio::test]
-async fn test_reverse_proxy_body_handling() {
+async fn test_server_reverse_proxy_body_handling() {
     // Start a backend server that echoes the request body.
     let backend = TestServer::new("127.0.0.1:0", r#"{|req| $in}"#, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -159,7 +159,7 @@ async fn test_reverse_proxy_body_handling() {
 }
 
 #[tokio::test]
-async fn test_reverse_proxy_host_header() {
+async fn test_server_reverse_proxy_host_header() {
     // Start a backend server that echoes the Host header.
     let backend =
         TestServer::new("127.0.0.1:0", r#"{|req| $req.headers | get "host"}"#, false).await;
@@ -180,4 +180,37 @@ async fn test_reverse_proxy_host_header() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout.trim(), "example.com");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_server_tcp_graceful_shutdown() {
+    let mut server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    server.send_ctrl_c();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_server_tls_graceful_shutdown() {
+    let mut server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", true).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    server.send_ctrl_c();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_server_unix_graceful_shutdown() {
+    let tmp = tempfile::tempdir().unwrap();
+    let socket_path = tmp.path().join("test_sigint.sock");
+    let socket_path_str = socket_path.to_str().unwrap();
+    let mut server = TestServer::new(socket_path_str, "{|req| $req.method}", false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    server.send_ctrl_c();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
 }

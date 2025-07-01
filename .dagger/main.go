@@ -70,7 +70,8 @@ func (m *HttpNu) WindowsEnv(
 
 func (m *HttpNu) WindowsBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
 	return m.WindowsEnv(ctx, src).
-		WithExec([]string{"cargo", "build", "--release"}).
+		WithExec([]string{"cargo", "check", "--release", "--tests", "--target", "x86_64-pc-windows-gnu"}).
+		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-pc-windows-gnu"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-windows-amd64.tar.gz", "-C", "/app/target/x86_64-pc-windows-gnu/release", "http-nu.exe"}).
 		File("/tmp/http-nu-windows-amd64.tar.gz")
 }

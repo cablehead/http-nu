@@ -77,7 +77,15 @@ impl TestServer {
     }
 
     pub async fn curl_tls(&self, path: &str) -> process::Output {
-        let port = self.address.split(':').next_back().unwrap();
+        // Extract port from address format "127.0.0.1:8080 (TLS)"
+        let port = self
+            .address
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .split(':')
+            .next_back()
+            .unwrap();
         let mut cmd = tokio::process::Command::new("curl");
         cmd.arg("--cacert")
             .arg("tests/cert.pem")
@@ -87,10 +95,41 @@ impl TestServer {
 
         cmd.output().await.expect("Failed to execute curl")
     }
+
+    pub fn send_ctrl_c(&mut self) {
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
+
+            let pid = Pid::from_raw(self.child.id().expect("child id") as i32);
+            kill(pid, Signal::SIGINT).expect("failed to send SIGINT");
+        }
+        #[cfg(not(unix))]
+        {
+            // On Windows, use forceful termination since console Ctrl+C handling
+            // requires special setup that our server doesn't have
+            let _ = self.child.start_kill();
+        }
+    }
+
+    pub async fn wait_for_exit(&mut self) -> std::process::ExitStatus {
+        use tokio::time::{timeout, Duration};
+        timeout(Duration::from_secs(5), self.child.wait())
+            .await
+            .expect("server did not exit in time")
+            .expect("failed waiting for child")
+    }
+
+    pub fn has_exited(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
+    }
 }
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        let _ = self.child.start_kill();
+        if !self.has_exited() {
+            let _ = self.child.start_kill();
+        }
     }
 }

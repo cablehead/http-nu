@@ -42,13 +42,12 @@ nu-protocol = "0.105.1"
 ctrlc = "3.4"
 rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
 rustls-pemfile = "2.1.0"
+tokio-rustls = "0.26.0"
 scru128 = { version = "3", features = ["serde"] }
-axum = { version = "0.8.4", features = ["http1", "http2"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tower-http = { version = "0.6.6", features = ["fs"] }
-tower = "0.5.2"
-axum-server = { version = "0.7.2", features = ["tls-rustls"] }
+tower = { version = "0.5.2", features = ["util"] }
 ureq = { version = "2.12.1", default-features = false, features = ["tls"] }
 
 
