@@ -98,8 +98,13 @@ jobs:
           tag="${{ github.ref_name }}"
           changelog="changes/${tag}.md"
           if [ ! -f "$changelog" ]; then
-            previous_tag=$(git describe --tags --abbrev=0 "$tag^")
-            git log --format=%s "${previous_tag}..${tag}" > "$changelog"
+            # Get the previous tag by sorting all tags and finding the one before current
+            previous_tag=$(git tag --list 'v*' --sort=-version:refname | grep -A1 "^${tag}$" | tail -1)
+            if [ -n "$previous_tag" ] && [ "$previous_tag" != "$tag" ]; then
+              git log --format=%s "${previous_tag}..${tag}" > "$changelog"
+            else
+              git log --format=%s "${tag}" > "$changelog"
+            fi
           fi
 
       - name: Publish release
