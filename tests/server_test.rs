@@ -250,7 +250,7 @@ async fn test_reverse_proxy_streaming() {
         String::from_utf8_lossy(&all_backend_data)
     );
 
-    // Test to prove reverse proxy does NOT stream - it buffers and replays
+    // Test to prove reverse proxy streams correctly
     // We'll measure when first byte arrives vs when request completes
     let start = std::time::Instant::now();
     let mut child = tokio::process::Command::new("curl")
@@ -281,15 +281,12 @@ async fn test_reverse_proxy_streaming() {
     println!("First byte at: {first_byte_time:?}, Total time: {total_time:?}");
 
     // If proxy were streaming: first byte ~100ms, total ~300ms
-    // Since proxy buffers: first byte arrives ~300ms (same as total time)
     let time_difference = total_time.saturating_sub(first_byte_time);
 
     // Total time should be at least the backend processing time
     assert!(total_time >= std::time::Duration::from_millis(280));
 
     // For true streaming, there should be at least 150ms between first byte and completion
-    // This test will FAIL with current implementation (proving no streaming)
-    // and should PASS once we implement proper streaming
     assert!(
         time_difference >= std::time::Duration::from_millis(150),
         "Expected at least 150ms between first byte and completion for streaming. Got: {time_difference:?}"
