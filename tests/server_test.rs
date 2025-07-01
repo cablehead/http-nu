@@ -182,7 +182,6 @@ async fn test_reverse_proxy_host_header() {
     assert_eq!(stdout.trim(), "example.com");
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn test_tcp_server_stops_on_sigint() {
     let mut server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;

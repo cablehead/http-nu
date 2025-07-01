@@ -95,16 +95,23 @@ impl TestServer {
         cmd.output().await.expect("Failed to execute curl")
     }
 
-    #[cfg(unix)]
     pub fn send_ctrl_c(&self) {
-        use nix::sys::signal::{kill, Signal};
-        use nix::unistd::Pid;
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
 
-        let pid = Pid::from_raw(self.child.id().expect("child id") as i32);
-        kill(pid, Signal::SIGINT).expect("failed to send SIGINT");
+            let pid = Pid::from_raw(self.child.id().expect("child id") as i32);
+            kill(pid, Signal::SIGINT).expect("failed to send SIGINT");
+        }
+        #[cfg(not(unix))]
+        {
+            // On non-Unix platforms, just kill the process
+            // This is less graceful but still tests shutdown behavior
+            let _ = self.child.start_kill();
+        }
     }
 
-    #[cfg(unix)]
     pub async fn wait_for_exit(&mut self) -> std::process::ExitStatus {
         use tokio::time::{timeout, Duration};
         timeout(Duration::from_secs(5), self.child.wait())
