@@ -45,7 +45,7 @@ jobs:
       - name: Cache Dagger
         uses: actions/cache@v4
         with:
-          path: ~/.cache/dagger
+          path: /var/lib/dagger
           key: dagger-${{ runner.os }}-${{ matrix.target }}-${{ github.sha }}
           restore-keys: |
             dagger-${{ runner.os }}-${{ matrix.target }}-
