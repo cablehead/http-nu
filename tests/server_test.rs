@@ -184,25 +184,70 @@ async fn test_server_reverse_proxy_host_header() {
 
 #[tokio::test]
 async fn test_reverse_proxy_streaming() {
-    // Start a backend server that streams data with delays
-    let backend = TestServer::new(
-        "127.0.0.1:0",
-        r#"{|req|
-            .response {status: 200}
-            1..3 | each {|i|
-                sleep 100ms
-                $"chunk-($i)\n"
-            }
-        }"#,
-        false,
-    )
-    .await;
+    // Create a simple HTTP server that actually streams with delays
+    let backend_addr = "127.0.0.1:0";
+    let backend_listener = tokio::net::TcpListener::bind(backend_addr).await.unwrap();
+    let backend_address = backend_listener.local_addr().unwrap().to_string();
+    
+    // Spawn a task to handle the streaming backend
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = backend_listener.accept().await {
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                let response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes()).await;
+                
+                for i in 1..=3 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let chunk = format!("8\r\nchunk-{}\n\r\n", i);
+                    let _ = stream.write_all(chunk.as_bytes()).await;
+                    let _ = stream.flush().await;
+                }
+                
+                let _ = stream.write_all(b"0\r\n\r\n").await;
+            });
+        }
+    });
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start a proxy server
-    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend_address);
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // First test: verify backend server streams properly on its own
+    println!("Testing backend directly...");
+    let backend_start = std::time::Instant::now();
+    let mut backend_child = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--raw")
+        .arg("-N") // --no-buffer
+        .arg(format!("http://{}", backend_address))
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start curl for backend");
+    
+    let backend_stdout = backend_child.stdout.take().unwrap();
+    use tokio::io::{AsyncReadExt};
+    let mut backend_reader = backend_stdout;
+    let mut backend_first_byte = [0u8; 1];
+    
+    backend_reader.read_exact(&mut backend_first_byte).await.unwrap();
+    let backend_first_byte_time = backend_start.elapsed();
+    
+    let mut backend_remaining = Vec::new();
+    backend_reader.read_to_end(&mut backend_remaining).await.unwrap();
+    let backend_total_time = backend_start.elapsed();
+    
+    backend_child.wait().await.unwrap();
+    
+    println!("Backend - First byte: {:?}, Total: {:?}, Diff: {:?}", 
+        backend_first_byte_time, backend_total_time, 
+        backend_total_time.saturating_sub(backend_first_byte_time));
+    
+    // Let's see what data we actually got
+    let all_backend_data = [&backend_first_byte[..], &backend_remaining[..]].concat();
+    println!("Backend data: {:?}", String::from_utf8_lossy(&all_backend_data));
 
     // Test to prove reverse proxy does NOT stream - it buffers and replays
     // We'll measure when first byte arrives vs when request completes
@@ -210,6 +255,7 @@ async fn test_reverse_proxy_streaming() {
     let mut child = tokio::process::Command::new("curl")
         .arg("-s")
         .arg("--raw") // Don't parse chunked encoding  
+        .arg("-N") // --no-buffer
         .arg(format!("http://{}", proxy.address))
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -217,7 +263,6 @@ async fn test_reverse_proxy_streaming() {
     
     // Read output as it arrives
     let stdout = child.stdout.take().unwrap();
-    use tokio::io::{AsyncReadExt};
     let mut reader = stdout;
     let mut first_byte = [0u8; 1];
     

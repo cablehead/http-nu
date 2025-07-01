@@ -229,10 +229,10 @@ where
             match client.request(proxy_req).await {
                 Ok(response) => {
                     let (parts, body) = response.into_parts();
-                    let bytes = body.collect().await?.to_bytes();
+                    // Stream the response body directly without buffering
                     let res = hyper::Response::from_parts(
                         parts,
-                        Full::new(bytes).map_err(|e| match e {}).boxed(),
+                        body.map_err(|e| e.into()).boxed(),
                     );
                     Ok(res)
                 }
