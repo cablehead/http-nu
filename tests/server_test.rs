@@ -184,34 +184,23 @@ async fn test_server_reverse_proxy_host_header() {
 
 #[tokio::test]
 async fn test_reverse_proxy_streaming() {
-    // Create a simple HTTP server that actually streams with delays
-    let backend_addr = "127.0.0.1:0";
-    let backend_listener = tokio::net::TcpListener::bind(backend_addr).await.unwrap();
-    let backend_address = backend_listener.local_addr().unwrap().to_string();
-    
-    // Spawn a task to handle the streaming backend
-    tokio::spawn(async move {
-        while let Ok((mut stream, _)) = backend_listener.accept().await {
-            tokio::spawn(async move {
-                use tokio::io::AsyncWriteExt;
-                let response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
-                let _ = stream.write_all(response.as_bytes()).await;
-                
-                for i in 1..=3 {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    let chunk = format!("8\r\nchunk-{}\n\r\n", i);
-                    let _ = stream.write_all(chunk.as_bytes()).await;
-                    let _ = stream.flush().await;
-                }
-                
-                let _ = stream.write_all(b"0\r\n\r\n").await;
-            });
-        }
-    });
+    // Start a backend server that streams data with delays
+    let backend = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            .response {status: 200}
+            1..3 | each {|i|
+                sleep 100ms
+                $"chunk-($i)\n"
+            }
+        }"#,
+        false,
+    )
+    .await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start a proxy server
-    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend_address);
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -222,7 +211,7 @@ async fn test_reverse_proxy_streaming() {
         .arg("-s")
         .arg("--raw")
         .arg("-N") // --no-buffer
-        .arg(format!("http://{}", backend_address))
+        .arg(format!("http://{}", backend.address))
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to start curl for backend");
