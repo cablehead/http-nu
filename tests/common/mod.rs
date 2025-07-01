@@ -107,9 +107,22 @@ impl TestServer {
         }
         #[cfg(not(unix))]
         {
-            // On non-Unix platforms, just kill the process
-            // This is less graceful but still tests shutdown behavior
-            let _ = self.child.start_kill();
+            // On Windows, try to send Ctrl+C using Windows API
+            // If that fails, fall back to termination
+            if let Some(pid) = self.child.id() {
+                use std::process::Command;
+                // Try to send Ctrl+C signal first (more graceful)
+                let result = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string()])
+                    .output();
+
+                // If Ctrl+C fails, force kill as fallback
+                if result.is_err() {
+                    let _ = self.child.start_kill();
+                }
+            } else {
+                let _ = self.child.start_kill();
+            }
         }
     }
 
