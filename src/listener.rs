@@ -84,7 +84,10 @@ impl Listener {
         &mut self,
     ) -> io::Result<(AsyncReadWriteBox, Option<std::net::SocketAddr>)> {
         match self {
-            Listener::Tcp { listener, tls_config } => {
+            Listener::Tcp {
+                listener,
+                tls_config,
+            } => {
                 let (stream, addr) = listener.accept().await?;
 
                 let stream = if let Some(tls) = tls_config {
@@ -185,7 +188,10 @@ impl Clone for TlsConfig {
 impl std::fmt::Display for Listener {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Listener::Tcp { listener, tls_config } => {
+            Listener::Tcp {
+                listener,
+                tls_config,
+            } => {
                 let addr = listener.local_addr().unwrap();
                 let tls_suffix = if tls_config.is_some() { " (TLS)" } else { "" };
                 write!(f, "{}:{}{}", addr.ip(), addr.port(), tls_suffix)

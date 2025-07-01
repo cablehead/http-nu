@@ -29,14 +29,11 @@ where
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {err}");
-            let response = hyper::Response::builder()
-                .status(500)
-                .body(
-                    Full::new("Internal Server Error".into())
-                        .map_err(|never| match never {})
-                        .boxed(),
-                )
-                ?;
+            let response = hyper::Response::builder().status(500).body(
+                Full::new("Internal Server Error".into())
+                    .map_err(|never| match never {})
+                    .boxed(),
+            )?;
             Ok(response)
         }
     }

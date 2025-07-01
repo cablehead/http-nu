@@ -78,7 +78,8 @@ impl TestServer {
 
     pub async fn curl_tls(&self, path: &str) -> process::Output {
         // Extract port from address format "127.0.0.1:8080 (TLS)"
-        let port = self.address
+        let port = self
+            .address
             .split_whitespace()
             .next()
             .unwrap()
