@@ -278,10 +278,7 @@ async fn test_reverse_proxy_streaming() {
 
     child.wait().await.unwrap();
 
-    println!(
-        "First byte at: {:?}, Total time: {:?}",
-        first_byte_time, total_time
-    );
+    println!("First byte at: {first_byte_time:?}, Total time: {total_time:?}");
 
     // If proxy were streaming: first byte ~100ms, total ~300ms
     // Since proxy buffers: first byte arrives ~300ms (same as total time)
@@ -295,8 +292,7 @@ async fn test_reverse_proxy_streaming() {
     // and should PASS once we implement proper streaming
     assert!(
         time_difference >= std::time::Duration::from_millis(150),
-        "Expected at least 150ms between first byte and completion for streaming. Got: {:?}",
-        time_difference
+        "Expected at least 150ms between first byte and completion for streaming. Got: {time_difference:?}"
     );
 }
 
