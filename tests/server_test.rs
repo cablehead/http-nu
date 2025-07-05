@@ -64,6 +64,25 @@ async fn test_server_static_files() {
 }
 
 #[tokio::test]
+async fn test_server_static_files_fallback() {
+    let tmp = tempfile::tempdir().unwrap();
+    let index_path = tmp.path().join("index.html");
+    std::fs::write(&index_path, "fallback page").unwrap();
+
+    let closure = format!(
+        "{{|req| .static '{}' $req.path --fallback 'index.html' }}",
+        tmp.path().to_str().unwrap()
+    );
+    let server = TestServer::new("127.0.0.1:0", &closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    let output = server.curl("/missing/route").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "fallback page");
+}
+
+#[tokio::test]
 async fn test_server_reverse_proxy() {
     // Start a backend server that echoes the method, path, query, and a custom header.
     let backend = TestServer::new(
