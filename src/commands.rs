@@ -130,6 +130,12 @@ impl Command for StaticCommand {
         Signature::build(".static")
             .required("root", SyntaxShape::String, "root directory path")
             .required("path", SyntaxShape::String, "request path")
+            .named(
+                "fallback",
+                SyntaxShape::String,
+                "fallback file when request missing",
+                None,
+            )
             .input_output_types(vec![(Type::Nothing, Type::Nothing)])
             .category(Category::Custom("http".into()))
     }
@@ -144,12 +150,15 @@ impl Command for StaticCommand {
         let root: String = call.req(engine_state, stack, 0)?;
         let path: String = call.req(engine_state, stack, 1)?;
 
+        let fallback: Option<String> = call.get_flag(engine_state, stack, "fallback")?;
+
         let response = Response {
             status: 200,
             headers: HashMap::new(),
             body_type: ResponseBodyType::Static {
                 root: PathBuf::from(root),
                 path,
+                fallback,
             },
         };
 

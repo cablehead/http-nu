@@ -15,6 +15,7 @@ pub enum ResponseBodyType {
     Static {
         root: PathBuf,
         path: String,
+        fallback: Option<String>,
     },
     ReverseProxy {
         target_url: String,

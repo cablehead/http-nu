@@ -6,7 +6,7 @@ use hyper::body::{Bytes, Frame};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tower::Service;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::request::Request;
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
@@ -141,14 +141,25 @@ where
 
     match &meta.body_type {
         ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
-        ResponseBodyType::Static { root, path } => {
+        ResponseBodyType::Static {
+            root,
+            path,
+            fallback,
+        } => {
             let mut static_req = hyper::Request::new(Empty::<Bytes>::new());
             *static_req.uri_mut() = format!("/{path}").parse().unwrap();
             *static_req.method_mut() = parts.method.clone();
             *static_req.headers_mut() = parts.headers.clone();
 
-            let mut service = ServeDir::new(root);
-            let res = service.call(static_req).await?;
+            let res = if let Some(fallback) = fallback {
+                let fp = root.join(fallback);
+                ServeDir::new(root)
+                    .fallback(ServeFile::new(fp))
+                    .call(static_req)
+                    .await?
+            } else {
+                ServeDir::new(root).call(static_req).await?
+            };
             let (parts, body) = res.into_parts();
             let bytes = body.collect().await?.to_bytes();
             let res = hyper::Response::from_parts(

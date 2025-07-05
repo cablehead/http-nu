@@ -212,6 +212,12 @@ Here's an example:
 $ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path}'
 ```
 
+For single page applications you can provide a fallback file:
+
+```bash
+$ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
+```
+
 ### Streaming responses
 
 Values returned by streaming pipelines (like `generate`) are sent to the client
