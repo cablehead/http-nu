@@ -1,7 +1,4 @@
-# http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml)
-
-From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh)
-closure over HTTP.
+# http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml) [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.gg/sGgYVKnk73)
 
 The surprisingly performant, [Nushell](https://www.nushell.sh)-scriptable HTTP server that fits in your back pocket.
 
