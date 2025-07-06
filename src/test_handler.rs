@@ -322,3 +322,94 @@ async fn test_handle_binary_value() {
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body.to_vec(), expected_binary);
 }
+
+#[tokio::test]
+async fn test_handle_missing_header_error() {
+    // Test script that tries to access missing header - reproduces the exact error from logs
+    let engine = Arc::new(test_engine(
+        r#"{|req|
+            let host = $req.headers.host
+            $"Host: ($host)"
+        }"#,
+    ));
+
+    // Create request without host header
+    let req = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    // This should fail currently - the Nu script tries to access missing column 'host'
+    let resp = handle(engine, None, req).await.unwrap();
+
+    // After fixing, this should return 500 with error message instead of hanging
+    assert_eq!(resp.status(), 500);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(body_str.contains("Script error"));
+}
+
+#[tokio::test]
+async fn test_handle_script_panic() {
+    // Test script that panics deliberately
+    let engine = Arc::new(test_engine(
+        r#"{|req|
+            error make {msg: "Deliberate panic for testing"}
+        }"#,
+    ));
+
+    let req = Request::builder()
+        .uri("/panic")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    // This should return 500 instead of hanging/crashing the thread
+    let resp = handle(engine, None, req).await.unwrap();
+    assert_eq!(resp.status(), 500);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(body_str.contains("Script error") || body_str.contains("Script panic"));
+}
+
+#[tokio::test]
+async fn test_handle_nu_shell_column_error() {
+    // Test script with different Nu shell column access errors
+    let engine = Arc::new(test_engine(
+        r#"{|req|
+            let auth = $req.headers.authorization.bearer
+            $"Auth: ($auth)"
+        }"#,
+    ));
+
+    let req = Request::builder()
+        .uri("/auth")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    // Should return 500 error instead of thread panic
+    let resp = handle(engine, None, req).await.unwrap();
+    assert_eq!(resp.status(), 500);
+}
+
+#[tokio::test]
+async fn test_handle_script_runtime_error() {
+    // Test script with runtime errors (division by zero, etc)
+    let engine = Arc::new(test_engine(
+        r#"{|req|
+            let result = (10 / 0)
+            $"Result: ($result)"
+        }"#,
+    ));
+
+    let req = Request::builder()
+        .uri("/divide")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    // Should gracefully handle runtime errors
+    let resp = handle(engine, None, req).await.unwrap();
+    assert_eq!(resp.status(), 500);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body_str = String::from_utf8(body.to_vec()).unwrap();
+    assert!(body_str.contains("Script error"));
+}

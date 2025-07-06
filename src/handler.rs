@@ -30,7 +30,7 @@ where
         Err(err) => {
             eprintln!("Error handling request: {err}");
             let response = hyper::Response::builder().status(500).body(
-                Full::new("Internal Server Error".into())
+                Full::new(format!("Script error: {err}").into())
                     .map_err(|never| match never {})
                     .boxed(),
             )?;
