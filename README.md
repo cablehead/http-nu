@@ -3,6 +3,8 @@
 From shell to web: `http-nu` serves your [Nushell](https://www.nushell.sh)
 closure over HTTP.
 
+The surprisingly performant, [Nushell](https://www.nushell.sh)-scriptable HTTP server that fits in your back pocket.
+
 <img width="456" alt="image" src="https://github.com/user-attachments/assets/5a208b01-ed6d-4f17-a3e9-b070cbdea163" />
 
 ---
