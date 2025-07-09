@@ -1,6 +1,6 @@
 use crate::commands::RESPONSE_TX;
 use crate::request::{request_to_value, Request};
-use crate::response::{value_to_bytes, Response, ResponseTransport};
+use crate::response::{value_to_bytes, Response, ResponseBodyType, ResponseTransport};
 use nu_protocol::{
     engine::{Job, ThreadJob},
     PipelineData, Value,
@@ -116,11 +116,46 @@ pub fn spawn_eval_thread(
     };
 
     std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
-        let mut local_engine = (*engine).clone();
-        local_engine.state.current_job.background_thread_job = Some(job);
+        let mut meta_tx_opt = Some(meta_tx);
+        let mut body_tx_opt = Some(body_tx);
 
-        if let Err(e) = inner(Arc::new(local_engine), request, stream, meta_tx, body_tx) {
-            eprintln!("Error in eval thread: {e}");
+        // Wrap the evaluation in catch_unwind so that panics don't poison the
+        // async runtime and we can still send a response back to the caller.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut local_engine = (*engine).clone();
+            local_engine.state.current_job.background_thread_job = Some(job);
+
+            // Take the senders for the inner call. If the evaluation completes
+            // successfully, these senders will have been consumed. Otherwise we
+            // will use the remaining ones to send an error response.
+            inner(
+                Arc::new(local_engine),
+                request,
+                stream,
+                meta_tx_opt.take().unwrap(),
+                body_tx_opt.take().unwrap(),
+            )
+        }));
+
+        let err_msg: Option<String> = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(e)) => Some(e.to_string()),
+            Err(panic) => Some(format!("panic: {panic:?}")),
+        };
+
+        if let Some(err) = err_msg {
+            eprintln!("Error in eval thread: {err}");
+            if let (Some(meta_tx), Some(body_tx)) = (meta_tx_opt.take(), body_tx_opt.take()) {
+                let _ = meta_tx.send(Response {
+                    status: 500,
+                    headers: std::collections::HashMap::new(),
+                    body_type: ResponseBodyType::Normal,
+                });
+                let _ = body_tx.send((
+                    Some("text/plain; charset=utf-8".to_string()),
+                    ResponseTransport::Full(format!("Script error: {err}").into_bytes()),
+                ));
+            }
         }
 
         // Clean up job when done
