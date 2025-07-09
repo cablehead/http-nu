@@ -20,8 +20,7 @@ async fn test_server_missing_host_header() {
     let output = tokio::process::Command::new("sh")
         .arg("-c")
         .arg(format!(
-            "printf 'GET / HTTP/1.0\\r\\n\\r\\n' | nc {} {}",
-            host, port
+            "printf 'GET / HTTP/1.0\\r\\n\\r\\n' | nc {host} {port}"
         ))
         .output()
         .await

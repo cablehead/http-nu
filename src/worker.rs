@@ -140,7 +140,7 @@ pub fn spawn_eval_thread(
         let err_msg: Option<String> = match result {
             Ok(Ok(())) => None,
             Ok(Err(e)) => Some(e.to_string()),
-            Err(panic) => Some(format!("panic: {:?}", panic)),
+            Err(panic) => Some(format!("panic: {panic:?}")),
         };
 
         if let Some(err) = err_msg {
