@@ -1,6 +1,6 @@
 [package]
 name = "http-nu"
-version = "0.4.4-dev.10"
+version = "0.4.5"
 edition = "2021"
 description = "Serve a Nushell closure over HTTP."
 license = "MIT"
