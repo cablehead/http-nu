@@ -1339,7 +1339,7 @@ dependencies = [
 
 [[package]]
 name = "http-nu"
-version = "0.4.4-dev.8"
+version = "0.4.5"
 dependencies = [
  "assert_cmd",
  "bytes",
