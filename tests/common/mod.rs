@@ -60,6 +60,7 @@ impl TestServer {
         Self { child, address }
     }
 
+    #[allow(dead_code)]
     pub async fn curl(&self, path: &str) -> process::Output {
         let url = if self.address.starts_with('/') {
             "http://localhost".to_string()
@@ -76,6 +77,7 @@ impl TestServer {
         cmd.output().await.expect("Failed to execute curl")
     }
 
+    #[allow(dead_code)]
     pub async fn curl_tls(&self, path: &str) -> process::Output {
         // Extract port from address format "127.0.0.1:8080 (TLS)"
         let port = self
@@ -96,6 +98,7 @@ impl TestServer {
         cmd.output().await.expect("Failed to execute curl")
     }
 
+    #[allow(dead_code)]
     pub fn send_ctrl_c(&mut self) {
         #[cfg(unix)]
         {
@@ -113,6 +116,7 @@ impl TestServer {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn wait_for_exit(&mut self) -> std::process::ExitStatus {
         use tokio::time::{timeout, Duration};
         timeout(Duration::from_secs(5), self.child.wait())
