@@ -1,6 +1,7 @@
 # http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml) [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.gg/sGgYVKnk73)
 
-The surprisingly performant, [Nushell](https://www.nushell.sh)-scriptable HTTP server that fits in your back pocket.
+The surprisingly performant, [Nushell](https://www.nushell.sh)-scriptable HTTP
+server that fits in your back pocket.
 
 <img width="456" alt="image" src="https://github.com/user-attachments/assets/5a208b01-ed6d-4f17-a3e9-b070cbdea163" />
 
