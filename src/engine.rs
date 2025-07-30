@@ -4,7 +4,7 @@ use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_protocol::engine::Command;
-use nu_protocol::format_shell_error;
+use nu_protocol::format_cli_error;
 use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Redirection, Stack, StateWorkingSet},
@@ -59,7 +59,11 @@ impl Engine {
                 help: None,
                 inner: vec![],
             };
-            return Err(Error::from(format_shell_error(&working_set, &shell_error)));
+            return Err(Error::from(format_cli_error(
+                &working_set,
+                &shell_error,
+                None,
+            )));
         }
 
         // Handle compile errors
@@ -71,7 +75,11 @@ impl Engine {
                 help: None,
                 inner: vec![],
             };
-            return Err(Error::from(format_shell_error(&working_set, &shell_error)));
+            return Err(Error::from(format_cli_error(
+                &working_set,
+                &shell_error,
+                None,
+            )));
         }
 
         self.state.merge_delta(working_set.render())?;
@@ -85,19 +93,19 @@ impl Engine {
         )
         .map_err(|err| {
             let working_set = StateWorkingSet::new(&self.state);
-            Error::from(format_shell_error(&working_set, &err))
+            Error::from(format_cli_error(&working_set, &err, None))
         })?;
 
         let closure = result
             .into_value(Span::unknown())
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
-                Error::from(format_shell_error(&working_set, &err))
+                Error::from(format_cli_error(&working_set, &err, None))
             })?
             .into_closure()
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
-                Error::from(format_shell_error(&working_set, &err))
+                Error::from(format_cli_error(&working_set, &err, None))
             })?;
 
         // Verify closure accepts exactly one argument
@@ -137,7 +145,7 @@ impl Engine {
         eval_block_with_early_return::<WithoutDebug>(&self.state, &mut stack, block, pipeline_data)
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
-                Error::from(format_shell_error(&working_set, &err))
+                Error::from(format_cli_error(&working_set, &err, None))
             })
     }
 }
