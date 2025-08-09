@@ -1,5 +1,3 @@
-# Claude Development Notes
-
 ## Git Commit Style Preferences
 
 - Use conventional commit format: `type: subject line`
