@@ -383,7 +383,7 @@ impl Command for ReverseProxyCommand {
             .optional(
                 "config",
                 SyntaxShape::Record(vec![]),
-                "optional configuration (headers, preserve_host, strip_prefix)",
+                "optional configuration (headers, preserve_host, strip_prefix, query)",
             )
             .input_output_types(vec![(Type::Any, Type::Nothing)])
             .category(Category::Custom("http".into()))
@@ -441,6 +441,7 @@ impl Command for ReverseProxyCommand {
         let mut headers = HashMap::new();
         let mut preserve_host = true;
         let mut strip_prefix: Option<String> = None;
+        let mut query: Option<HashMap<String, String>> = None;
 
         if let Ok(Some(config_value)) = config {
             if let Ok(record) = config_value.as_record() {
@@ -468,6 +469,19 @@ impl Command for ReverseProxyCommand {
                         strip_prefix = Some(prefix.to_string());
                     }
                 }
+
+                // Extract query
+                if let Some(query_value) = record.get("query") {
+                    if let Ok(query_record) = query_value.as_record() {
+                        let mut query_map = HashMap::new();
+                        for (k, v) in query_record.iter() {
+                            if let Ok(v_str) = v.as_str() {
+                                query_map.insert(k.clone(), v_str.to_string());
+                            }
+                        }
+                        query = Some(query_map);
+                    }
+                }
             }
         }
 
@@ -480,6 +494,7 @@ impl Command for ReverseProxyCommand {
                 preserve_host,
                 strip_prefix,
                 request_body,
+                query,
             },
         };
 

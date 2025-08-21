@@ -347,6 +347,7 @@ The optional second parameter allows you to customize the proxy behavior:
   headers?: {<key>: <value>}     # Additional headers to add
   preserve_host?: bool           # Keep original Host header (default: true)
   strip_prefix?: string          # Remove path prefix before forwarding
+  query?: {<key>: <value>}       # Replace query parameters (Nu record)
 }
 ```
 
@@ -388,6 +389,17 @@ $ http-nu :3001 '{|req| .reverse-proxy "http://backend:8080"}'
 ```bash
 $ http-nu :3001 '{|req| "custom body" | .reverse-proxy "http://backend:8080"}'
 # Whatever you pipe into .reverse-proxy becomes the request body
+```
+
+**Modify query parameters:**
+
+```bash
+$ http-nu :3001 '{|req|
+  .reverse-proxy "http://backend:8080" {
+    query: ($req.query | upsert "context-id" "smidgeons" | reject "debug")
+  }
+}'
+# Force context-id=smidgeons, remove debug param, preserve others
 ```
 
 ## Building and Releases

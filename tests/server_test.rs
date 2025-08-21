@@ -312,6 +312,40 @@ async fn test_reverse_proxy_streaming() {
     );
 }
 
+#[tokio::test]
+async fn test_server_reverse_proxy_custom_query() {
+    // Start a backend server that echoes the query parameters it receives.
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $req.query | to json}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start a proxy server that modifies query parameters.
+    let proxy_closure = format!(
+        r#"{{|req| .reverse-proxy "http://{}" {{ query: ($req.query | upsert "context-id" "smidgeons" | reject "debug") }} }}"#,
+        backend.address
+    );
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Test the query parameter modification.
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s").arg(format!(
+        "http://{}/test?page=1&debug=true&limit=10",
+        proxy.address
+    ));
+
+    let output = cmd.output().await.unwrap();
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // Verify the query was modified: context-id added, debug removed, others preserved
+    assert_eq!(json["context-id"], "smidgeons");
+    assert_eq!(json["page"], "1");
+    assert_eq!(json["limit"], "10");
+    assert!(json.get("debug").is_none()); // debug should be removed
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn test_server_tcp_graceful_shutdown() {

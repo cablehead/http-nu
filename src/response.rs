@@ -23,6 +23,7 @@ pub enum ResponseBodyType {
         preserve_host: bool,
         strip_prefix: Option<String>,
         request_body: Vec<u8>,
+        query: Option<HashMap<String, String>>,
     },
 }
 

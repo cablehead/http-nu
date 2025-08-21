@@ -174,6 +174,7 @@ where
             preserve_host,
             strip_prefix,
             request_body,
+            query,
         } => {
             let body = Full::new(Bytes::from(request_body.clone()));
             let mut proxy_req = hyper::Request::new(body);
@@ -190,10 +191,24 @@ where
             };
 
             // Build target URI
-            let target_uri = if let Some(query) = parts.uri.query() {
-                format!("{target_url}{path}?{query}")
-            } else {
-                format!("{target_url}{path}")
+            let target_uri = {
+                let query_string = if let Some(custom_query) = query {
+                    // Use custom query - convert HashMap to query string
+                    url::form_urlencoded::Serializer::new(String::new())
+                        .extend_pairs(custom_query.iter())
+                        .finish()
+                } else if let Some(orig_query) = parts.uri.query() {
+                    // Use original query string
+                    orig_query.to_string()
+                } else {
+                    String::new()
+                };
+
+                if query_string.is_empty() {
+                    format!("{target_url}{path}")
+                } else {
+                    format!("{target_url}{path}?{query_string}")
+                }
             };
 
             *proxy_req.uri_mut() = target_uri.parse().map_err(|e| Box::new(e) as BoxError)?;
