@@ -42,6 +42,7 @@ func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory) *dagger
 	return m.DarwinEnv(ctx, src).
 		WithExec([]string{"rustup", "update", "stable"}).
 		WithExec([]string{"rustup", "default", "stable"}).
+		WithExec([]string{"rustup", "target", "add", "aarch64-apple-darwin"}).
 		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-darwin-arm64.tar.gz", "-C", "/app/target/aarch64-apple-darwin/release", "http-nu"}).
 		File("/tmp/http-nu-darwin-arm64.tar.gz")
