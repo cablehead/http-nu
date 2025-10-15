@@ -73,6 +73,9 @@ func (m *HttpNu) WindowsEnv(
 
 func (m *HttpNu) WindowsBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
 	return m.WindowsEnv(ctx, src).
+		WithExec([]string{"rustup", "update", "stable"}).
+		WithExec([]string{"rustup", "default", "stable"}).
+		WithExec([]string{"rustup", "target", "add", "x86_64-pc-windows-gnu"}).
 		WithExec([]string{"cargo", "check", "--release", "--tests", "--target", "x86_64-pc-windows-gnu"}).
 		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-pc-windows-gnu"}).
 		WithExec([]string{"tar", "-czf", "/tmp/http-nu-windows-amd64.tar.gz", "-C", "/app/target/x86_64-pc-windows-gnu/release", "http-nu.exe"}).
