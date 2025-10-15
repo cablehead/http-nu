@@ -97,6 +97,7 @@ impl Engine {
         })?;
 
         let closure = result
+            .body
             .into_value(Span::unknown())
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
@@ -143,6 +144,7 @@ impl Engine {
         );
 
         eval_block_with_early_return::<WithoutDebug>(&self.state, &mut stack, block, pipeline_data)
+            .map(|exec_data| exec_data.body)
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
                 Error::from(format_cli_error(&working_set, &err, None))

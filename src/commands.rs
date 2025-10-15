@@ -203,7 +203,7 @@ impl Command for ToSse {
         vec!["sse", "server", "event"]
     }
 
-    fn examples(&self) -> Vec<Example> {
+    fn examples(&self) -> Vec<Example<'_>> {
         vec![Example {
             description: "Convert a record into a server-sent event",
             example: "{data: 'hello'} | to sse",
