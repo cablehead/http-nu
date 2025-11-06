@@ -11,6 +11,8 @@
   lib,
   rustPlatform,
   fetchFromGitHub,
+  llvmPackages,
+  stdenv,
 }:
 
 rustPlatform.buildRustPackage rec {
@@ -26,14 +28,17 @@ rustPlatform.buildRustPackage rec {
 
   cargoHash = lib.fakeHash;  # TODO: Replace with actual hash (see guide)
 
+  # Darwin build requirements (needed for bindgen via libproc dependency)
+  nativeBuildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
+    llvmPackages.libclang
+  ];
+
+  env = lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+  };
+
   # Tests fail in sandbox due to file system and network access requirements
   doCheck = false;
-
-  # Build configuration
-  # Uncomment and adjust if needed for Darwin:
-  # buildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
-  #   darwin.apple_sdk.frameworks.Security
-  # ];
 
   meta = {
     description = "Serve a Nushell closure over HTTP";

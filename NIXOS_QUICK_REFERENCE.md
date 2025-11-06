@@ -207,6 +207,36 @@ rustPlatform.buildRustPackage rec {
 }
 ```
 
+## Darwin Build Requirements
+
+If your Rust package uses `bindgen` (check `Cargo.lock`), add darwin-specific dependencies:
+
+```nix
+{
+  lib,
+  rustPlatform,
+  fetchFromGitHub,
+  llvmPackages,  # Add this
+  stdenv,        # Add this
+}:
+
+rustPlatform.buildRustPackage rec {
+  # ... existing fields ...
+
+  nativeBuildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
+    llvmPackages.libclang
+  ];
+
+  env = lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+  };
+
+  # ... rest of package ...
+}
+```
+
+**When to use:** Check `Cargo.lock` for `bindgen` or darwin-specific crates like `libproc`.
+
 ## Adding Yourself as Maintainer
 
 ```bash
