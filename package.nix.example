@@ -1,0 +1,52 @@
+# Example NixOS package definition for http-nu
+# This file shows what would go in nixpkgs: pkgs/by-name/ht/http-nu/package.nix
+#
+# To use this example:
+# 1. Fork https://github.com/NixOS/nixpkgs
+# 2. Create directory: pkgs/by-name/ht/http-nu/
+# 3. Copy this file as package.nix in that directory
+# 4. Follow the steps in NIXOS_PACKAGING_GUIDE.md to get the correct hashes
+
+{
+  lib,
+  rustPlatform,
+  fetchFromGitHub,
+}:
+
+rustPlatform.buildRustPackage rec {
+  pname = "http-nu";
+  version = "0.5.0";
+
+  src = fetchFromGitHub {
+    owner = "cablehead";
+    repo = "http-nu";
+    rev = "v${version}";
+    hash = lib.fakeHash;  # TODO: Replace with actual hash (see guide)
+  };
+
+  cargoHash = lib.fakeHash;  # TODO: Replace with actual hash (see guide)
+
+  # Tests fail in sandbox due to file system and network access requirements
+  doCheck = false;
+
+  # Build configuration
+  # Uncomment and adjust if needed for Darwin:
+  # buildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
+  #   darwin.apple_sdk.frameworks.Security
+  # ];
+
+  meta = {
+    description = "Serve a Nushell closure over HTTP";
+    longDescription = ''
+      http-nu is a tool that allows you to serve Nushell closures over HTTP,
+      making it easy to create web services using Nushell's powerful scripting
+      capabilities.
+    '';
+    homepage = "https://github.com/cablehead/http-nu";
+    changelog = "https://github.com/cablehead/http-nu/blob/v${version}/changes/v${version}.md";
+    license = lib.licenses.mit;
+    maintainers = with lib.maintainers; [ ]; # TODO: Add your maintainer handle
+    mainProgram = "http-nu";
+    platforms = lib.platforms.unix;
+  };
+}
