@@ -169,6 +169,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("failed to install default rustls CryptoProvider");
+
+    // Initialize nu_command's TLS crypto provider
+    // nu_command uses its own CRYPTO_PROVIDER and expects 'ring' provider
+    nu_command::tls::CRYPTO_PROVIDER
+        .default()
+        .then_some(())
+        .expect("failed to set nu_command crypto provider");
+
     let args = Args::parse();
 
     // Determine the closure source
