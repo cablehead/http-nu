@@ -24,14 +24,14 @@ NixOS packages are defined using the Nix expression language. For Rust applicati
   fetchFromGitHub,
 }:
 
-rustPlatform.buildRustPackage rec {
+rustPlatform.buildRustPackage (finalAttrs: {
   pname = "http-nu";
   version = "0.5.0";
 
   src = fetchFromGitHub {
     owner = "cablehead";
     repo = "http-nu";
-    rev = "v${version}";
+    tag = "v${finalAttrs.version}";
     hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
   };
 
@@ -41,11 +41,10 @@ rustPlatform.buildRustPackage rec {
     description = "Serve a Nushell closure over HTTP";
     homepage = "https://github.com/cablehead/http-nu";
     license = lib.licenses.mit;
-    maintainers = with lib.maintainers; [ ]; # Add maintainer handles
+    maintainers = [ ]; # Add maintainer handles
     mainProgram = "http-nu";
-    platforms = lib.platforms.all;
   };
-}
+})
 ```
 
 ### 2. Key Components Explained
@@ -66,12 +65,12 @@ These are dependencies that nixpkgs provides automatically.
 src = fetchFromGitHub {
   owner = "cablehead";
   repo = "http-nu";
-  rev = "v${version}";  # Git tag or commit
-  hash = "sha256-...";   # Hash of the source tarball
+  tag = "v${finalAttrs.version}";  # Git tag (preferred over rev)
+  hash = "sha256-...";              # Hash of the source tarball
 };
 ```
 
-This fetches the source code from GitHub. The hash ensures reproducibility.
+This fetches the source code from GitHub. The hash ensures reproducibility. Use `tag` instead of `rev` when fetching from a git tag (not a commit SHA).
 
 #### c. Cargo Hash
 ```nix
@@ -88,9 +87,33 @@ meta = {
   license = ...;         # License identifier
   maintainers = ...;     # Who maintains this package
   mainProgram = "...";   # Main executable name
-  platforms = ...;       # Supported platforms
+  # platforms = ...;     # Usually omitted - buildRustPackage handles this
 };
 ```
+
+**Note:** `platforms` is typically omitted for Rust packages as `buildRustPackage` automatically sets appropriate platforms.
+
+#### e. The `finalAttrs` Pattern
+
+The `finalAttrs` pattern (instead of `rec`) is preferred in modern nixpkgs:
+
+```nix
+rustPlatform.buildRustPackage (finalAttrs: {
+  version = "0.5.0";
+  # Use finalAttrs.version to reference the version
+  src = fetchFromGitHub {
+    tag = "v${finalAttrs.version}";
+  };
+  meta = {
+    changelog = "...v${finalAttrs.version}/...";
+  };
+})
+```
+
+**Benefits:**
+- Avoids infinite recursion issues with `rec`
+- Makes attribute references explicit
+- Preferred by nixpkgs reviewers
 
 ## Step-by-Step Packaging Process
 
@@ -128,17 +151,16 @@ Create `pkgs/by-name/ht/http-nu/package.nix`:
   lib,
   rustPlatform,
   fetchFromGitHub,
-  nushell,
 }:
 
-rustPlatform.buildRustPackage rec {
+rustPlatform.buildRustPackage (finalAttrs: {
   pname = "http-nu";
   version = "0.5.0";
 
   src = fetchFromGitHub {
     owner = "cablehead";
     repo = "http-nu";
-    rev = "v${version}";
+    tag = "v${finalAttrs.version}";
     hash = lib.fakeHash;  # Temporary - we'll get the real hash
   };
 
@@ -147,13 +169,12 @@ rustPlatform.buildRustPackage rec {
   meta = {
     description = "Serve a Nushell closure over HTTP";
     homepage = "https://github.com/cablehead/http-nu";
-    changelog = "https://github.com/cablehead/http-nu/blob/v${version}/changes/v${version}.md";
+    changelog = "https://github.com/cablehead/http-nu/blob/v${finalAttrs.version}/changes/v${finalAttrs.version}.md";
     license = lib.licenses.mit;
-    maintainers = with lib.maintainers; [ ];
+    maintainers = [ ];
     mainProgram = "http-nu";
-    platforms = lib.platforms.unix;  # Adjust based on actual support
   };
-}
+})
 ```
 
 ### Step 2: Get the Correct Hashes
@@ -301,9 +322,12 @@ maintainers = with lib.maintainers; [ yourusername ];
 **d. Organize commits properly**
 
 Reviewers prefer this commit structure:
-1. `package-name: init at X.Y.Z` (includes formatting fixes)
-2. `maintainers: add username` (or `maintainers: add user1 and user2`)
-3. `package-name: add maintainer username`
+1. `package-name: init at X.Y.Z` (includes all code review fixes)
+2. `maintainers: add username1` (one commit per maintainer!)
+3. `maintainers: add username2` (if adding multiple maintainers)
+4. `package-name: add maintainers`
+
+**Important:** Each maintainer addition must be in its own commit. Do not combine multiple maintainer additions into one commit.
 
 **e. Rewrite commit history**
 
@@ -454,48 +478,150 @@ nix-build -A pkgsCross.aarch64-multiplatform.http-nu
 
 When packaging http-nu v0.5.0 for nixpkgs, we encountered the following (real experiences from PR #458947):
 
-### Tests Failing in Sandbox
+### 1. Use the `finalAttrs` Pattern
+
+**Reviewer feedback**: Use `finalAttrs` pattern instead of `rec`.
+
+```nix
+# Old (discouraged):
+rustPlatform.buildRustPackage rec {
+  version = "0.5.0";
+  changelog = "...v${version}/...";
+}
+
+# New (preferred):
+rustPlatform.buildRustPackage (finalAttrs: {
+  version = "0.5.0";
+  changelog = "...v${finalAttrs.version}/...";
+})
+```
+
+This avoids potential infinite recursion issues and is the modern nixpkgs standard.
+
+### 2. Use `tag` Instead of `rev` for Git Tags
+
+**Reviewer feedback**: When fetching from a git tag (not a commit SHA), use `tag` instead of `rev`.
+
+```nix
+# Old:
+src = fetchFromGitHub {
+  rev = "v${version}";
+  # ...
+};
+
+# New:
+src = fetchFromGitHub {
+  tag = "v${finalAttrs.version}";
+  # ...
+};
+```
+
+### 3. Darwin libclang Setup
+
+**Reviewer feedback**: Use `libclang` from top-level and `stdenvNoCC` for bindgen dependencies.
+
+```nix
+# Old:
+{
+  llvmPackages,
+  stdenv,
+}:
+nativeBuildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
+  llvmPackages.libclang
+];
+env = lib.optionalAttrs stdenv.hostPlatform.isDarwin {
+  LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+};
+
+# New:
+{
+  libclang,
+  stdenvNoCC,
+}:
+nativeBuildInputs = lib.optionals stdenvNoCC.hostPlatform.isDarwin [
+  libclang
+];
+env = lib.optionalAttrs stdenvNoCC.hostPlatform.isDarwin {
+  LIBCLANG_PATH = "${lib.getLib libclang}/lib";
+};
+```
+
+### 4. Remove `platforms` from Rust Packages
+
+**Reviewer feedback**: `buildRustPackage` already handles platforms, so it's redundant.
+
+```nix
+# Old:
+meta = {
+  # ...
+  platforms = lib.platforms.unix;
+};
+
+# New:
+meta = {
+  # ... (no platforms line)
+};
+```
+
+### 5. Tests Failing in Sandbox
 
 The Cargo tests failed in the Nix sandbox because they:
 - Try to access file system paths not available in the sandbox
-- Attempt network operations
-- Need resources not provided during build
+- Attempt network operations (integration tests with HTTP servers)
+- Need external binaries like `curl`
 
-**Solution**: We added `doCheck = false;` to the package definition:
+**Investigation showed**:
+- Integration tests (`server_test`, `server_missing_host`): require network + curl binary
+- `test_handler`: requires temporary filesystem writes
+- `test_engine`: could run in sandbox, but selective enablement has limited value
+
+**Solution**: We added `doCheck = false;` with a detailed comment:
 
 ```nix
-cargoHash = "sha256-...";
-
-# Tests fail in sandbox due to file system and network access requirements
+# Most tests require sandbox-incompatible operations:
+# - Integration tests (server_test, server_missing_host) require network and curl binary
+# - test_handler requires temporary filesystem writes
+# - Only test_engine could run in sandbox, but selective enablement adds maintenance burden
 doCheck = false;
-
-meta = {
 ```
 
-This is a **common and accepted practice** in nixpkgs. Many packages disable tests when they can't run in the sandbox. The important thing is that the binary still builds correctly and works when tested manually (which http-nu does - version and help commands work perfectly).
+**Reviewer feedback**: When disabling tests, investigate which ones actually need to be disabled and document your findings. This is accepted practice when tests truly can't run in sandbox.
 
-### Version and Git Tag Convention
+### 6. Multiple Maintainers Need Separate Commits
 
-http-nu follows the standard convention of using `v{version}` for git tags:
-- Cargo.toml shows `version = "0.5.0"`
-- Git tag is `v0.5.0`
-- In package.nix: `rev = "v${version}";` expands to `"v0.5.0"`
+**Reviewer feedback**: Each maintainer addition must be in its own commit.
 
-This is the most common pattern in Rust projects.
+```bash
+# Wrong: Adding both in one commit
+git commit -m "maintainers: add user1 and user2"
 
-### Treefmt Formatting
+# Correct: Separate commits
+git commit -m "maintainers: add user1"
+git commit -m "maintainers: add user2"
+```
 
-The nixpkgs CI includes a `treefmt` check that enforces consistent formatting. When we submitted the initial PR, it failed because:
+### 7. Squash Review Fixes into Original Commit
 
+When you receive code review feedback, squash the fixes into the original package commit rather than adding a new "address review feedback" commit. This keeps the PR history clean.
+
+### 8. Treefmt Formatting and Empty Maintainers
+
+The nixpkgs CI includes a `treefmt` check that enforces consistent formatting.
+
+**Empty maintainers list pattern:**
 ```nix
-# Before (incorrect):
-maintainers = with lib.maintainers; [ ];
-
-# After (correct):
+# Correct - no scope needed for empty list:
 maintainers = [ ];
+
+# Incorrect - unnecessary scope:
+maintainers = with lib.maintainers; [ ];
 ```
 
-When the maintainers list is empty, the `with lib.maintainers;` scope is unnecessary and should be removed.
+**Non-empty maintainers list pattern:**
+```nix
+# Correct - use scope for readability:
+maintainers = with lib.maintainers; [ username1 username2 ];
+```
 
 **How to fix formatting issues:**
 
@@ -525,8 +651,38 @@ doCheck = false;
 
 But investigate why they fail and fix if possible.
 
-### Issue: "package not building on Darwin (macOS)"
-**Solution**: May need Darwin-specific dependencies:
+### Issue: "package not building on Darwin (macOS)" with libclang errors
+**Solution**: If the package uses `bindgen` (check for it in Cargo.lock or dependencies like `libproc`), add libclang:
+```nix
+{
+  lib,
+  rustPlatform,
+  fetchFromGitHub,
+  libclang,      # Add this
+  stdenvNoCC,    # Add this
+}:
+
+rustPlatform.buildRustPackage (finalAttrs: {
+  # ... existing fields ...
+
+  nativeBuildInputs = lib.optionals stdenvNoCC.hostPlatform.isDarwin [
+    libclang
+  ];
+
+  env = lib.optionalAttrs stdenvNoCC.hostPlatform.isDarwin {
+    LIBCLANG_PATH = "${lib.getLib libclang}/lib";
+  };
+
+  # ... rest of package ...
+})
+```
+
+**Key points:**
+- Use `libclang` from top-level, not `llvmPackages.libclang`
+- Use `stdenvNoCC` instead of `stdenv` (we don't need the C compiler)
+- Use `lib.getLib` to get the library output
+
+For other Darwin issues (like missing frameworks):
 ```nix
 buildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
   darwin.apple_sdk.frameworks.Security
