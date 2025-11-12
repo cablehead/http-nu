@@ -11,33 +11,36 @@
   lib,
   rustPlatform,
   fetchFromGitHub,
-  llvmPackages,
-  stdenv,
+  libclang,
+  stdenvNoCC,
 }:
 
-rustPlatform.buildRustPackage rec {
+rustPlatform.buildRustPackage (finalAttrs: {
   pname = "http-nu";
   version = "0.5.0";
 
   src = fetchFromGitHub {
     owner = "cablehead";
     repo = "http-nu";
-    rev = "v${version}";
+    tag = "v${finalAttrs.version}";
     hash = lib.fakeHash;  # TODO: Replace with actual hash (see guide)
   };
 
   cargoHash = lib.fakeHash;  # TODO: Replace with actual hash (see guide)
 
   # Darwin build requirements (needed for bindgen via libproc dependency)
-  nativeBuildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
-    llvmPackages.libclang
+  nativeBuildInputs = lib.optionals stdenvNoCC.hostPlatform.isDarwin [
+    libclang
   ];
 
-  env = lib.optionalAttrs stdenv.hostPlatform.isDarwin {
-    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+  env = lib.optionalAttrs stdenvNoCC.hostPlatform.isDarwin {
+    LIBCLANG_PATH = "${lib.getLib libclang}/lib";
   };
 
-  # Tests fail in sandbox due to file system and network access requirements
+  # Most tests require sandbox-incompatible operations:
+  # - Integration tests (server_test, server_missing_host) require network and curl binary
+  # - test_handler requires temporary filesystem writes
+  # - Only test_engine could run in sandbox, but selective enablement adds maintenance burden
   doCheck = false;
 
   meta = {
@@ -48,10 +51,9 @@ rustPlatform.buildRustPackage rec {
       capabilities.
     '';
     homepage = "https://github.com/cablehead/http-nu";
-    changelog = "https://github.com/cablehead/http-nu/blob/v${version}/changes/v${version}.md";
+    changelog = "https://github.com/cablehead/http-nu/blob/v${finalAttrs.version}/changes/v${finalAttrs.version}.md";
     license = lib.licenses.mit;
-    maintainers = with lib.maintainers; [ ]; # TODO: Add your maintainer handle
+    maintainers = [ ]; # TODO: Add your maintainer handle
     mainProgram = "http-nu";
-    platforms = lib.platforms.unix;
   };
-}
+})
