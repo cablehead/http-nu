@@ -58,6 +58,8 @@ tempfile = "3.10.1"
 assert_cmd = "2.0"
 nix = { version = "0.30", features = ["signal", "process"] }
 sysinfo = "0.30.12"
+brotli = "7.0"
+flate2 = "1.0"
 
 
 

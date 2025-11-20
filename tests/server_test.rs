@@ -1,6 +1,33 @@
 mod common;
 use common::TestServer;
 
+/// Helper function to parse HTTP response and verify compression encoding.
+/// Returns the body bytes for manual decompression.
+fn parse_and_verify_encoding<'a>(response_bytes: &'a [u8], expected_encoding: &str) -> &'a [u8] {
+    // Find the end of headers
+    let mut headers_end = 0;
+    for i in 0..response_bytes.len() - 3 {
+        if &response_bytes[i..i + 4] == b"\r\n\r\n" {
+            headers_end = i + 4;
+            break;
+        }
+    }
+    assert!(headers_end > 0, "Failed to find end of headers");
+
+    let headers = String::from_utf8_lossy(&response_bytes[..headers_end]);
+    let body = &response_bytes[headers_end..];
+
+    // Verify Content-Encoding header
+    let expected = format!("content-encoding: {}", expected_encoding);
+    assert!(
+        headers.contains(&expected),
+        "Expected {} header, got: {headers}",
+        expected
+    );
+
+    body
+}
+
 #[tokio::test]
 async fn test_server_startup_and_shutdown() {
     let _server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;
@@ -393,23 +420,22 @@ async fn test_brotli_compression_basic() {
         .arg("-i") // Include headers in output
         .arg("-H")
         .arg("Accept-Encoding: br")
-        .arg("--compressed") // Automatically decompress
         .arg(format!("http://{}", server.address));
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
 
-    let response = String::from_utf8_lossy(&output.stdout);
+    let body = parse_and_verify_encoding(&output.stdout, "br");
 
-    // Verify Content-Encoding header is set to br
-    assert!(
-        response.contains("content-encoding: br"),
-        "Expected content-encoding: br header, got: {response}"
-    );
+    let mut decompressed = Vec::new();
+    brotli::BrotliDecompress(&mut &body[..], &mut decompressed)
+        .expect("Failed to decompress brotli data");
 
-    // Verify body is decompressed correctly by curl
-    assert!(
-        response.contains(&large_text),
-        "Expected decompressed body to contain the large text"
+    let decompressed_text =
+        String::from_utf8(decompressed).expect("Decompressed data is not valid UTF-8");
+
+    assert_eq!(
+        decompressed_text, large_text,
+        "Decompressed content does not match expected text"
     );
 }
 
@@ -427,23 +453,27 @@ async fn test_gzip_compression_basic() {
         .arg("-i") // Include headers in output
         .arg("-H")
         .arg("Accept-Encoding: gzip")
-        .arg("--compressed") // Automatically decompress
         .arg(format!("http://{}", server.address));
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
 
-    let response = String::from_utf8_lossy(&output.stdout);
+    let body = parse_and_verify_encoding(&output.stdout, "gzip");
 
-    // Verify Content-Encoding header is set to gzip
-    assert!(
-        response.contains("content-encoding: gzip"),
-        "Expected content-encoding: gzip header, got: {response}"
-    );
+    use flate2::read::GzDecoder;
+    use std::io::Read;
 
-    // Verify body is decompressed correctly by curl
-    assert!(
-        response.contains(&large_text),
-        "Expected decompressed body to contain the large text"
+    let mut decoder = GzDecoder::new(body);
+    let mut decompressed = Vec::new();
+    decoder
+        .read_to_end(&mut decompressed)
+        .expect("Failed to decompress gzip data");
+
+    let decompressed_text =
+        String::from_utf8(decompressed).expect("Decompressed data is not valid UTF-8");
+
+    assert_eq!(
+        decompressed_text, large_text,
+        "Decompressed content does not match expected text"
     );
 }
 
@@ -485,28 +515,27 @@ async fn test_compression_with_json_response() {
     .await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Request with Accept-Encoding: br
     let mut cmd = tokio::process::Command::new("curl");
     cmd.arg("-s")
         .arg("-i")
         .arg("-H")
         .arg("Accept-Encoding: br")
-        .arg("--compressed")
         .arg(format!("http://{}", server.address));
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
 
-    let response = String::from_utf8_lossy(&output.stdout);
+    let body = parse_and_verify_encoding(&output.stdout, "br");
 
-    // Verify compression header
-    assert!(
-        response.contains("content-encoding: br"),
-        "Expected content-encoding: br for JSON response"
-    );
+    let mut decompressed = Vec::new();
+    brotli::BrotliDecompress(&mut &body[..], &mut decompressed)
+        .expect("Failed to decompress brotli data");
 
-    // Verify JSON is decompressed correctly
+    let decompressed_text =
+        String::from_utf8(decompressed).expect("Decompressed data is not valid UTF-8");
+
     assert!(
-        response.contains(r#""message":"Hello""#) || response.contains(r#""message": "Hello""#),
+        decompressed_text.contains(r#""message":"Hello""#)
+            || decompressed_text.contains(r#""message": "Hello""#),
         "Expected decompressed JSON to contain message field"
     );
 }
@@ -524,30 +553,28 @@ async fn test_compression_with_streaming_response() {
     .await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Request with Accept-Encoding: br
     let mut cmd = tokio::process::Command::new("curl");
     cmd.arg("-s")
         .arg("-i")
         .arg("-H")
         .arg("Accept-Encoding: br")
-        .arg("--compressed")
         .arg(format!("http://{}", server.address));
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
 
-    let response = String::from_utf8_lossy(&output.stdout);
+    let body = parse_and_verify_encoding(&output.stdout, "br");
 
-    // Verify compression works with streaming
-    assert!(
-        response.contains("content-encoding: br"),
-        "Expected content-encoding: br for streaming response"
-    );
+    let mut decompressed = Vec::new();
+    brotli::BrotliDecompress(&mut &body[..], &mut decompressed)
+        .expect("Failed to decompress brotli data");
 
-    // Verify all lines are present after decompression
-    assert!(response.contains("Line 1"));
-    assert!(response.contains("Line 2"));
-    assert!(response.contains("Line 3"));
-    assert!(response.contains("Line 4"));
+    let decompressed_text =
+        String::from_utf8(decompressed).expect("Decompressed data is not valid UTF-8");
+
+    assert!(decompressed_text.contains("Line 1"));
+    assert!(decompressed_text.contains("Line 2"));
+    assert!(decompressed_text.contains("Line 3"));
+    assert!(decompressed_text.contains("Line 4"));
 }
 
 #[tokio::test]
@@ -567,28 +594,26 @@ async fn test_compression_with_static_files() {
     let server = TestServer::new("127.0.0.1:0", &closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Request with Accept-Encoding: br
     let mut cmd = tokio::process::Command::new("curl");
     cmd.arg("-s")
         .arg("-i")
         .arg("-H")
         .arg("Accept-Encoding: br")
-        .arg("--compressed")
         .arg(format!("http://{}/test.txt", server.address));
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
 
-    let response = String::from_utf8_lossy(&output.stdout);
+    let body = parse_and_verify_encoding(&output.stdout, "br");
 
-    // Verify compression works with static files
-    assert!(
-        response.contains("content-encoding: br"),
-        "Expected content-encoding: br for static file"
-    );
+    let mut decompressed = Vec::new();
+    brotli::BrotliDecompress(&mut &body[..], &mut decompressed)
+        .expect("Failed to decompress brotli data");
 
-    // Verify file content is decompressed correctly
+    let decompressed_text =
+        String::from_utf8(decompressed).expect("Decompressed data is not valid UTF-8");
+
     assert!(
-        response.contains("This is a static file that should be compressed."),
+        decompressed_text.contains("This is a static file that should be compressed."),
         "Expected decompressed file content"
     );
 }
