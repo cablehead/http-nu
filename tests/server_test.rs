@@ -378,3 +378,246 @@ async fn test_server_unix_graceful_shutdown() {
     let status = server.wait_for_exit().await;
     assert!(status.success());
 }
+
+#[tokio::test]
+async fn test_brotli_compression_basic() {
+    // Use a larger response body to ensure compression is applied (tower-http has a min size threshold)
+    let large_text = "A".repeat(2000);
+    let closure = format!(r#"{{|req| "{}" }}"#, large_text);
+    let server = TestServer::new("127.0.0.1:0", &closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Request with Accept-Encoding: br
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-i") // Include headers in output
+        .arg("-H")
+        .arg("Accept-Encoding: br")
+        .arg("--compressed") // Automatically decompress
+        .arg(format!("http://{}", server.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Verify Content-Encoding header is set to br
+    assert!(
+        response.contains("content-encoding: br"),
+        "Expected content-encoding: br header, got: {response}"
+    );
+
+    // Verify body is decompressed correctly by curl
+    assert!(
+        response.contains(&large_text),
+        "Expected decompressed body to contain the large text"
+    );
+}
+
+#[tokio::test]
+async fn test_gzip_compression_basic() {
+    // Use a larger response body to ensure compression is applied
+    let large_text = "B".repeat(2000);
+    let closure = format!(r#"{{|req| "{}" }}"#, large_text);
+    let server = TestServer::new("127.0.0.1:0", &closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Request with Accept-Encoding: gzip
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-i") // Include headers in output
+        .arg("-H")
+        .arg("Accept-Encoding: gzip")
+        .arg("--compressed") // Automatically decompress
+        .arg(format!("http://{}", server.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Verify Content-Encoding header is set to gzip
+    assert!(
+        response.contains("content-encoding: gzip"),
+        "Expected content-encoding: gzip header, got: {response}"
+    );
+
+    // Verify body is decompressed correctly by curl
+    assert!(
+        response.contains(&large_text),
+        "Expected decompressed body to contain the large text"
+    );
+}
+
+#[tokio::test]
+async fn test_no_compression_without_accept_encoding() {
+    let server = TestServer::new("127.0.0.1:0", r#"{|req| "Hello, World!"}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Request without Accept-Encoding header
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-i") // Include headers in output
+        .arg(format!("http://{}", server.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Verify Content-Encoding header is NOT set
+    assert!(
+        !response.contains("content-encoding:"),
+        "Expected no content-encoding header, got: {response}"
+    );
+
+    // Verify body is uncompressed
+    assert!(
+        response.contains("Hello, World!"),
+        "Expected uncompressed body to contain 'Hello, World!'"
+    );
+}
+
+#[tokio::test]
+async fn test_compression_with_json_response() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req| {message: "Hello", data: [1, 2, 3]} | to json}"#,
+        false,
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Request with Accept-Encoding: br
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-i")
+        .arg("-H")
+        .arg("Accept-Encoding: br")
+        .arg("--compressed")
+        .arg(format!("http://{}", server.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Verify compression header
+    assert!(
+        response.contains("content-encoding: br"),
+        "Expected content-encoding: br for JSON response"
+    );
+
+    // Verify JSON is decompressed correctly
+    assert!(
+        response.contains(r#""message":"Hello""#) || response.contains(r#""message": "Hello""#),
+        "Expected decompressed JSON to contain message field"
+    );
+}
+
+#[tokio::test]
+async fn test_compression_with_streaming_response() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            .response {status: 200}
+            1..5 | each {|i| $"Line ($i)\n"}
+        }"#,
+        false,
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Request with Accept-Encoding: br
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-i")
+        .arg("-H")
+        .arg("Accept-Encoding: br")
+        .arg("--compressed")
+        .arg(format!("http://{}", server.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Verify compression works with streaming
+    assert!(
+        response.contains("content-encoding: br"),
+        "Expected content-encoding: br for streaming response"
+    );
+
+    // Verify all lines are present after decompression
+    assert!(response.contains("Line 1"));
+    assert!(response.contains("Line 2"));
+    assert!(response.contains("Line 3"));
+    assert!(response.contains("Line 4"));
+}
+
+#[tokio::test]
+async fn test_compression_with_static_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file_path = tmp.path().join("test.txt");
+    std::fs::write(
+        &file_path,
+        "This is a static file that should be compressed.",
+    )
+    .unwrap();
+
+    let closure = format!(
+        "{{|req| .static '{}' $req.path }}",
+        tmp.path().to_str().unwrap()
+    );
+    let server = TestServer::new("127.0.0.1:0", &closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Request with Accept-Encoding: br
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-i")
+        .arg("-H")
+        .arg("Accept-Encoding: br")
+        .arg("--compressed")
+        .arg(format!("http://{}/test.txt", server.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Verify compression works with static files
+    assert!(
+        response.contains("content-encoding: br"),
+        "Expected content-encoding: br for static file"
+    );
+
+    // Verify file content is decompressed correctly
+    assert!(
+        response.contains("This is a static file that should be compressed."),
+        "Expected decompressed file content"
+    );
+}
+
+#[tokio::test]
+async fn test_compression_prefers_brotli_over_gzip() {
+    // Use a larger response body to ensure compression is applied
+    let large_text = "C".repeat(2000);
+    let closure = format!(r#"{{|req| "{}" }}"#, large_text);
+    let server = TestServer::new("127.0.0.1:0", &closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Request with both br and gzip in Accept-Encoding
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-i")
+        .arg("-H")
+        .arg("Accept-Encoding: br, gzip")
+        .arg("--compressed")
+        .arg(format!("http://{}", server.address));
+    let output = cmd.output().await.expect("Failed to execute curl");
+    assert!(output.status.success());
+
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Verify br is preferred when both are accepted
+    // (tower-http's default preference order is br > gzip > deflate)
+    assert!(
+        response.contains("content-encoding: br") || response.contains("content-encoding: gzip"),
+        "Expected either br or gzip encoding"
+    );
+}

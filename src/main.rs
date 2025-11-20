@@ -6,9 +6,11 @@ use std::sync::{
 };
 
 use clap::Parser;
-use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use hyper_util::service::TowerToHyperService;
 use tokio::signal;
+use tower::ServiceBuilder;
+use tower_http::compression::CompressionLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use http_nu::{
@@ -93,9 +95,15 @@ async fn serve(
                         let engine = engine.clone();
 
                         tokio::task::spawn(async move {
-                            let service = service_fn(move |req| {
-                                handle(engine.clone(), remote_addr, req)
-                            });
+                            // Configure compression layer for automatic content-encoding negotiation
+                            let compression = CompressionLayer::new()
+                                .quality(tower_http::CompressionLevel::Default);
+                            let tower_service = ServiceBuilder::new()
+                                .layer(compression)
+                                .service_fn(move |req| {
+                                    handle(engine.clone(), remote_addr, req)
+                                });
+                            let service = TowerToHyperService::new(tower_service);
                             if let Err(err) = hyper::server::conn::http1::Builder::new()
                                 .serve_connection(io, service)
                                 .await
