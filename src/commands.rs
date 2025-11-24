@@ -71,7 +71,30 @@ impl Command for ResponseStartCommand {
                 let headers_record = headers_value.as_record()?;
                 let mut map = HashMap::new();
                 for (k, v) in headers_record.iter() {
-                    map.insert(k.clone(), v.as_str()?.to_string());
+                    let header_value = match v {
+                        Value::String { val, .. } => {
+                            crate::response::HeaderValue::Single(val.clone())
+                        }
+                        Value::List { vals, .. } => {
+                            let strings: Vec<String> = vals
+                                .iter()
+                                .filter_map(|v| v.as_str().ok())
+                                .map(|s| s.to_string())
+                                .collect();
+                            crate::response::HeaderValue::Multiple(strings)
+                        }
+                        _ => {
+                            return Err(nu_protocol::ShellError::CantConvert {
+                                to_type: "string or list<string>".to_string(),
+                                from_type: v.get_type().to_string(),
+                                span: v.span(),
+                                help: Some(
+                                    "header values must be strings or lists of strings".to_string(),
+                                ),
+                            });
+                        }
+                    };
+                    map.insert(k.clone(), header_value);
                 }
                 map
             }
@@ -449,9 +472,21 @@ impl Command for ReverseProxyCommand {
                 if let Some(headers_value) = record.get("headers") {
                     if let Ok(headers_record) = headers_value.as_record() {
                         for (k, v) in headers_record.iter() {
-                            if let Ok(v_str) = v.as_str() {
-                                headers.insert(k.clone(), v_str.to_string());
-                            }
+                            let header_value = match v {
+                                Value::String { val, .. } => {
+                                    crate::response::HeaderValue::Single(val.clone())
+                                }
+                                Value::List { vals, .. } => {
+                                    let strings: Vec<String> = vals
+                                        .iter()
+                                        .filter_map(|v| v.as_str().ok())
+                                        .map(|s| s.to_string())
+                                        .collect();
+                                    crate::response::HeaderValue::Multiple(strings)
+                                }
+                                _ => continue, // Skip non-string/non-list values
+                            };
+                            headers.insert(k.clone(), header_value);
                         }
                     }
                 }

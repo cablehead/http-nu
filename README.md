@@ -131,10 +131,14 @@ You can set the Response metadata using the `.response` custom command.
 .response {
   status: <number>  # Optional, HTTP status code (default: 200)
   headers: {        # Optional, HTTP headers
-    <key>: <value>
+    <key>: <value>  # Single value: "text/plain"
+    <key>: [<value>, <value>]  # Multiple values: ["cookie1=a", "cookie2=b"]
   }
 }
 ```
+
+Header values can be strings or lists of strings. Multiple values (e.g.,
+Set-Cookie) are sent as separate HTTP headers per RFC 6265.
 
 ```
 $ http-nu :3001 '{|req| .response {status: 404}; "sorry, eh"}'
@@ -144,6 +148,16 @@ transfer-encoding: chunked
 date: Fri, 31 Jan 2025 08:20:28 GMT
 
 sorry, eh
+```
+
+Multi-value headers:
+
+```nushell
+.response {
+  headers: {
+    "Set-Cookie": ["session=abc; Path=/", "token=xyz; Secure"]
+  }
+}
 ```
 
 ### Content-Type Inference

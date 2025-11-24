@@ -413,3 +413,38 @@ async fn test_handle_script_runtime_error() {
     let body_str = String::from_utf8(body.to_vec()).unwrap();
     assert!(body_str.contains("Script error"));
 }
+
+#[tokio::test]
+async fn test_multi_value_set_cookie_headers() {
+    let engine = Arc::new(test_engine(
+        r#"{|req|
+            .response {
+                status: 200
+                headers: {
+                    "Set-Cookie": ["session=abc123; Path=/; HttpOnly", "token=xyz789; Path=/; Secure"]
+                }
+            }
+            "cookies set"
+        }"#,
+    ));
+
+    let req = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Verify we have two separate Set-Cookie headers
+    let set_cookie_headers: Vec<_> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+
+    assert_eq!(set_cookie_headers.len(), 2);
+    assert!(set_cookie_headers.contains(&"session=abc123; Path=/; HttpOnly"));
+    assert!(set_cookie_headers.contains(&"token=xyz789; Path=/; Secure"));
+}

@@ -3,9 +3,15 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
+pub enum HeaderValue {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+#[derive(Clone, Debug)]
 pub struct Response {
     pub status: u16,
-    pub headers: HashMap<String, String>,
+    pub headers: HashMap<String, HeaderValue>,
     pub body_type: ResponseBodyType,
 }
 
@@ -19,7 +25,7 @@ pub enum ResponseBodyType {
     },
     ReverseProxy {
         target_url: String,
-        headers: HashMap<String, String>,
+        headers: HashMap<String, HeaderValue>,
         preserve_host: bool,
         strip_prefix: Option<String>,
         request_body: Vec<u8>,

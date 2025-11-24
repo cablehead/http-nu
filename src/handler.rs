@@ -227,10 +227,21 @@ where
 
             // Add custom headers
             for (k, v) in headers {
-                header_map.insert(
-                    hyper::header::HeaderName::from_bytes(k.as_bytes())?,
-                    hyper::header::HeaderValue::from_str(v)?,
-                );
+                let header_name = hyper::header::HeaderName::from_bytes(k.as_bytes())?;
+
+                match v {
+                    crate::response::HeaderValue::Single(s) => {
+                        let header_value = hyper::header::HeaderValue::from_str(s)?;
+                        header_map.insert(header_name, header_value);
+                    }
+                    crate::response::HeaderValue::Multiple(values) => {
+                        for value in values {
+                            if let Ok(header_value) = hyper::header::HeaderValue::from_str(value) {
+                                header_map.append(header_name.clone(), header_value);
+                            }
+                        }
+                    }
+                }
             }
 
             // Handle preserve_host
@@ -285,7 +296,10 @@ async fn build_normal_response(
         .headers
         .get("content-type")
         .or(meta.headers.get("Content-Type"))
-        .cloned()
+        .and_then(|hv| match hv {
+            crate::response::HeaderValue::Single(s) => Some(s.clone()),
+            crate::response::HeaderValue::Multiple(v) => v.first().cloned(),
+        })
         .or(inferred_content_type)
         .unwrap_or("text/html; charset=utf-8".to_string());
 
@@ -296,10 +310,21 @@ async fn build_normal_response(
 
     for (k, v) in &meta.headers {
         if k.to_lowercase() != "content-type" {
-            header_map.insert(
-                hyper::header::HeaderName::from_bytes(k.as_bytes())?,
-                hyper::header::HeaderValue::from_str(v)?,
-            );
+            let header_name = hyper::header::HeaderName::from_bytes(k.as_bytes())?;
+
+            match v {
+                crate::response::HeaderValue::Single(s) => {
+                    let header_value = hyper::header::HeaderValue::from_str(s)?;
+                    header_map.insert(header_name, header_value);
+                }
+                crate::response::HeaderValue::Multiple(values) => {
+                    for value in values {
+                        if let Ok(header_value) = hyper::header::HeaderValue::from_str(value) {
+                            header_map.append(header_name.clone(), header_value);
+                        }
+                    }
+                }
+            }
         }
     }
 
