@@ -197,7 +197,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Box::new(StaticCommand::new()),
         Box::new(ToSse {}),
     ])?;
-    engine.parse_closure(&closure_content)?;
+
+    if let Err(e) = engine.parse_closure(&closure_content) {
+        eprintln!("{e}");
+        std::process::exit(1);
+    }
 
     serve(args, engine).await
 }

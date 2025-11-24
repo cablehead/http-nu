@@ -378,3 +378,31 @@ async fn test_server_unix_graceful_shutdown() {
     let status = server.wait_for_exit().await;
     assert!(status.success());
 }
+
+#[tokio::test]
+async fn test_parse_error_ansi_formatting() {
+    use assert_cmd::cargo::cargo_bin;
+
+    let output = tokio::process::Command::new(cargo_bin("http-nu"))
+        .arg("127.0.0.1:0")
+        .arg("{|req| use nonexistent oauth}")
+        .output()
+        .await
+        .expect("Failed to execute http-nu");
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Should NOT contain escaped ANSI sequences
+    assert!(
+        !stderr.contains(r"\u{1b}"),
+        "stderr contains escaped ANSI codes: {stderr}"
+    );
+
+    // Should contain the error text
+    assert!(
+        stderr.contains("Parse error") || stderr.contains("ExportNotFound"),
+        "stderr missing expected error text: {stderr}"
+    );
+}
