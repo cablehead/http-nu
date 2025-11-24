@@ -50,6 +50,8 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tower-http = { version = "0.6.6", features = ["fs"] }
 tower = { version = "0.5.2", features = ["util"] }
 ureq = { version = "2.12.1", default-features = false, features = ["tls"] }
+async-compression = { version = "0.4", features = ["tokio", "brotli"] }
+futures-util = "0.3"
 
 
 

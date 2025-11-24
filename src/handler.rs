@@ -1,10 +1,15 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use async_compression::tokio::bufread::BrotliEncoder;
+use async_compression::Level;
+use futures_util::TryStreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
+use tokio::io::AsyncReadExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
+use tokio_util::io::{ReaderStream, StreamReader};
 use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -14,6 +19,26 @@ use crate::worker::spawn_eval_thread;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
+
+// Brotli quality level 6 provides good balance of compression ratio and speed
+// for web responses (range: 0-11, where 11 = maximum compression)
+const BROTLI_QUALITY: u32 = 6;
+
+fn accepts_brotli(headers: &hyper::header::HeaderMap) -> bool {
+    headers
+        .get(hyper::header::ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.contains("br") || v.contains("brotli"))
+        .unwrap_or(false)
+}
+
+async fn compress_bytes(data: Vec<u8>) -> Result<Vec<u8>, BoxError> {
+    let reader = std::io::Cursor::new(data);
+    let mut encoder = BrotliEncoder::with_quality(reader, Level::Precise(BROTLI_QUALITY));
+    let mut compressed = Vec::new();
+    encoder.read_to_end(&mut compressed).await?;
+    Ok(compressed)
+}
 
 pub async fn handle<B>(
     engine: Arc<crate::Engine>,
@@ -140,7 +165,10 @@ where
     );
 
     match &meta.body_type {
-        ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
+        ResponseBodyType::Normal => {
+            let should_compress = accepts_brotli(&parts.headers);
+            build_normal_response(&meta, Ok(body_result?), should_compress).await
+        }
         ResponseBodyType::Static {
             root,
             path,
@@ -276,6 +304,7 @@ where
 async fn build_normal_response(
     meta: &Response,
     body_result: Result<(Option<String>, ResponseTransport), BoxError>,
+    mut should_compress: bool,
 ) -> HTTPResult {
     let (inferred_content_type, body) = body_result?;
     let mut builder = hyper::Response::builder().status(meta.status);
@@ -303,18 +332,59 @@ async fn build_normal_response(
         }
     }
 
+    // Check if body is empty and disable compression if so
+    match &body {
+        ResponseTransport::Empty => should_compress = false,
+        ResponseTransport::Full(bytes) if bytes.is_empty() => should_compress = false,
+        _ => {}
+    }
+
+    if should_compress {
+        header_map.insert(
+            hyper::header::CONTENT_ENCODING,
+            hyper::header::HeaderValue::from_static("br"),
+        );
+        // Remove Content-Length as body size will change after compression
+        header_map.remove(hyper::header::CONTENT_LENGTH);
+        // Add Vary header to indicate response varies based on Accept-Encoding
+        header_map.insert(
+            hyper::header::VARY,
+            hyper::header::HeaderValue::from_static("Accept-Encoding"),
+        );
+    }
+
     *builder.headers_mut().unwrap() = header_map;
 
     let body = match body {
         ResponseTransport::Empty => Empty::<Bytes>::new()
             .map_err(|never| match never {})
             .boxed(),
-        ResponseTransport::Full(bytes) => Full::new(bytes.into())
-            .map_err(|never| match never {})
-            .boxed(),
+        ResponseTransport::Full(bytes) => {
+            if should_compress {
+                let compressed = compress_bytes(bytes).await?;
+                Full::new(compressed.into())
+                    .map_err(|never| match never {})
+                    .boxed()
+            } else {
+                Full::new(bytes.into())
+                    .map_err(|never| match never {})
+                    .boxed()
+            }
+        }
         ResponseTransport::Stream(rx) => {
-            let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
-            StreamBody::new(stream).boxed()
+            if should_compress {
+                let stream =
+                    ReceiverStream::new(rx).map(|data| Ok::<_, std::io::Error>(Bytes::from(data)));
+                let reader = StreamReader::new(stream);
+                let encoder = BrotliEncoder::with_quality(reader, Level::Precise(BROTLI_QUALITY));
+                let compressed_stream = ReaderStream::new(encoder)
+                    .map_ok(Frame::data)
+                    .map_err(|e| Box::new(e) as BoxError);
+                StreamBody::new(compressed_stream).boxed()
+            } else {
+                let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
+                StreamBody::new(stream).boxed()
+            }
         }
     };
 

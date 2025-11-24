@@ -78,6 +78,46 @@ impl TestServer {
     }
 
     #[allow(dead_code)]
+    pub async fn curl_with_header(&self, path: &str, header: &str) -> process::Output {
+        let url = if self.address.starts_with('/') {
+            "http://localhost".to_string()
+        } else {
+            format!("http://{}", self.address)
+        };
+
+        let mut cmd = tokio::process::Command::new("curl");
+        if self.address.starts_with('/') {
+            cmd.arg("--unix-socket").arg(&self.address);
+        }
+        cmd.arg("-H")
+            .arg(header)
+            .arg("-i")
+            .arg(format!("{url}{path}"));
+
+        cmd.output().await.expect("Failed to execute curl")
+    }
+
+    #[allow(dead_code)]
+    pub async fn curl_compressed(&self, path: &str) -> process::Output {
+        let url = if self.address.starts_with('/') {
+            "http://localhost".to_string()
+        } else {
+            format!("http://{}", self.address)
+        };
+
+        let mut cmd = tokio::process::Command::new("curl");
+        if self.address.starts_with('/') {
+            cmd.arg("--unix-socket").arg(&self.address);
+        }
+        cmd.arg("-H")
+            .arg("Accept-Encoding: br")
+            .arg("--compressed")
+            .arg(format!("{url}{path}"));
+
+        cmd.output().await.expect("Failed to execute curl")
+    }
+
+    #[allow(dead_code)]
     pub async fn curl_tls(&self, path: &str) -> process::Output {
         // Extract port from address format "127.0.0.1:8080 (TLS)"
         let port = self
