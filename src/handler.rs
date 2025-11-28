@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
@@ -16,7 +16,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 pub async fn handle<B>(
-    engine: Arc<crate::Engine>,
+    engine: Arc<RwLock<crate::Engine>>,
     addr: Option<SocketAddr>,
     req: hyper::Request<B>,
 ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
@@ -40,7 +40,7 @@ where
 }
 
 async fn handle_inner<B>(
-    engine: Arc<crate::Engine>,
+    engine: Arc<RwLock<crate::Engine>>,
     addr: Option<SocketAddr>,
     req: hyper::Request<B>,
 ) -> HTTPResult
@@ -75,9 +75,13 @@ where
     });
 
     // Create ByteStream for Nu pipeline
+    let signals = {
+        let guard = engine.read().unwrap();
+        guard.state.signals().clone()
+    };
     let stream = nu_protocol::ByteStream::from_fn(
         nu_protocol::Span::unknown(),
-        engine.state.signals().clone(),
+        signals,
         nu_protocol::ByteStreamType::Unknown,
         move |buffer: &mut Vec<u8>| match body_rx.blocking_recv() {
             Some(Ok(bytes)) => {
@@ -120,7 +124,13 @@ where
         serde_json::json!({"stamp": scru128::new(), "message": "request", "meta": request})
     );
 
-    let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
+    // Clone the engine snapshot for this request
+    let engine_snapshot = {
+        let guard = engine.read().unwrap();
+        Arc::new((*guard).clone())
+    };
+
+    let (meta_rx, bridged_body) = spawn_eval_thread(engine_snapshot, request, stream);
 
     // Wait for both:
     // 1. Metadata - either from .response or default values when closure skips .response
