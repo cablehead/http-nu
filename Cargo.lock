@@ -1377,6 +1377,7 @@ name = "http-nu"
 version = "0.5.1"
 dependencies = [
  "assert_cmd",
+ "brotli",
  "bytes",
  "clap",
  "ctrlc",
