@@ -4,6 +4,8 @@
 
 This guide explains how to package http-nu as a NixOS package and maintain it in nixpkgs. http-nu is a Rust application, so we'll use `buildRustPackage` from nixpkgs.
 
+> **Note**: http-nu is already packaged in nixpkgs. See the [actual package definition](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/ht/http-nu/package.nix) for the current implementation. This guide documents the packaging process and lessons learned.
+
 ## Why Package for NixOS?
 
 - **Reproducibility**: Users get exact versions with all dependencies
@@ -516,24 +518,12 @@ src = fetchFromGitHub {
 };
 ```
 
-### 3. Darwin libclang Setup
+### 3. Darwin bindgen Setup
 
-**Reviewer feedback**: Use `libclang` from top-level and `stdenvNoCC` for bindgen dependencies.
+**Reviewer feedback**: Use `rustPlatform.bindgenHook` for packages that need bindgen (like those using `libproc`).
 
 ```nix
-# Old:
-{
-  llvmPackages,
-  stdenv,
-}:
-nativeBuildInputs = lib.optionals stdenv.hostPlatform.isDarwin [
-  llvmPackages.libclang
-];
-env = lib.optionalAttrs stdenv.hostPlatform.isDarwin {
-  LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
-};
-
-# New:
+# Old (manual libclang setup):
 {
   libclang,
   stdenvNoCC,
@@ -544,7 +534,17 @@ nativeBuildInputs = lib.optionals stdenvNoCC.hostPlatform.isDarwin [
 env = lib.optionalAttrs stdenvNoCC.hostPlatform.isDarwin {
   LIBCLANG_PATH = "${lib.getLib libclang}/lib";
 };
+
+# New (preferred - use bindgenHook):
+{
+  stdenvNoCC,
+}:
+nativeBuildInputs = lib.optionals stdenvNoCC.hostPlatform.isDarwin [
+  rustPlatform.bindgenHook
+];
 ```
+
+The `bindgenHook` is the idiomatic nixpkgs approach - it automatically handles libclang setup and is cleaner than manual configuration.
 
 ### 4. Remove `platforms` from Rust Packages
 
@@ -652,13 +652,12 @@ doCheck = false;
 But investigate why they fail and fix if possible.
 
 ### Issue: "package not building on Darwin (macOS)" with libclang errors
-**Solution**: If the package uses `bindgen` (check for it in Cargo.lock or dependencies like `libproc`), add libclang:
+**Solution**: If the package uses `bindgen` (check for it in Cargo.lock or dependencies like `libproc`), use `rustPlatform.bindgenHook`:
 ```nix
 {
   lib,
   rustPlatform,
   fetchFromGitHub,
-  libclang,      # Add this
   stdenvNoCC,    # Add this
 }:
 
@@ -666,21 +665,17 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # ... existing fields ...
 
   nativeBuildInputs = lib.optionals stdenvNoCC.hostPlatform.isDarwin [
-    libclang
+    rustPlatform.bindgenHook
   ];
-
-  env = lib.optionalAttrs stdenvNoCC.hostPlatform.isDarwin {
-    LIBCLANG_PATH = "${lib.getLib libclang}/lib";
-  };
 
   # ... rest of package ...
 })
 ```
 
 **Key points:**
-- Use `libclang` from top-level, not `llvmPackages.libclang`
+- Use `rustPlatform.bindgenHook` - it's the idiomatic nixpkgs approach
+- The hook automatically sets up libclang and `LIBCLANG_PATH`
 - Use `stdenvNoCC` instead of `stdenv` (we don't need the C compiler)
-- Use `lib.getLib` to get the library output
 
 For other Darwin issues (like missing frameworks):
 ```nix
