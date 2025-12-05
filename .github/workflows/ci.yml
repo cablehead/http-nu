@@ -19,19 +19,17 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+
+    - name: Install Deno
+      uses: denoland/setup-deno@v2
+      with:
+        deno-version: v2.x
+
     - name: Install Rust
       run: |
         rustup update stable
         rustup default stable
-        rustup component add clippy
-        
-    - name: Clippy
-      run: cargo clippy -- -D warnings
 
-    - name: Build
-      run: cargo build --verbose
-
-    - name: Run tests
-      run: cargo test --verbose
+    - name: Run checks
+      run: ./scripts/check.sh

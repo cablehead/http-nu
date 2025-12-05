@@ -547,8 +547,7 @@ async fn test_sse_brotli_compression_streams_immediately() {
     // Give some margin for startup overhead, but it should be < 500ms
     assert!(
         first_chunk_time < std::time::Duration::from_millis(500),
-        "First SSE chunk took {:?}, expected < 500ms. SSE compression may be buffering instead of streaming.",
-        first_chunk_time
+        "First SSE chunk took {first_chunk_time:?}, expected < 500ms. SSE compression may be buffering instead of streaming.",
     );
 
     // Wait for the rest and verify total time is ~600ms (3 more events * 200ms)
@@ -561,8 +560,7 @@ async fn test_sse_brotli_compression_streams_immediately() {
     // Total time should be ~800ms (4 events * 200ms delay)
     assert!(
         total_time >= std::time::Duration::from_millis(700),
-        "Total time {:?} too short, expected ~800ms for streaming",
-        total_time
+        "Total time {total_time:?} too short, expected ~800ms for streaming",
     );
 
     // Decompress and verify we got all events
@@ -581,8 +579,7 @@ async fn test_sse_brotli_compression_streams_immediately() {
     assert!(text.contains("data: event-3"), "Missing event-3");
 
     println!(
-        "SSE brotli streaming verified: first chunk at {:?}, total {:?}",
-        first_chunk_time, total_time
+        "SSE brotli streaming verified: first chunk at {first_chunk_time:?}, total {total_time:?}"
     );
 }
 

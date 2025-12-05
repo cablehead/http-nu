@@ -622,7 +622,7 @@ impl Command for MjCommand {
             }
             (Some(path), None) => {
                 std::fs::read_to_string(path).map_err(|e| ShellError::GenericError {
-                    error: format!("Failed to read template file: {}", e),
+                    error: format!("Failed to read template file: {e}"),
                     msg: "could not read file".into(),
                     span: Some(head),
                     help: None,
@@ -648,7 +648,7 @@ impl Command for MjCommand {
         let mut env = Environment::new();
         env.add_template("template", &template_source)
             .map_err(|e| ShellError::GenericError {
-                error: format!("Template parse error: {}", e),
+                error: format!("Template parse error: {e}"),
                 msg: e.to_string(),
                 span: Some(head),
                 help: None,
@@ -658,7 +658,7 @@ impl Command for MjCommand {
         let tmpl = env
             .get_template("template")
             .map_err(|e| ShellError::GenericError {
-                error: format!("Failed to get template: {}", e),
+                error: format!("Failed to get template: {e}"),
                 msg: e.to_string(),
                 span: Some(head),
                 help: None,
@@ -668,7 +668,7 @@ impl Command for MjCommand {
         let rendered = tmpl
             .render(&context)
             .map_err(|e| ShellError::GenericError {
-                error: format!("Template render error: {}", e),
+                error: format!("Template render error: {e}"),
                 msg: e.to_string(),
                 span: Some(head),
                 help: None,
