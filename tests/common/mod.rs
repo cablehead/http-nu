@@ -35,10 +35,12 @@ impl TestServer {
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 eprintln!("[HTTP-NU STDOUT] {line}");
-                if let Some(tx) = addr_tx.take() {
+                if addr_tx.is_some() {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
                         if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
-                            let _ = tx.send(addr_str.trim().to_string());
+                            if let Some(tx) = addr_tx.take() {
+                                let _ = tx.send(addr_str.trim().to_string());
+                            }
                         }
                     }
                 }

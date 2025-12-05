@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use arc_swap::ArcSwap;
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{body::Bytes, Request};
 use tokio::time::Duration;
@@ -18,7 +19,9 @@ async fn test_handle() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(Arc::new(engine), None, req).await.unwrap();
+    let resp = handle(Arc::new(ArcSwap::from_pointee(engine)), None, req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -28,7 +31,7 @@ async fn test_handle() {
 
 #[tokio::test]
 async fn test_handle_with_response_start() {
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
         match $req {
             {uri: "/resource" method: "POST"} => {
@@ -43,7 +46,7 @@ async fn test_handle_with_response_start() {
             }
         }
     }"#,
-    ));
+    )));
 
     // Test successful POST to /resource
     let req = Request::builder()
@@ -69,7 +72,7 @@ async fn test_handle_with_response_start() {
 
 #[tokio::test]
 async fn test_handle_post() {
-    let engine = Arc::new(test_engine(r#"{|req| $in }"#));
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(r#"{|req| $in }"#)));
 
     // Create POST request with a body
     let body = "Hello from the request body!";
@@ -91,11 +94,11 @@ async fn test_handle_post() {
 
 #[tokio::test]
 async fn test_handle_streaming() {
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
             1..3 | each { |n| sleep 0.1sec; $n }
         }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .method("GET")
@@ -155,12 +158,12 @@ fn assert_timing_sequence(timings: &[(String, Duration)]) {
 #[tokio::test]
 async fn test_content_type_precedence() {
     // 1. Explicit header should take precedence
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
            .response {headers: {"Content-Type": "text/plain"}}
            {foo: "bar"}
        }"#,
-    ));
+    )));
     let req1 = Request::builder()
         .uri("/")
         .body(Empty::<Bytes>::new())
@@ -173,7 +176,9 @@ async fn test_content_type_precedence() {
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-    let engine = Arc::new(test_engine(r#"{|req| ls | to yaml }"#));
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
+        r#"{|req| ls | to yaml }"#,
+    )));
     let resp2 = handle(engine.clone(), None, req2).await.unwrap();
     assert_eq!(resp2.headers()["content-type"], "application/yaml");
 
@@ -182,7 +187,9 @@ async fn test_content_type_precedence() {
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-    let engine = Arc::new(test_engine(r#"{|req| {foo: "bar"} }"#));
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
+        r#"{|req| {foo: "bar"} }"#,
+    )));
     let resp3 = handle(engine.clone(), None, req3).await.unwrap();
     assert_eq!(resp3.headers()["content-type"], "application/json");
 
@@ -191,7 +198,9 @@ async fn test_content_type_precedence() {
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-    let engine = Arc::new(test_engine(r#"{|req| "Hello World"}"#));
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
+        r#"{|req| "Hello World"}"#,
+    )));
     let resp4 = handle(engine.clone(), None, req4).await.unwrap();
     assert_eq!(resp4.headers()["content-type"], "text/html; charset=utf-8");
 }
@@ -199,7 +208,9 @@ async fn test_content_type_precedence() {
 #[tokio::test]
 async fn test_handle_bytestream() {
     // `to csv` returns a ByteStream with content-type text/csv
-    let engine = Arc::new(test_engine(r#"{|req| ls | to csv }"#));
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
+        r#"{|req| ls | to csv }"#,
+    )));
 
     let req = Request::builder()
         .uri("/")
@@ -223,7 +234,7 @@ async fn test_handle_bytestream() {
 
 #[tokio::test]
 async fn test_handle_preserve_preamble() {
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"
         def do-foo [more: string] {
           "foo" + $more
@@ -233,7 +244,7 @@ async fn test_handle_preserve_preamble() {
           do-foo $req.path
         }
         "#,
-    ));
+    )));
 
     let req = Request::builder()
         .uri("/bar")
@@ -257,10 +268,10 @@ async fn test_handle_static() {
     let css = "body { background: blue; }";
     std::fs::write(static_dir.join("styles.css"), css).unwrap();
 
-    let engine = Arc::new(test_engine(&format!(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(&format!(
         r#"{{|req| .static '{}' $req.path }}"#,
         static_dir.to_str().unwrap()
-    )));
+    ))));
 
     let req = Request::builder()
         .uri("/styles.css")
@@ -298,14 +309,14 @@ async fn test_handle_binary_value() {
     ];
 
     // Create engine that returns a binary value directly
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
         .response {
             headers: {"Content-Type": "application/octet-stream"}
         }
         0x[89 50 4E 47 0D 0A 1A 0A FF AA BB CC DD]  # Creates a Binary value type
     }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .uri("/binary-value")
@@ -327,12 +338,12 @@ async fn test_handle_binary_value() {
 #[tokio::test]
 async fn test_handle_missing_header_error() {
     // Test script that tries to access missing header - reproduces the exact error from logs
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
             let host = $req.headers.host
             $"Host: ($host)"
         }"#,
-    ));
+    )));
 
     // Create request without host header
     let req = Request::builder()
@@ -353,11 +364,11 @@ async fn test_handle_missing_header_error() {
 #[tokio::test]
 async fn test_handle_script_panic() {
     // Test script that panics deliberately
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
             error make {msg: "Deliberate panic for testing"}
         }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .uri("/panic")
@@ -375,12 +386,12 @@ async fn test_handle_script_panic() {
 #[tokio::test]
 async fn test_handle_nu_shell_column_error() {
     // Test script with different Nu shell column access errors
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
             let auth = $req.headers.authorization.bearer
             $"Auth: ($auth)"
         }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .uri("/auth")
@@ -395,12 +406,12 @@ async fn test_handle_nu_shell_column_error() {
 #[tokio::test]
 async fn test_handle_script_runtime_error() {
     // Test script with runtime errors (division by zero, etc)
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
             let result = (10 / 0)
             $"Result: ($result)"
         }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .uri("/divide")
@@ -417,7 +428,7 @@ async fn test_handle_script_runtime_error() {
 
 #[tokio::test]
 async fn test_multi_value_set_cookie_headers() {
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
             .response {
                 status: 200
@@ -427,7 +438,7 @@ async fn test_multi_value_set_cookie_headers() {
             }
             "cookies set"
         }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .uri("/")
@@ -452,7 +463,7 @@ async fn test_multi_value_set_cookie_headers() {
 
 #[tokio::test]
 async fn test_handle_mj_template() {
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
         {items: [1, 2, 3], name: "test&foo"} | .mj --inline "
 {%- for i in items -%}
@@ -462,7 +473,7 @@ async fn test_handle_mj_template() {
 {{ name|urlencode }}
 {{ items|tojson }}"
     }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .method("GET")

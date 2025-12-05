@@ -15,7 +15,9 @@ server that fits in your back pocket.
   - [NixOS](#nixos)
 - [Overview](#overview)
   - [GET: Hello world](#get-hello-world)
+  - [UNIX domain sockets](#unix-domain-sockets)
   - [Reading closures from stdin](#reading-closures-from-stdin)
+    - [Dynamic reloads](#dynamic-reloads)
   - [POST: echo](#post-echo)
   - [Request metadata](#request-metadata)
   - [Response metadata](#response-metadata)
@@ -64,6 +66,14 @@ $ curl -s localhost:3001
 Hello world
 ```
 
+### UNIX domain sockets
+
+```bash
+$ http-nu ./sock '{|req| "Hello world"}'
+$ curl -s --unix-socket ./sock localhost
+Hello world
+```
+
 ### Reading closures from stdin
 
 You can also pass `-` as the closure argument to read the closure from stdin:
@@ -84,13 +94,18 @@ Check out the [`examples/basic.nu`](examples/basic.nu) file in the repository
 for a complete example that implements a mini web server with multiple routes,
 form handling, and streaming responses.
 
-You can listen to UNIX domain sockets as well
+#### Dynamic reloads
+
+When reading from stdin, you can send multiple null-terminated scripts to
+hot-reload the handler without restarting the server. This example starts with
+"v1", then after 5 seconds switches to "v2":
 
 ```bash
-$ http-nu ./sock '{|req| "Hello world"}'
-$ curl -s --unix-socket ./sock localhost
-Hello world
+$ (printf '{|req| "v1"}\0'; sleep 5; printf '{|req| "v2"}') | http-nu :3001 -
 ```
+
+JSON status is emitted to stdout: `"start"` on first load, `"reload"` on
+updates, `"error"` on parse failures.
 
 ### POST: echo
 

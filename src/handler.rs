@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
 use tokio_stream::wrappers::ReceiverStream;
@@ -17,7 +18,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 pub async fn handle<B>(
-    engine: Arc<crate::Engine>,
+    engine: Arc<ArcSwap<crate::Engine>>,
     addr: Option<SocketAddr>,
     req: hyper::Request<B>,
 ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
@@ -26,6 +27,8 @@ where
     B::Data: Into<Bytes> + Clone + Send,
     B::Error: Into<BoxError> + Send,
 {
+    // Load current engine snapshot - lock-free atomic operation
+    let engine = engine.load_full();
     match handle_inner(engine, addr, req).await {
         Ok(response) => Ok(response),
         Err(err) => {

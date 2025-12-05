@@ -1,6 +1,101 @@
 mod common;
 use common::TestServer;
 
+use assert_cmd::cargo::cargo_bin;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin};
+use tokio::time::timeout;
+
+/// Test server with stdin support for dynamic script reloading
+struct TestServerWithStdin {
+    child: Child,
+    address: String,
+    stdin: Option<ChildStdin>,
+}
+
+impl TestServerWithStdin {
+    /// Spawn the server process and return handles, but don't send any script yet.
+    /// The server will wait for a valid script before emitting the "start" message.
+    fn spawn(addr: &str, tls: bool) -> (Child, ChildStdin, tokio::sync::oneshot::Receiver<String>) {
+        let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        cmd.arg(addr).arg("-");
+
+        if tls {
+            cmd.arg("--tls").arg("tests/combined.pem");
+        }
+
+        let mut child = cmd
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to start http-nu server");
+
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+
+        // Spawn tasks to read output
+        let mut addr_tx = Some(addr_tx);
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                eprintln!("[HTTP-NU STDOUT] {line}");
+                if addr_tx.is_some() {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                        if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                            if let Some(tx) = addr_tx.take() {
+                                let _ = tx.send(addr_str.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                eprintln!("[HTTP-NU STDERR] {line}");
+            }
+        });
+
+        (child, stdin, addr_rx)
+    }
+
+    async fn write_script(&mut self, script: &str) {
+        let stdin = self.stdin.as_mut().expect("stdin already closed");
+        stdin
+            .write_all(script.as_bytes())
+            .await
+            .expect("Failed to write script to stdin");
+        stdin
+            .write_all(b"\0")
+            .await
+            .expect("Failed to write null terminator to stdin");
+        stdin.flush().await.expect("Failed to flush stdin");
+    }
+
+    async fn close_stdin(&mut self) {
+        self.stdin.take();
+    }
+
+    async fn curl_get(&self) -> String {
+        let mut cmd = tokio::process::Command::new("curl");
+        cmd.arg("-s").arg(format!("http://{}/", self.address));
+        let output = cmd.output().await.expect("Failed to execute curl");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+}
+
+impl Drop for TestServerWithStdin {
+    fn drop(&mut self) {
+        let _ = self.child.start_kill();
+    }
+}
+
 #[tokio::test]
 async fn test_server_startup_and_shutdown() {
     let _server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", false).await;
@@ -489,4 +584,71 @@ async fn test_sse_brotli_compression_streams_immediately() {
         "SSE brotli streaming verified: first chunk at {:?}, total {:?}",
         first_chunk_time, total_time
     );
+}
+
+#[tokio::test]
+async fn test_dynamic_script_reload() {
+    // Spawn server process - it will wait for a valid script
+    let (child, mut stdin, addr_rx) = TestServerWithStdin::spawn("127.0.0.1:0", false);
+
+    // Helper to write a script to stdin
+    async fn write_script(stdin: &mut ChildStdin, script: &str) {
+        stdin.write_all(script.as_bytes()).await.unwrap();
+        stdin.write_all(b"\0").await.unwrap();
+        stdin.flush().await.unwrap();
+        // Give tokio a chance to actually send the data to the child process
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // 1. Send bad script (actual parse error) - server should reject it and keep waiting
+    write_script(&mut stdin, "{|req| { unclosed").await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // 2. Send good script "1" - server should start
+    write_script(&mut stdin, r#"{|req| "1"}"#).await;
+
+    // Wait for server to start
+    let address = timeout(std::time::Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Server didn't start")
+        .expect("Channel closed");
+
+    let mut server = TestServerWithStdin {
+        child,
+        address,
+        stdin: Some(stdin),
+    };
+
+    // 3. Curl should return "1"
+    assert_eq!(server.curl_get().await, "1");
+
+    // 4. Send bad script (different parse error) - server should reject and keep "1"
+    server.write_script("{|req| ] unbalanced").await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // 5. Curl should still return "1"
+    assert_eq!(server.curl_get().await, "1");
+
+    // 6. Send good script "2"
+    server.write_script(r#"{|req| "2"}"#).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // 7. Curl should return "2"
+    assert_eq!(server.curl_get().await, "2");
+
+    // 8. Send script "3" without null terminator, then close stdin
+    // The script should be processed when stdin closes (EOF acts as terminator)
+    {
+        let stdin = server.stdin.as_mut().unwrap();
+        stdin.write_all(br#"{|req| "3"}"#).await.unwrap();
+        stdin.flush().await.unwrap();
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    server.close_stdin().await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // 9. Curl should return "3" (script was processed on stdin close)
+    assert_eq!(server.curl_get().await, "3");
 }

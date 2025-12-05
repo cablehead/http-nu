@@ -12,6 +12,7 @@ use nu_protocol::{
 };
 use std::sync::{atomic::AtomicBool, Arc};
 
+use crate::commands::{MjCommand, ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse};
 use crate::Error;
 
 #[derive(Clone)]
@@ -150,4 +151,37 @@ impl Engine {
                 Error::from(format_cli_error(&working_set, &err, None))
             })
     }
+
+    /// Adds http-nu custom commands to the engine
+    pub fn add_custom_commands(&mut self) -> Result<(), Error> {
+        self.add_commands(vec![
+            Box::new(ResponseStartCommand::new()),
+            Box::new(ReverseProxyCommand::new()),
+            Box::new(StaticCommand::new()),
+            Box::new(ToSse {}),
+            Box::new(MjCommand::new()),
+        ])
+    }
+}
+
+/// Creates an engine from a script by cloning a base engine and parsing the closure.
+/// On error, prints to stderr and emits JSON to stdout, returning None.
+pub fn script_to_engine(base: &Engine, script: &str) -> Option<Engine> {
+    let mut engine = base.clone();
+
+    if let Err(e) = engine.parse_closure(script) {
+        let err_str = e.to_string();
+        eprintln!("{err_str}");
+        println!(
+            "{}",
+            serde_json::json!({
+                "stamp": scru128::new(),
+                "message": "error",
+                "error": nu_utils::strip_ansi_string_likely(err_str)
+            })
+        );
+        return None;
+    }
+
+    Some(engine)
 }
