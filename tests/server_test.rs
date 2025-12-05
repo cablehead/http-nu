@@ -637,10 +637,18 @@ async fn test_dynamic_script_reload() {
     // 7. Curl should return "2"
     assert_eq!(server.curl_get().await, "2");
 
-    // 8. Close stdin
+    // 8. Send script "3" without null terminator, then close stdin
+    // The script should be processed when stdin closes (EOF acts as terminator)
+    {
+        let stdin = server.stdin.as_mut().unwrap();
+        stdin.write_all(br#"{|req| "3"}"#).await.unwrap();
+        stdin.flush().await.unwrap();
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     server.close_stdin().await;
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    // 9. Curl should still return "2" (server keeps running after stdin EOF)
-    assert_eq!(server.curl_get().await, "2");
+    // 9. Curl should return "3" (script was processed on stdin close)
+    assert_eq!(server.curl_get().await, "3");
 }
