@@ -49,7 +49,9 @@ cargo install http-nu --locked
 
 ### NixOS
 
-http-nu is available in [nixpkgs](https://github.com/NixOS/nixpkgs). For packaging and maintenance documentation, see [NIXOS_PACKAGING_GUIDE.md](NIXOS_PACKAGING_GUIDE.md).
+http-nu is available in [nixpkgs](https://github.com/NixOS/nixpkgs). For
+packaging and maintenance documentation, see
+[NIXOS_PACKAGING_GUIDE.md](NIXOS_PACKAGING_GUIDE.md).
 
 ## Overview
 
