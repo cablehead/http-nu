@@ -87,6 +87,7 @@ async fn serve(
     // Spawn stdin reading task if enabled
     if read_stdin {
         let engine_clone = engine.clone();
+        let interrupt_clone = interrupt.clone();
         tokio::spawn(async move {
             let stdin = tokio::io::stdin();
             let mut reader = BufReader::new(stdin);
@@ -107,6 +108,9 @@ async fn serve(
                         // Create new engine with updated script
                         match Engine::new() {
                             Ok(mut new_engine) => {
+                                // Connect interrupt signal to new engine
+                                new_engine.set_signals(interrupt_clone.clone());
+
                                 // Add commands
                                 if let Err(e) = new_engine.add_commands(vec![
                                     Box::new(ResponseStartCommand::new()),
@@ -114,14 +118,15 @@ async fn serve(
                                     Box::new(StaticCommand::new()),
                                     Box::new(ToSse {}),
                                 ]) {
-                                    eprintln!("Failed to add commands: {e}");
+                                    let err_str = e.to_string();
+                                    eprintln!("Failed to add commands: {err_str}");
                                     println!(
                                         "{}",
                                         serde_json::json!({
                                             "stamp": scru128::new(),
                                             "message": "script_update",
                                             "status": "error",
-                                            "error": e.to_string()
+                                            "error": nu_utils::strip_ansi_string_likely(err_str.clone())
                                         })
                                     );
                                     continue;
@@ -142,28 +147,30 @@ async fn serve(
                                         );
                                     }
                                     Err(e) => {
-                                        eprintln!("Script update failed: {e}");
+                                        let err_str = e.to_string();
+                                        eprintln!("Script update failed: {err_str}");
                                         println!(
                                             "{}",
                                             serde_json::json!({
                                                 "stamp": scru128::new(),
                                                 "message": "script_update",
                                                 "status": "error",
-                                                "error": e.to_string()
+                                                "error": nu_utils::strip_ansi_string_likely(err_str.clone())
                                             })
                                         );
                                     }
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Failed to create new engine: {e}");
+                                let err_str = e.to_string();
+                                eprintln!("Failed to create new engine: {err_str}");
                                 println!(
                                     "{}",
                                     serde_json::json!({
                                         "stamp": scru128::new(),
                                         "message": "script_update",
                                         "status": "error",
-                                        "error": e.to_string()
+                                        "error": nu_utils::strip_ansi_string_likely(err_str.clone())
                                     })
                                 );
                             }
@@ -171,6 +178,14 @@ async fn serve(
                     }
                     Err(e) => {
                         eprintln!("Error reading stdin: {e}");
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "stamp": scru128::new(),
+                                "message": "stdin_error",
+                                "error": e.to_string()
+                            })
+                        );
                         break;
                     }
                 }

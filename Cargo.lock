@@ -1473,6 +1473,7 @@ dependencies = [
  "nu-engine",
  "nu-parser",
  "nu-protocol",
+ "nu-utils",
  "rustls",
  "rustls-pemfile",
  "scru128",
