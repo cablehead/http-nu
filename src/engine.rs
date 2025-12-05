@@ -176,13 +176,20 @@ pub fn script_to_engine(base: &Engine, script: &str) -> Option<Engine> {
             "{}",
             serde_json::json!({
                 "stamp": scru128::new(),
-                "message": "script_error",
-                "status": "error",
+                "message": "error",
                 "error": nu_utils::strip_ansi_string_likely(err_str)
             })
         );
         return None;
     }
+
+    println!(
+        "{}",
+        serde_json::json!({
+            "stamp": scru128::new(),
+            "message": "reload"
+        })
+    );
 
     Some(engine)
 }
