@@ -10,6 +10,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use tokio::sync::oneshot;
 
+use minijinja::Environment;
+
 thread_local! {
     pub static RESPONSE_TX: RefCell<Option<oneshot::Sender<Response>>> = const { RefCell::new(None) };
 }
@@ -548,4 +550,137 @@ impl Command for ReverseProxyCommand {
 
         Ok(PipelineData::Empty)
     }
+}
+
+#[derive(Clone)]
+pub struct MjCommand;
+
+impl Default for MjCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MjCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for MjCommand {
+    fn name(&self) -> &str {
+        ".mj"
+    }
+
+    fn description(&self) -> &str {
+        "Render a minijinja template with context from input"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".mj")
+            .optional("file", SyntaxShape::String, "template file path")
+            .named(
+                "inline",
+                SyntaxShape::String,
+                "inline template string",
+                Some('i'),
+            )
+            .input_output_types(vec![(Type::Record(vec![].into()), Type::String)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let file: Option<String> = call.opt(engine_state, stack, 0)?;
+        let inline: Option<String> = call.get_flag(engine_state, stack, "inline")?;
+
+        // Get template source
+        let template_source = match (&file, &inline) {
+            (Some(_), Some(_)) => {
+                return Err(ShellError::GenericError {
+                    error: "Cannot specify both file and --inline".into(),
+                    msg: "use either a file path or --inline, not both".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+            (None, None) => {
+                return Err(ShellError::GenericError {
+                    error: "No template specified".into(),
+                    msg: "provide a file path or use --inline".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+            (Some(path), None) => {
+                std::fs::read_to_string(path).map_err(|e| ShellError::GenericError {
+                    error: format!("Failed to read template file: {}", e),
+                    msg: "could not read file".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                })?
+            }
+            (None, Some(tmpl)) => tmpl.clone(),
+        };
+
+        // Get context from input
+        let context = match input {
+            PipelineData::Value(val, _) => nu_value_to_minijinja(&val),
+            PipelineData::Empty => minijinja::Value::from(()),
+            _ => {
+                return Err(ShellError::TypeMismatch {
+                    err_message: "expected record input".into(),
+                    span: head,
+                });
+            }
+        };
+
+        // Render template
+        let mut env = Environment::new();
+        env.add_template("template", &template_source)
+            .map_err(|e| ShellError::GenericError {
+                error: format!("Template parse error: {}", e),
+                msg: e.to_string(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            })?;
+
+        let tmpl = env
+            .get_template("template")
+            .map_err(|e| ShellError::GenericError {
+                error: format!("Failed to get template: {}", e),
+                msg: e.to_string(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            })?;
+
+        let rendered = tmpl
+            .render(&context)
+            .map_err(|e| ShellError::GenericError {
+                error: format!("Template render error: {}", e),
+                msg: e.to_string(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            })?;
+
+        Ok(Value::string(rendered, head).into_pipeline_data())
+    }
+}
+
+/// Convert a nu_protocol::Value to a minijinja::Value via serde_json
+fn nu_value_to_minijinja(val: &Value) -> minijinja::Value {
+    let json = value_to_json(val, &Config::default()).unwrap_or(serde_json::Value::Null);
+    minijinja::Value::from_serialize(&json)
 }

@@ -5,7 +5,7 @@ use http_body_util::{BodyExt, Empty, Full};
 use hyper::{body::Bytes, Request};
 use tokio::time::Duration;
 
-use crate::commands::{ResponseStartCommand, StaticCommand, ToSse};
+use crate::commands::{MjCommand, ResponseStartCommand, StaticCommand, ToSse};
 use crate::handler::handle;
 
 #[tokio::test]
@@ -282,6 +282,7 @@ fn test_engine(script: &str) -> crate::Engine {
             Box::new(ResponseStartCommand::new()),
             Box::new(StaticCommand::new()),
             Box::new(ToSse {}),
+            Box::new(MjCommand::new()),
         ])
         .unwrap();
     engine.parse_closure(script).unwrap();
@@ -447,4 +448,35 @@ async fn test_multi_value_set_cookie_headers() {
     assert_eq!(set_cookie_headers.len(), 2);
     assert!(set_cookie_headers.contains(&"session=abc123; Path=/; HttpOnly"));
     assert!(set_cookie_headers.contains(&"token=xyz789; Path=/; Secure"));
+}
+
+#[tokio::test]
+async fn test_handle_mj_template() {
+    let engine = Arc::new(test_engine(
+        r#"{|req|
+        {items: [1, 2, 3], name: "test&foo"} | .mj --inline "
+{%- for i in items -%}
+  {%- if i == 2 %}{% continue %}{% endif -%}
+  {{ i }}
+{%- endfor %}
+{{ name|urlencode }}
+{{ items|tojson }}"
+    }"#,
+    ));
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8(body.to_vec()).unwrap();
+    // Tests: loop_controls (continue skips 2), urlencode, tojson
+    assert!(body.contains("13")); // 1 and 3, skipped 2
+    assert!(body.contains("test%26foo")); // urlencode
+    assert!(body.contains("[1, 2, 3]") || body.contains("[1,2,3]")); // tojson
 }

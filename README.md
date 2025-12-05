@@ -25,6 +25,7 @@ server that fits in your back pocket.
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
   - [Reverse Proxy](#reverse-proxy)
+  - [Templates](#templates)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -421,6 +422,23 @@ $ http-nu :3001 '{|req|
   }
 }'
 # Force context-id=smidgeons, remove debug param, preserve others
+```
+
+### Templates
+
+Render [minijinja](https://github.com/mitsuhiko/minijinja) (Jinja2-compatible)
+templates with the `.mj` command. Pipe a record as context.
+
+```bash
+$ http-nu :3001 '{|req| {name: "world"} | .mj --inline "Hello {{ name }}!"}'
+$ curl -s localhost:3001
+Hello world!
+```
+
+From a file:
+
+```bash
+$ http-nu :3001 '{|req| $req.query | .mj "templates/page.html"}'
 ```
 
 ## Building and Releases

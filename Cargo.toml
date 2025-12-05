@@ -53,6 +53,7 @@ ureq = { version = "2.12.1", default-features = false, features = ["tls"] }
 brotli = "8"
 http_encoding_headers = "0.2.0"
 headers = "0.4.1"
+minijinja = { version = "2", features = ["json", "urlencode", "loop_controls"] }
 
 
 

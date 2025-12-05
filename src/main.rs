@@ -12,7 +12,7 @@ use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use http_nu::{
-    commands::{ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse},
+    commands::{MjCommand, ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse},
     handler::handle,
     listener::TlsConfig,
     Engine, Listener,
@@ -196,6 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Box::new(ReverseProxyCommand::new()),
         Box::new(StaticCommand::new()),
         Box::new(ToSse {}),
+        Box::new(MjCommand::new()),
     ])?;
 
     if let Err(e) = engine.parse_closure(&closure_content) {
