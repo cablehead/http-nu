@@ -2,7 +2,9 @@ use brotli::enc::backward_references::BrotliEncoderParams;
 use brotli::enc::encode::{BrotliEncoderOperation, BrotliEncoderStateStruct};
 use brotli::enc::StandardAlloc;
 use bytes::Bytes;
+use headers::Header;
 use http_body_util::{combinators::BoxBody, BodyExt, StreamBody};
+use http_encoding_headers::{AcceptEncoding, Encoding};
 use hyper::body::Frame;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -16,12 +18,17 @@ const BROTLI_QUALITY: i32 = 4;
 const OUTBUF_CAP: usize = 16 * 1024;
 
 /// Check if the request accepts brotli encoding.
+///
+/// Parses the `Accept-Encoding` header respecting quality values.
+/// Returns `true` only if `br` is present with quality > 0.
 #[must_use]
 pub fn accepts_brotli(headers: &hyper::header::HeaderMap) -> bool {
-    headers
-        .get(hyper::header::ACCEPT_ENCODING)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|s| s.split(',').any(|part| part.trim().starts_with("br")))
+    let Ok(accept) =
+        AcceptEncoding::decode(&mut headers.get_all(hyper::header::ACCEPT_ENCODING).iter())
+    else {
+        return false;
+    };
+    accept.preferred_allowed([Encoding::Br].iter()).is_some()
 }
 
 /// A streaming brotli compressor that flushes per chunk.
@@ -165,4 +172,47 @@ pub fn compress_full(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
     };
     brotli::BrotliCompress(&mut &*data, &mut output, &params)?;
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hyper::header::{HeaderMap, HeaderValue, ACCEPT_ENCODING};
+
+    #[test]
+    fn test_accepts_brotli_simple() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            ACCEPT_ENCODING,
+            HeaderValue::from_static("gzip, deflate, br"),
+        );
+        assert!(accepts_brotli(&headers));
+    }
+
+    #[test]
+    fn test_rejects_brotli_quality_zero() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip, br;q=0"));
+        assert!(!accepts_brotli(&headers));
+    }
+
+    #[test]
+    fn test_no_brotli() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate"));
+        assert!(!accepts_brotli(&headers));
+    }
+
+    #[test]
+    fn test_no_accept_encoding_header() {
+        let headers = HeaderMap::new();
+        assert!(!accepts_brotli(&headers));
+    }
+
+    #[test]
+    fn test_brotli_only() {
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("br"));
+        assert!(accepts_brotli(&headers));
+    }
 }
