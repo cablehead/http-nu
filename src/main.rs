@@ -13,12 +13,7 @@ use tokio::signal;
 use tokio::sync::mpsc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use http_nu::{
-    commands::{MjCommand, ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse},
-    handler::handle,
-    listener::TlsConfig,
-    Engine, Listener,
-};
+use http_nu::{engine::script_to_engine, handler::handle, listener::TlsConfig, Engine, Listener};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -36,74 +31,20 @@ struct Args {
     closure: String,
 }
 
-fn add_commands(engine: &mut Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    engine.add_commands(vec![
-        Box::new(ResponseStartCommand::new()),
-        Box::new(ReverseProxyCommand::new()),
-        Box::new(StaticCommand::new()),
-        Box::new(ToSse {}),
-        Box::new(MjCommand::new()),
-    ])
+/// Creates and configures the base engine with all commands, signals, and ctrlc handler.
+fn create_base_engine(
+    interrupt: Arc<AtomicBool>,
+) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
+    let mut engine = Engine::new()?;
+    engine.add_custom_commands()?;
+    engine.set_signals(interrupt.clone());
+    setup_ctrlc_handler(&engine, interrupt)?;
+    Ok(engine)
 }
 
-/// Parse a script into an engine. On error, prints to stderr and emits JSON to stdout.
-fn script_to_engine(script: &str, interrupt: Arc<AtomicBool>) -> Option<Engine> {
-    let mut engine = match Engine::new() {
-        Ok(e) => e,
-        Err(e) => {
-            let err_str = e.to_string();
-            eprintln!("{err_str}");
-            println!(
-                "{}",
-                serde_json::json!({
-                    "stamp": scru128::new(),
-                    "message": "script_error",
-                    "status": "error",
-                    "error": nu_utils::strip_ansi_string_likely(err_str)
-                })
-            );
-            return None;
-        }
-    };
-
-    engine.set_signals(interrupt);
-
-    if let Err(e) = add_commands(&mut engine) {
-        let err_str = e.to_string();
-        eprintln!("{err_str}");
-        println!(
-            "{}",
-            serde_json::json!({
-                "stamp": scru128::new(),
-                "message": "script_error",
-                "status": "error",
-                "error": nu_utils::strip_ansi_string_likely(err_str)
-            })
-        );
-        return None;
-    }
-
-    if let Err(e) = engine.parse_closure(script) {
-        let err_str = e.to_string();
-        eprintln!("{err_str}");
-        println!(
-            "{}",
-            serde_json::json!({
-                "stamp": scru128::new(),
-                "message": "script_error",
-                "status": "error",
-                "error": nu_utils::strip_ansi_string_likely(err_str)
-            })
-        );
-        return None;
-    }
-
-    Some(engine)
-}
-
-/// Spawns a dedicated OS thread that reads null-terminated scripts from stdin and sends parsed engines.
+/// Spawns a dedicated OS thread that reads null-terminated scripts from stdin and sends them.
 /// Uses blocking I/O to avoid async stdin issues with piped input.
-fn spawn_stdin_reader(tx: mpsc::Sender<Engine>, interrupt: Arc<AtomicBool>) {
+fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
     std::thread::spawn(move || {
         let mut stdin = std::io::stdin().lock();
         let mut buffer = Vec::new();
@@ -133,12 +74,10 @@ fn spawn_stdin_reader(tx: mpsc::Sender<Engine>, interrupt: Arc<AtomicBool>) {
                 break;
             }
 
-            let script = String::from_utf8_lossy(&buffer);
+            let script = String::from_utf8_lossy(&buffer).into_owned();
 
-            if let Some(engine) = script_to_engine(&script, interrupt.clone()) {
-                if tx.blocking_send(engine).is_err() {
-                    break;
-                }
+            if tx.blocking_send(script).is_err() {
+                break;
             }
         }
     });
@@ -146,25 +85,33 @@ fn spawn_stdin_reader(tx: mpsc::Sender<Engine>, interrupt: Arc<AtomicBool>) {
 
 async fn serve(
     args: Args,
-    mut rx: mpsc::Receiver<Engine>,
+    base_engine: Engine,
+    mut rx: mpsc::Receiver<String>,
     interrupt: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Wait for the first engine
-    let first_engine = rx
-        .recv()
-        .await
-        .expect("no engine received - stdin closed without providing a script");
+    // Wait for a valid first script (loop to handle parse errors)
+    let first_engine = loop {
+        let script = rx
+            .recv()
+            .await
+            .expect("no script received - stdin closed without providing a valid script");
 
-    // Set up Ctrl-C handler with the first engine's state
-    setup_ctrlc_handler(&first_engine, interrupt.clone())?;
+        if let Some(engine) = script_to_engine(&base_engine, &script) {
+            break engine;
+        }
+        // script_to_engine already logged the error, continue waiting
+    };
 
     let engine = Arc::new(ArcSwap::from_pointee(first_engine));
 
-    // Spawn task to receive and swap in new engines
+    // Spawn task to receive scripts and swap in new engines
     let engine_updater = engine.clone();
+    let base_for_updates = base_engine;
     tokio::spawn(async move {
-        while let Some(new_engine) = rx.recv().await {
-            engine_updater.store(Arc::new(new_engine));
+        while let Some(script) = rx.recv().await {
+            if let Some(new_engine) = script_to_engine(&base_for_updates, &script) {
+                engine_updater.store(Arc::new(new_engine));
+            }
         }
     });
 
@@ -302,27 +249,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     let read_stdin = args.closure == "-";
 
-    // Create channel for engines
-    let (tx, rx) = mpsc::channel::<Engine>(1);
-
     // Set up interrupt signal
     let interrupt = Arc::new(AtomicBool::new(false));
 
+    // Create base engine with commands and signals
+    let base_engine = create_base_engine(interrupt.clone())?;
+
+    // Create channel for scripts
+    let (tx, rx) = mpsc::channel::<String>(1);
+
     if read_stdin {
         // Spawn dedicated stdin reader thread
-        spawn_stdin_reader(tx, interrupt.clone());
+        spawn_stdin_reader(tx);
     } else {
-        // Parse the closure and send a single engine
-        match script_to_engine(&args.closure, interrupt.clone()) {
-            Some(engine) => {
-                tx.send(engine).await.expect("channel closed unexpectedly");
-                drop(tx); // Close the channel
-            }
-            None => {
-                std::process::exit(1);
-            }
-        }
+        // Send the closure as a script
+        tx.send(args.closure.clone())
+            .await
+            .expect("channel closed unexpectedly");
+        drop(tx); // Close the channel
     }
 
-    serve(args, rx, interrupt).await
+    serve(args, base_engine, rx, interrupt).await
 }
