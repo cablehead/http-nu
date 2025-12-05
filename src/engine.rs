@@ -183,13 +183,5 @@ pub fn script_to_engine(base: &Engine, script: &str) -> Option<Engine> {
         return None;
     }
 
-    println!(
-        "{}",
-        serde_json::json!({
-            "stamp": scru128::new(),
-            "message": "reload"
-        })
-    );
-
     Some(engine)
 }

@@ -111,6 +111,13 @@ async fn serve(
         while let Some(script) = rx.recv().await {
             if let Some(new_engine) = script_to_engine(&base_for_updates, &script) {
                 engine_updater.store(Arc::new(new_engine));
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "stamp": scru128::new(),
+                        "message": "reload"
+                    })
+                );
             }
         }
     });
