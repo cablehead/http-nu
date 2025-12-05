@@ -490,3 +490,79 @@ async fn test_sse_brotli_compression_streams_immediately() {
         first_chunk_time, total_time
     );
 }
+
+#[tokio::test]
+async fn test_dynamic_script_reload() {
+    // Create server that reads scripts from stdin
+    // Initial script: returns "1" after 100ms delay
+    let mut server =
+        TestServer::new_with_stdin("127.0.0.1:0", "{|req| sleep 100ms; \"1\"}", false).await;
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start first request (will take 100ms to complete)
+    // Measure timing to verify the delay actually occurred
+    let start1 = std::time::Instant::now();
+    let addr1 = server.address.clone();
+    let request1 = tokio::spawn(async move {
+        let mut cmd = tokio::process::Command::new("curl");
+        cmd.arg("-s").arg(format!("http://{addr1}/"));
+        let output = cmd.output().await.expect("Failed to execute curl");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    });
+
+    // Wait longer to ensure first request has definitely started processing
+    // and acquired its engine snapshot. The script has a 100ms sleep, so waiting
+    // 50ms ensures the request is in-flight when we update the script.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Update script to return "2" immediately
+    server.write_script("{|req| \"2\"}").await;
+
+    // Wait for script update to be processed
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Start second request (should use new script)
+    let start2 = std::time::Instant::now();
+    let addr2 = server.address.clone();
+    let request2 = tokio::spawn(async move {
+        let mut cmd = tokio::process::Command::new("curl");
+        cmd.arg("-s").arg(format!("http://{addr2}/"));
+        let output = cmd.output().await.expect("Failed to execute curl");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    });
+
+    // Wait for both requests to complete
+    let result1 = request1.await.expect("Request 1 panicked");
+    let elapsed1 = start1.elapsed();
+    let result2 = request2.await.expect("Request 2 panicked");
+    let elapsed2 = start2.elapsed();
+
+    // Verify first request used old script (returns "1")
+    assert_eq!(
+        result1.trim(),
+        "1",
+        "First request should return '1' from original script despite 100ms delay"
+    );
+
+    // Verify first request actually took at least 100ms (confirming it ran the sleep)
+    assert!(
+        elapsed1.as_millis() >= 100,
+        "First request should take at least 100ms, but took {}ms",
+        elapsed1.as_millis()
+    );
+
+    // Verify second request used new script (returns "2")
+    assert_eq!(
+        result2.trim(),
+        "2",
+        "Second request should return '2' from updated script"
+    );
+
+    // Verify second request was fast (no sleep in updated script)
+    assert!(
+        elapsed2.as_millis() < 100,
+        "Second request should be fast (<100ms), but took {}ms",
+        elapsed2.as_millis()
+    );
+}

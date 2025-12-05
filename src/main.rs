@@ -5,9 +5,11 @@ use std::sync::{
     Arc,
 };
 
+use arc_swap::ArcSwap;
 use clap::Parser;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -62,11 +64,12 @@ fn setup_ctrlc_handler(
 async fn serve(
     args: Args,
     mut engine: Engine,
+    read_stdin: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Set up Ctrl-C handling for clean shutdown
     let interrupt = setup_ctrlc_handler(&mut engine)?;
 
-    let engine = Arc::new(engine);
+    let engine = Arc::new(ArcSwap::from_pointee(engine));
 
     // Configure TLS if enabled
     let tls_config = if let Some(pem_path) = args.tls {
@@ -80,6 +83,100 @@ async fn serve(
         "{}",
         serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
     );
+
+    // Spawn stdin reading task if enabled
+    if read_stdin {
+        let engine_clone = engine.clone();
+        tokio::spawn(async move {
+            let stdin = tokio::io::stdin();
+            let mut reader = BufReader::new(stdin);
+            let mut buffer = Vec::new();
+
+            loop {
+                buffer.clear();
+                match reader.read_until(b'\0', &mut buffer).await {
+                    Ok(0) => break, // EOF
+                    Ok(_n) => {
+                        // Remove null terminator if present
+                        if buffer.last() == Some(&b'\0') {
+                            buffer.pop();
+                        }
+
+                        let script = String::from_utf8_lossy(&buffer);
+
+                        // Create new engine with updated script
+                        match Engine::new() {
+                            Ok(mut new_engine) => {
+                                // Add commands
+                                if let Err(e) = new_engine.add_commands(vec![
+                                    Box::new(ResponseStartCommand::new()),
+                                    Box::new(ReverseProxyCommand::new()),
+                                    Box::new(StaticCommand::new()),
+                                    Box::new(ToSse {}),
+                                ]) {
+                                    eprintln!("Failed to add commands: {e}");
+                                    println!(
+                                        "{}",
+                                        serde_json::json!({
+                                            "stamp": scru128::new(),
+                                            "message": "script_update",
+                                            "status": "error",
+                                            "error": e.to_string()
+                                        })
+                                    );
+                                    continue;
+                                }
+
+                                // Parse new closure
+                                match new_engine.parse_closure(&script) {
+                                    Ok(()) => {
+                                        // Atomically swap in the new engine
+                                        engine_clone.store(Arc::new(new_engine));
+                                        println!(
+                                            "{}",
+                                            serde_json::json!({
+                                                "stamp": scru128::new(),
+                                                "message": "script_update",
+                                                "status": "success"
+                                            })
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Script update failed: {e}");
+                                        println!(
+                                            "{}",
+                                            serde_json::json!({
+                                                "stamp": scru128::new(),
+                                                "message": "script_update",
+                                                "status": "error",
+                                                "error": e.to_string()
+                                            })
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to create new engine: {e}");
+                                println!(
+                                    "{}",
+                                    serde_json::json!({
+                                        "stamp": scru128::new(),
+                                        "message": "script_update",
+                                        "status": "error",
+                                        "error": e.to_string()
+                                    })
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error reading stdin: {e}");
+                        break;
+                    }
+                }
+            }
+        });
+    }
 
     let shutdown = shutdown_signal(interrupt.clone());
     tokio::pin!(shutdown);
@@ -179,12 +276,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let args = Args::parse();
 
-    // Determine the closure source
-    let closure_content = if args.closure == "-" {
-        // Read closure from stdin
-        let mut buffer = String::new();
-        std::io::stdin().read_to_string(&mut buffer)?;
-        buffer
+    // Determine if we should read from stdin continuously
+    let read_stdin = args.closure == "-";
+
+    // Determine the initial closure source
+    let closure_content = if read_stdin {
+        // Read initial closure from stdin (up to first null byte)
+        let mut buffer = Vec::new();
+        let mut stdin = std::io::stdin();
+        let mut byte = [0u8; 1];
+
+        loop {
+            match stdin.read(&mut byte) {
+                Ok(0) => {
+                    // EOF without null byte - use what we have
+                    break;
+                }
+                Ok(_) => {
+                    if byte[0] == b'\0' {
+                        // Found null terminator
+                        break;
+                    }
+                    buffer.push(byte[0]);
+                }
+                Err(e) => {
+                    eprintln!("Error reading stdin: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        String::from_utf8_lossy(&buffer).to_string()
     } else {
         // Use the closure provided as argument
         args.closure.clone()
@@ -204,5 +326,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(1);
     }
 
-    serve(args, engine).await
+    serve(args, engine, read_stdin).await
 }

@@ -41,6 +41,7 @@ nu-engine = "0.109.1"
 nu-parser = "0.109.1"
 nu-protocol = "0.109.1"
 ctrlc = "3.4"
+arc-swap = "1.7"
 rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
 rustls-pemfile = "2.1.0"
 tokio-rustls = "0.26.0"
