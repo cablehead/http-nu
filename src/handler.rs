@@ -354,7 +354,7 @@ async fn build_normal_response(
             .boxed(),
         ResponseTransport::Full(bytes) => {
             if use_brotli {
-                let compressed = compression::compress_full(&bytes);
+                let compressed = compression::compress_full(&bytes)?;
                 Full::new(Bytes::from(compressed))
                     .map_err(|never| match never {})
                     .boxed()

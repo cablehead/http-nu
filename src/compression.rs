@@ -10,31 +10,33 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 
-type BoxError = Box<dyn std::error::Error + Send + Sync>;
+type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-/// Check if the request accepts brotli encoding
+const BROTLI_QUALITY: i32 = 4;
+const OUTBUF_CAP: usize = 16 * 1024;
+
+/// Check if the request accepts brotli encoding.
+#[must_use]
 pub fn accepts_brotli(headers: &hyper::header::HeaderMap) -> bool {
     headers
         .get(hyper::header::ACCEPT_ENCODING)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').any(|part| part.trim().starts_with("br")))
-        .unwrap_or(false)
+        .is_some_and(|s| s.split(',').any(|part| part.trim().starts_with("br")))
 }
 
-/// A streaming brotli compressor that flushes on every chunk.
-/// This ensures SSE and other streaming responses get data to clients immediately.
+/// A streaming brotli compressor that flushes per chunk.
 pub struct BrotliStream<S> {
     inner: S,
     encoder: BrotliEncoderStateStruct<StandardAlloc>,
+    out_scratch: Vec<u8>,
+    tmp: Vec<u8>,
     finished: bool,
 }
 
 impl<S> BrotliStream<S> {
     pub fn new(inner: S) -> Self {
-        // Use quality 4 (same as tower-http default for streaming)
-        // Lower quality = faster compression, less latency
         let params = BrotliEncoderParams {
-            quality: 4,
+            quality: BROTLI_QUALITY,
             ..Default::default()
         };
 
@@ -44,103 +46,59 @@ impl<S> BrotliStream<S> {
         Self {
             inner,
             encoder,
+            out_scratch: Vec::with_capacity(OUTBUF_CAP),
+            tmp: vec![0u8; OUTBUF_CAP],
             finished: false,
         }
     }
 
-    fn compress_and_flush(&mut self, input: &[u8]) -> Vec<u8> {
-        let mut output = vec![0u8; input.len() + 1024]; // Extra space for compression overhead
-        let mut input_offset = 0;
-        let mut output_offset = 0;
-        let mut total_output = Vec::new();
+    /// Unified Brotli driver for PROCESS/FLUSH/FINISH.
+    fn encode(&mut self, input: &[u8], op: BrotliEncoderOperation) -> Result<Bytes, BoxError> {
+        self.out_scratch.clear();
+        let mut in_offset = 0usize;
 
-        // First, process all input
-        while input_offset < input.len() {
-            let mut available_in = input.len() - input_offset;
-            let mut available_out = output.len() - output_offset;
-
-            self.encoder.compress_stream(
-                BrotliEncoderOperation::BROTLI_OPERATION_PROCESS,
-                &mut available_in,
-                &input[input_offset..],
-                &mut input_offset,
-                &mut available_out,
-                &mut output,
-                &mut output_offset,
-                &mut None,
-                &mut |_, _, _, _| (),
-            );
-
-            if output_offset > 0 {
-                total_output.extend_from_slice(&output[..output_offset]);
-                output_offset = 0;
-            }
-        }
-
-        // Then flush to ensure all compressed data is emitted
         loop {
-            let mut available_in = 0;
-            let mut available_out = output.len();
-            let mut dummy_offset = 0;
+            let mut avail_in = input.len().saturating_sub(in_offset);
+            let mut avail_out = self.tmp.len();
+            let mut out_offset = 0usize;
 
-            self.encoder.compress_stream(
-                BrotliEncoderOperation::BROTLI_OPERATION_FLUSH,
-                &mut available_in,
-                &[],
-                &mut dummy_offset,
-                &mut available_out,
-                &mut output,
-                &mut output_offset,
+            let ok = self.encoder.compress_stream(
+                op,
+                &mut avail_in,
+                &input[in_offset..],
+                &mut in_offset,
+                &mut avail_out,
+                &mut self.tmp,
+                &mut out_offset,
                 &mut None,
                 &mut |_, _, _, _| (),
             );
 
-            if output_offset > 0 {
-                total_output.extend_from_slice(&output[..output_offset]);
-                output_offset = 0;
+            if !ok {
+                return Err("brotli compression failed".into());
             }
 
-            if !self.encoder.has_more_output() {
+            if out_offset > 0 {
+                self.out_scratch.extend_from_slice(&self.tmp[..out_offset]);
+            }
+
+            let done = match op {
+                BrotliEncoderOperation::BROTLI_OPERATION_FINISH => self.encoder.is_finished(),
+                BrotliEncoderOperation::BROTLI_OPERATION_FLUSH => !self.encoder.has_more_output(),
+                BrotliEncoderOperation::BROTLI_OPERATION_PROCESS => {
+                    in_offset >= input.len() && !self.encoder.has_more_output()
+                }
+                _ => unreachable!("unexpected Brotli operation"),
+            };
+
+            if done {
                 break;
             }
         }
 
-        total_output
-    }
-
-    fn finish(&mut self) -> Vec<u8> {
-        let mut output = vec![0u8; 1024];
-        let mut output_offset = 0;
-        let mut total_output = Vec::new();
-
-        loop {
-            let mut available_in = 0;
-            let mut available_out = output.len();
-            let mut dummy_offset = 0;
-
-            self.encoder.compress_stream(
-                BrotliEncoderOperation::BROTLI_OPERATION_FINISH,
-                &mut available_in,
-                &[],
-                &mut dummy_offset,
-                &mut available_out,
-                &mut output,
-                &mut output_offset,
-                &mut None,
-                &mut |_, _, _, _| (),
-            );
-
-            if output_offset > 0 {
-                total_output.extend_from_slice(&output[..output_offset]);
-                output_offset = 0;
-            }
-
-            if self.encoder.is_finished() {
-                break;
-            }
-        }
-
-        total_output
+        // Take ownership while preserving capacity for next call
+        let result = std::mem::replace(&mut self.out_scratch, Vec::with_capacity(OUTBUF_CAP));
+        Ok(Bytes::from(result))
     }
 }
 
@@ -156,45 +114,55 @@ where
         }
 
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(data)) => {
-                let compressed = self.compress_and_flush(&data);
-                if compressed.is_empty() {
-                    // Re-poll if compression produced nothing (shouldn't happen with flush)
-                    cx.waker().wake_by_ref();
-                    Poll::Pending
-                } else {
-                    Poll::Ready(Some(Ok(Frame::data(Bytes::from(compressed)))))
+            Poll::Ready(Some(chunk)) => {
+                match self.encode(&chunk, BrotliEncoderOperation::BROTLI_OPERATION_FLUSH) {
+                    Ok(compressed) => {
+                        if compressed.is_empty() {
+                            // FLUSH on non-empty input should always produce output,
+                            // but handle defensively
+                            cx.waker().wake_by_ref();
+                            Poll::Pending
+                        } else {
+                            Poll::Ready(Some(Ok(Frame::data(compressed))))
+                        }
+                    }
+                    Err(e) => Poll::Ready(Some(Err(e))),
                 }
             }
+
             Poll::Ready(None) => {
-                // Stream ended, finalize compression
                 self.finished = true;
-                let final_data = self.finish();
-                if final_data.is_empty() {
-                    Poll::Ready(None)
-                } else {
-                    Poll::Ready(Some(Ok(Frame::data(Bytes::from(final_data)))))
+                match self.encode(&[], BrotliEncoderOperation::BROTLI_OPERATION_FINISH) {
+                    Ok(final_data) => {
+                        if final_data.is_empty() {
+                            Poll::Ready(None)
+                        } else {
+                            Poll::Ready(Some(Ok(Frame::data(final_data))))
+                        }
+                    }
+                    Err(e) => Poll::Ready(Some(Err(e))),
                 }
             }
+
             Poll::Pending => Poll::Pending,
         }
     }
 }
 
-/// Wrap a streaming response body with brotli compression
+/// Wrap a streaming response body with brotli compression.
 pub fn compress_stream(rx: mpsc::Receiver<Vec<u8>>) -> BoxBody<Bytes, BoxError> {
     let stream = ReceiverStream::new(rx);
     let brotli_stream = BrotliStream::new(stream);
     StreamBody::new(brotli_stream).boxed()
 }
 
-/// Compress a full body with brotli (quality 4 for speed)
-pub fn compress_full(data: &[u8]) -> Vec<u8> {
+/// Compress an entire body eagerly.
+pub fn compress_full(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
     let mut output = Vec::new();
     let params = BrotliEncoderParams {
-        quality: 4,
+        quality: BROTLI_QUALITY,
         ..Default::default()
     };
-    brotli::BrotliCompress(&mut &data[..], &mut output, &params).unwrap();
-    output
+    brotli::BrotliCompress(&mut &*data, &mut output, &params)?;
+    Ok(output)
 }
