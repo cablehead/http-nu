@@ -1,14 +1,14 @@
 [package]
 name = "http-nu"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.88.0"
-description = "Serve a Nushell closure over HTTP."
+description = "The surprisingly performant, Nushell-scriptable HTTP server that fits in your back pocket."
 license = "MIT"
 repository = "https://github.com/cablehead/http-nu"
 readme = "README.md"
 homepage = "https://github.com/cablehead/http-nu"
-keywords = ["http", "shell", "nushell", "server"]
+keywords = ["http", "nushell", "server", "cli", "http-server"]
 categories = ["web-programming", "command-line-utilities"]
 
 [[bin]]
