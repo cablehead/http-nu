@@ -463,7 +463,7 @@ async fn test_multi_value_set_cookie_headers() {
 
 #[tokio::test]
 async fn test_handle_mj_template() {
-    let engine = Arc::new(test_engine(
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
         {items: [1, 2, 3], name: "test&foo"} | .mj --inline "
 {%- for i in items -%}
@@ -473,7 +473,7 @@ async fn test_handle_mj_template() {
 {{ name|urlencode }}
 {{ items|tojson }}"
     }"#,
-    ));
+    )));
 
     let req = Request::builder()
         .method("GET")

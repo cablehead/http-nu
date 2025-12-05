@@ -9,8 +9,8 @@ use arc_swap::ArcSwap;
 use clap::Parser;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal;
+use tokio::sync::mpsc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use http_nu::{
@@ -36,40 +36,151 @@ struct Args {
     closure: String,
 }
 
-/// Sets up Ctrl-C handling for clean shutdown
-fn setup_ctrlc_handler(
-    engine: &mut Engine,
-) -> Result<Arc<AtomicBool>, Box<dyn std::error::Error + Send + Sync>> {
-    let interrupt = Arc::new(AtomicBool::new(false));
-    engine.set_signals(interrupt.clone());
+fn add_commands(engine: &mut Engine) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    engine.add_commands(vec![
+        Box::new(ResponseStartCommand::new()),
+        Box::new(ReverseProxyCommand::new()),
+        Box::new(StaticCommand::new()),
+        Box::new(ToSse {}),
+        Box::new(MjCommand::new()),
+    ])
+}
 
-    ctrlc::set_handler({
-        let interrupt = interrupt.clone();
-        let engine_state = engine.state.clone();
-        move || {
-            interrupt.store(true, Ordering::Relaxed);
-            // Kill all active jobs
-            if let Ok(mut jobs) = engine_state.jobs.lock() {
-                let job_ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
-                for id in job_ids {
-                    let _ = jobs.kill_and_remove(id);
+/// Spawns a dedicated OS thread that reads null-terminated scripts from stdin and sends parsed engines.
+/// Uses blocking I/O to avoid async stdin issues with piped input.
+fn spawn_stdin_reader(tx: mpsc::Sender<Engine>, interrupt: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        let mut stdin = std::io::stdin().lock();
+        let mut buffer = Vec::new();
+        let mut byte = [0u8; 1];
+        let mut is_first = true;
+
+        loop {
+            buffer.clear();
+
+            // Read until null terminator or EOF
+            loop {
+                match stdin.read(&mut byte) {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        if byte[0] == b'\0' {
+                            break;
+                        }
+                        buffer.push(byte[0]);
+                    }
+                    Err(e) => {
+                        eprintln!("Error reading stdin: {e}");
+                        return;
+                    }
+                }
+            }
+
+            if buffer.is_empty() {
+                break;
+            }
+
+            let script = String::from_utf8_lossy(&buffer);
+
+            // Create new engine with updated script
+            match Engine::new() {
+                Ok(mut new_engine) => {
+                    new_engine.set_signals(interrupt.clone());
+
+                    if let Err(e) = add_commands(&mut new_engine) {
+                        let err_str = e.to_string();
+                        eprintln!("Failed to add commands: {err_str}");
+                        if !is_first {
+                            println!(
+                                "{}",
+                                serde_json::json!({
+                                    "stamp": scru128::new(),
+                                    "message": "script_update",
+                                    "status": "error",
+                                    "error": nu_utils::strip_ansi_string_likely(err_str)
+                                })
+                            );
+                        }
+                        continue;
+                    }
+
+                    match new_engine.parse_closure(&script) {
+                        Ok(()) => {
+                            let was_first = is_first;
+                            is_first = false;
+                            if tx.blocking_send(new_engine).is_err() {
+                                break;
+                            }
+                            if !was_first {
+                                println!(
+                                    "{}",
+                                    serde_json::json!({
+                                        "stamp": scru128::new(),
+                                        "message": "script_update",
+                                        "status": "success"
+                                    })
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            let err_str = e.to_string();
+                            eprintln!("Script update failed: {err_str}");
+                            if !is_first {
+                                println!(
+                                    "{}",
+                                    serde_json::json!({
+                                        "stamp": scru128::new(),
+                                        "message": "script_update",
+                                        "status": "error",
+                                        "error": nu_utils::strip_ansi_string_likely(err_str)
+                                    })
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    eprintln!("Failed to create new engine: {err_str}");
+                    if !is_first {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "stamp": scru128::new(),
+                                "message": "script_update",
+                                "status": "error",
+                                "error": nu_utils::strip_ansi_string_likely(err_str)
+                            })
+                        );
+                    }
                 }
             }
         }
-    })?;
-
-    Ok(interrupt)
+    });
 }
 
 async fn serve(
     args: Args,
-    mut engine: Engine,
-    read_stdin: bool,
+    mut rx: mpsc::Receiver<Engine>,
+    interrupt: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Set up Ctrl-C handling for clean shutdown
-    let interrupt = setup_ctrlc_handler(&mut engine)?;
+    // Wait for the first engine
+    let first_engine = rx
+        .recv()
+        .await
+        .expect("no engine received - stdin closed without providing a script");
 
-    let engine = Arc::new(ArcSwap::from_pointee(engine));
+    // Set up Ctrl-C handler with the first engine's state
+    setup_ctrlc_handler(&first_engine, interrupt.clone())?;
+
+    let engine = Arc::new(ArcSwap::from_pointee(first_engine));
+
+    // Spawn task to receive and swap in new engines
+    let engine_updater = engine.clone();
+    tokio::spawn(async move {
+        while let Some(new_engine) = rx.recv().await {
+            engine_updater.store(Arc::new(new_engine));
+        }
+    });
 
     // Configure TLS if enabled
     let tls_config = if let Some(pem_path) = args.tls {
@@ -83,115 +194,6 @@ async fn serve(
         "{}",
         serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
     );
-
-    // Spawn stdin reading task if enabled
-    if read_stdin {
-        let engine_clone = engine.clone();
-        let interrupt_clone = interrupt.clone();
-        tokio::spawn(async move {
-            let stdin = tokio::io::stdin();
-            let mut reader = BufReader::new(stdin);
-            let mut buffer = Vec::new();
-
-            loop {
-                buffer.clear();
-                match reader.read_until(b'\0', &mut buffer).await {
-                    Ok(0) => break, // EOF
-                    Ok(_n) => {
-                        // Remove null terminator if present
-                        if buffer.last() == Some(&b'\0') {
-                            buffer.pop();
-                        }
-
-                        let script = String::from_utf8_lossy(&buffer);
-
-                        // Create new engine with updated script
-                        match Engine::new() {
-                            Ok(mut new_engine) => {
-                                // Connect interrupt signal to new engine
-                                new_engine.set_signals(interrupt_clone.clone());
-
-                                // Add commands
-                                if let Err(e) = new_engine.add_commands(vec![
-                                    Box::new(ResponseStartCommand::new()),
-                                    Box::new(ReverseProxyCommand::new()),
-                                    Box::new(StaticCommand::new()),
-                                    Box::new(ToSse {}),
-                                ]) {
-                                    let err_str = e.to_string();
-                                    eprintln!("Failed to add commands: {err_str}");
-                                    println!(
-                                        "{}",
-                                        serde_json::json!({
-                                            "stamp": scru128::new(),
-                                            "message": "script_update",
-                                            "status": "error",
-                                            "error": nu_utils::strip_ansi_string_likely(err_str.clone())
-                                        })
-                                    );
-                                    continue;
-                                }
-
-                                // Parse new closure
-                                match new_engine.parse_closure(&script) {
-                                    Ok(()) => {
-                                        // Atomically swap in the new engine
-                                        engine_clone.store(Arc::new(new_engine));
-                                        println!(
-                                            "{}",
-                                            serde_json::json!({
-                                                "stamp": scru128::new(),
-                                                "message": "script_update",
-                                                "status": "success"
-                                            })
-                                        );
-                                    }
-                                    Err(e) => {
-                                        let err_str = e.to_string();
-                                        eprintln!("Script update failed: {err_str}");
-                                        println!(
-                                            "{}",
-                                            serde_json::json!({
-                                                "stamp": scru128::new(),
-                                                "message": "script_update",
-                                                "status": "error",
-                                                "error": nu_utils::strip_ansi_string_likely(err_str.clone())
-                                            })
-                                        );
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                let err_str = e.to_string();
-                                eprintln!("Failed to create new engine: {err_str}");
-                                println!(
-                                    "{}",
-                                    serde_json::json!({
-                                        "stamp": scru128::new(),
-                                        "message": "script_update",
-                                        "status": "error",
-                                        "error": nu_utils::strip_ansi_string_likely(err_str.clone())
-                                    })
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading stdin: {e}");
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "stamp": scru128::new(),
-                                "message": "stdin_error",
-                                "error": e.to_string()
-                            })
-                        );
-                        break;
-                    }
-                }
-            }
-        });
-    }
 
     let shutdown = shutdown_signal(interrupt.clone());
     tokio::pin!(shutdown);
@@ -268,6 +270,29 @@ async fn shutdown_signal(interrupt: Arc<AtomicBool>) {
     }
 }
 
+/// Sets up Ctrl-C handling
+fn setup_ctrlc_handler(
+    engine: &Engine,
+    interrupt: Arc<AtomicBool>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ctrlc::set_handler({
+        let interrupt = interrupt.clone();
+        let engine_state = engine.state.clone();
+        move || {
+            interrupt.store(true, Ordering::Relaxed);
+            // Kill all active jobs
+            if let Ok(mut jobs) = engine_state.jobs.lock() {
+                let job_ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
+                for id in job_ids {
+                    let _ = jobs.kill_and_remove(id);
+                }
+            }
+        }
+    })?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::registry()
@@ -283,63 +308,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .expect("failed to install default rustls CryptoProvider");
 
     // Initialize nu_command's TLS crypto provider
-    // nu_command uses its own CRYPTO_PROVIDER and expects 'ring' provider
     nu_command::tls::CRYPTO_PROVIDER
         .default()
         .then_some(())
         .expect("failed to set nu_command crypto provider");
 
     let args = Args::parse();
-
-    // Determine if we should read from stdin continuously
     let read_stdin = args.closure == "-";
 
-    // Determine the initial closure source
-    let closure_content = if read_stdin {
-        // Read initial closure from stdin (up to first null byte)
-        let mut buffer = Vec::new();
-        let mut stdin = std::io::stdin();
-        let mut byte = [0u8; 1];
+    // Create channel for engines
+    let (tx, rx) = mpsc::channel::<Engine>(1);
 
-        loop {
-            match stdin.read(&mut byte) {
-                Ok(0) => {
-                    // EOF without null byte - use what we have
-                    break;
-                }
-                Ok(_) => {
-                    if byte[0] == b'\0' {
-                        // Found null terminator
-                        break;
-                    }
-                    buffer.push(byte[0]);
-                }
-                Err(e) => {
-                    eprintln!("Error reading stdin: {e}");
-                    std::process::exit(1);
-                }
-            }
+    // Set up interrupt signal
+    let interrupt = Arc::new(AtomicBool::new(false));
+
+    if read_stdin {
+        // Spawn dedicated stdin reader thread
+        spawn_stdin_reader(tx, interrupt.clone());
+    } else {
+        // Parse the closure and send a single engine
+        let mut engine = Engine::new()?;
+        engine.set_signals(interrupt.clone());
+        add_commands(&mut engine)?;
+
+        if let Err(e) = engine.parse_closure(&args.closure) {
+            eprintln!("{e}");
+            std::process::exit(1);
         }
 
-        String::from_utf8_lossy(&buffer).to_string()
-    } else {
-        // Use the closure provided as argument
-        args.closure.clone()
-    };
-
-    let mut engine = Engine::new()?;
-    engine.add_commands(vec![
-        Box::new(ResponseStartCommand::new()),
-        Box::new(ReverseProxyCommand::new()),
-        Box::new(StaticCommand::new()),
-        Box::new(ToSse {}),
-        Box::new(MjCommand::new()),
-    ])?;
-
-    if let Err(e) = engine.parse_closure(&closure_content) {
-        eprintln!("{e}");
-        std::process::exit(1);
+        tx.send(engine).await.expect("channel closed unexpectedly");
+        drop(tx); // Close the channel
     }
 
-    serve(args, engine, read_stdin).await
+    serve(args, rx, interrupt).await
 }
