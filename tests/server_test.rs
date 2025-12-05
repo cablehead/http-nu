@@ -406,3 +406,87 @@ async fn test_parse_error_ansi_formatting() {
         "stderr missing expected error text: {stderr}"
     );
 }
+
+#[tokio::test]
+async fn test_sse_brotli_compression_streams_immediately() {
+    // Test that SSE responses with brotli compression stream events immediately,
+    // not buffered until the stream ends.
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            .response {status: 200, headers: {"Content-Type": "text/event-stream"}}
+            1..4 | each {|i|
+                sleep 200ms
+                $"data: event-($i)\n\n"
+            }
+        }"#,
+        false,
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start curl with brotli compression, reading raw compressed bytes
+    let start = std::time::Instant::now();
+    let mut child = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-N") // --no-buffer, stream data as it arrives
+        .arg("-H")
+        .arg("Accept-Encoding: br")
+        .arg(format!("http://{}", server.address))
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start curl");
+
+    let stdout = child.stdout.take().unwrap();
+    use tokio::io::AsyncReadExt;
+    let mut reader = stdout;
+
+    // Read first chunk - should arrive after ~200ms (first event), not ~800ms (all events)
+    let mut first_chunk = vec![0u8; 64];
+    let n = reader.read(&mut first_chunk).await.unwrap();
+    let first_chunk_time = start.elapsed();
+
+    assert!(n > 0, "Expected to receive data");
+
+    // First chunk should arrive well before all events would complete (~800ms)
+    // Give some margin for startup overhead, but it should be < 500ms
+    assert!(
+        first_chunk_time < std::time::Duration::from_millis(500),
+        "First SSE chunk took {:?}, expected < 500ms. SSE compression may be buffering instead of streaming.",
+        first_chunk_time
+    );
+
+    // Wait for the rest and verify total time is ~600ms (3 more events * 200ms)
+    let mut remaining = Vec::new();
+    reader.read_to_end(&mut remaining).await.unwrap();
+    let total_time = start.elapsed();
+
+    child.wait().await.unwrap();
+
+    // Total time should be ~800ms (4 events * 200ms delay)
+    assert!(
+        total_time >= std::time::Duration::from_millis(700),
+        "Total time {:?} too short, expected ~800ms for streaming",
+        total_time
+    );
+
+    // Decompress and verify we got all events
+    let all_compressed: Vec<u8> = first_chunk[..n]
+        .iter()
+        .chain(remaining.iter())
+        .copied()
+        .collect();
+    let mut decompressed = Vec::new();
+    brotli::BrotliDecompress(&mut &all_compressed[..], &mut decompressed)
+        .expect("Failed to decompress brotli SSE data");
+
+    let text = String::from_utf8(decompressed).expect("Invalid UTF-8");
+    assert!(text.contains("data: event-1"), "Missing event-1");
+    assert!(text.contains("data: event-2"), "Missing event-2");
+    assert!(text.contains("data: event-3"), "Missing event-3");
+
+    println!(
+        "SSE brotli streaming verified: first chunk at {:?}, total {:?}",
+        first_chunk_time, total_time
+    );
+}

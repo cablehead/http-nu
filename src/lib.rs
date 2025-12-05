@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod compression;
 pub mod engine;
 pub mod handler;
 pub mod listener;

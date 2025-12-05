@@ -8,6 +8,7 @@ use tokio_stream::StreamExt;
 use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
+use crate::compression;
 use crate::request::Request;
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
 use crate::worker::spawn_eval_thread;
@@ -139,8 +140,12 @@ where
         async { bridged_body.await.map_err(|e| e.into()) }
     );
 
+    let use_brotli = compression::accepts_brotli(&parts.headers);
+
     match &meta.body_type {
-        ResponseBodyType::Normal => build_normal_response(&meta, Ok(body_result?)).await,
+        ResponseBodyType::Normal => {
+            build_normal_response(&meta, Ok(body_result?), use_brotli).await
+        }
         ResponseBodyType::Static {
             root,
             path,
@@ -287,6 +292,7 @@ where
 async fn build_normal_response(
     meta: &Response,
     body_result: Result<(Option<String>, ResponseTransport), BoxError>,
+    use_brotli: bool,
 ) -> HTTPResult {
     let (inferred_content_type, body) = body_result?;
     let mut builder = hyper::Response::builder().status(meta.status);
@@ -307,6 +313,18 @@ async fn build_normal_response(
         hyper::header::CONTENT_TYPE,
         hyper::header::HeaderValue::from_str(&content_type)?,
     );
+
+    // Add compression headers if using brotli
+    if use_brotli {
+        header_map.insert(
+            hyper::header::CONTENT_ENCODING,
+            hyper::header::HeaderValue::from_static("br"),
+        );
+        header_map.insert(
+            hyper::header::VARY,
+            hyper::header::HeaderValue::from_static("accept-encoding"),
+        );
+    }
 
     for (k, v) in &meta.headers {
         if k.to_lowercase() != "content-type" {
@@ -334,12 +352,25 @@ async fn build_normal_response(
         ResponseTransport::Empty => Empty::<Bytes>::new()
             .map_err(|never| match never {})
             .boxed(),
-        ResponseTransport::Full(bytes) => Full::new(bytes.into())
-            .map_err(|never| match never {})
-            .boxed(),
+        ResponseTransport::Full(bytes) => {
+            if use_brotli {
+                let compressed = compression::compress_full(&bytes)?;
+                Full::new(Bytes::from(compressed))
+                    .map_err(|never| match never {})
+                    .boxed()
+            } else {
+                Full::new(bytes.into())
+                    .map_err(|never| match never {})
+                    .boxed()
+            }
+        }
         ResponseTransport::Stream(rx) => {
-            let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
-            StreamBody::new(stream).boxed()
+            if use_brotli {
+                compression::compress_stream(rx)
+            } else {
+                let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
+                StreamBody::new(stream).boxed()
+            }
         }
     };
 
