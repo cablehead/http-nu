@@ -46,6 +46,61 @@ fn add_commands(engine: &mut Engine) -> Result<(), Box<dyn std::error::Error + S
     ])
 }
 
+/// Parse a script into an engine. On error, prints to stderr and emits JSON to stdout.
+fn script_to_engine(script: &str, interrupt: Arc<AtomicBool>) -> Option<Engine> {
+    let mut engine = match Engine::new() {
+        Ok(e) => e,
+        Err(e) => {
+            let err_str = e.to_string();
+            eprintln!("{err_str}");
+            println!(
+                "{}",
+                serde_json::json!({
+                    "stamp": scru128::new(),
+                    "message": "script_error",
+                    "status": "error",
+                    "error": nu_utils::strip_ansi_string_likely(err_str)
+                })
+            );
+            return None;
+        }
+    };
+
+    engine.set_signals(interrupt);
+
+    if let Err(e) = add_commands(&mut engine) {
+        let err_str = e.to_string();
+        eprintln!("{err_str}");
+        println!(
+            "{}",
+            serde_json::json!({
+                "stamp": scru128::new(),
+                "message": "script_error",
+                "status": "error",
+                "error": nu_utils::strip_ansi_string_likely(err_str)
+            })
+        );
+        return None;
+    }
+
+    if let Err(e) = engine.parse_closure(script) {
+        let err_str = e.to_string();
+        eprintln!("{err_str}");
+        println!(
+            "{}",
+            serde_json::json!({
+                "stamp": scru128::new(),
+                "message": "script_error",
+                "status": "error",
+                "error": nu_utils::strip_ansi_string_likely(err_str)
+            })
+        );
+        return None;
+    }
+
+    Some(engine)
+}
+
 /// Spawns a dedicated OS thread that reads null-terminated scripts from stdin and sends parsed engines.
 /// Uses blocking I/O to avoid async stdin issues with piped input.
 fn spawn_stdin_reader(tx: mpsc::Sender<Engine>, interrupt: Arc<AtomicBool>) {
@@ -53,7 +108,6 @@ fn spawn_stdin_reader(tx: mpsc::Sender<Engine>, interrupt: Arc<AtomicBool>) {
         let mut stdin = std::io::stdin().lock();
         let mut buffer = Vec::new();
         let mut byte = [0u8; 1];
-        let mut is_first = true;
 
         loop {
             buffer.clear();
@@ -81,77 +135,9 @@ fn spawn_stdin_reader(tx: mpsc::Sender<Engine>, interrupt: Arc<AtomicBool>) {
 
             let script = String::from_utf8_lossy(&buffer);
 
-            // Create new engine with updated script
-            match Engine::new() {
-                Ok(mut new_engine) => {
-                    new_engine.set_signals(interrupt.clone());
-
-                    if let Err(e) = add_commands(&mut new_engine) {
-                        let err_str = e.to_string();
-                        eprintln!("Failed to add commands: {err_str}");
-                        if !is_first {
-                            println!(
-                                "{}",
-                                serde_json::json!({
-                                    "stamp": scru128::new(),
-                                    "message": "script_update",
-                                    "status": "error",
-                                    "error": nu_utils::strip_ansi_string_likely(err_str)
-                                })
-                            );
-                        }
-                        continue;
-                    }
-
-                    match new_engine.parse_closure(&script) {
-                        Ok(()) => {
-                            let was_first = is_first;
-                            is_first = false;
-                            if tx.blocking_send(new_engine).is_err() {
-                                break;
-                            }
-                            if !was_first {
-                                println!(
-                                    "{}",
-                                    serde_json::json!({
-                                        "stamp": scru128::new(),
-                                        "message": "script_update",
-                                        "status": "success"
-                                    })
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            let err_str = e.to_string();
-                            eprintln!("Script update failed: {err_str}");
-                            if !is_first {
-                                println!(
-                                    "{}",
-                                    serde_json::json!({
-                                        "stamp": scru128::new(),
-                                        "message": "script_update",
-                                        "status": "error",
-                                        "error": nu_utils::strip_ansi_string_likely(err_str)
-                                    })
-                                );
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    let err_str = e.to_string();
-                    eprintln!("Failed to create new engine: {err_str}");
-                    if !is_first {
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "stamp": scru128::new(),
-                                "message": "script_update",
-                                "status": "error",
-                                "error": nu_utils::strip_ansi_string_likely(err_str)
-                            })
-                        );
-                    }
+            if let Some(engine) = script_to_engine(&script, interrupt.clone()) {
+                if tx.blocking_send(engine).is_err() {
+                    break;
                 }
             }
         }
@@ -327,17 +313,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         spawn_stdin_reader(tx, interrupt.clone());
     } else {
         // Parse the closure and send a single engine
-        let mut engine = Engine::new()?;
-        engine.set_signals(interrupt.clone());
-        add_commands(&mut engine)?;
-
-        if let Err(e) = engine.parse_closure(&args.closure) {
-            eprintln!("{e}");
-            std::process::exit(1);
+        match script_to_engine(&args.closure, interrupt.clone()) {
+            Some(engine) => {
+                tx.send(engine).await.expect("channel closed unexpectedly");
+                drop(tx); // Close the channel
+            }
+            None => {
+                std::process::exit(1);
+            }
         }
-
-        tx.send(engine).await.expect("channel closed unexpectedly");
-        drop(tx); // Close the channel
     }
 
     serve(args, rx, interrupt).await
