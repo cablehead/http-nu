@@ -57,12 +57,15 @@ impl TlsConfig {
             })?
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "No private key found"))?;
 
-        let config = rustls::ServerConfig::builder()
+        let mut config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .map_err(|e| {
                 io::Error::new(io::ErrorKind::InvalidData, format!("TLS config error: {e}"))
             })?;
+
+        // Enable HTTP/2 via ALPN (advertise h2 first, then http/1.1)
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
         let config = Arc::new(config);
         let acceptor = TlsAcceptor::from(config.clone());

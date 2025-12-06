@@ -1,10 +1,155 @@
-mod common;
-use common::TestServer;
-
 use assert_cmd::cargo::cargo_bin;
+use std::process;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::time::timeout;
+
+struct TestServer {
+    child: Child,
+    address: String,
+}
+
+impl TestServer {
+    async fn new(addr: &str, closure: &str, tls: bool) -> Self {
+        let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        cmd.arg(addr).arg(closure);
+
+        if tls {
+            cmd.arg("--tls").arg("tests/combined.pem");
+        }
+
+        let mut child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to start http-nu server");
+
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+
+        // Spawn tasks to read output
+        let mut addr_tx = Some(addr_tx);
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                eprintln!("[HTTP-NU STDOUT] {line}");
+                if addr_tx.is_some() {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                        if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                            if let Some(tx) = addr_tx.take() {
+                                let _ = tx.send(addr_str.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                eprintln!("[HTTP-NU STDERR] {line}");
+            }
+        });
+
+        let address = timeout(std::time::Duration::from_secs(5), addr_rx)
+            .await
+            .expect("Failed to get address from http-nu server")
+            .expect("Channel closed before address received");
+
+        Self { child, address }
+    }
+
+    async fn curl(&self, path: &str) -> process::Output {
+        let url = if self.address.starts_with('/') {
+            "http://localhost".to_string()
+        } else {
+            format!("http://{}", self.address)
+        };
+
+        let mut cmd = tokio::process::Command::new("curl");
+        if self.address.starts_with('/') {
+            cmd.arg("--unix-socket").arg(&self.address);
+        }
+        cmd.arg(format!("{url}{path}"));
+
+        cmd.output().await.expect("Failed to execute curl")
+    }
+
+    async fn curl_tls(&self, path: &str) -> process::Output {
+        // Extract port from address format "127.0.0.1:8080 (TLS)"
+        let port = self
+            .address
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .split(':')
+            .next_back()
+            .unwrap();
+        let mut cmd = tokio::process::Command::new("curl");
+        cmd.arg("--cacert")
+            .arg("tests/cert.pem")
+            .arg("--resolve")
+            .arg(format!("localhost:{port}:127.0.0.1"))
+            .arg(format!("https://localhost:{port}{path}"));
+
+        cmd.output().await.expect("Failed to execute curl")
+    }
+
+    fn send_ctrl_c(&mut self) {
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
+
+            let pid = Pid::from_raw(self.child.id().expect("child id") as i32);
+            kill(pid, Signal::SIGINT).expect("failed to send SIGINT");
+        }
+        #[cfg(not(unix))]
+        {
+            // On Windows, use forceful termination since console Ctrl+C handling
+            // requires special setup that our server doesn't have
+            let _ = self.child.start_kill();
+        }
+    }
+
+    fn send_sigterm(&mut self) {
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
+
+            let pid = Pid::from_raw(self.child.id().expect("child id") as i32);
+            kill(pid, Signal::SIGTERM).expect("failed to send SIGTERM");
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = self.child.start_kill();
+        }
+    }
+
+    async fn wait_for_exit(&mut self) -> std::process::ExitStatus {
+        use tokio::time::{timeout, Duration};
+        timeout(Duration::from_secs(5), self.child.wait())
+            .await
+            .expect("server did not exit in time")
+            .expect("failed waiting for child")
+    }
+
+    fn has_exited(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        if !self.has_exited() {
+            let _ = self.child.start_kill();
+        }
+    }
+}
 
 /// Test server with stdin support for dynamic script reloading
 struct TestServerWithStdin {
@@ -474,6 +619,125 @@ async fn test_server_unix_graceful_shutdown() {
     assert!(status.success());
 }
 
+/// Tests that inflight requests complete during graceful shutdown.
+/// Uses SIGTERM (not SIGINT) to avoid killing nushell jobs immediately.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_graceful_shutdown_waits_for_inflight_requests() {
+    // Server with a 500ms delay in the response
+    let mut server =
+        TestServer::new("127.0.0.1:0", r#"{|req| sleep 500ms; "completed"}"#, false).await;
+
+    // Start a request (will take 500ms to complete)
+    let url = format!("http://{}/", server.address);
+    let request_handle = tokio::spawn(async move {
+        tokio::process::Command::new("curl")
+            .arg("-s")
+            .arg(&url)
+            .output()
+            .await
+            .expect("curl failed")
+    });
+
+    // Give the request time to start
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Send SIGTERM to trigger graceful shutdown (doesn't kill nushell jobs like SIGINT)
+    server.send_sigterm();
+
+    // The request should complete successfully despite shutdown being triggered
+    let output = request_handle.await.expect("request task panicked");
+    assert!(output.status.success(), "curl failed: {output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(body, "completed");
+
+    // Server should exit cleanly
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
+/// Tests that the server supports HTTP/1.1 connections
+#[tokio::test]
+async fn test_http1_support() {
+    let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, false).await;
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--http1.1")
+        .arg(format!("http://{}/", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+
+    assert!(output.status.success(), "curl failed: {output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(body, "HTTP/1.1");
+
+    server.send_sigterm();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
+/// Tests that the server supports HTTP/2 connections (h2c - cleartext)
+#[tokio::test]
+async fn test_http2_support() {
+    let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, false).await;
+
+    // Use --http2-prior-knowledge for h2c (HTTP/2 without TLS)
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--http2-prior-knowledge")
+        .arg(format!("http://{}/", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+
+    assert!(output.status.success(), "curl failed: {output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(body, "HTTP/2.0");
+
+    server.send_sigterm();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
+/// Tests that HTTP/2 works over TLS (h2 via ALPN)
+#[tokio::test]
+async fn test_http2_tls_support() {
+    let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, true).await;
+
+    // Extract port from address format "127.0.0.1:8080 (TLS)"
+    let port = server
+        .address
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .split(':')
+        .next_back()
+        .unwrap();
+
+    // Use --http2 to prefer HTTP/2 via ALPN negotiation
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--http2")
+        .arg("--cacert")
+        .arg("tests/cert.pem")
+        .arg("--resolve")
+        .arg(format!("localhost:{port}:127.0.0.1"))
+        .arg(format!("https://localhost:{port}/"))
+        .output()
+        .await
+        .expect("curl failed");
+
+    assert!(output.status.success(), "curl failed: {output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(body, "HTTP/2.0");
+
+    server.send_sigterm();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
+}
+
 #[tokio::test]
 async fn test_parse_error_ansi_formatting() {
     use assert_cmd::cargo::cargo_bin;
@@ -648,4 +912,35 @@ async fn test_dynamic_script_reload() {
 
     // 9. Curl should return "3" (script was processed on stdin close)
     assert_eq!(server.curl_get().await, "3");
+}
+
+/// Tests that missing Host header returns 500 error
+#[tokio::test]
+async fn test_server_missing_host_header() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    let mut server = TestServer::new(
+        "127.0.0.1:0",
+        "{|req| let host = $req.headers.host; $\"Host: ($host)\" }",
+        false,
+    )
+    .await;
+
+    // Use a raw TCP connection so the test doesn't depend on `nc`
+    let mut stream = TcpStream::connect(&server.address)
+        .await
+        .expect("connect to server");
+    stream
+        .write_all(b"GET / HTTP/1.0\r\n\r\n")
+        .await
+        .expect("send request");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("read response");
+    let text = String::from_utf8_lossy(&buf);
+    assert!(text.contains("500"), "expected 500 status, got: {text}");
+
+    server.send_sigterm();
+    let status = server.wait_for_exit().await;
+    assert!(status.success());
 }

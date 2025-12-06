@@ -4,11 +4,14 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use clap::Parser;
 use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder as HttpConnectionBuilder;
+use hyper_util::server::graceful::GracefulShutdown;
 use tokio::signal;
 use tokio::sync::mpsc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -135,6 +138,12 @@ async fn serve(
         serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
     );
 
+    // HTTP/1 + HTTP/2 auto-detection builder
+    let http_builder = HttpConnectionBuilder::new(TokioExecutor::new());
+
+    // Graceful shutdown tracker for all connections
+    let graceful = GracefulShutdown::new();
+
     let shutdown = shutdown_signal(interrupt.clone());
     tokio::pin!(shutdown);
 
@@ -146,14 +155,18 @@ async fn serve(
                         let io = TokioIo::new(stream);
                         let engine = engine.clone();
 
+                        let service = service_fn(move |req| {
+                            handle(engine.clone(), remote_addr, req)
+                        });
+
+                        // serve_connection_with_upgrades supports HTTP/1 and HTTP/2
+                        let conn = http_builder.serve_connection_with_upgrades(io, service);
+
+                        // Watch this connection for graceful shutdown
+                        let conn = graceful.watch(conn.into_owned());
+
                         tokio::task::spawn(async move {
-                            let service = service_fn(move |req| {
-                                handle(engine.clone(), remote_addr, req)
-                            });
-                            if let Err(err) = hyper::server::conn::http1::Builder::new()
-                                .serve_connection(io, service)
-                                .await
-                            {
+                            if let Err(err) = conn.await {
                                 eprintln!("Connection error: {err}");
                             }
                         });
@@ -166,6 +179,34 @@ async fn serve(
             }
             _ = &mut shutdown => {
                 break;
+            }
+        }
+    }
+
+    // Graceful shutdown: wait for inflight connections to complete
+    let inflight = graceful.count();
+    if inflight > 0 {
+        println!(
+            "{}",
+            serde_json::json!({
+                "stamp": scru128::new(),
+                "message": "shutdown",
+                "inflight": inflight
+            })
+        );
+
+        tokio::select! {
+            _ = graceful.shutdown() => {
+                println!(
+                    "{}",
+                    serde_json::json!({"stamp": scru128::new(), "message": "shutdown_complete"})
+                );
+            }
+            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                println!(
+                    "{}",
+                    serde_json::json!({"stamp": scru128::new(), "message": "shutdown_timeout"})
+                );
             }
         }
     }
