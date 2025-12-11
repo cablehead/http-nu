@@ -944,3 +944,214 @@ async fn test_server_missing_host_header() {
     let status = server.wait_for_exit().await;
     assert!(status.success());
 }
+
+/// Tests basic router exact path matching
+#[tokio::test]
+async fn test_router_exact_path() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            use http-nu/router *
+            [
+                (route {path: "/health"} {|req ctx| "OK"})
+                (route {path: "/status"} {|req ctx| "RUNNING"})
+                (route true {|req ctx| "NOT FOUND"})
+            ]
+            | dispatch $req
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = server.curl("/health").await;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "OK");
+
+    let output = server.curl("/status").await;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "RUNNING");
+
+    let output = server.curl("/unknown").await;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "NOT FOUND");
+}
+
+/// Tests router path parameter extraction
+#[tokio::test]
+async fn test_router_path_parameters() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            use http-nu/router *
+            [
+                (route {path-matches: "/users/:id"} {|req ctx| $"User: ($ctx.id)"})
+                (route {path-matches: "/posts/:userId/:postId"} {|req ctx| $"Post ($ctx.postId) by user ($ctx.userId)"})
+                (route true {|req ctx| "NOT FOUND"})
+            ]
+            | dispatch $req
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = server.curl("/users/alice").await;
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "User: alice"
+    );
+
+    let output = server.curl("/posts/bob/123").await;
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "Post 123 by user bob"
+    );
+}
+
+/// Tests router method matching
+#[tokio::test]
+async fn test_router_method_matching() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            use http-nu/router *
+            [
+                (route {method: "GET", path: "/items"} {|req ctx| "LIST"})
+                (route {method: "POST", path: "/items"} {|req ctx| "CREATE"})
+                (route true {|req ctx| "NOT FOUND"})
+            ]
+            | dispatch $req
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = server.curl("/items").await;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "LIST");
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-X")
+        .arg("POST")
+        .arg(format!("http://{}/items", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "CREATE");
+}
+
+/// Tests router header matching
+#[tokio::test]
+async fn test_router_header_matching() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            use http-nu/router *
+            [
+                (route {has-header: {accept: "application/json"}} {|req ctx| "JSON"})
+                (route true {|req ctx| "OTHER"})
+            ]
+            | dispatch $req
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-H")
+        .arg("Accept: application/json")
+        .arg(format!("http://{}/", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "JSON");
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-H")
+        .arg("Accept: text/html")
+        .arg(format!("http://{}/", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "OTHER");
+}
+
+/// Tests router combined conditions (method + path + headers)
+#[tokio::test]
+async fn test_router_combined_conditions() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            use http-nu/router *
+            [
+                (route {
+                    method: "POST"
+                    path-matches: "/api/:version/data"
+                    has-header: {accept: "application/json"}
+                } {|req ctx| $"API ($ctx.version) JSON"})
+                (route true {|req ctx| "FALLBACK"})
+            ]
+            | dispatch $req
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-X")
+        .arg("POST")
+        .arg("-H")
+        .arg("Accept: application/json")
+        .arg(format!("http://{}/api/v1/data", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "API v1 JSON"
+    );
+
+    // Wrong method
+    let output = tokio::process::Command::new("curl")
+        .arg("-H")
+        .arg("Accept: application/json")
+        .arg(format!("http://{}/api/v1/data", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "FALLBACK");
+}
+
+/// Tests router 501 response when no routes match
+#[tokio::test]
+async fn test_router_no_match_501() {
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            use http-nu/router *
+            [
+                (route {method: "POST", path: "/users"} {|req ctx| "CREATED"})
+            ]
+            | dispatch $req
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-i")
+        .arg(format!("http://{}/unknown", server.address))
+        .output()
+        .await
+        .expect("curl failed");
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+    assert!(response.contains("501 Not Implemented"));
+    assert!(response.contains("No route configured"));
+}

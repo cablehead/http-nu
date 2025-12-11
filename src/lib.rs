@@ -5,6 +5,7 @@ pub mod handler;
 pub mod listener;
 pub mod request;
 pub mod response;
+pub mod stdlib;
 pub mod worker;
 
 #[cfg(test)]

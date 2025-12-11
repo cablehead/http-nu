@@ -28,6 +28,7 @@ server that fits in your back pocket.
   - [server-sent events](#server-sent-events)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
+  - [Routing](#routing)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -455,6 +456,65 @@ From a file:
 ```bash
 $ http-nu :3001 '{|req| $req.query | .mj "templates/page.html"}'
 ```
+
+### Routing
+
+http-nu includes an embedded routing module for declarative request handling.
+
+```nushell
+use http-nu/router *
+
+{|req|
+  [
+    # Exact path match
+    (route {path: "/health"} {|req ctx| "OK"})
+
+    # Method + path
+    (route {method: "POST", path: "/users"} {|req ctx|
+      .response {status: 201}
+      "Created"
+    })
+
+    # Path parameters
+    (route {path-matches: "/users/:id"} {|req ctx|
+      $"User: ($ctx.id)"
+    })
+
+    # Header matching
+    (route {has-header: {accept: "application/json"}} {|req ctx|
+      {status: "ok"}
+    })
+
+    # Combined conditions
+    (route {
+      method: "POST"
+      path-matches: "/api/:version/data"
+      has-header: {accept: "application/json"}
+    } {|req ctx|
+      {version: $ctx.version}
+    })
+
+    # Closure for custom logic
+    (route {|req|
+      if ($req.headers.user-agent? | default "" | str starts-with "bot") { {} }
+    } {|req ctx|
+      .response {status: 403}
+      "Bots not allowed"
+    })
+
+    # Fallback (always matches)
+    (route true {|req ctx|
+      .response {status: 404}
+      "Not Found"
+    })
+  ]
+  | dispatch $req
+}
+```
+
+Routes match in order. First match wins. Closure tests return a record (match,
+context passed to handler) or null (no match). If no routes match, returns
+`501 Not Implemented`.
 
 ## Building and Releases
 

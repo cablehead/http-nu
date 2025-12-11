@@ -13,6 +13,7 @@ use nu_protocol::{
 use std::sync::{atomic::AtomicBool, Arc};
 
 use crate::commands::{MjCommand, ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse};
+use crate::stdlib::load_http_nu_stdlib;
 use crate::Error;
 
 #[derive(Clone)]
@@ -28,6 +29,8 @@ impl Engine {
         engine_state = add_shell_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
         engine_state = nu_cmd_extra::extra::add_extra_command_context(engine_state);
+
+        load_http_nu_stdlib(&mut engine_state)?;
 
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
