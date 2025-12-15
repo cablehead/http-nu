@@ -7,8 +7,6 @@ use http-nu/datastar *
   [
     # SSE stream endpoint
     (route {path: "/stream"} {|req ctx|
-      .response {headers: {"content-type": "text/event-stream"}}
-
       tail -F ./quotes.json
       | lines
       | each {|line|

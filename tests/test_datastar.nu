@@ -4,6 +4,9 @@
 use std/assert
 use ../src/stdlib/datastar/mod.nu *
 
+# Mock .response command for testing (no-op in standalone nu)
+def --env ".response" [_config: record]: nothing -> nothing {}
+
 # Test basic SSE event formatting
 def test_basic_sse_format [] {
   let result = "<div>test</div>" | to sse-patch-elements --selector "#target"

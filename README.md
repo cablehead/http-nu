@@ -551,8 +551,6 @@ use http-nu/datastar *
 use http-nu/html *
 
 {|req|
-  .response {headers: {"content-type": "text/event-stream"}}
-
   # Parse client signals
   let signals = $req | from datastar-request
 
@@ -567,25 +565,24 @@ use http-nu/html *
   # Update signals (RFC 7386 JSON Merge Patch)
   {count: ($signals.count + 1)} | to sse-patch-signals
 
-  # Execute script (default: auto-remove after execution)
+  # Execute script (auto-remove after execution by default)
   "console.log('updated')" | to sse-execute-script
 }
 ```
 
 **Commands:**
 
-- `to sse-patch-elements` - Patch HTML elements. Flags: `--selector` (CSS
-  selector, optional if elements have IDs), `--mode`
-  (outer|inner|replace|prepend|append|before|after|remove, default: outer),
-  `--use_view_transition`
-- `to sse-patch-signals` - Patch signals via JSON Merge Patch. Flag:
-  `--only_if_missing`
-- `to sse-execute-script` - Execute JavaScript via `<script>` tag. Flags:
-  `--auto_remove` (default: true), `--attributes` (record of HTML attributes)
-- `from datastar-request` - Parse signals from GET `datastar` query param or
-  POST body JSON
+- `to sse-patch-elements` - Patch HTML. `--selector` (CSS selector, optional
+  if elements have IDs), `--mode` (outer, inner, replace, prepend, append,
+  before, after, remove), `--use_view_transition`
+- `to sse-patch-signals` - Patch signals. `--only_if_missing`
+- `to sse-execute-script` - Execute JavaScript. `--auto_remove` (default:
+  true), `--attributes` (record)
+- `from datastar-request` - Parse signals from GET `datastar` query or POST
+  body
+- `init-response` - Set SSE headers (called automatically by `to sse-*`)
 
-All commands support `--event_id` and `--retry` for SSE control.
+All `to sse-*` commands support `--event_id` and `--retry`.
 
 ## Building and Releases
 
