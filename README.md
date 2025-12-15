@@ -30,6 +30,7 @@ server that fits in your back pocket.
   - [Templates](#templates)
   - [Routing](#routing)
   - [HTML DSL](#html-dsl)
+  - [Datastar](#datastar)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -538,6 +539,53 @@ use http-nu/html *
 
 All HTML5 elements with `h-` prefix. Pipe siblings. Attributes via record,
 children via closure or string. Returns string directly.
+
+### Datastar
+
+Generate [Datastar](https://data-star.dev) SSE events for hypermedia
+interactions. Follows the
+[SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md).
+
+```nushell
+use http-nu/datastar *
+use http-nu/html *
+
+{|req|
+  .response {headers: {"content-type": "text/event-stream"}}
+
+  # Parse client signals
+  let signals = $req | from datastar-request
+
+  # Update DOM (elements must be complete, well-formed HTML)
+  h-div {id: "notifications" class: "alert"} "Profile updated!"
+  | to sse-patch-elements
+
+  # Or target by selector
+  h-div {class: "alert"} "Profile updated!"
+  | to sse-patch-elements --selector "#notifications"
+
+  # Update signals (RFC 7386 JSON Merge Patch)
+  {count: ($signals.count + 1)} | to sse-patch-signals
+
+  # Execute script (default: auto-remove after execution)
+  "console.log('updated')" | to sse-execute-script
+}
+```
+
+**Commands:**
+
+- `to sse-patch-elements` - Patch HTML elements. Flags: `--selector` (CSS
+  selector, optional if elements have IDs), `--mode`
+  (outer|inner|replace|prepend|append|before|after|remove, default: outer),
+  `--use_view_transition`
+- `to sse-patch-signals` - Patch signals via JSON Merge Patch. Flag:
+  `--only_if_missing`
+- `to sse-execute-script` - Execute JavaScript via `<script>` tag. Flags:
+  `--auto_remove` (default: true), `--attributes` (record of HTML attributes)
+- `from datastar-request` - Parse signals from GET `datastar` query param or
+  POST body JSON
+
+All commands support `--event_id` and `--retry` for SSE control.
 
 ## Building and Releases
 
