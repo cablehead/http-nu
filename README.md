@@ -29,6 +29,7 @@ server that fits in your back pocket.
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
   - [Routing](#routing)
+  - [HTML DSL](#html-dsl)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -515,6 +516,28 @@ use http-nu/router *
 Routes match in order. First match wins. Closure tests return a record (match,
 context passed to handler) or null (no match). If no routes match, returns
 `501 Not Implemented`.
+
+### HTML DSL
+
+Build HTML with Nushell pipelines.
+
+```nushell
+use http-nu/html *
+
+{|req|
+  h-html {
+    h-head { h-title "Demo" }
+    | h-body {
+      h-h1 "Hello"
+      | h-p {class: "intro"} "Built with Nushell"
+      | h-ul { h-li "one" | h-li "two" }
+    }
+  }
+}
+```
+
+All HTML5 elements with `h-` prefix. Pipe siblings. Attributes via record,
+children via closure or string. Returns string directly.
 
 ## Building and Releases
 

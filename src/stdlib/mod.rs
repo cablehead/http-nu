@@ -8,6 +8,7 @@ use std::path::PathBuf;
 // Embedded stdlib files
 const STDLIB_MOD: &str = include_str!("mod.nu");
 const ROUTER_MOD: &str = include_str!("router/mod.nu");
+const HTML_MOD: &str = include_str!("html/mod.nu");
 
 fn create_virt_file(working_set: &mut StateWorkingSet, name: &str, content: &str) -> VirtualPathId {
     let sanitized_name = PathBuf::from(name).to_string_lossy().to_string();
@@ -18,7 +19,7 @@ fn create_virt_file(working_set: &mut StateWorkingSet, name: &str, content: &str
 /// Load the http-nu standard library into the engine state
 ///
 /// This embeds the stdlib modules at compile time and makes them available
-/// via the virtual filesystem. Users can import with: use http-nu/router *
+/// via the virtual filesystem. Users can import with: use http-nu/router *, use http-nu/html *
 pub fn load_http_nu_stdlib(engine_state: &mut EngineState) -> Result<(), miette::ErrReport> {
     trace!("load_http_nu_stdlib");
 
@@ -30,7 +31,10 @@ pub fn load_http_nu_stdlib(engine_state: &mut EngineState) -> Result<(), miette:
     http_nu_virt_paths.push(std_mod_virt_file_id);
 
     // Submodules
-    let std_submodules = vec![("mod.nu", "http-nu/router", ROUTER_MOD)];
+    let std_submodules = vec![
+        ("mod.nu", "http-nu/router", ROUTER_MOD),
+        ("mod.nu", "http-nu/html", HTML_MOD),
+    ];
 
     for (filename, std_subdir_name, content) in std_submodules {
         let mod_dir = PathBuf::from(std_subdir_name);

@@ -6,7 +6,7 @@
   match $req.path {
     # Home page
     "/" => {
-      .response { headers: { "Content-Type": "text/html" } }
+      .response {headers: {"Content-Type": "text/html"}}
       "<html><body>
         <h1>http-nu demo</h1>
         <ul>
@@ -27,8 +27,8 @@
     # JSON response example
     "/json" => {
       {
-        message: "This is JSON",
-        timestamp: (date now | into int),
+        message: "This is JSON"
+        timestamp: (date now | into int)
         server: "http-nu"
       }
     }
@@ -39,7 +39,7 @@
         # Return the request body
         $in
       } else {
-        .response { headers: { "Content-Type": "text/html" } }
+        .response {headers: {"Content-Type": "text/html"}}
         "<html><body>
           <h1>Echo Service</h1>
           <p>Send a POST request to this URL to echo the body.</p>
@@ -54,7 +54,7 @@
 
     # Time stream example
     "/time" => {
-      .response { headers: { "Content-Type": "text/plain" } }
+      .response {headers: {"Content-Type": "text/plain"}}
       generate {|_|
         sleep 1sec
         {out: $"Current time: (date now | format date '%Y-%m-%d %H:%M:%S')\n" next: true}
@@ -68,7 +68,7 @@
 
     # 404 for everything else
     _ => {
-      .response { status: 404 }
+      .response {status: 404}
       "404 - Page not found"
     }
   }
