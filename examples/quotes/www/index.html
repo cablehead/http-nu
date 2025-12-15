@@ -7,14 +7,11 @@
   <style>
     body { font-family: system-ui; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
     #quote { font-size: 1.5rem; font-style: italic; margin: 2rem 0; }
-    #who { text-align: right; color: #666; }
+    .who { text-align: right; color: #666; }
   </style>
 </head>
-<body>
+<body data-on-load="$$get('/stream')">
   <h1>Live Quotes</h1>
-  <div data-on-load="$$get('/stream')">
-    <div id="quote" data-text="$quote">Waiting for quotes...</div>
-    <div id="who" data-text="$who"></div>
-  </div>
+  <div id="quote">Waiting for quotes...</div>
 </body>
 </html>

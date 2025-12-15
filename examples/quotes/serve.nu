@@ -2,6 +2,7 @@
 
 use http-nu/router *
 use http-nu/datastar *
+use http-nu/html *
 
 {|req|
   [
@@ -11,7 +12,17 @@ use http-nu/datastar *
       | lines
       | each {|line|
         let q = $line | from json
-        {quote: $q.quote, who: ($q.who? | default "")} | to sse-patch-signals
+
+        # Render HTML for the quote
+        let html = (
+          h-div {id: "quote"} {||
+            h-p {class: "quote"} $q.quote
+            | h-p {class: "who"} $"- ($q.who? | default 'Anonymous')"
+          }
+        )
+
+        # Patch it into the DOM
+        $html | to sse-patch-elements
       }
     })
 
