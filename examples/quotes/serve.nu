@@ -12,11 +12,10 @@ use http-nu/html *
       | lines
       | each {|line|
         let q = $line | from json
-        h-div {id: "quote"} {||
-          h-p {class: "quote"} $q.quote
-          | h-p {class: "who"} $"- ($q.who? | default 'Anonymous')"
-        }
-        | to dstar-patch-element
+        (h-p {class: "text"} $"\"($q.quote)\""
+          | h-p {class: "who"} $"— ($q.who? | default 'Anonymous')"
+        )
+        | to dstar-patch-element --selector "#quote" --mode inner
       }
       | to sse
     })
