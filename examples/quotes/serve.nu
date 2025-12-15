@@ -12,18 +12,13 @@ use http-nu/html *
       | lines
       | each {|line|
         let q = $line | from json
-
-        # Render HTML for the quote
-        let html = (
-          h-div {id: "quote"} {||
-            h-p {class: "quote"} $q.quote
-            | h-p {class: "who"} $"- ($q.who? | default 'Anonymous')"
-          }
-        )
-
-        # Patch it into the DOM
-        $html | to sse-patch-elements
+        h-div {id: "quote"} {||
+          h-p {class: "quote"} $q.quote
+          | h-p {class: "who"} $"- ($q.who? | default 'Anonymous')"
+        }
+        | to dstar-patch-element
       }
+      | to sse
     })
 
     # Serve static files (default)

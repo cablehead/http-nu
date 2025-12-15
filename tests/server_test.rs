@@ -848,6 +848,68 @@ async fn test_sse_brotli_compression_streams_immediately() {
 }
 
 #[tokio::test]
+async fn test_to_sse_command() {
+    // Test that `to sse` properly formats records with id, event, data, retry fields
+    // and auto-sets the correct headers
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            [
+                {id: "1", event: "greeting", data: "hello"}
+                {id: "2", event: "update", data: "world", retry: 5000}
+                {data: {count: 42}}
+            ] | to sse
+        }"#,
+        false,
+    )
+    .await;
+
+    // Use curl with -i to get headers
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg("-i")
+        .arg(format!("http://{}", server.address))
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Check headers
+    assert!(
+        response.contains("content-type: text/event-stream"),
+        "Missing content-type header"
+    );
+    assert!(
+        response.contains("cache-control: no-cache"),
+        "Missing cache-control header"
+    );
+    assert!(
+        response.contains("connection: keep-alive"),
+        "Missing connection header"
+    );
+
+    // Check SSE event formatting
+    assert!(response.contains("id: 1"), "Missing id: 1");
+    assert!(
+        response.contains("event: greeting"),
+        "Missing event: greeting"
+    );
+    assert!(response.contains("data: hello"), "Missing data: hello");
+
+    assert!(response.contains("id: 2"), "Missing id: 2");
+    assert!(response.contains("event: update"), "Missing event: update");
+    assert!(response.contains("data: world"), "Missing data: world");
+    assert!(response.contains("retry: 5000"), "Missing retry: 5000");
+
+    // Check JSON serialization of record data
+    assert!(
+        response.contains(r#"data: {"count":42}"#),
+        "Missing JSON data"
+    );
+}
+
+#[tokio::test]
 async fn test_dynamic_script_reload() {
     // Spawn server process - it will wait for a valid script
     let (child, mut stdin, addr_rx) = TestServerWithStdin::spawn("127.0.0.1:0", false);

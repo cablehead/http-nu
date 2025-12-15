@@ -216,7 +216,10 @@ impl Command for ToSse {
 
     fn signature(&self) -> Signature {
         Signature::build("to sse")
-            .input_output_types(vec![(Type::record(), Type::String)])
+            .input_output_types(vec![
+                (Type::record(), Type::String),
+                (Type::List(Box::new(Type::record())), Type::String),
+            ])
             .category(Category::Formats)
     }
 
@@ -307,6 +310,11 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
     if let Some(id) = rec.get("id") {
         out.push_str("id: ");
         out.push_str(&id.to_expanded_string("", config));
+        out.push_str(LINE_ENDING);
+    }
+    if let Some(retry) = rec.get("retry") {
+        out.push_str("retry: ");
+        out.push_str(&retry.to_expanded_string("", config));
         out.push_str(LINE_ENDING);
     }
     if let Some(event) = rec.get("event") {
