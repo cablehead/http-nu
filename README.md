@@ -551,8 +551,6 @@ use http-nu/datastar *
 use http-nu/html *
 
 {|req|
-  let signals = $req | from datastar-request
-
   # Update DOM
   h-div {id: "notifications" class: "alert"} "Profile updated!"
   | to sse-patch-elements
@@ -561,7 +559,8 @@ use http-nu/html *
   h-div {class: "alert"} "Profile updated!"
   | to sse-patch-elements --selector "#notifications"
 
-  # Update signals
+  # Parse signals from request (GET query param or POST body)
+  let signals = $req | from datastar-request
   {count: ($signals.count + 1)} | to sse-patch-signals
 
   # Execute script
