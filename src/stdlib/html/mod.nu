@@ -390,3 +390,221 @@ export def h-h6 [arg1?: any arg2?: any]: any -> list {
   let node = parse-node-args h6 $arg1 $arg2
   $in | append (render-node $node)
 }
+
+# Scripting
+export def h-script [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args script $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-noscript [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args noscript $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-template [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args template $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-slot [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args slot $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Additional inline text
+export def h-abbr [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args abbr $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-b [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args b $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-i [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args i $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-u [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args u $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-s [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args s $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-mark [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args mark $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-q [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args q $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-cite [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args cite $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-dfn [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args dfn $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-kbd [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args kbd $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-samp [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args samp $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-var [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args var $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-sub [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args sub $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-sup [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args sup $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-time [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args time $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-data [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args data $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Edits
+export def h-del [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args del $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-ins [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args ins $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Interactive
+export def h-details [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args details $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-summary [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args summary $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-dialog [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args dialog $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Additional content
+export def h-address [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args address $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-hgroup [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args hgroup $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-search [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args search $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-menu [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args menu $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Image maps
+export def h-area [attrs?: record]: any -> list {
+  void-tag area $attrs
+}
+
+export def h-map [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args map $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-picture [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args picture $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Form additions
+export def h-meter [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args meter $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-progress [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args progress $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-output [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args output $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-datalist [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args datalist $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-optgroup [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args optgroup $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Ruby annotations
+export def h-ruby [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args ruby $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-rt [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args rt $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-rp [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args rp $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+# Bidirectional text
+export def h-bdi [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args bdi $arg1 $arg2
+  $in | append (render-node $node)
+}
+
+export def h-bdo [arg1?: any arg2?: any]: any -> list {
+  let node = parse-node-args bdo $arg1 $arg2
+  $in | append (render-node $node)
+}
