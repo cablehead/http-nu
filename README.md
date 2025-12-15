@@ -551,10 +551,9 @@ use http-nu/datastar *
 use http-nu/html *
 
 {|req|
-  # Parse client signals
   let signals = $req | from datastar-request
 
-  # Update DOM (elements must be complete, well-formed HTML)
+  # Update DOM
   h-div {id: "notifications" class: "alert"} "Profile updated!"
   | to sse-patch-elements
 
@@ -562,27 +561,40 @@ use http-nu/html *
   h-div {class: "alert"} "Profile updated!"
   | to sse-patch-elements --selector "#notifications"
 
-  # Update signals (RFC 7386 JSON Merge Patch)
+  # Update signals
   {count: ($signals.count + 1)} | to sse-patch-signals
 
-  # Execute script (auto-remove after execution by default)
+  # Execute script
   "console.log('updated')" | to sse-execute-script
 }
 ```
 
 **Commands:**
 
-- `to sse-patch-elements` - Patch HTML. `--selector` (CSS selector, optional
-  if elements have IDs), `--mode` (outer, inner, replace, prepend, append,
-  before, after, remove), `--use_view_transition`
-- `to sse-patch-signals` - Patch signals. `--only_if_missing`
-- `to sse-execute-script` - Execute JavaScript. `--auto_remove` (default:
-  true), `--attributes` (record)
-- `from datastar-request` - Parse signals from GET `datastar` query or POST
-  body
-- `init-response` - Set SSE headers (called automatically by `to sse-*`)
+```nushell
+to sse-patch-elements [
+  --selector: string           # CSS selector (omit if element has ID)
+  --mode: string               # outer, inner, replace, prepend, append, before, after, remove (default: outer)
+  --use_view_transition        # Enable CSS View Transitions API
+  --event_id: string           # SSE event ID for replay
+  --retry: int                 # Reconnection delay in ms
+]: string -> string
 
-All `to sse-*` commands support `--event_id` and `--retry`.
+to sse-patch-signals [
+  --only_if_missing            # Only set signals not present on client
+  --event_id: string
+  --retry: int
+]: record -> string
+
+to sse-execute-script [
+  --auto_remove: bool          # Remove <script> after execution (default: true)
+  --attributes: record         # HTML attributes for <script> tag
+  --event_id: string
+  --retry: int
+]: string -> string
+
+from datastar-request []: record -> record  # Parse signals from GET ?datastar= or POST body
+```
 
 ## Building and Releases
 
