@@ -35,11 +35,11 @@ def test_patch_element_record [] {
 
 # Test patch-element with element by ID (no selector)
 def test_patch_element_by_id [] {
-  let html = "<div id=\"main\">Updated content</div>"
+  let html = r#'<div id="main">Updated content</div>'#
   let result = $html | to dstar-patch-element
 
   assert equal $result.event "datastar-patch-elements"
-  assert ("elements <div id=\"main\">Updated content</div>" in $result.data)
+  assert (r#'elements <div id="main">Updated content</div>'# in $result.data)
   # Default mode is outer, so it should not appear in data
   assert (not ($result.data | any { $in | str starts-with "mode" }))
 }
@@ -83,7 +83,7 @@ def test_patch_element_namespace [] {
 
 # Test patch-signal with record input
 def test_patch_signal_record [] {
-  let signals = {count: 42, name: "Alice"}
+  let signals = {count: 42 name: "Alice"}
   let result = $signals | to dstar-patch-signal
 
   assert equal $result.event "datastar-patch-signals"
@@ -111,7 +111,7 @@ def test_execute_script [] {
   assert ($result.data | any { str contains "<script" })
   assert ($result.data | any { str contains "console.log" })
   # Default auto_remove is true
-  assert ($result.data | any { str contains 'data-effect="el.remove()"' })
+  assert ($result.data | any { str contains r#'data-effect="el.remove()"'# })
 }
 
 # Test execute-script without auto-remove
@@ -126,7 +126,7 @@ def test_execute_script_no_auto_remove [] {
 def test_execute_script_attributes [] {
   let result = "doThing()" | to dstar-execute-script --attributes {type: "module"}
 
-  assert ($result.data | any { str contains 'type="module"' })
+  assert ($result.data | any { str contains r#'type="module"'# })
   assert ($result.data | any { str contains "doThing()" })
 }
 

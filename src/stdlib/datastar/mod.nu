@@ -24,7 +24,7 @@ export def "to dstar-patch-element" [
     ...($in | lines | each { $"elements ($in)" })
   ] | compact
 
-  {event: "datastar-patch-elements", data: $data, id: $id, retry: $retry}
+  {event: "datastar-patch-elements" data: $data id: $id retry: $retry}
 }
 
 # Patch signals via SSE (JSON Merge Patch RFC 7386)
@@ -40,7 +40,7 @@ export def "to dstar-patch-signal" [
     ...($in | to json --raw | lines | each { $"signals ($in)" })
   ] | compact
 
-  {event: "datastar-patch-signals", data: $data, id: $id, retry: $retry}
+  {event: "datastar-patch-signals" data: $data id: $id retry: $retry}
 }
 
 # Execute JavaScript via SSE (appends <script> to body)
@@ -68,13 +68,13 @@ export def "to dstar-execute-script" [
     ...($script_tag | lines | each { $"elements ($in)" })
   ]
 
-  {event: "datastar-patch-elements", data: $data, id: $id, retry: $retry}
+  {event: "datastar-patch-elements" data: $data id: $id retry: $retry}
 }
 
 # Parse signals from request (GET query `datastar` param or POST body JSON)
 export def "from datastar-request" []: record -> record {
   match $in.method {
-    "POST" => (try { $in.body | from json } catch { {} }),
+    "POST" => (try { $in.body | from json } catch { {} })
     _ => (try { $in.query.datastar? | default "{}" | from json } catch { {} })
   }
 }

@@ -102,7 +102,7 @@ export def route [
   handle: closure # Handler closure that receives request and context
 ]: nothing -> record<test: closure, handle: closure> {
   let test_fn = match ($test | describe) {
-    "bool" => {|req| {} },
+    "bool" => {|req| {} }
     $t if ($t | str starts-with "record") => {|req|
       let pattern = $test
       # Process pattern keys, accumulating context or returning null on mismatch
@@ -112,19 +112,19 @@ export def route [
           "path-matches" => {
             let params = $req | path-matches ($pattern | get $key)
             if $params == null { null } else { $ctx | merge $params }
-          },
+          }
           "has-header" => {
             let headers = $pattern | get $key
             let all_match = $headers | columns | all {|h| $req | has-header $h ($headers | get $h) }
             if $all_match { $ctx } else { null }
-          },
+          }
           _ => {
             if ($req | get -o $key) == ($pattern | get $key) { $ctx } else { null }
           }
         }
       }
-    },
-    _ => $test  # Already a closure
+    }
+    _ => $test # Already a closure
   }
 
   {test: $test_fn handle: $handle}
@@ -175,7 +175,7 @@ export def path-matches [
   | reduce --fold {} {|pair, params|
     if $params == null { return null }
     match ($pair.0 | str starts-with ':') {
-      true => ($params | insert ($pair.0 | str substring 1..) $pair.1),
+      true => ($params | insert ($pair.0 | str substring 1..) $pair.1)
       false => (if $pair.0 == $pair.1 { $params } else { null })
     }
   }
@@ -250,13 +250,13 @@ export def dispatch [
   request: record # The HTTP request record to route
 ]: list -> any {
   $in
-  | each {|rt| do $rt.test $request | if $in != null { {route: $rt, ctx: $in} } }
+  | each {|rt| do $rt.test $request | if $in != null { {route: $rt ctx: $in} } }
   | compact
   | first
   | if $in == null {
-      try { .response {status: 501} }
-      "No route configured"
-    } else {
-      do $in.route.handle $request $in.ctx
-    }
+    try { .response {status: 501} }
+    "No route configured"
+  } else {
+    do $in.route.handle $request $in.ctx
+  }
 }
