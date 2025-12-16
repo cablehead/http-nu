@@ -1,6 +1,7 @@
 # HTML DSL for nushell
 
-def attrs-to-string []: record -> string {
+# {class: "foo"} -> ' class="foo"'
+export def attrs-to-string []: record -> string {
   $in
   | transpose key value
   | each {|attr| $'($attr.key)="($attr.value)"' }

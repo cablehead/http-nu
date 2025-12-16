@@ -3,6 +3,11 @@
 use std/assert
 use ../src/stdlib/html/mod.nu *
 
+# Test attrs-to-string
+assert equal ({class: "foo"} | attrs-to-string) ' class="foo"'
+assert equal ({class: "foo" id: "bar"} | attrs-to-string) ' class="foo" id="bar"'
+assert equal ({} | attrs-to-string) ''
+
 # Test div with text content
 let result = h-div "Hello"
 assert equal $result "<div>Hello</div>"
