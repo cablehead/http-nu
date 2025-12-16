@@ -535,19 +535,25 @@ Build HTML with Nushell pipelines.
 use http-nu/html *
 
 {|req|
-  h-html {
-    h-head { h-title "Demo" }
-    | h-body {
-      h-h1 "Hello"
-      | h-p {class: "intro"} "Built with Nushell"
-      | h-ul { h-li "one" | h-li "two" }
-    }
+  _html {
+    _head { _title "Demo" }
+    | append (_body {
+      _h1 "Hello"
+      | append (_p {class: "intro"} "Built with Nushell")
+      | append (_ul { [(_li "one") (_li "two")] })
+    })
   }
 }
 ```
 
-All HTML5 elements with `h-` prefix. Pipe siblings. Attributes via record,
-children via closure or string. Returns string directly.
+All HTML5 elements with `_` prefix. Use `append` for siblings. Attributes via
+record, children via closure or string. Lists are automatically joined.
+
+```nushell
+# Dynamic lists with each
+_ul { 1..3 | each {|n| _li $"Item ($n)" } }
+# => <ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>
+```
 
 ### Datastar
 
@@ -567,11 +573,11 @@ use http-nu/html *
 
   [
     # Update DOM
-    (h-div {id: "notifications" class: "alert"} "Profile updated!"
+    (_div {id: "notifications" class: "alert"} "Profile updated!"
     | to dstar-patch-element)
 
     # Or target by selector
-    (h-div {class: "alert"} "Profile updated!"
+    (_div {class: "alert"} "Profile updated!"
     | to dstar-patch-element --selector "#notifications")
 
     # Update signals

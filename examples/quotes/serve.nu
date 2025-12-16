@@ -14,9 +14,10 @@ use http-nu/html *
         | each {|line|
           let q = $line | from json
           (
-            h-p {class: "text"} $"\"($q.quote)\""
-            | h-p {class: "who"} $"— ($q.who? | default 'Anonymous')"
+            _p {class: "text"} $"\"($q.quote)\""
+            | append (_p {class: "who"} $"— ($q.who? | default 'Anonymous')")
           )
+          | str join
           | to dstar-patch-element --selector "#quote" --mode inner
         }
         | to sse
