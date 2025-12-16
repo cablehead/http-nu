@@ -6,7 +6,7 @@ Demonstrates Datastar SSE with live updates from a JSON file.
 
 ```bash
 cd examples/quotes
-http-nu :3002 - < serve.nu
+cat serve.nu | http-nu :3002 -
 ```
 
 Visit http://localhost:3002
@@ -15,11 +15,14 @@ Visit http://localhost:3002
 
 In another terminal, append quotes to the file:
 
+```nushell
+{quote: "Stay hungry, stay foolish." who: "Steve Jobs"} | to json -r | $in + "\n" | save -a quotes.json
+```
+
+Or with POSIX shell:
+
 ```bash
-cd examples/quotes
-echo '{"quote": "Stay hungry, stay foolish.", "who": "Steve Jobs"}' >> quotes.json
-echo '{"quote": "Life is what happens when you'\''re busy making other plans.", "who": "John Lennon"}' >> quotes.json
-echo '{"quote": "The future belongs to those who believe in the beauty of their dreams."}' >> quotes.json
+echo '{"quote": "Be the change you wish to see in the world.", "who": "Gandhi"}' >> quotes.json
 ```
 
 The page updates in real-time as quotes are added.
