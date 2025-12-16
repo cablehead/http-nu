@@ -22,7 +22,7 @@ server that fits in your back pocket.
   - [Request metadata](#request-metadata)
   - [Response metadata](#response-metadata)
   - [Content-Type Inference](#content-type-inference)
-  - [TLS Support](#tls-support)
+  - [TLS & HTTP/2 Support](#tls-support)
   - [Serving Static Files](#serving-static-files)
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
@@ -234,6 +234,13 @@ Generate a self-signed certificate for testing:
 ```bash
 $ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
 $ cat cert.pem key.pem > combined.pem
+```
+
+HTTP/2 is automatically enabled for TLS connections:
+
+```bash
+$ curl -k --http2 -si https://localhost:3001 | head -1
+HTTP/2 200
 ```
 
 ### Serving Static Files
