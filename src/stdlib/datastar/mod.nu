@@ -11,6 +11,7 @@
 export def "to dstar-patch-element" [
   --selector: string # CSS selector. If omitted, elements must have IDs
   --mode: string = "outer" # outer, inner, replace, prepend, append, before, after, remove
+  --namespace: string # Content namespace: html (default) or svg
   --use_view_transition # Enable View Transitions API
   --id: string # SSE event ID
   --retry: int # Retry interval in milliseconds
@@ -18,6 +19,7 @@ export def "to dstar-patch-element" [
   let data = [
     (if $selector != null { $"selector ($selector)" })
     (if $mode != "outer" { $"mode ($mode)" })
+    (if $namespace != null { $"namespace ($namespace)" })
     (if $use_view_transition { "useViewTransition true" })
     ...($in | lines | each { $"elements ($in)" })
   ] | compact

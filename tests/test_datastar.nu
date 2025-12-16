@@ -70,6 +70,17 @@ def test_patch_element_transition [] {
   assert ("useViewTransition true" in $result.data)
 }
 
+# Test patch-element namespace option
+def test_patch_element_namespace [] {
+  # Default namespace (html) should not appear in data
+  let html = "<div>content</div>" | to dstar-patch-element --selector "#target"
+  assert (not ($html.data | any { $in | str starts-with "namespace" }))
+
+  # SVG namespace should appear
+  let svg = "<circle cx=\"50\" cy=\"50\" r=\"40\"/>" | to dstar-patch-element --selector "#target" --namespace svg
+  assert ("namespace svg" in $svg.data)
+}
+
 # Test patch-signal with record input
 def test_patch_signal_record [] {
   let signals = {count: 42, name: "Alice"}
@@ -192,6 +203,7 @@ def main [] {
   test_patch_element_by_id
   test_patch_element_modes
   test_patch_element_transition
+  test_patch_element_namespace
   test_patch_signal_record
   test_patch_signal_only_if_missing
   test_execute_script

@@ -583,6 +583,7 @@ use http-nu/html *
 to dstar-patch-element [
   --selector: string           # CSS selector (omit if element has ID)
   --mode: string               # outer, inner, replace, prepend, append, before, after, remove (default: outer)
+  --namespace: string          # Content namespace: html (default) or svg
   --use_view_transition        # Enable CSS View Transitions API
   --id: string                 # SSE event ID for replay
   --retry: int                 # Reconnection delay in ms
