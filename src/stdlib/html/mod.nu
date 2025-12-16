@@ -10,7 +10,7 @@ export def attrs-to-string []: record -> string {
 }
 
 # Render a tag with optional attributes and children
-def render-tag [tag: string arg1?: any arg2?: any]: nothing -> string {
+export def render-tag [tag: string arg1?: any arg2?: any]: nothing -> string {
   let type1 = ($arg1 | describe -d | get type)
   let attrs = if $type1 == 'record' { $arg1 } else { {} }
   let content = if $type1 == 'record' { $arg2 } else { $arg1 }
@@ -31,7 +31,7 @@ def render-tag [tag: string arg1?: any arg2?: any]: nothing -> string {
 }
 
 # Render a void tag (no children allowed per HTML spec)
-def render-void-tag [tag: string attrs?: record]: nothing -> string {
+export def render-void-tag [tag: string attrs?: record]: nothing -> string {
   let attrs_str = ($attrs | default {}) | attrs-to-string
   $"<($tag)($attrs_str)>"
 }

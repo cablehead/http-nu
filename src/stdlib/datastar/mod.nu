@@ -72,9 +72,10 @@ export def "to dstar-execute-script" [
 }
 
 # Parse signals from request (GET query `datastar` param or POST body JSON)
-export def "from datastar-request" []: record -> record {
-  match $in.method {
-    "POST" => (try { $in.body | from json } catch { {} })
-    _ => (try { $in.query.datastar? | default "{}" | from json } catch { {} })
+# Usage: $in | from datastar-request $req
+export def "from datastar-request" [req: record]: string -> record {
+  match $req.method {
+    "POST" => (try { $in | from json } catch { {} })
+    _ => (try { $req.query.datastar? | default "{}" | from json } catch { {} })
   }
 }

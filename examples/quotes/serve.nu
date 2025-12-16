@@ -1,5 +1,3 @@
-#!/usr/bin/env nu
-
 use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *

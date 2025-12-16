@@ -151,19 +151,17 @@ def test_from_datastar_request_query [] {
     query: {datastar: '{"count":42,"active":true}'}
   }
 
-  let signals = $req | from datastar-request
+  let signals = "" | from datastar-request $req
   assert equal $signals.count 42
   assert equal $signals.active true
 }
 
 # Test from datastar-request with POST body
 def test_from_datastar_request_post [] {
-  let req = {
-    method: "POST"
-    body: '{"username":"alice","score":100}'
-  }
+  let req = {method: "POST"}
+  let body = '{"username":"alice","score":100}'
 
-  let signals = $req | from datastar-request
+  let signals = $body | from datastar-request $req
   assert equal $signals.username "alice"
   assert equal $signals.score 100
 }
@@ -175,7 +173,7 @@ def test_from_datastar_request_empty [] {
     query: {}
   }
 
-  let signals = $req | from datastar-request
+  let signals = "" | from datastar-request $req
   assert equal $signals {}
 }
 

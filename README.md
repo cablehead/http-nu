@@ -569,7 +569,7 @@ use http-nu/html *
 
 {|req|
   # Parse signals from request (GET query param or POST body)
-  let signals = $req | from datastar-request
+  let signals = $in | from datastar-request $req
 
   [
     # Update DOM
@@ -615,7 +615,7 @@ to dstar-execute-script [
   --retry: int
 ]: string -> record
 
-from datastar-request []: record -> record  # Parse signals from GET ?datastar= or POST body
+from datastar-request [req: record]: string -> record  # $in | from datastar-request $req
 ```
 
 ## Building and Releases
