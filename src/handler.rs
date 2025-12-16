@@ -329,6 +329,18 @@ async fn build_normal_response(
         );
     }
 
+    // Add SSE-required headers for event streams
+    if content_type == "text/event-stream" {
+        header_map.insert(
+            hyper::header::CACHE_CONTROL,
+            hyper::header::HeaderValue::from_static("no-cache"),
+        );
+        header_map.insert(
+            hyper::header::CONNECTION,
+            hyper::header::HeaderValue::from_static("keep-alive"),
+        );
+    }
+
     for (k, v) in &meta.headers {
         if k.to_lowercase() != "content-type" {
             let header_name = hyper::header::HeaderName::from_bytes(k.as_bytes())?;

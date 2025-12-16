@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Live Quotes</title>
+  <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.6/bundles/datastar.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      background: #faf9f7;
+      display: grid;
+      place-items: center;
+    }
+    #quote {
+      max-width: 600px;
+      padding: 0 2rem;
+    }
+    #quote::before {
+      content: "";
+      display: block;
+      width: 50px;
+      height: 3px;
+      background: #c41e3a;
+      margin-bottom: 2.5rem;
+    }
+    .text {
+      font-size: 1.75rem;
+      font-style: italic;
+      color: #121212;
+      line-height: 1.5;
+      letter-spacing: -0.01em;
+      text-align: center;
+    }
+    .who {
+      margin-top: 2rem;
+      font-size: 0.9rem;
+      font-style: normal;
+      color: #666;
+      letter-spacing: 0.02em;
+      text-align: right;
+    }
+  </style>
+</head>
+<body data-init="@get('/stream')">
+  <div id="quote">
+    <p class="text">"Waiting for quotes..."</p>
+  </div>
+</body>
+</html>

@@ -848,6 +848,172 @@ async fn test_sse_brotli_compression_streams_immediately() {
 }
 
 #[tokio::test]
+async fn test_to_sse_command() {
+    // Test that `to sse` properly formats records with id, event, data, retry fields
+    // and auto-sets the correct headers
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            [
+                {id: "1", event: "greeting", data: "hello"}
+                {id: "2", event: "update", data: "world", retry: 5000}
+                {data: {count: 42}}
+            ] | to sse
+        }"#,
+        false,
+    )
+    .await;
+
+    // Use curl with -i to get headers
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg("-i")
+        .arg(format!("http://{}", server.address))
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // Check headers
+    assert!(
+        response.contains("content-type: text/event-stream"),
+        "Missing content-type header"
+    );
+    assert!(
+        response.contains("cache-control: no-cache"),
+        "Missing cache-control header"
+    );
+    assert!(
+        response.contains("connection: keep-alive"),
+        "Missing connection header"
+    );
+
+    // Check SSE event formatting
+    assert!(response.contains("id: 1"), "Missing id: 1");
+    assert!(
+        response.contains("event: greeting"),
+        "Missing event: greeting"
+    );
+    assert!(response.contains("data: hello"), "Missing data: hello");
+
+    assert!(response.contains("id: 2"), "Missing id: 2");
+    assert!(response.contains("event: update"), "Missing event: update");
+    assert!(response.contains("data: world"), "Missing data: world");
+    assert!(response.contains("retry: 5000"), "Missing retry: 5000");
+
+    // Check JSON serialization of record data
+    assert!(
+        response.contains(r#"data: {"count":42}"#),
+        "Missing JSON data"
+    );
+}
+
+#[tokio::test]
+async fn test_to_sse_ignores_null_fields() {
+    // Test that `to sse` ignores null values for optional fields
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            [
+                {event: "test", data: "hello", id: null, retry: null}
+                {event: "with-id", data: "world", id: "123", retry: null}
+                {event: "with-retry", data: "foo", id: null, retry: 5000}
+            ] | to sse
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("http://{}", server.address))
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // First event: no id or retry lines
+    assert!(response.contains("event: test"), "Missing event: test");
+    assert!(response.contains("data: hello"), "Missing data: hello");
+
+    // Second event: has id, no retry
+    assert!(response.contains("id: 123"), "Missing id: 123");
+    assert!(
+        response.contains("event: with-id"),
+        "Missing event: with-id"
+    );
+
+    // Third event: has retry, no id
+    assert!(response.contains("retry: 5000"), "Missing retry: 5000");
+    assert!(
+        response.contains("event: with-retry"),
+        "Missing event: with-retry"
+    );
+
+    // Should not contain empty id/retry lines or "null"
+    assert!(!response.contains("id: \n"), "Should not contain empty id");
+    assert!(
+        !response.contains("retry: \n"),
+        "Should not contain empty retry"
+    );
+    assert!(
+        !response.contains("id: null"),
+        "Should not contain id: null"
+    );
+    assert!(
+        !response.contains("retry: null"),
+        "Should not contain retry: null"
+    );
+}
+
+#[tokio::test]
+async fn test_to_sse_data_list() {
+    // Test that `to sse` handles data as a list of items
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            [
+                {event: "test", data: ["line1", "line2", "line3"]}
+                {event: "embedded", data: ["first", "has\nnewline", "last"]}
+                {event: "mixed", data: ["string", {num: 42}, "another"]}
+            ] | to sse
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("http://{}", server.address))
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // List items become separate data lines
+    assert!(response.contains("data: line1"), "Missing data: line1");
+    assert!(response.contains("data: line2"), "Missing data: line2");
+    assert!(response.contains("data: line3"), "Missing data: line3");
+
+    // Embedded newlines get split into separate data lines
+    assert!(response.contains("data: first"), "Missing data: first");
+    assert!(response.contains("data: has"), "Missing data: has");
+    assert!(response.contains("data: newline"), "Missing data: newline");
+    assert!(response.contains("data: last"), "Missing data: last");
+
+    // Non-string items get JSON serialized
+    assert!(response.contains("data: string"), "Missing data: string");
+    assert!(
+        response.contains(r#"data: {"num":42}"#),
+        "Missing JSON data in list"
+    );
+    assert!(response.contains("data: another"), "Missing data: another");
+}
+
+#[tokio::test]
 async fn test_dynamic_script_reload() {
     // Spawn server process - it will wait for a valid script
     let (child, mut stdin, addr_rx) = TestServerWithStdin::spawn("127.0.0.1:0", false);

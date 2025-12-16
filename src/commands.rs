@@ -216,7 +216,10 @@ impl Command for ToSse {
 
     fn signature(&self) -> Signature {
         Signature::build("to sse")
-            .input_output_types(vec![(Type::record(), Type::String)])
+            .input_output_types(vec![
+                (Type::record(), Type::String),
+                (Type::List(Box::new(Type::record())), Type::String),
+            ])
             .category(Category::Formats)
     }
 
@@ -291,6 +294,38 @@ impl Command for ToSse {
     }
 }
 
+fn emit_data_lines(out: &mut String, s: &str) {
+    for line in s.lines() {
+        out.push_str("data: ");
+        out.push_str(line);
+        out.push_str(LINE_ENDING);
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn value_to_data_string(val: &Value, config: &Config) -> Result<String, ShellError> {
+    match val {
+        Value::String { val, .. } => Ok(val.clone()),
+        _ => {
+            let json_value =
+                value_to_json(val, config).map_err(|err| ShellError::GenericError {
+                    error: err.to_string(),
+                    msg: "failed to serialize json".into(),
+                    span: Some(Span::unknown()),
+                    help: None,
+                    inner: vec![],
+                })?;
+            serde_json::to_string(&json_value).map_err(|err| ShellError::GenericError {
+                error: err.to_string(),
+                msg: "failed to serialize json".into(),
+                span: Some(Span::unknown()),
+                help: None,
+                inner: vec![],
+            })
+        }
+    }
+}
+
 #[allow(clippy::result_large_err)]
 fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
     let span = val.span();
@@ -305,40 +340,38 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
     };
     let mut out = String::new();
     if let Some(id) = rec.get("id") {
-        out.push_str("id: ");
-        out.push_str(&id.to_expanded_string("", config));
-        out.push_str(LINE_ENDING);
+        if !matches!(id, Value::Nothing { .. }) {
+            out.push_str("id: ");
+            out.push_str(&id.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
+    }
+    if let Some(retry) = rec.get("retry") {
+        if !matches!(retry, Value::Nothing { .. }) {
+            out.push_str("retry: ");
+            out.push_str(&retry.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
     }
     if let Some(event) = rec.get("event") {
-        out.push_str("event: ");
-        out.push_str(&event.to_expanded_string("", config));
-        out.push_str(LINE_ENDING);
+        if !matches!(event, Value::Nothing { .. }) {
+            out.push_str("event: ");
+            out.push_str(&event.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
     }
     if let Some(data) = rec.get("data") {
-        let data_str = match data {
-            Value::String { val, .. } => val.clone(),
-            _ => {
-                let json_value =
-                    value_to_json(data, config).map_err(|err| ShellError::GenericError {
-                        error: err.to_string(),
-                        msg: "failed to serialize json".into(),
-                        span: Some(Span::unknown()),
-                        help: None,
-                        inner: vec![],
-                    })?;
-                serde_json::to_string(&json_value).map_err(|err| ShellError::GenericError {
-                    error: err.to_string(),
-                    msg: "failed to serialize json".into(),
-                    span: Some(Span::unknown()),
-                    help: None,
-                    inner: vec![],
-                })?
+        if !matches!(data, Value::Nothing { .. }) {
+            match data {
+                Value::List { vals, .. } => {
+                    for item in vals {
+                        emit_data_lines(&mut out, &value_to_data_string(item, config)?);
+                    }
+                }
+                _ => {
+                    emit_data_lines(&mut out, &value_to_data_string(data, config)?);
+                }
             }
-        };
-        for line in data_str.lines() {
-            out.push_str("data: ");
-            out.push_str(line);
-            out.push_str(LINE_ENDING);
         }
     }
     out.push_str(LINE_ENDING);

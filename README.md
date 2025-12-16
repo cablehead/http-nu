@@ -30,6 +30,7 @@ server that fits in your back pocket.
   - [Templates](#templates)
   - [Routing](#routing)
   - [HTML DSL](#html-dsl)
+  - [Datastar](#datastar)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -283,14 +284,16 @@ Fri, 31 Jan 2025 03:48:03 -0500 (now)
 ### [server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
 
 Use the `to sse` command to format records for the `text/event-stream` protocol.
-Each input record may contain the optional fields `data`, `id`, and `event`
-which will be emitted in the resulting stream.
+Each input record may contain the optional fields `data`, `id`, `event`, and
+`retry` which will be emitted in the resulting stream.
 
 #### `to sse`
 
-Converts `{data? id? event?}` records into SSE strings. String values are used
-as-is while other values are serialized to compact JSON. Each event ends with an
-empty line.
+Converts `{data? id? event? retry?}` records into SSE format. Non-string `data`
+values are serialized to JSON.
+
+Auto-sets response headers: `content-type: text/event-stream`,
+`cache-control: no-cache`, `connection: keep-alive`.
 
 | input  | output |
 | ------ | ------ |
@@ -538,6 +541,69 @@ use http-nu/html *
 
 All HTML5 elements with `h-` prefix. Pipe siblings. Attributes via record,
 children via closure or string. Returns string directly.
+
+### Datastar
+
+Generate [Datastar](https://data-star.dev) SSE events for hypermedia
+interactions. Follows the
+[SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md).
+
+Commands return records that pipe to `to sse` for streaming output.
+
+```nushell
+use http-nu/datastar *
+use http-nu/html *
+
+{|req|
+  # Parse signals from request (GET query param or POST body)
+  let signals = $req | from datastar-request
+
+  [
+    # Update DOM
+    (h-div {id: "notifications" class: "alert"} "Profile updated!"
+    | to dstar-patch-element)
+
+    # Or target by selector
+    (h-div {class: "alert"} "Profile updated!"
+    | to dstar-patch-element --selector "#notifications")
+
+    # Update signals
+    ({count: ($signals.count + 1)} | to dstar-patch-signal)
+
+    # Execute script
+    ("console.log('updated')" | to dstar-execute-script)
+  ]
+  | to sse
+}
+```
+
+**Commands:**
+
+```nushell
+to dstar-patch-element [
+  --selector: string           # CSS selector (omit if element has ID)
+  --mode: string               # outer, inner, replace, prepend, append, before, after, remove (default: outer)
+  --namespace: string          # Content namespace: html (default) or svg
+  --use_view_transition        # Enable CSS View Transitions API
+  --id: string                 # SSE event ID for replay
+  --retry: int                 # Reconnection delay in ms
+]: string -> record
+
+to dstar-patch-signal [
+  --only_if_missing            # Only set signals not present on client
+  --id: string
+  --retry: int
+]: record -> record
+
+to dstar-execute-script [
+  --auto_remove: bool          # Remove <script> after execution (default: true)
+  --attributes: record         # HTML attributes for <script> tag
+  --id: string
+  --retry: int
+]: string -> record
+
+from datastar-request []: record -> record  # Parse signals from GET ?datastar= or POST body
+```
 
 ## Building and Releases
 
