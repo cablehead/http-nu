@@ -12,7 +12,13 @@ def "to sse" []: record -> string {
   if ($rec.retry? != null) { $out = $out + $"retry: ($rec.retry)\n" }
   if ($rec.event? != null) { $out = $out + $"event: ($rec.event)\n" }
   if ($rec.data? != null) {
-    for line in ($rec.data | lines) { $out = $out + $"data: ($line)\n" }
+    let data = $rec.data
+    let lines = if ($data | describe | str starts-with "list") {
+      $data | each { $in | to text | lines } | flatten
+    } else {
+      $data | lines
+    }
+    for line in $lines { $out = $out + $"data: ($line)\n" }
   }
   $out + "\n"
 }
@@ -22,8 +28,8 @@ def test_patch_element_record [] {
   let result = "<div>test</div>" | to dstar-patch-element --selector "#target"
 
   assert equal $result.event "datastar-patch-elements"
-  assert ($result.data | str contains "selector #target")
-  assert ($result.data | str contains "elements <div>test</div>")
+  assert ("selector #target" in $result.data)
+  assert ("elements <div>test</div>" in $result.data)
 }
 
 # Test patch-element with element by ID (no selector)
@@ -32,35 +38,35 @@ def test_patch_element_by_id [] {
   let result = $html | to dstar-patch-element
 
   assert equal $result.event "datastar-patch-elements"
-  assert ($result.data | str contains "elements <div id=\"main\">Updated content</div>")
+  assert ("elements <div id=\"main\">Updated content</div>" in $result.data)
   # Default mode is outer, so it should not appear in data
-  assert (not ($result.data | str contains "mode"))
+  assert (not ($result.data | any { $in | str starts-with "mode" }))
 }
 
 # Test patch-element with different merge modes
 def test_patch_element_modes [] {
   let prepend = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode prepend
-  assert ($prepend.data | str contains "mode prepend")
+  assert ("mode prepend" in $prepend.data)
 
   let append = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode append
-  assert ($append.data | str contains "mode append")
+  assert ("mode append" in $append.data)
 
   let before = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode before
-  assert ($before.data | str contains "mode before")
+  assert ("mode before" in $before.data)
 
   let after = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode after
-  assert ($after.data | str contains "mode after")
+  assert ("mode after" in $after.data)
 
   let remove = "" | to dstar-patch-element --selector "#target" --mode remove
-  assert ($remove.data | str contains "mode remove")
-  assert ($remove.data | str contains "selector #target")
+  assert ("mode remove" in $remove.data)
+  assert ("selector #target" in $remove.data)
 }
 
 # Test patch-element with view transition
 def test_patch_element_transition [] {
   let result = "<div>content</div>" | to dstar-patch-element --selector "#target" --use_view_transition
 
-  assert ($result.data | str contains "useViewTransition true")
+  assert ("useViewTransition true" in $result.data)
 }
 
 # Test patch-signal with record input
@@ -69,16 +75,16 @@ def test_patch_signal_record [] {
   let result = $signals | to dstar-patch-signal
 
   assert equal $result.event "datastar-patch-signals"
-  assert ($result.data | str contains "signals")
-  assert ($result.data | str contains '"count":42')
-  assert ($result.data | str contains '"name":"Alice"')
+  assert ($result.data | any { str starts-with "signals" })
+  assert ($result.data | any { str contains '"count":42' })
+  assert ($result.data | any { str contains '"name":"Alice"' })
 }
 
 # Test patch-signal with only-if-missing flag
 def test_patch_signal_only_if_missing [] {
   let result = {count: 5} | to dstar-patch-signal --only_if_missing
 
-  assert ($result.data | str contains "onlyIfMissing true")
+  assert ("onlyIfMissing true" in $result.data)
 }
 
 # Test execute-script
@@ -88,28 +94,28 @@ def test_execute_script [] {
 
   # ExecuteScript uses patch-elements event
   assert equal $result.event "datastar-patch-elements"
-  assert ($result.data | str contains "selector body")
-  assert ($result.data | str contains "mode append")
-  assert ($result.data | str contains "<script")
-  assert ($result.data | str contains "console.log")
+  assert ("selector body" in $result.data)
+  assert ("mode append" in $result.data)
+  assert ($result.data | any { str contains "<script" })
+  assert ($result.data | any { str contains "console.log" })
   # Default auto_remove is true
-  assert ($result.data | str contains 'data-effect="el.remove()"')
+  assert ($result.data | any { str contains 'data-effect="el.remove()"' })
 }
 
 # Test execute-script without auto-remove
 def test_execute_script_no_auto_remove [] {
   let result = "alert('test')" | to dstar-execute-script --auto_remove false
 
-  assert ($result.data | str contains "<script>alert('test')</script>")
-  assert (not ($result.data | str contains "data-effect"))
+  assert ($result.data | any { str contains "<script>alert('test')</script>" })
+  assert (not ($result.data | any { str contains "data-effect" }))
 }
 
 # Test execute-script with attributes
 def test_execute_script_attributes [] {
   let result = "doThing()" | to dstar-execute-script --attributes {type: "module"}
 
-  assert ($result.data | str contains 'type="module"')
-  assert ($result.data | str contains "doThing()")
+  assert ($result.data | any { str contains 'type="module"' })
+  assert ($result.data | any { str contains "doThing()" })
 }
 
 # Test SSE id field

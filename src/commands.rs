@@ -294,6 +294,38 @@ impl Command for ToSse {
     }
 }
 
+fn emit_data_lines(out: &mut String, s: &str) {
+    for line in s.lines() {
+        out.push_str("data: ");
+        out.push_str(line);
+        out.push_str(LINE_ENDING);
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn value_to_data_string(val: &Value, config: &Config) -> Result<String, ShellError> {
+    match val {
+        Value::String { val, .. } => Ok(val.clone()),
+        _ => {
+            let json_value =
+                value_to_json(val, config).map_err(|err| ShellError::GenericError {
+                    error: err.to_string(),
+                    msg: "failed to serialize json".into(),
+                    span: Some(Span::unknown()),
+                    help: None,
+                    inner: vec![],
+                })?;
+            serde_json::to_string(&json_value).map_err(|err| ShellError::GenericError {
+                error: err.to_string(),
+                msg: "failed to serialize json".into(),
+                span: Some(Span::unknown()),
+                help: None,
+                inner: vec![],
+            })
+        }
+    }
+}
+
 #[allow(clippy::result_large_err)]
 fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
     let span = val.span();
@@ -323,30 +355,15 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
         out.push_str(LINE_ENDING);
     }
     if let Some(data) = rec.get("data") {
-        let data_str = match data {
-            Value::String { val, .. } => val.clone(),
-            _ => {
-                let json_value =
-                    value_to_json(data, config).map_err(|err| ShellError::GenericError {
-                        error: err.to_string(),
-                        msg: "failed to serialize json".into(),
-                        span: Some(Span::unknown()),
-                        help: None,
-                        inner: vec![],
-                    })?;
-                serde_json::to_string(&json_value).map_err(|err| ShellError::GenericError {
-                    error: err.to_string(),
-                    msg: "failed to serialize json".into(),
-                    span: Some(Span::unknown()),
-                    help: None,
-                    inner: vec![],
-                })?
+        match data {
+            Value::List { vals, .. } => {
+                for item in vals {
+                    emit_data_lines(&mut out, &value_to_data_string(item, config)?);
+                }
             }
-        };
-        for line in data_str.lines() {
-            out.push_str("data: ");
-            out.push_str(line);
-            out.push_str(LINE_ENDING);
+            _ => {
+                emit_data_lines(&mut out, &value_to_data_string(data, config)?);
+            }
         }
     }
     out.push_str(LINE_ENDING);

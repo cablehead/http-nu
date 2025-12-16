@@ -29,7 +29,7 @@ export def "to dstar-patch-element" [
     ...($elements | lines | each { $"elements ($in)" })
   ] | compact
 
-  {event: "datastar-patch-elements", data: ($data_lines | str join "\n")}
+  {event: "datastar-patch-elements", data: $data_lines}
   | conditional-pipe ($id != null) { insert id $id }
   | conditional-pipe ($retry != null) { insert retry $retry }
 }
@@ -47,7 +47,7 @@ export def "to dstar-patch-signal" [
     ...($in | to json --raw | lines | each { $"signals ($in)" })
   ] | compact
 
-  {event: "datastar-patch-signals", data: ($data_lines | str join "\n")}
+  {event: "datastar-patch-signals", data: $data_lines}
   | conditional-pipe ($id != null) { insert id $id }
   | conditional-pipe ($retry != null) { insert retry $retry }
 }
@@ -77,7 +77,7 @@ export def "to dstar-execute-script" [
     ...($script_tag | lines | each { $"elements ($in)" })
   ]
 
-  {event: "datastar-patch-elements", data: ($data_lines | str join "\n")}
+  {event: "datastar-patch-elements", data: $data_lines}
   | conditional-pipe ($id != null) { insert id $id }
   | conditional-pipe ($retry != null) { insert retry $retry }
 }

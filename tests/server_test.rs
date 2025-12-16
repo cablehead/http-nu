@@ -910,6 +910,51 @@ async fn test_to_sse_command() {
 }
 
 #[tokio::test]
+async fn test_to_sse_data_list() {
+    // Test that `to sse` handles data as a list of items
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            [
+                {event: "test", data: ["line1", "line2", "line3"]}
+                {event: "embedded", data: ["first", "has\nnewline", "last"]}
+                {event: "mixed", data: ["string", {num: 42}, "another"]}
+            ] | to sse
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("http://{}", server.address))
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // List items become separate data lines
+    assert!(response.contains("data: line1"), "Missing data: line1");
+    assert!(response.contains("data: line2"), "Missing data: line2");
+    assert!(response.contains("data: line3"), "Missing data: line3");
+
+    // Embedded newlines get split into separate data lines
+    assert!(response.contains("data: first"), "Missing data: first");
+    assert!(response.contains("data: has"), "Missing data: has");
+    assert!(response.contains("data: newline"), "Missing data: newline");
+    assert!(response.contains("data: last"), "Missing data: last");
+
+    // Non-string items get JSON serialized
+    assert!(response.contains("data: string"), "Missing data: string");
+    assert!(
+        response.contains(r#"data: {"num":42}"#),
+        "Missing JSON data in list"
+    );
+    assert!(response.contains("data: another"), "Missing data: another");
+}
+
+#[tokio::test]
 async fn test_dynamic_script_reload() {
     // Spawn server process - it will wait for a valid script
     let (child, mut stdin, addr_rx) = TestServerWithStdin::spawn("127.0.0.1:0", false);
