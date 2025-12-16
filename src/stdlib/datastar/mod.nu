@@ -4,11 +4,6 @@
 # Pipe output to `to sse` for streaming.
 # Follows https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 
-# Conditionally apply a transform to pipeline input
-def conditional-pipe [condition: bool, action: closure] {
-  if $condition { do $action } else { $in }
-}
-
 # Patch HTML elements via SSE
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
@@ -20,18 +15,14 @@ export def "to dstar-patch-element" [
   --id: string # SSE event ID
   --retry: int # Retry interval in milliseconds
 ]: string -> record {
-  let elements = $in
-
-  let data_lines = [
+  let data = [
     (if $selector != null { $"selector ($selector)" })
     (if $mode != "outer" { $"mode ($mode)" })
     (if $use_view_transition { "useViewTransition true" })
-    ...($elements | lines | each { $"elements ($in)" })
+    ...($in | lines | each { $"elements ($in)" })
   ] | compact
 
-  {event: "datastar-patch-elements", data: $data_lines}
-  | conditional-pipe ($id != null) { insert id $id }
-  | conditional-pipe ($retry != null) { insert retry $retry }
+  {event: "datastar-patch-elements", data: $data, id: $id, retry: $retry}
 }
 
 # Patch signals via SSE (JSON Merge Patch RFC 7386)
@@ -42,14 +33,12 @@ export def "to dstar-patch-signal" [
   --id: string # SSE event ID
   --retry: int # Retry interval in milliseconds
 ]: record -> record {
-  let data_lines = [
+  let data = [
     (if $only_if_missing { "onlyIfMissing true" })
     ...($in | to json --raw | lines | each { $"signals ($in)" })
   ] | compact
 
-  {event: "datastar-patch-signals", data: $data_lines}
-  | conditional-pipe ($id != null) { insert id $id }
-  | conditional-pipe ($retry != null) { insert retry $retry }
+  {event: "datastar-patch-signals", data: $data, id: $id, retry: $retry}
 }
 
 # Execute JavaScript via SSE (appends <script> to body)
@@ -71,15 +60,13 @@ export def "to dstar-execute-script" [
   let attrs_str = $attrs | str join " " | if ($in | is-empty) { "" } else { $" ($in)" }
   let script_tag = $"<script($attrs_str)>($script)</script>"
 
-  let data_lines = [
+  let data = [
     "selector body"
     "mode append"
     ...($script_tag | lines | each { $"elements ($in)" })
   ]
 
-  {event: "datastar-patch-elements", data: $data_lines}
-  | conditional-pipe ($id != null) { insert id $id }
-  | conditional-pipe ($retry != null) { insert retry $retry }
+  {event: "datastar-patch-elements", data: $data, id: $id, retry: $retry}
 }
 
 # Parse signals from request (GET query `datastar` param or POST body JSON)

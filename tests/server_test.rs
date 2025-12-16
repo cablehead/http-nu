@@ -910,6 +910,65 @@ async fn test_to_sse_command() {
 }
 
 #[tokio::test]
+async fn test_to_sse_ignores_null_fields() {
+    // Test that `to sse` ignores null values for optional fields
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req|
+            [
+                {event: "test", data: "hello", id: null, retry: null}
+                {event: "with-id", data: "world", id: "123", retry: null}
+                {event: "with-retry", data: "foo", id: null, retry: 5000}
+            ] | to sse
+        }"#,
+        false,
+    )
+    .await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("http://{}", server.address))
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    // First event: no id or retry lines
+    assert!(response.contains("event: test"), "Missing event: test");
+    assert!(response.contains("data: hello"), "Missing data: hello");
+
+    // Second event: has id, no retry
+    assert!(response.contains("id: 123"), "Missing id: 123");
+    assert!(
+        response.contains("event: with-id"),
+        "Missing event: with-id"
+    );
+
+    // Third event: has retry, no id
+    assert!(response.contains("retry: 5000"), "Missing retry: 5000");
+    assert!(
+        response.contains("event: with-retry"),
+        "Missing event: with-retry"
+    );
+
+    // Should not contain empty id/retry lines or "null"
+    assert!(!response.contains("id: \n"), "Should not contain empty id");
+    assert!(
+        !response.contains("retry: \n"),
+        "Should not contain empty retry"
+    );
+    assert!(
+        !response.contains("id: null"),
+        "Should not contain id: null"
+    );
+    assert!(
+        !response.contains("retry: null"),
+        "Should not contain retry: null"
+    );
+}
+
+#[tokio::test]
 async fn test_to_sse_data_list() {
     // Test that `to sse` handles data as a list of items
     let server = TestServer::new(

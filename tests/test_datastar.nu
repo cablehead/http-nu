@@ -5,13 +5,14 @@ use std/assert
 use ../src/stdlib/datastar/mod.nu *
 
 # Stub for `to sse` (actual implementation is in http-nu Rust code)
+# Skips null values for id, retry, event, data fields
 def "to sse" []: record -> string {
   let rec = $in
   mut out = ""
-  if ($rec.id? != null) { $out = $out + $"id: ($rec.id)\n" }
-  if ($rec.retry? != null) { $out = $out + $"retry: ($rec.retry)\n" }
-  if ($rec.event? != null) { $out = $out + $"event: ($rec.event)\n" }
-  if ($rec.data? != null) {
+  if ($rec.id? | is-not-empty) { $out = $out + $"id: ($rec.id)\n" }
+  if ($rec.retry? | is-not-empty) { $out = $out + $"retry: ($rec.retry)\n" }
+  if ($rec.event? | is-not-empty) { $out = $out + $"event: ($rec.event)\n" }
+  if ($rec.data? | is-not-empty) {
     let data = $rec.data
     let lines = if ($data | describe | str starts-with "list") {
       $data | each { $in | to text | lines } | flatten

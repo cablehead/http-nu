@@ -340,29 +340,37 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
     };
     let mut out = String::new();
     if let Some(id) = rec.get("id") {
-        out.push_str("id: ");
-        out.push_str(&id.to_expanded_string("", config));
-        out.push_str(LINE_ENDING);
+        if !matches!(id, Value::Nothing { .. }) {
+            out.push_str("id: ");
+            out.push_str(&id.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
     }
     if let Some(retry) = rec.get("retry") {
-        out.push_str("retry: ");
-        out.push_str(&retry.to_expanded_string("", config));
-        out.push_str(LINE_ENDING);
+        if !matches!(retry, Value::Nothing { .. }) {
+            out.push_str("retry: ");
+            out.push_str(&retry.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
     }
     if let Some(event) = rec.get("event") {
-        out.push_str("event: ");
-        out.push_str(&event.to_expanded_string("", config));
-        out.push_str(LINE_ENDING);
+        if !matches!(event, Value::Nothing { .. }) {
+            out.push_str("event: ");
+            out.push_str(&event.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
     }
     if let Some(data) = rec.get("data") {
-        match data {
-            Value::List { vals, .. } => {
-                for item in vals {
-                    emit_data_lines(&mut out, &value_to_data_string(item, config)?);
+        if !matches!(data, Value::Nothing { .. }) {
+            match data {
+                Value::List { vals, .. } => {
+                    for item in vals {
+                        emit_data_lines(&mut out, &value_to_data_string(item, config)?);
+                    }
                 }
-            }
-            _ => {
-                emit_data_lines(&mut out, &value_to_data_string(data, config)?);
+                _ => {
+                    emit_data_lines(&mut out, &value_to_data_string(data, config)?);
+                }
             }
         }
     }
