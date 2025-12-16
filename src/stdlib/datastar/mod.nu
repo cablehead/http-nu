@@ -4,6 +4,11 @@
 # Pipe output to `to sse` for streaming.
 # Follows https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 
+# Conditionally apply a transform to pipeline input
+def conditional-pipe [condition: bool, action: closure] {
+  if $condition { do $action } else { $in }
+}
+
 # Patch HTML elements via SSE
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
@@ -17,18 +22,16 @@ export def "to dstar-patch-element" [
 ]: string -> record {
   let elements = $in
 
-  mut data_lines = []
-  if ($selector != null) { $data_lines = ($data_lines | append $"selector ($selector)") }
-  if $mode != "outer" { $data_lines = ($data_lines | append $"mode ($mode)") }
-  if $use_view_transition { $data_lines = ($data_lines | append "useViewTransition true") }
-  if ($elements | str length) > 0 {
-    for line in ($elements | lines) { $data_lines = ($data_lines | append $"elements ($line)") }
-  }
+  let data_lines = [
+    (if $selector != null { $"selector ($selector)" })
+    (if $mode != "outer" { $"mode ($mode)" })
+    (if $use_view_transition { "useViewTransition true" })
+    ...($elements | lines | each { $"elements ($in)" })
+  ] | compact
 
-  mut rec = {event: "datastar-patch-elements", data: ($data_lines | str join "\n")}
-  if ($id != null) { $rec = ($rec | insert id $id) }
-  if ($retry != null) { $rec = ($rec | insert retry $retry) }
-  $rec
+  {event: "datastar-patch-elements", data: ($data_lines | str join "\n")}
+  | conditional-pipe ($id != null) { insert id $id }
+  | conditional-pipe ($retry != null) { insert retry $retry }
 }
 
 # Patch signals via SSE (JSON Merge Patch RFC 7386)
@@ -39,17 +42,14 @@ export def "to dstar-patch-signal" [
   --id: string # SSE event ID
   --retry: int # Retry interval in milliseconds
 ]: record -> record {
-  let signals = $in
+  let data_lines = [
+    (if $only_if_missing { "onlyIfMissing true" })
+    ...($in | to json --raw | lines | each { $"signals ($in)" })
+  ] | compact
 
-  mut data_lines = []
-  if $only_if_missing { $data_lines = ($data_lines | append "onlyIfMissing true") }
-  let json_str = $signals | to json --raw
-  for line in ($json_str | lines) { $data_lines = ($data_lines | append $"signals ($line)") }
-
-  mut rec = {event: "datastar-patch-signals", data: ($data_lines | str join "\n")}
-  if ($id != null) { $rec = ($rec | insert id $id) }
-  if ($retry != null) { $rec = ($rec | insert retry $retry) }
-  $rec
+  {event: "datastar-patch-signals", data: ($data_lines | str join "\n")}
+  | conditional-pipe ($id != null) { insert id $id }
+  | conditional-pipe ($retry != null) { insert retry $retry }
 }
 
 # Execute JavaScript via SSE (appends <script> to body)
@@ -63,33 +63,29 @@ export def "to dstar-execute-script" [
 ]: string -> record {
   let script = $in
 
-  mut attrs = []
-  if ($auto_remove != false) { $attrs = ($attrs | append 'data-effect="el.remove()"') }
-  if ($attributes != null) {
-    for attr_name in ($attributes | columns) {
-      let attr_value = $attributes | get $attr_name
-      $attrs = ($attrs | append $'($attr_name)="($attr_value)"')
-    }
-  }
+  let attrs = [
+    (if $auto_remove != false { 'data-effect="el.remove()"' })
+    ...($attributes | default {} | transpose k v | each { $'($in.k)="($in.v)"' })
+  ] | compact
 
-  let attrs_str = if ($attrs | length) > 0 { " " + ($attrs | str join " ") } else { "" }
+  let attrs_str = $attrs | str join " " | if ($in | is-empty) { "" } else { $" ($in)" }
   let script_tag = $"<script($attrs_str)>($script)</script>"
 
-  mut data_lines = ["selector body", "mode append"]
-  for line in ($script_tag | lines) { $data_lines = ($data_lines | append $"elements ($line)") }
+  let data_lines = [
+    "selector body"
+    "mode append"
+    ...($script_tag | lines | each { $"elements ($in)" })
+  ]
 
-  mut rec = {event: "datastar-patch-elements", data: ($data_lines | str join "\n")}
-  if ($id != null) { $rec = ($rec | insert id $id) }
-  if ($retry != null) { $rec = ($rec | insert retry $retry) }
-  $rec
+  {event: "datastar-patch-elements", data: ($data_lines | str join "\n")}
+  | conditional-pipe ($id != null) { insert id $id }
+  | conditional-pipe ($retry != null) { insert retry $retry }
 }
 
 # Parse signals from request (GET query `datastar` param or POST body JSON)
 export def "from datastar-request" []: record -> record {
-  let request = $in
-  if $request.method == "POST" {
-    try { $request.body | from json } catch { {} }
-  } else {
-    try { $request.query | get --optional datastar | default "{}" | from json } catch { {} }
+  match $in.method {
+    "POST" => (try { $in.body | from json } catch { {} }),
+    _ => (try { $in.query.datastar? | default "{}" | from json } catch { {} })
   }
 }
