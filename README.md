@@ -550,23 +550,18 @@ use http-nu/html *
 {|req|
   _html {
     _head { _title "Demo" }
-    | append (_body {
+    | +body {
       _h1 "Hello"
-      | append (_p {class: "intro"} "Built with Nushell")
-      | append (_ul { [(_li "one") (_li "two")] })
-    })
+      | +p {class: "intro"} "Built with Nushell"
+      | +ul { 1..3 | each {|n| _li $"Item ($n)" } }
+    }
   }
 }
 ```
 
-All HTML5 elements with `_` prefix. Use `append` for siblings. Attributes via
-record, children via closure or string. Lists are automatically joined.
-
-```nushell
-# Dynamic lists with each
-_ul { 1..3 | each {|n| _li $"Item ($n)" } }
-# => <ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>
-```
+All HTML5 elements available as `_tag` and `+tag`. Use `_tag` for first/only
+child, `+tag` for siblings (includes append). Attributes via record, children
+via closure or string. Lists from `each` are automatically joined.
 
 #### Datastar SDK
 

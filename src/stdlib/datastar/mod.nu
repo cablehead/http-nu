@@ -4,6 +4,8 @@
 # Pipe output to `to sse` for streaming.
 # Follows https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 
+export const DATASTAR_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"
+
 # Patch HTML elements via SSE
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
