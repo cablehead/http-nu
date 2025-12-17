@@ -13,7 +13,7 @@ export const DATASTAR_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/data
 export def "to dstar-patch-element" [
   --selector: string # CSS selector. If omitted, elements must have IDs
   --mode: string = "outer" # outer, inner, replace, prepend, append, before, after, remove
-  --namespace: string # Content namespace: html (default) or svg
+  --namespace: string # Content namespace: html (default), svg, or mathml
   --use_view_transition # Enable View Transitions API
   --id: string # SSE event ID
   --retry: int # Retry interval in milliseconds
