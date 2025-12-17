@@ -13,7 +13,7 @@ server that fits in your back pocket.
   - [eget](#eget)
   - [cargo](#cargo)
   - [NixOS](#nixos)
-- [Overview](#overview)
+- [Reference](#reference)
   - [GET: Hello world](#get-hello-world)
   - [UNIX domain sockets](#unix-domain-sockets)
   - [Reading closures from stdin](#reading-closures-from-stdin)
@@ -29,9 +29,10 @@ server that fits in your back pocket.
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
   - [Streaming Input](#streaming-input)
-  - [Routing](#routing)
-  - [HTML DSL](#html-dsl)
-  - [Datastar](#datastar)
+  - [Embedded Modules](#embedded-modules)
+    - [Routing](#routing)
+    - [HTML DSL](#html-dsl)
+    - [Datastar SDK](#datastar-sdk)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -60,7 +61,7 @@ http-nu is available in [nixpkgs](https://github.com/NixOS/nixpkgs). For
 packaging and maintenance documentation, see
 [NIXOS_PACKAGING_GUIDE.md](NIXOS_PACKAGING_GUIDE.md).
 
-## Overview
+## Reference
 
 ### GET: Hello world
 
@@ -495,7 +496,9 @@ handlers, put body-consuming commands first:
 }
 ```
 
-### Routing
+### Embedded Modules
+
+#### Routing
 
 http-nu includes an embedded routing module for declarative request handling.
 The request body is available to handlers as `$in`.
@@ -537,7 +540,7 @@ Routes match in order. First match wins. Closure tests return a record (match,
 context passed to handler) or null (no match). If no routes match, returns
 `501 Not Implemented`.
 
-### HTML DSL
+#### HTML DSL
 
 Build HTML with Nushell pipelines.
 
@@ -565,7 +568,7 @@ _ul { 1..3 | each {|n| _li $"Item ($n)" } }
 # => <ul><li>Item 1</li><li>Item 2</li><li>Item 3</li></ul>
 ```
 
-### Datastar
+#### Datastar SDK
 
 Generate [Datastar](https://data-star.dev) SSE events for hypermedia
 interactions. Follows the
