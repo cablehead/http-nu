@@ -32,62 +32,79 @@ assert equal (_hr {class: "divider"}) r#'<hr class="divider">'#
 assert equal (_div) '<div></div>'
 
 # Test siblings with append
-assert equal (_div {class: "card"} {
-  _div {class: "title"} "Sunset"
-  | append (_div {class: "author"} "Photo by Alice")
-  | append (_div {class: "date"} "2025-12-15")
-}) (r#'
+assert equal (
+  _div {class: "card"} {
+    _div {class: "title"} "Sunset"
+    | append (_div {class: "author"} "Photo by Alice")
+    | append (_div {class: "date"} "2025-12-15")
+  }
+) (
+  r#'
   <div class="card">
     <div class="title">Sunset</div>
     <div class="author">Photo by Alice</div>
     <div class="date">2025-12-15</div>
   </div>
-'# | squish)
+'# | squish
+)
 
 # Test mixed void and regular tags with append
-assert equal (_div {class: "card"} {
-  _img {src: "sunset.jpg" alt: "Sunset"}
-  | append (_p "A beautiful sunset over the ocean")
-  | append (_p {class: "meta"} "Photo by Alice")
-}) (r#'
+assert equal (
+  _div {class: "card"} {
+    _img {src: "sunset.jpg" alt: "Sunset"}
+    | append (_p "A beautiful sunset over the ocean")
+    | append (_p {class: "meta"} "Photo by Alice")
+  }
+) (
+  r#'
   <div class="card">
     <img src="sunset.jpg" alt="Sunset">
     <p>A beautiful sunset over the ocean</p>
     <p class="meta">Photo by Alice</p>
   </div>
-'# | squish)
+'# | squish
+)
 
 # Test list from each
-assert equal (_ul { 1..3 | each {|n| _li $"# ($n)" } }) (r#'
+assert equal (_ul { 1..3 | each {|n| _li $"# ($n)" } }) (
+  r#'
   <ul>
     <li># 1</li>
     <li># 2</li>
     <li># 3</li>
   </ul>
-'# | squish)
+'# | squish
+)
 
 # Test single child (no siblings)
 assert equal (_ul { _li "only" }) '<ul><li>only</li></ul>'
 
 # Test nested structure
-assert equal (_div {class: "outer"} {
-  _div {class: "inner"} {
-    _span "nested"
+assert equal (
+  _div {class: "outer"} {
+    _div {class: "inner"} {
+      _span "nested"
+    }
   }
-}) (r#'
+) (
+  r#'
   <div class="outer">
     <div class="inner">
       <span>nested</span>
     </div>
   </div>
-'# | squish)
+'# | squish
+)
 
 # Test each with append for mixed content
-assert equal (_ul {
-  _li "first"
-  | append (1..3 | each {|n| _li $"item ($n)" })
-  | append (_li "last")
-}) (r#'
+assert equal (
+  _ul {
+    _li "first"
+    | append (1..3 | each {|n| _li $"item ($n)" })
+    | append (_li "last")
+  }
+) (
+  r#'
   <ul>
     <li>first</li>
     <li>item 1</li>
@@ -95,4 +112,5 @@ assert equal (_ul {
     <li>item 3</li>
     <li>last</li>
   </ul>
-'# | squish)
+'# | squish
+)
