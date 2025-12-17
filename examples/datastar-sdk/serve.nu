@@ -3,8 +3,7 @@ use http-nu/datastar *
 use http-nu/html *
 
 {|req|
-  let body = $in
-  [
+  dispatch $req [
     # Index page
     (
       route {path: "/"} {|req ctx|
@@ -52,7 +51,7 @@ use http-nu/html *
     # Increment counter signal
     (
       route {method: "POST" path: "/increment"} {|req ctx|
-        let signals = $body | from datastar-request $req
+        let signals = from datastar-request $req
         let count = ($signals.count? | default 0) + 1
         {count: $count} | to dstar-patch-signal | to sse
       }
@@ -73,5 +72,4 @@ use http-nu/html *
       }
     )
   ]
-  | dispatch $req
 }

@@ -3,7 +3,7 @@ use http-nu/datastar *
 use http-nu/html *
 
 {|req|
-  [
+  dispatch $req [
     # SSE stream endpoint
     (
       route {path: "/stream"} {|req ctx|
@@ -29,5 +29,4 @@ use http-nu/html *
       }
     )
   ]
-  | dispatch $req
 }

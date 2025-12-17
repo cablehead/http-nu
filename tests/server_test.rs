@@ -1118,12 +1118,11 @@ async fn test_router_exact_path() {
         "127.0.0.1:0",
         r#"{|req|
             use http-nu/router *
-            [
+            dispatch $req [
                 (route {path: "/health"} {|req ctx| "OK"})
                 (route {path: "/status"} {|req ctx| "RUNNING"})
                 (route true {|req ctx| "NOT FOUND"})
             ]
-            | dispatch $req
         }"#,
         false,
     )
@@ -1149,12 +1148,11 @@ async fn test_router_path_parameters() {
         "127.0.0.1:0",
         r#"{|req|
             use http-nu/router *
-            [
+            dispatch $req [
                 (route {path-matches: "/users/:id"} {|req ctx| $"User: ($ctx.id)"})
                 (route {path-matches: "/posts/:userId/:postId"} {|req ctx| $"Post ($ctx.postId) by user ($ctx.userId)"})
                 (route true {|req ctx| "NOT FOUND"})
             ]
-            | dispatch $req
         }"#,
         false,
     )
@@ -1182,12 +1180,11 @@ async fn test_router_method_matching() {
         "127.0.0.1:0",
         r#"{|req|
             use http-nu/router *
-            [
+            dispatch $req [
                 (route {method: "GET", path: "/items"} {|req ctx| "LIST"})
                 (route {method: "POST", path: "/items"} {|req ctx| "CREATE"})
                 (route true {|req ctx| "NOT FOUND"})
             ]
-            | dispatch $req
         }"#,
         false,
     )
@@ -1215,11 +1212,10 @@ async fn test_router_header_matching() {
         "127.0.0.1:0",
         r#"{|req|
             use http-nu/router *
-            [
+            dispatch $req [
                 (route {has-header: {accept: "application/json"}} {|req ctx| "JSON"})
                 (route true {|req ctx| "OTHER"})
             ]
-            | dispatch $req
         }"#,
         false,
     )
@@ -1253,7 +1249,7 @@ async fn test_router_combined_conditions() {
         "127.0.0.1:0",
         r#"{|req|
             use http-nu/router *
-            [
+            dispatch $req [
                 (route {
                     method: "POST"
                     path-matches: "/api/:version/data"
@@ -1261,7 +1257,6 @@ async fn test_router_combined_conditions() {
                 } {|req ctx| $"API ($ctx.version) JSON"})
                 (route true {|req ctx| "FALLBACK"})
             ]
-            | dispatch $req
         }"#,
         false,
     )
@@ -1301,10 +1296,9 @@ async fn test_router_no_match_501() {
         "127.0.0.1:0",
         r#"{|req|
             use http-nu/router *
-            [
+            dispatch $req [
                 (route {method: "POST", path: "/users"} {|req ctx| "CREATED"})
             ]
-            | dispatch $req
         }"#,
         false,
     )

@@ -28,6 +28,7 @@ server that fits in your back pocket.
   - [server-sent events](#server-sent-events)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
+  - [Streaming Input](#streaming-input)
   - [Routing](#routing)
   - [HTML DSL](#html-dsl)
   - [Datastar](#datastar)
@@ -468,15 +469,42 @@ From a file:
 $ http-nu :3001 '{|req| $req.query | .mj "templates/page.html"}'
 ```
 
+### Streaming Input
+
+In Nushell, input only streams when received implicitly. Referencing `$in`
+collects the entire input into memory.
+
+```nushell
+# Streams: command receives input implicitly
+{|req| from json }
+
+# Buffers: $in collects before piping
+{|req| $in | from json }
+```
+
+For routing, `dispatch` must be first in the closure to receive the body. In
+handlers, put body-consuming commands first:
+
+```nushell
+{|req|
+  dispatch $req [
+    (route {method: "POST"} {|req ctx|
+      from json  # receives body implicitly
+    })
+  ]
+}
+```
+
 ### Routing
 
 http-nu includes an embedded routing module for declarative request handling.
+The request body is available to handlers as `$in`.
 
 ```nushell
 use http-nu/router *
 
 {|req|
-  [
+  dispatch $req [
     # Exact path match
     (route {path: "/health"} {|req ctx| "OK"})
 
@@ -496,30 +524,12 @@ use http-nu/router *
       {status: "ok"}
     })
 
-    # Combined conditions
-    (route {
-      method: "POST"
-      path-matches: "/api/:version/data"
-      has-header: {accept: "application/json"}
-    } {|req ctx|
-      {version: $ctx.version}
-    })
-
-    # Closure for custom logic
-    (route {|req|
-      if ($req.headers.user-agent? | default "" | str starts-with "bot") { {} }
-    } {|req ctx|
-      .response {status: 403}
-      "Bots not allowed"
-    })
-
     # Fallback (always matches)
     (route true {|req ctx|
       .response {status: 404}
       "Not Found"
     })
   ]
-  | dispatch $req
 }
 ```
 
@@ -569,7 +579,7 @@ use http-nu/html *
 
 {|req|
   # Parse signals from request (GET query param or POST body)
-  let signals = $in | from datastar-request $req
+  let signals = from datastar-request $req
 
   [
     # Update DOM

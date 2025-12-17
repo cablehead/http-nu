@@ -10,52 +10,25 @@
 # use router.nu *
 #
 # {|req|
-#   [
+#   dispatch $req [
 #     # Exact path match - use record
-#     (route
-#       {path: "/health"}
-#       {|req ctx| "OK"})
+#     (route {path: "/health"} {|req ctx| "OK"})
 #
 #     # Method + exact path - use record
-#     (route
-#       {method: "POST", path: "/users"}
-#       {|req ctx| .response {status: 201}; "User created"})
+#     (route {method: "POST", path: "/users"} {|req ctx|
+#       .response {status: 201}
+#       "User created"
+#     })
 #
 #     # Path parameters - use special key path-matches
-#     (route
-#       {path-matches: "/users/:id"}
-#       {|req ctx| $"User: ($ctx.id)"})
-#
-#     # Multiple path parameters
-#     (route
-#       {path-matches: "/users/:userId/posts/:postId"}
-#       {|req ctx| $"User ($ctx.userId) post ($ctx.postId)"})
+#     (route {path-matches: "/users/:id"} {|req ctx| $"User: ($ctx.id)"})
 #
 #     # Header matching - use special key has-header
-#     (route
-#       {has-header: {accept: "application/json"}}
-#       {|req ctx| {status: "ok"}})
-#
-#     # Combined: method + path params + headers
-#     (route
-#       {
-#         method: "POST"
-#         path-matches: "/api/:version/data"
-#         has-header: {accept: "application/json"}
-#       }
-#       {|req ctx| {version: $ctx.version, status: "ok"}})
-#
-#     # Complex logic - use closure escape hatch
-#     (route
-#       {|r| if ($r.method == "DELETE") { {} }}
-#       {|req ctx| .response {status: 405}; "Deletes not allowed"})
+#     (route {has-header: {accept: "application/json"}} {|req ctx| {status: "ok"}})
 #
 #     # Fallback (always matches)
-#     (route
-#       true
-#       {|req ctx| .response {status: 404}; "Not Found"})
+#     (route true {|req ctx| .response {status: 404}; "Not Found"})
 #   ]
-#   | dispatch $req
 # }
 # ```
 
@@ -219,44 +192,65 @@ export def has-header [
   | any { $in | str trim | $in == $value }
 }
 
+# Find the first matching route for a request
+#
+# Returns {route: <route>, ctx: <context>} for the first match.
+# Appends internal 501 fallback so result is never null.
+def find-match [
+  request: record
+  routes: list
+]: nothing -> record {
+  let fallback = route true {|req ctx|
+    try { .response {status: 501} }
+    "No route configured"
+  }
+
+  $routes
+  | append $fallback
+  | each {|rt| do $rt.test $request | if $in != null { {route: $rt ctx: $in} } }
+  | compact
+  | first
+}
+
+# Execute matched route - `do` must be first to receive $in
+def dispatch-execute [
+  match: record
+  request: record
+]: any -> any {
+  do $match.route.handle $request $match.ctx
+}
+
 # Dispatch a request through a list of routes
 #
 # Finds the first matching route and executes its handler.
-# Returns the result from the matched route handler.
+# The request body ($in) streams through to the matched handler.
 #
 # Routes are tested in order until one matches (returns non-null context).
-# The matched route's handler receives the request and extracted context.
+# The matched route's handler receives the request, context, and body as $in.
 @example "dispatch to matching route" {
   let routes = [
     (route {path: "/health"} {|req ctx| "OK" })
     (route true {|req ctx| "fallback" })
   ]
-  $routes | dispatch {path: "/health"}
+  dispatch {path: "/health"} $routes
 } --result "OK"
 @example "dispatch to fallback" {
   let routes = [
     (route {path: "/health"} {|req ctx| "OK" })
     (route true {|req ctx| "fallback" })
   ]
-  $routes | dispatch {path: "/unknown"}
+  dispatch {path: "/unknown"} $routes
 } --result "fallback"
 @example "dispatch with extracted params" {
   let routes = [
     (route {path-matches: "/users/:id"} {|req ctx| $"User: ($ctx.id)" })
   ]
-  $routes | dispatch {path: "/users/123"}
+  dispatch {path: "/users/123"} $routes
 } --result "User: 123"
 export def dispatch [
   request: record # The HTTP request record to route
-]: list -> any {
-  $in
-  | each {|rt| do $rt.test $request | if $in != null { {route: $rt ctx: $in} } }
-  | compact
-  | first
-  | if $in == null {
-    try { .response {status: 501} }
-    "No route configured"
-  } else {
-    do $in.route.handle $request $in.ctx
-  }
+  routes: list # List of route records to match against
+]: any -> any {
+  # Single expression so $in flows through to handler
+  dispatch-execute (find-match $request $routes) $request
 }

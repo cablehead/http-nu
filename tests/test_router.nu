@@ -107,9 +107,9 @@ let routes = [
   (route true {|req ctx| "404" })
 ]
 
-assert equal ($routes | dispatch {method: "GET" path: "/health"}) "OK"
-assert equal ($routes | dispatch {method: "GET" path: "/users/alice"}) "User: alice"
-assert equal ($routes | dispatch {method: "GET" path: "/unknown"}) "404"
+assert equal (dispatch {method: "GET" path: "/health"} $routes) "OK"
+assert equal (dispatch {method: "GET" path: "/users/alice"} $routes) "User: alice"
+assert equal (dispatch {method: "GET" path: "/unknown"} $routes) "404"
 
 # Testing dispatch with method matching
 let routes2 = [
@@ -118,9 +118,9 @@ let routes2 = [
   (route true {|req ctx| "404" })
 ]
 
-assert equal ($routes2 | dispatch {method: "POST" path: "/users"}) "created"
-assert equal ($routes2 | dispatch {method: "GET" path: "/users"}) "list"
-assert equal ($routes2 | dispatch {method: "DELETE" path: "/users"}) "404"
+assert equal (dispatch {method: "POST" path: "/users"} $routes2) "created"
+assert equal (dispatch {method: "GET" path: "/users"} $routes2) "list"
+assert equal (dispatch {method: "DELETE" path: "/users"} $routes2) "404"
 
 # Testing dispatch with headers
 let routes3 = [
@@ -128,8 +128,8 @@ let routes3 = [
   (route true {|req ctx| "fallback" })
 ]
 
-assert equal ($routes3 | dispatch {headers: {accept: "application/json"}}) {status: "ok"}
-assert equal ($routes3 | dispatch {headers: {accept: "text/html"}}) "fallback"
+assert equal (dispatch {headers: {accept: "application/json"}} $routes3) {status: "ok"}
+assert equal (dispatch {headers: {accept: "text/html"}} $routes3) "fallback"
 
 # Testing dispatch with combined conditions
 let routes4 = [
@@ -144,18 +144,18 @@ let routes4 = [
 ]
 
 assert equal (
-  $routes4 | dispatch {
+  dispatch {
     method: "POST"
     path: "/api/v1/data"
     headers: {accept: "application/json"}
-  }
+  } $routes4
 ) {version: "v1" status: "ok"}
 assert equal (
-  $routes4 | dispatch {
+  dispatch {
     method: "GET"
     path: "/api/v1/data"
     headers: {accept: "application/json"}
-  }
+  } $routes4
 ) "fallback"
 
 # Testing dispatch with no matching routes
@@ -165,5 +165,5 @@ let routes5 = [
   (route {method: "POST" path: "/users"} {|req ctx| "created" })
 ]
 
-let result = $routes5 | dispatch {method: "GET" path: "/health"}
+let result = dispatch {method: "GET" path: "/health"} $routes5
 assert equal $result "No route configured"
