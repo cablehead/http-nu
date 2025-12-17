@@ -6,7 +6,7 @@ use http-nu/html *
   dispatch $req [
     # Index page
     (
-      route {path: "/"} {|req ctx|
+      route {method: GET path: "/"} {|req ctx|
         _html {
           _head {
             _meta {charset: "UTF-8"}
@@ -38,7 +38,7 @@ use http-nu/html *
 
     # Increment counter signal
     (
-      route {method: "POST" path: "/increment"} {|req ctx|
+      route {method: POST path: "/increment"} {|req ctx|
         let signals = from datastar-request $req
         let count = ($signals.count? | default 0) + 1
         {count: $count} | to dstar-patch-signal | to sse
@@ -47,14 +47,14 @@ use http-nu/html *
 
     # Execute script on client
     (
-      route {method: "POST" path: "/hello"} {|req ctx|
+      route {method: POST path: "/hello"} {|req ctx|
         "alert('Hello from the server!')" | to dstar-execute-script | to sse
       }
     )
 
     # Update time div
     (
-      route {method: "POST" path: "/time"} {|req ctx|
+      route {method: POST path: "/time"} {|req ctx|
         let time = date now | format date "%H:%M:%S%.3f"
         _div {id: "time"} $time | to dstar-patch-element | to sse
       }
