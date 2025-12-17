@@ -4,9 +4,35 @@ use http-nu/html *
 
 def quote-html []: record -> string {
   let q = $in
-  _div {id: "quote"} {
-    _p {style: "font-style: italic;"} $"\"($q.quote)\""
-    | +p {style: "color: #666; text-align: right;"} $"— ($q.who? | default 'Anonymous')"
+  _div {
+    id: "quote"
+    style: {
+      background-color: "#e8e6e3"
+      color: "#4a4a4a"
+      height: 100dvh
+      padding: "5vh 10vw"
+      font-size: 6vmax
+      display: flex
+      flex-direction: column
+      justify-content: center
+      overflow: hidden
+    }
+  } {
+    _p {
+      style: {
+        font-family: "Georgia, serif"
+        font-style: italic
+        text-align: center
+      }
+    } $"\"($q.quote)\""
+    | +p {
+      style: {
+        font-family: "'American Typewriter', Courier, monospace"
+        font-size: 4vmax
+        text-align: right
+        margin-top: 10vh
+      }
+    } $"— ($q.who? | default 'Anonymous')"
   }
 }
 
@@ -29,9 +55,10 @@ def quote-html []: record -> string {
           _head {
             _meta {charset: "utf-8"}
             | +title "Live Quotes"
+            | +style "* { box-sizing: border-box; margin: 0; }"
             | +script {type: "module" src: $DATASTAR_CDN_URL}
           }
-          | +body {"data-init": "@get('/')" style: "font-family: Georgia, serif; padding: 2rem;"} (
+          | +body {data-init: "@get('/')"} (
             {quote: "Waiting for quotes..."} | quote-html
           )
         }

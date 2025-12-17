@@ -563,6 +563,8 @@ All HTML5 elements available as `_tag` and `+tag`. Use `_tag` for first/only
 child, `+tag` for siblings (includes append). Attributes via record, children
 via closure or string. Lists from `each` are automatically joined.
 
+`style` accepts a record: `{style: {color: red padding: 10px}}`
+
 #### Datastar SDK
 
 Generate [Datastar](https://data-star.dev) SSE events for hypermedia

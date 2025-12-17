@@ -15,7 +15,7 @@ use http-nu/html *
           }
           | +body {"data-signals": "{count: 0}"} {
             _h1 "Datastar SDK Demo"
-            | +div {style: "display: flex; gap: 2em;"} {
+            | +div {style: {display: flex gap: 2em}} {
               _div {
                 _h3 "to dstar-patch-signal"
                 | +p ("Count: " | +span {"data-text": "$count"} "0" | str join)

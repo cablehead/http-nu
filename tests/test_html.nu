@@ -13,6 +13,10 @@ assert equal ({class: "foo"} | attrs-to-string) r#' class="foo"'#
 assert equal ({class: "foo" id: "bar"} | attrs-to-string) r#' class="foo" id="bar"'#
 assert equal ({} | attrs-to-string) ''
 
+# Test style as record
+assert equal ({style: {color: red padding: 10px}} | attrs-to-string) r#' style="color: red; padding: 10px;"'#
+assert equal (_div {style: {color: red}} "x") r#'<div style="color: red;">x</div>'#
+
 # Test div with text content
 assert equal (_div "Hello") '<div>Hello</div>'
 
