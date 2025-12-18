@@ -13,6 +13,10 @@ assert equal ({class: "foo"} | attrs-to-string) r#' class="foo"'#
 assert equal ({class: "foo" id: "bar"} | attrs-to-string) r#' class="foo" id="bar"'#
 assert equal ({} | attrs-to-string) ''
 
+# Test class as list
+assert equal ({class: [foo bar baz]} | attrs-to-string) r#' class="foo bar baz"'#
+assert equal (_div {class: [card active]} "x") r#'<div class="card active">x</div>'#
+
 # Test style as record
 assert equal ({style: {color: red padding: 10px}} | attrs-to-string) r#' style="color: red; padding: 10px;"'#
 assert equal (_div {style: {color: red}} "x") r#'<div style="color: red;">x</div>'#
@@ -118,3 +122,37 @@ assert equal (
   </ul>
 '# | squish
 )
+
+# Test nested list children (recursive to-children)
+assert equal (
+  _div [
+    [(_h1 "Title") (_p "Subtitle")]
+    (_ul [(_li "a") (_li "b")])
+  ]
+) (
+  r#'
+  <div>
+    <h1>Title</h1>
+    <p>Subtitle</p>
+    <ul>
+      <li>a</li>
+      <li>b</li>
+    </ul>
+  </div>
+'# | squish
+)
+
+# Test variadic args permutations
+assert equal (_div "a" "b" "c") '<div>abc</div>'
+assert equal (_div {class: x} "a" "b" "c") '<div class="x">abc</div>'
+assert equal (_div {class: x} (_p "a") (_p "b")) '<div class="x"><p>a</p><p>b</p></div>'
+assert equal (_div (_p "a") (_p "b")) '<div><p>a</p><p>b</p></div>'
+assert equal (_div {class: x} "text" (_p "child") "more") '<div class="x">text<p>child</p>more</div>'
+assert equal (_div "text" (_p "child") "more") '<div>text<p>child</p>more</div>'
+assert equal (_div {class: x} [(_li "a") (_li "b")] {|| _p "c" | +p "d"}) '<div class="x"><li>a</li><li>b</li><p>c</p><p>d</p></div>'
+assert equal (
+  _section {id: main}
+    (_h1 "Title")
+    [(_p "intro") (_p "more")]
+    {|| _ul { _li "x" | +li "y" }}
+) '<section id="main"><h1>Title</h1><p>intro</p><p>more</p><ul><li>x</li><li>y</li></ul></section>'

@@ -559,11 +559,28 @@ use http-nu/html *
 }
 ```
 
+Or with variadic args (no pipes needed):
+
+```nushell
+{|req|
+  (_html
+    (_head (_title "Demo"))
+    (_body
+      (_h1 "Hello")
+      (_p {class: "intro"} "Built with Nushell")
+      (_ul { 1..3 | each {|n| _li $"Item ($n)" } })
+    )
+  )
+}
+```
+
 All HTML5 elements available as `_tag` and `+tag`. Use `_tag` for first/only
 child, `+tag` for siblings (includes append). Attributes via record, children
 via closure or string. Lists from `each` are automatically joined.
 
 `style` accepts a record: `{style: {color: red padding: 10px}}`
+
+`class` accepts a list: `{class: [card active]}`
 
 #### Datastar SDK
 
