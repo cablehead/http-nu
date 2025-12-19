@@ -33,22 +33,31 @@ assert equal (_div {style: {color: red}} "x") r#'<div style="color: red;">x</div
 assert equal ({style: {font-family: [Arial sans-serif]}} | attrs-to-string) r#' style="font-family: Arial, sans-serif;"'#
 
 # Test div with text content
-assert equal (_div "Hello") '<div>Hello</div>'
+assert equal (_div "Hello").__html '<div>Hello</div>'
+
+# Test HTML escaping
+assert equal (_div "<script>alert(1)</script>").__html '<div>&lt;script&gt;alert(1)&lt;/script&gt;</div>'
+assert equal (_div "a < b & c > d").__html '<div>a &lt; b &amp; c &gt; d</div>'
+assert equal (_div {class: "x"} "1 < 2").__html '<div class="x">1 &lt; 2</div>'
+
+# Nested tags should NOT double-escape
+assert equal (_div (_span "hi")).__html '<div><span>hi</span></div>'
+assert equal (_div (_span "<b>bold</b>")).__html '<div><span>&lt;b&gt;bold&lt;/b&gt;</span></div>'
 
 # Test div with attrs
-assert equal (_div {class: "card"}) r#'<div class="card"></div>'#
+assert equal (_div {class: "card"}).__html r#'<div class="card"></div>'#
 
 # Test div with attrs + text
-assert equal (_div {class: "card"} "Content") r#'<div class="card">Content</div>'#
+assert equal (_div {class: "card"} "Content").__html r#'<div class="card">Content</div>'#
 
 # Test void tags with no args
-assert equal (_br) '<br>'
+assert equal (_br).__html '<br>'
 
 # Test void tags with attrs
-assert equal (_hr {class: "divider"}) r#'<hr class="divider">'#
+assert equal (_hr {class: "divider"}).__html r#'<hr class="divider">'#
 
 # Test regular tags with no args
-assert equal (_div) '<div></div>'
+assert equal (_div).__html '<div></div>'
 
 # Test siblings with append
 assert equal (
