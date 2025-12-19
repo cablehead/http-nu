@@ -574,9 +574,24 @@ Or with variadic args (no pipes needed):
 }
 ```
 
-All HTML5 elements available as `_tag` and `+tag`. Use `_tag` for first/only
-child, `+tag` for siblings (includes append). Attributes via record, children
-via closure or string. Lists from `each` are automatically joined.
+Or UPPERCASE if you prefer that style:
+
+```nushell
+{|req|
+  (HTML
+    (HEAD (TITLE "Demo"))
+    (BODY
+      (H1 "Hello")
+      (P {class: "intro"} "Built with Nushell")
+      (UL { 1..3 | each {|n| LI $"Item ($n)" } })
+    )
+  )
+}
+```
+
+All HTML5 elements available as `_tag`, `+tag`, and `TAG`. Use `_tag`/`TAG` for
+first/only child, `+tag` for siblings (includes append). Attributes via record,
+children via closure or string. Lists from `each` are automatically joined.
 
 `style` accepts a record; values can be lists for comma-separated CSS (e.g.
 `font-family`): `{style: {font-family: [Arial sans-serif] padding: 10px}}`
