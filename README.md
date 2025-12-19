@@ -582,6 +582,13 @@ via closure or string. Lists from `each` are automatically joined.
 
 `class` accepts a list: `{class: [card active]}`
 
+[Boolean attributes](https://developer.mozilla.org/en-US/docs/Glossary/Boolean/HTML): `true` renders the attribute, `false` omits it:
+
+```nushell
+_input {type: "checkbox" checked: true disabled: false}
+# <input type="checkbox" checked>
+```
+
 #### Datastar SDK
 
 Generate [Datastar](https://data-star.dev) SSE events for hypermedia
