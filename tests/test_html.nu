@@ -13,6 +13,14 @@ assert equal ({class: "foo"} | attrs-to-string) r#' class="foo"'#
 assert equal ({class: "foo" id: "bar"} | attrs-to-string) r#' class="foo" id="bar"'#
 assert equal ({} | attrs-to-string) ''
 
+# Test boolean attributes
+assert equal ({disabled: true} | attrs-to-string) ' disabled'
+assert equal ({disabled: false} | attrs-to-string) ''
+assert equal ({class: "btn" disabled: true} | attrs-to-string) r#' class="btn" disabled'#
+assert equal ({class: "btn" disabled: false} | attrs-to-string) r#' class="btn"'#
+assert equal (_input {type: "checkbox" checked: true}) '<input type="checkbox" checked>'
+assert equal (_input {type: "checkbox" checked: false}) '<input type="checkbox">'
+
 # Test class as list
 assert equal ({class: [foo bar baz]} | attrs-to-string) r#' class="foo bar baz"'#
 assert equal (_div {class: [card active]} "x") r#'<div class="card active">x</div>'#

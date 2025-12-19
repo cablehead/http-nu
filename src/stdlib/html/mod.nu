@@ -2,10 +2,13 @@
 
 # {class: "foo"} -> ' class="foo"'
 # style can be a record: {style: {color: red, padding: 10px}} -> ' style="color: red; padding: 10px;"'
+# boolean: {disabled: true} -> ' disabled', {disabled: false} -> ''
 export def attrs-to-string []: record -> string {
   $in
   | transpose key value
   | each {|attr|
+    if $attr.value == false { return "" }
+    if $attr.value == true { return $attr.key }
     let value = if $attr.key == "style" and ($attr.value | describe -d | get type) == "record" {
       $attr.value | transpose k v | each {|p| $"($p.k): ($p.v);" } | str join " "
     } else if $attr.key == "class" and ($attr.value | describe -d | get type) == "list" {
@@ -15,6 +18,7 @@ export def attrs-to-string []: record -> string {
     }
     $'($attr.key)="($value)"'
   }
+  | where $it != ""
   | str join ' '
   | if ($in | is-empty) { "" } else { $" ($in)" }
 }
