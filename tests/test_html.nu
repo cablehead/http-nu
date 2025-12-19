@@ -29,6 +29,9 @@ assert equal (_div {class: [card active]} "x") r#'<div class="card active">x</di
 assert equal ({style: {color: red padding: 10px}} | attrs-to-string) r#' style="color: red; padding: 10px;"'#
 assert equal (_div {style: {color: red}} "x") r#'<div style="color: red;">x</div>'#
 
+# Test style value as list (comma-separated, e.g. font-family)
+assert equal ({style: {font-family: [Arial sans-serif]}} | attrs-to-string) r#' style="font-family: Arial, sans-serif;"'#
+
 # Test div with text content
 assert equal (_div "Hello") '<div>Hello</div>'
 

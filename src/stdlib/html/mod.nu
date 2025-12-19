@@ -10,7 +10,10 @@ export def attrs-to-string []: record -> string {
     if $attr.value == false { return "" }
     if $attr.value == true { return $attr.key }
     let value = if $attr.key == "style" and ($attr.value | describe -d | get type) == "record" {
-      $attr.value | transpose k v | each {|p| $"($p.k): ($p.v);" } | str join " "
+      $attr.value | transpose k v | each {|p|
+        let v = if ($p.v | describe -d | get type) == "list" { $p.v | str join ", " } else { $p.v }
+        $"($p.k): ($v);"
+      } | str join " "
     } else if $attr.key == "class" and ($attr.value | describe -d | get type) == "list" {
       $attr.value | str join " "
     } else {
