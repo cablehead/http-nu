@@ -18,16 +18,16 @@ assert equal ({disabled: true} | attrs-to-string) ' disabled'
 assert equal ({disabled: false} | attrs-to-string) ''
 assert equal ({class: "btn" disabled: true} | attrs-to-string) r#' class="btn" disabled'#
 assert equal ({class: "btn" disabled: false} | attrs-to-string) r#' class="btn"'#
-assert equal (_input {type: "checkbox" checked: true}) '<input type="checkbox" checked>'
-assert equal (_input {type: "checkbox" checked: false}) '<input type="checkbox">'
+assert equal (_input {type: "checkbox" checked: true}).__html '<input type="checkbox" checked>'
+assert equal (_input {type: "checkbox" checked: false}).__html '<input type="checkbox">'
 
 # Test class as list
 assert equal ({class: [foo bar baz]} | attrs-to-string) r#' class="foo bar baz"'#
-assert equal (_div {class: [card active]} "x") r#'<div class="card active">x</div>'#
+assert equal (_div {class: [card active]} "x").__html r#'<div class="card active">x</div>'#
 
 # Test style as record
 assert equal ({style: {color: red padding: 10px}} | attrs-to-string) r#' style="color: red; padding: 10px;"'#
-assert equal (_div {style: {color: red}} "x") r#'<div style="color: red;">x</div>'#
+assert equal (_div {style: {color: red}} "x").__html r#'<div style="color: red;">x</div>'#
 
 # Test style value as list (comma-separated, e.g. font-family)
 assert equal ({style: {font-family: [Arial sans-serif]}} | attrs-to-string) r#' style="font-family: Arial, sans-serif;"'#
@@ -66,7 +66,7 @@ assert equal (
     | append (_div {class: "author"} "Photo by Alice")
     | append (_div {class: "date"} "2025-12-15")
   }
-) (
+).__html (
   r#'
   <div class="card">
     <div class="title">Sunset</div>
@@ -83,7 +83,7 @@ assert equal (
     | append (_p "A beautiful sunset over the ocean")
     | append (_p {class: "meta"} "Photo by Alice")
   }
-) (
+).__html (
   r#'
   <div class="card">
     <img src="sunset.jpg" alt="Sunset">
@@ -94,7 +94,7 @@ assert equal (
 )
 
 # Test list from each
-assert equal (_ul { 1..3 | each {|n| _li $"# ($n)" } }) (
+assert equal (_ul { 1..3 | each {|n| _li $"# ($n)" } }).__html (
   r#'
   <ul>
     <li># 1</li>
@@ -105,7 +105,7 @@ assert equal (_ul { 1..3 | each {|n| _li $"# ($n)" } }) (
 )
 
 # Test single child (no siblings)
-assert equal (_ul { _li "only" }) '<ul><li>only</li></ul>'
+assert equal (_ul { _li "only" }).__html '<ul><li>only</li></ul>'
 
 # Test nested structure
 assert equal (
@@ -114,7 +114,7 @@ assert equal (
       _span "nested"
     }
   }
-) (
+).__html (
   r#'
   <div class="outer">
     <div class="inner">
@@ -131,7 +131,7 @@ assert equal (
     | append (1..3 | each {|n| _li $"item ($n)" })
     | append (_li "last")
   }
-) (
+).__html (
   r#'
   <ul>
     <li>first</li>
@@ -149,7 +149,7 @@ assert equal (
     [(_h1 "Title") (_p "Subtitle")]
     (_ul [(_li "a") (_li "b")])
   ]
-) (
+).__html (
   r#'
   <div>
     <h1>Title</h1>
@@ -163,16 +163,16 @@ assert equal (
 )
 
 # Test variadic args permutations
-assert equal (_div "a" "b" "c") '<div>abc</div>'
-assert equal (_div {class: x} "a" "b" "c") '<div class="x">abc</div>'
-assert equal (_div {class: x} (_p "a") (_p "b")) '<div class="x"><p>a</p><p>b</p></div>'
-assert equal (_div (_p "a") (_p "b")) '<div><p>a</p><p>b</p></div>'
-assert equal (_div {class: x} "text" (_p "child") "more") '<div class="x">text<p>child</p>more</div>'
-assert equal (_div "text" (_p "child") "more") '<div>text<p>child</p>more</div>'
-assert equal (_div {class: x} [(_li "a") (_li "b")] {|| _p "c" | +p "d"}) '<div class="x"><li>a</li><li>b</li><p>c</p><p>d</p></div>'
+assert equal (_div "a" "b" "c").__html '<div>abc</div>'
+assert equal (_div {class: x} "a" "b" "c").__html '<div class="x">abc</div>'
+assert equal (_div {class: x} (_p "a") (_p "b")).__html '<div class="x"><p>a</p><p>b</p></div>'
+assert equal (_div (_p "a") (_p "b")).__html '<div><p>a</p><p>b</p></div>'
+assert equal (_div {class: x} "text" (_p "child") "more").__html '<div class="x">text<p>child</p>more</div>'
+assert equal (_div "text" (_p "child") "more").__html '<div>text<p>child</p>more</div>'
+assert equal (_div {class: x} [(_li "a") (_li "b")] {|| _p "c" | +p "d"}).__html '<div class="x"><li>a</li><li>b</li><p>c</p><p>d</p></div>'
 assert equal (
   _section {id: main}
     (_h1 "Title")
     [(_p "intro") (_p "more")]
     {|| _ul { _li "x" | +li "y" }}
-) '<section id="main"><h1>Title</h1><p>intro</p><p>more</p><ul><li>x</li><li>y</li></ul></section>'
+).__html '<section id="main"><h1>Title</h1><p>intro</p><p>more</p><ul><li>x</li><li>y</li></ul></section>'
