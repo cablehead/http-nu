@@ -22,7 +22,7 @@ export def attrs-to-string []: record -> string {
 # Render a tag with optional attributes and children
 export def render-tag [tag: string ...args: any]: nothing -> string {
   # Normalize to [attrs, ...content] - prepend {} if first arg isn't a record
-  let args = if ($args | first | describe -d | get type) == 'record' { $args } else { $args | prepend {} }
+  let args = if ($args | is-not-empty) and ($args | first | describe -d | get type) == 'record' { $args } else { $args | prepend {} }
   let attrs = $args | first
   let content = $args | skip 1
 
