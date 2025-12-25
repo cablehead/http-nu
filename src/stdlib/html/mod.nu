@@ -208,6 +208,33 @@ export def _rp [...args: any]: nothing -> record { render-tag rp ...$args }
 export def _bdi [...args: any]: nothing -> record { render-tag bdi ...$args }
 export def _bdo [...args: any]: nothing -> record { render-tag bdo ...$args }
 
+# Jinja2 control flow
+export def _for [binding: list, ...body: any]: nothing -> record {
+  let var = $binding | first
+  let collection = $binding | last
+  let children = $body | each {|child|
+    match ($child | describe -d | get type) {
+      'record' => (if '__html' in $child { $child.__html } else { "" })
+      'string' => $child
+      'list' => ($child | each {|c| if '__html' in $c { $c.__html } else { $c }} | str join)
+      _ => ""
+    }
+  } | str join
+  {__html: $"{% for ($var) in ($collection) %}($children){% endfor %}"}
+}
+
+export def _if [cond: string, ...body: any]: nothing -> record {
+  let children = $body | each {|child|
+    match ($child | describe -d | get type) {
+      'record' => (if '__html' in $child { $child.__html } else { "" })
+      'string' => $child
+      'list' => ($child | each {|c| if '__html' in $c { $c.__html } else { $c }} | str join)
+      _ => ""
+    }
+  } | str join
+  {__html: $"{% if ($cond) %}($children){% endif %}"}
+}
+
 # Append variants (+tag) - pipe-friendly siblings: _div "x" | +p "y" => [<div>x</div> <p>y</p>]
 export def +a [...args: any]: any -> list { append (_a ...$args) }
 export def +abbr [...args: any]: any -> list { append (_abbr ...$args) }

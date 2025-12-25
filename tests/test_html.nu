@@ -176,3 +176,32 @@ assert equal (
     [(_p "intro") (_p "more")]
     {|| _ul { _li "x" | +li "y" }}
 ).__html '<section id="main"><h1>Title</h1><p>intro</p><p>more</p><ul><li>x</li><li>y</li></ul></section>'
+
+# Test Jinja2 _for
+assert equal (
+  _for [item items] (LI "{{ item.name }}")
+).__html '{% for item in items %}<li>{{ item.name }}</li>{% endfor %}'
+
+assert equal (
+  UL (_for [user users] (LI "{{ user.name }}"))
+).__html '<ul>{% for user in users %}<li>{{ user.name }}</li>{% endfor %}</ul>'
+
+assert equal (
+  DIV {class: "list"}
+    (_for [item items]
+      (DIV {class: "item"} "{{ item }}"))
+).__html '<div class="list">{% for item in items %}<div class="item">{{ item }}</div>{% endfor %}</div>'
+
+# Test Jinja2 _if
+assert equal (
+  _if "user.admin" (DIV "Admin Panel")
+).__html '{% if user.admin %}<div>Admin Panel</div>{% endif %}'
+
+assert equal (
+  DIV (_if "show" (LI "visible"))
+).__html '<div>{% if show %}<li>visible</li>{% endif %}</div>'
+
+assert equal (
+  _if "items"
+    (UL (_for [item items] (LI "{{ item }}")))
+).__html '{% if items %}<ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}'
