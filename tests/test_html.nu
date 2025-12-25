@@ -177,19 +177,24 @@ assert equal (
     {|| _ul { _li "x" | +li "y" }}
 ).__html '<section id="main"><h1>Title</h1><p>intro</p><p>more</p><ul><li>x</li><li>y</li></ul></section>'
 
+# Test Jinja2 _j (variable expression)
+assert equal (_j "name").__html '{{ name }}'
+assert equal (_j "user.email").__html '{{ user.email }}'
+assert equal (DIV (_j "content")).__html '<div>{{ content }}</div>'
+
 # Test Jinja2 _for
 assert equal (
-  _for [item items] (LI "{{ item.name }}")
+  _for [item items] (LI (_j "item.name"))
 ).__html '{% for item in items %}<li>{{ item.name }}</li>{% endfor %}'
 
 assert equal (
-  UL (_for [user users] (LI "{{ user.name }}"))
+  UL (_for [user users] (LI (_j "user.name")))
 ).__html '<ul>{% for user in users %}<li>{{ user.name }}</li>{% endfor %}</ul>'
 
 assert equal (
   DIV {class: "list"}
     (_for [item items]
-      (DIV {class: "item"} "{{ item }}"))
+      (DIV {class: "item"} (_j "item")))
 ).__html '<div class="list">{% for item in items %}<div class="item">{{ item }}</div>{% endfor %}</div>'
 
 # Test Jinja2 _if
@@ -203,5 +208,10 @@ assert equal (
 
 assert equal (
   _if "items"
-    (UL (_for [item items] (LI "{{ item }}")))
+    (UL (_for [item items] (LI (_j "item"))))
 ).__html '{% if items %}<ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}'
+
+# Test escaping in _for/_if (raw strings are escaped)
+assert equal (
+  _for [x xs] (LI "<script>bad</script>")
+).__html '{% for x in xs %}<li>&lt;script&gt;bad&lt;/script&gt;</li>{% endfor %}'

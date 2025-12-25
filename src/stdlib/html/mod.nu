@@ -5,6 +5,19 @@ def escape-html []: string -> string {
   $in | str replace -a '&' '&amp;' | str replace -a '<' '&lt;' | str replace -a '>' '&gt;'
 }
 
+# Normalize content to string, joining lists
+def to-children []: any -> string {
+  let input = $in
+  let type = $input | describe -d | get type
+  match $type {
+    'string' => ($input | escape-html)
+    'list' => ($input | each { to-children } | str join)
+    'closure' => (do $input | to-children)
+    'record' => (if '__html' in $input { $input.__html } else { "" })
+    _ => ""
+  }
+}
+
 # {class: "foo"} -> ' class="foo"'
 # style can be a record: {style: {color: red, padding: 10px}} -> ' style="color: red; padding: 10px;"'
 # boolean: {disabled: true} -> ' disabled', {disabled: false} -> ''
@@ -37,21 +50,7 @@ export def render-tag [tag: string ...args: any]: nothing -> record {
   let args = if ($args | is-not-empty) and ($args | first | describe -d | get type) == 'record' and '__html' not-in ($args | first) { $args } else { $args | prepend {} }
   let attrs = $args | first
   let content = $args | skip 1
-
-  # Normalize content to string, joining lists
-  def to-children []: any -> string {
-    let input = $in
-    let type = $input | describe -d | get type
-    match $type {
-      'string' => ($input | escape-html)
-      'list' => ($input | each {to-children} | str join)
-      'closure' => (do $input | to-children)
-      'record' => (if '__html' in $input { $input.__html } else { "" })
-      _ => ""
-    }
-  }
-
-  let children = $content | to-children
+  let children = $content | each { to-children } | str join
   let attrs_str = $attrs | attrs-to-string
   {__html: $"<($tag)($attrs_str)>($children)</($tag)>"}
 }
@@ -212,27 +211,18 @@ export def _bdo [...args: any]: nothing -> record { render-tag bdo ...$args }
 export def _for [binding: list, ...body: any]: nothing -> record {
   let var = $binding | first
   let collection = $binding | last
-  let children = $body | each {|child|
-    match ($child | describe -d | get type) {
-      'record' => (if '__html' in $child { $child.__html } else { "" })
-      'string' => $child
-      'list' => ($child | each {|c| if '__html' in $c { $c.__html } else { $c }} | str join)
-      _ => ""
-    }
-  } | str join
+  let children = $body | each { to-children } | str join
   {__html: $"{% for ($var) in ($collection) %}($children){% endfor %}"}
 }
 
 export def _if [cond: string, ...body: any]: nothing -> record {
-  let children = $body | each {|child|
-    match ($child | describe -d | get type) {
-      'record' => (if '__html' in $child { $child.__html } else { "" })
-      'string' => $child
-      'list' => ($child | each {|c| if '__html' in $c { $c.__html } else { $c }} | str join)
-      _ => ""
-    }
-  } | str join
+  let children = $body | each { to-children } | str join
   {__html: $"{% if ($cond) %}($children){% endif %}"}
+}
+
+# Jinja2 variable expression (not escaped)
+export def _j [expr: string]: nothing -> record {
+  {__html: $"{{ ($expr) }}"}
 }
 
 # Append variants (+tag) - pipe-friendly siblings: _div "x" | +p "y" => [<div>x</div> <p>y</p>]
