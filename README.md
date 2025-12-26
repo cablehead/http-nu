@@ -496,6 +496,15 @@ let tpl = (.mj compile --inline "{% for i in items %}{{ i }}{% endfor %}")
 [{items: [1,2,3]}, {items: [4,5,6]}] | each { .mj render $tpl }
 ```
 
+With HTML DSL (accepts `{__html}` records directly):
+
+```nushell
+use http-nu/html *
+let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
+{items: [a b c]} | .mj render $tpl
+# <ul><li>a</li><li>b</li><li>c</li></ul>
+```
+
 ### Streaming Input
 
 In Nushell, input only streams when received implicitly. Referencing `$in`

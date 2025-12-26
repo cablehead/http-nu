@@ -16,9 +16,8 @@ HTML (
 DIV $user_input  # escaped: &lt;script&gt;...
 
 # Jinja2 DSL for compiled templates
-let tpl = UL (_for {item: items} (LI (_var "item")))
-let compiled = $tpl.__html | .mj compile --inline $in
-{items: [a b c]} | .mj render $compiled  # fast
+let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
+{items: [a b c]} | .mj render $tpl  # fast
 ```
 
 ---
@@ -170,14 +169,11 @@ _if "user.admin" (DIV "Admin Panel")
 Full workflow:
 
 ```nushell
-# Author template with nushell ergonomics
-let tpl = UL (_for {item: items} (LI (_var "item")))
-
-# Compile once
-let compiled = $tpl.__html | .mj compile --inline $in
+# Author and compile template (accepts string or {__html} record)
+let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
 
 # Render fast (many times)
-{items: [a b c]} | .mj render $compiled
+{items: [a b c]} | .mj render $tpl
 # <ul><li>a</li><li>b</li><li>c</li></ul>
 ```
 

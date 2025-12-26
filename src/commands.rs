@@ -824,8 +824,8 @@ impl Command for MjCompileCommand {
             .optional("file", SyntaxShape::String, "template file path")
             .named(
                 "inline",
-                SyntaxShape::String,
-                "inline template string",
+                SyntaxShape::Any,
+                "inline template (string or {__html: string})",
                 Some('i'),
             )
             .input_output_types(vec![(
@@ -844,10 +844,51 @@ impl Command for MjCompileCommand {
     ) -> Result<PipelineData, ShellError> {
         let head = call.head;
         let file: Option<String> = call.opt(engine_state, stack, 0)?;
-        let inline: Option<String> = call.get_flag(engine_state, stack, "inline")?;
+        let inline: Option<Value> = call.get_flag(engine_state, stack, "inline")?;
+
+        // Extract template string from --inline value (string or {__html: string})
+        let inline_str: Option<String> = match &inline {
+            None => None,
+            Some(val) => match val {
+                Value::String { val, .. } => Some(val.clone()),
+                Value::Record { val, .. } => {
+                    if let Some(html_val) = val.get("__html") {
+                        match html_val {
+                            Value::String { val, .. } => Some(val.clone()),
+                            _ => {
+                                return Err(ShellError::GenericError {
+                                    error: "__html must be a string".into(),
+                                    msg: "expected string value".into(),
+                                    span: Some(head),
+                                    help: None,
+                                    inner: vec![],
+                                });
+                            }
+                        }
+                    } else {
+                        return Err(ShellError::GenericError {
+                            error: "Record must have __html field".into(),
+                            msg: "expected {__html: string}".into(),
+                            span: Some(head),
+                            help: None,
+                            inner: vec![],
+                        });
+                    }
+                }
+                _ => {
+                    return Err(ShellError::GenericError {
+                        error: "--inline must be string or {__html: string}".into(),
+                        msg: "invalid type".into(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    });
+                }
+            },
+        };
 
         // Get template source
-        let template_source = match (&file, &inline) {
+        let template_source = match (&file, &inline_str) {
             (Some(_), Some(_)) => {
                 return Err(ShellError::GenericError {
                     error: "Cannot specify both file and --inline".into(),
