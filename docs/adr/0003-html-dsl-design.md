@@ -1,5 +1,28 @@
 # HTML DSL Design
 
+## TL;DR
+
+```nushell
+# Uppercase tags, lisp-style nesting
+HTML (
+  HEAD (TITLE "Demo")
+  BODY (
+    H1 "Hello"
+    UL { 1..3 | each {|n| LI $"Item ($n)" } }
+  )
+)
+
+# Auto-escapes untrusted input via {__html} wrapper
+DIV $user_input  # escaped: &lt;script&gt;...
+
+# Jinja2 DSL for compiled templates
+let tpl = UL (_for [item items] (LI (_var "item")))
+let compiled = $tpl.__html | .mj compile --inline $in
+{items: [a b c]} | .mj render $compiled  # fast
+```
+
+---
+
 ## Context
 
 http-nu embeds an HTML DSL in nushell. This ADR documents the design decisions around tag naming, XSS prevention, and the path to performance.
