@@ -1,3 +1,5 @@
+> **Note:** See [ADR-0003](0003-html-dsl-design.md) for the consolidated HTML DSL design.
+
 # HTML Escaping Strategy
 
 ## Context
