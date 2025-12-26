@@ -16,7 +16,7 @@ HTML (
 DIV $user_input  # escaped: &lt;script&gt;...
 
 # Jinja2 DSL for compiled templates
-let tpl = UL (_for [item items] (LI (_var "item")))
+let tpl = UL (_for {item: items} (LI (_var "item")))
 let compiled = $tpl.__html | .mj compile --inline $in
 {items: [a b c]} | .mj render $compiled  # fast
 ```
@@ -158,8 +158,8 @@ Rather than optimize the nushell interpreter, we leverage minijinja. The DSL gai
 # _var emits {{ expr }}
 _var "user.name"  # {{ user.name }}
 
-# _for emits {% for %}
-UL (_for [item items] (LI (_var "item")))
+# _for emits {% for %} — record key is loop var, value is collection
+UL (_for {item: items} (LI (_var "item")))
 # <ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul>
 
 # _if emits {% if %}
@@ -171,7 +171,7 @@ Full workflow:
 
 ```nushell
 # Author template with nushell ergonomics
-let tpl = UL (_for [item items] (LI (_var "item")))
+let tpl = UL (_for {item: items} (LI (_var "item")))
 
 # Compile once
 let compiled = $tpl.__html | .mj compile --inline $in

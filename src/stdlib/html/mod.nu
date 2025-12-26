@@ -208,9 +208,9 @@ export def _bdi [...args: any]: nothing -> record { render-tag bdi ...$args }
 export def _bdo [...args: any]: nothing -> record { render-tag bdo ...$args }
 
 # Jinja2 control flow
-export def _for [binding: list, ...body: any]: nothing -> record {
-  let var = $binding | first
-  let collection = $binding | last
+export def _for [binding: record, ...body: any]: nothing -> record {
+  let var = $binding | columns | first
+  let collection = $binding | values | first
   let children = $body | each { to-children } | str join
   {__html: $"{% for ($var) in ($collection) %}($children){% endfor %}"}
 }

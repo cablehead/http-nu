@@ -184,16 +184,16 @@ assert equal (DIV (_j "content")).__html '<div>{{ content }}</div>'
 
 # Test Jinja2 _for
 assert equal (
-  _for [item items] (LI (_j "item.name"))
+  _for {item: items} (LI (_j "item.name"))
 ).__html '{% for item in items %}<li>{{ item.name }}</li>{% endfor %}'
 
 assert equal (
-  UL (_for [user users] (LI (_j "user.name")))
+  UL (_for {user: users} (LI (_j "user.name")))
 ).__html '<ul>{% for user in users %}<li>{{ user.name }}</li>{% endfor %}</ul>'
 
 assert equal (
   DIV {class: "list"}
-    (_for [item items]
+    (_for {item: items}
       (DIV {class: "item"} (_j "item")))
 ).__html '<div class="list">{% for item in items %}<div class="item">{{ item }}</div>{% endfor %}</div>'
 
@@ -208,10 +208,10 @@ assert equal (
 
 assert equal (
   _if "items"
-    (UL (_for [item items] (LI (_j "item"))))
+    (UL (_for {item: items} (LI (_j "item"))))
 ).__html '{% if items %}<ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}'
 
 # Test escaping in _for/_if (raw strings are escaped)
 assert equal (
-  _for [x xs] (LI "<script>bad</script>")
+  _for {x: xs} (LI "<script>bad</script>")
 ).__html '{% for x in xs %}<li>&lt;script&gt;bad&lt;/script&gt;</li>{% endfor %}'
