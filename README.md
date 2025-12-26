@@ -611,6 +611,23 @@ INPUT {type: "checkbox" checked: true disabled: false}
 # <input type="checkbox" checked>
 ```
 
+**Jinja2 Template DSL**
+
+For hot paths, `_var`, `_for`, and `_if` generate Jinja2 syntax that can be
+compiled once and rendered repeatedly (~200x faster than the runtime DSL):
+
+```nushell
+_var "user.name"                              # {{ user.name }}
+_for {item: items} (LI (_var "item"))         # {% for item in items %}...{% endfor %}
+_if "show" (DIV "content")                    # {% if show %}...{% endif %}
+```
+
+```nushell
+let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
+{items: [a b c]} | .mj render $tpl
+# <ul><li>a</li><li>b</li><li>c</li></ul>
+```
+
 #### Datastar SDK
 
 Generate [Datastar](https://data-star.dev) SSE events for hypermedia
