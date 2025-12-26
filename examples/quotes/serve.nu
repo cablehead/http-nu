@@ -2,9 +2,9 @@ use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
 
-def quote-html []: record -> string {
+def quote-html []: record -> record {
   let q = $in
-  _div {
+  DIV {
     id: "quote"
     style: {
       background-color: "#e8e6e3"
@@ -17,15 +17,15 @@ def quote-html []: record -> string {
       justify-content: center
       overflow: hidden
     }
-  } {
-    _p {
+  } (
+    P {
       style: {
         font-family: "Georgia, serif"
         font-style: italic
         text-align: center
       }
     } $"\"($q.quote)\""
-    | +p {
+    P {
       style: {
         font-family: "'American Typewriter', Courier, monospace"
         font-size: 4vmax
@@ -33,7 +33,7 @@ def quote-html []: record -> string {
         margin-top: 10vh
       }
     } $"— ($q.who? | default 'Anonymous')"
-  }
+  )
 }
 
 {|req|
@@ -51,17 +51,17 @@ def quote-html []: record -> string {
 
     (
       route {method: GET path: "/"} {|req ctx|
-        _html {
-          _head {
-            _meta {charset: "utf-8"}
-            | +title "Live Quotes"
-            | +style "* { box-sizing: border-box; margin: 0; }"
-            | +script {type: "module" src: $DATASTAR_CDN_URL}
-          }
-          | +body {data-init: "@get('/')"} (
+        HTML (
+          HEAD (
+            META {charset: "utf-8"}
+            TITLE "Live Quotes"
+            STYLE "* { box-sizing: border-box; margin: 0; }"
+            SCRIPT {type: "module" src: $DATASTAR_CDN_URL}
+          )
+          BODY {data-init: "@get('/')"} (
             {quote: "Waiting for quotes..."} | quote-html
           )
-        }
+        )
       }
     )
   ]

@@ -496,6 +496,15 @@ let tpl = (.mj compile --inline "{% for i in items %}{{ i }}{% endfor %}")
 [{items: [1,2,3]}, {items: [4,5,6]}] | each { .mj render $tpl }
 ```
 
+With HTML DSL (accepts `{__html}` records directly):
+
+```nushell
+use http-nu/html *
+let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
+{items: [a b c]} | .mj render $tpl
+# <ul><li>a</li><li>b</li><li>c</li></ul>
+```
+
 ### Streaming Input
 
 In Nushell, input only streams when received implicitly. Referencing `$in`
@@ -568,41 +577,11 @@ context passed to handler) or null (no match). If no routes match, returns
 
 #### HTML DSL
 
-Build HTML with Nushell pipelines.
+Build HTML with Nushell. Lisp-style nesting with uppercase tags.
 
 ```nushell
 use http-nu/html *
 
-{|req|
-  _html {
-    _head { _title "Demo" }
-    | +body {
-      _h1 "Hello"
-      | +p {class: "intro"} "Built with Nushell"
-      | +ul { 1..3 | each {|n| _li $"Item ($n)" } }
-    }
-  }
-}
-```
-
-Or with variadic args (no pipes needed):
-
-```nushell
-{|req|
-  (_html
-    (_head (_title "Demo"))
-    (_body
-      (_h1 "Hello")
-      (_p {class: "intro"} "Built with Nushell")
-      (_ul { 1..3 | each {|n| _li $"Item ($n)" } })
-    )
-  )
-}
-```
-
-Or UPPERCASE if you prefer that style:
-
-```nushell
 {|req|
   (HTML
     (HEAD (TITLE "Demo"))
@@ -615,9 +594,9 @@ Or UPPERCASE if you prefer that style:
 }
 ```
 
-All HTML5 elements available as `_tag`, `+tag`, and `TAG`. Use `_tag`/`TAG` for
-first/only child, `+tag` for siblings (includes append). Attributes via record,
-children via closure or string. Lists from `each` are automatically joined.
+All HTML5 elements available as uppercase commands (`DIV`, `SPAN`, `UL`, etc.).
+Attributes via record, children via args or closure. Lists from `each` are
+automatically joined. Plain strings are auto-escaped for XSS protection.
 
 `style` accepts a record; values can be lists for comma-separated CSS (e.g.
 `font-family`): `{style: {font-family: [Arial sans-serif] padding: 10px}}`
@@ -628,8 +607,25 @@ children via closure or string. Lists from `each` are automatically joined.
 `true` renders the attribute, `false` omits it:
 
 ```nushell
-_input {type: "checkbox" checked: true disabled: false}
+INPUT {type: "checkbox" checked: true disabled: false}
 # <input type="checkbox" checked>
+```
+
+**Jinja2 Template DSL**
+
+For hot paths, `_var`, `_for`, and `_if` generate Jinja2 syntax that can be
+compiled once and rendered repeatedly (~200x faster than the runtime DSL):
+
+```nushell
+_var "user.name"                              # {{ user.name }}
+_for {item: items} (LI (_var "item"))         # {% for item in items %}...{% endfor %}
+_if "show" (DIV "content")                    # {% if show %}...{% endif %}
+```
+
+```nushell
+let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
+{items: [a b c]} | .mj render $tpl
+# <ul><li>a</li><li>b</li><li>c</li></ul>
 ```
 
 #### Datastar SDK
@@ -650,11 +646,11 @@ use http-nu/html *
 
   [
     # Update DOM
-    (_div {id: "notifications" class: "alert"} "Profile updated!"
+    (DIV {id: "notifications" class: "alert"} "Profile updated!"
     | to dstar-patch-element)
 
     # Or target by selector
-    (_div {class: "alert"} "Profile updated!"
+    (DIV {class: "alert"} "Profile updated!"
     | to dstar-patch-element --selector "#notifications")
 
     # Update signals

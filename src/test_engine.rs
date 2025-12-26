@@ -53,6 +53,15 @@ fn test_mj_compile_inline() {
 }
 
 #[test]
+fn test_mj_compile_inline_html_record() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(r#".mj compile --inline {__html: "Hello, {{ name }}"}"#)
+        .unwrap();
+    assert_eq!(result.get_type().to_string(), "CompiledTemplate");
+}
+
+#[test]
 fn test_mj_compile_syntax_error() {
     let engine = eval_engine();
     let result = engine.eval(r#".mj compile --inline "Hello, {{ name""#);
