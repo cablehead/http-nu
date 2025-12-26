@@ -19,11 +19,14 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use http_nu::{engine::script_to_engine, handler::handle, listener::TlsConfig, Engine, Listener};
 
 #[derive(Parser, Debug)]
-#[clap(version)]
+#[clap(version, args_conflicts_with_subcommands = true)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
     #[clap(value_parser)]
-    addr: String,
+    addr: Option<String>,
 
     /// Path to PEM file containing certificate and private key
     #[clap(short, long)]
@@ -31,7 +34,21 @@ struct Args {
 
     /// Nushell closure to handle requests, or '-' to read from stdin
     #[clap(value_parser)]
-    closure: String,
+    closure: Option<String>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    /// Evaluate a Nushell script with http-nu commands and exit
+    Eval {
+        /// Script file to evaluate, or '-' to read from stdin
+        #[clap(value_parser)]
+        file: Option<String>,
+
+        /// Evaluate script from command line
+        #[clap(short = 'c', long = "commands")]
+        commands: Option<String>,
+    },
 }
 
 /// Creates and configures the base engine with all commands, signals, and ctrlc handler.
@@ -87,7 +104,8 @@ fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
 }
 
 async fn serve(
-    args: Args,
+    addr: String,
+    tls: Option<PathBuf>,
     base_engine: Engine,
     mut rx: mpsc::Receiver<String>,
     interrupt: Arc<AtomicBool>,
@@ -126,13 +144,13 @@ async fn serve(
     });
 
     // Configure TLS if enabled
-    let tls_config = if let Some(pem_path) = args.tls {
+    let tls_config = if let Some(pem_path) = tls {
         Some(TlsConfig::from_pem(pem_path)?)
     } else {
         None
     };
 
-    let mut listener = Listener::bind(&args.addr, tls_config).await?;
+    let mut listener = Listener::bind(&addr, tls_config).await?;
     println!(
         "{}",
         serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
@@ -295,10 +313,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .expect("failed to set nu_command crypto provider");
 
     let args = Args::parse();
-    let read_stdin = args.closure == "-";
 
     // Set up interrupt signal
     let interrupt = Arc::new(AtomicBool::new(false));
+
+    // Handle subcommands
+    if let Some(Command::Eval { file, commands }) = args.command {
+        let script = match (&file, &commands) {
+            (Some(_), Some(_)) => {
+                eprintln!("Error: cannot specify both file and --commands");
+                std::process::exit(1);
+            }
+            (None, None) => {
+                eprintln!("Error: provide a file or use --commands");
+                std::process::exit(1);
+            }
+            (Some(path), None) if path == "-" => {
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf)?;
+                buf
+            }
+            (Some(path), None) => std::fs::read_to_string(path)?,
+            (None, Some(cmd)) => cmd.clone(),
+        };
+
+        let mut engine = Engine::new()?;
+        engine.add_custom_commands()?;
+        engine.set_signals(interrupt.clone());
+
+        match engine.eval(&script) {
+            Ok(value) => {
+                println!("{}", value.to_expanded_string(" ", &engine.state.config));
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Server mode (default)
+    let addr = args.addr.expect("addr required for server mode");
+    let closure = args.closure.expect("closure required for server mode");
+    let read_stdin = closure == "-";
 
     // Create base engine with commands and signals
     let base_engine = create_base_engine(interrupt.clone())?;
@@ -311,11 +369,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         spawn_stdin_reader(tx);
     } else {
         // Send the closure as a script
-        tx.send(args.closure.clone())
-            .await
-            .expect("channel closed unexpectedly");
+        tx.send(closure).await.expect("channel closed unexpectedly");
         drop(tx); // Close the channel
     }
 
-    serve(args, base_engine, rx, interrupt).await
+    serve(addr, args.tls, base_engine, rx, interrupt).await
 }

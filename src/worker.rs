@@ -32,7 +32,7 @@ pub fn spawn_eval_thread(
         RESPONSE_TX.with(|tx| {
             *tx.borrow_mut() = Some(meta_tx);
         });
-        let result = engine.eval(
+        let result = engine.run_closure(
             request_to_value(&request, nu_protocol::Span::unknown()),
             stream.into(),
         );

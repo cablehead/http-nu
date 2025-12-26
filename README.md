@@ -28,11 +28,14 @@ server that fits in your back pocket.
   - [server-sent events](#server-sent-events)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
+    - [`.mj` - Render inline](#mj---render-inline)
+    - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
   - [Streaming Input](#streaming-input)
   - [Embedded Modules](#embedded-modules)
     - [Routing](#routing)
     - [HTML DSL](#html-dsl)
     - [Datastar SDK](#datastar-sdk)
+- [Eval Subcommand](#eval-subcommand)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -456,7 +459,9 @@ $ http-nu :3001 '{|req|
 ### Templates
 
 Render [minijinja](https://github.com/mitsuhiko/minijinja) (Jinja2-compatible)
-templates with the `.mj` command. Pipe a record as context.
+templates. Pipe a record as context.
+
+#### `.mj` - Render inline
 
 ```bash
 $ http-nu :3001 '{|req| {name: "world"} | .mj --inline "Hello {{ name }}!"}'
@@ -468,6 +473,27 @@ From a file:
 
 ```bash
 $ http-nu :3001 '{|req| $req.query | .mj "templates/page.html"}'
+```
+
+#### `.mj compile` / `.mj render` - Precompiled templates
+
+Compile once, render many. Syntax errors caught at compile time.
+
+```nushell
+let tpl = (.mj compile --inline "{{ name }} is {{ age }}")
+
+# Or from file
+let tpl = (.mj compile "templates/user.html")
+
+# Render with data
+{name: "Alice", age: 30} | .mj render $tpl
+```
+
+Useful for repeated rendering:
+
+```nushell
+let tpl = (.mj compile --inline "{% for i in items %}{{ i }}{% endfor %}")
+[{items: [1,2,3]}, {items: [4,5,6]}] | each { .mj render $tpl }
 ```
 
 ### Streaming Input
@@ -667,6 +693,27 @@ to dstar-execute-script [
 ]: string -> record
 
 from datastar-request [req: record]: string -> record  # $in | from datastar-request $req
+```
+
+## Eval Subcommand
+
+Test http-nu commands without running a server.
+
+```bash
+# From command line
+$ http-nu eval -c '1 + 2'
+3
+
+# From file
+$ http-nu eval script.nu
+
+# From stdin
+$ echo '1 + 2' | http-nu eval -
+3
+
+# Test .mj commands
+$ http-nu eval -c '.mj compile --inline "Hello, {{ name }}" | describe'
+CompiledTemplate
 ```
 
 ## Building and Releases

@@ -12,7 +12,10 @@ use nu_protocol::{
 };
 use std::sync::{atomic::AtomicBool, Arc};
 
-use crate::commands::{MjCommand, ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse};
+use crate::commands::{
+    MjCommand, MjCompileCommand, MjRenderCommand, ResponseStartCommand, ReverseProxyCommand,
+    StaticCommand, ToSse,
+};
 use crate::stdlib::load_http_nu_stdlib;
 use crate::Error;
 
@@ -134,7 +137,69 @@ impl Engine {
         self.state.set_signals(Signals::new(interrupt));
     }
 
-    pub fn eval(&self, input: Value, pipeline_data: PipelineData) -> Result<PipelineData, Error> {
+    /// Evaluate a script string and return the result value
+    pub fn eval(&self, script: &str) -> Result<Value, Error> {
+        let mut working_set = StateWorkingSet::new(&self.state);
+        let block = parse(&mut working_set, None, script.as_bytes(), false);
+
+        if let Some(err) = working_set.parse_errors.first() {
+            let shell_error = ShellError::GenericError {
+                error: "Parse error".into(),
+                msg: format!("{err:?}"),
+                span: Some(err.span()),
+                help: None,
+                inner: vec![],
+            };
+            return Err(Error::from(format_cli_error(
+                &working_set,
+                &shell_error,
+                None,
+            )));
+        }
+
+        if let Some(err) = working_set.compile_errors.first() {
+            let shell_error = ShellError::GenericError {
+                error: format!("Compile error {err}"),
+                msg: "".into(),
+                span: None,
+                help: None,
+                inner: vec![],
+            };
+            return Err(Error::from(format_cli_error(
+                &working_set,
+                &shell_error,
+                None,
+            )));
+        }
+
+        // Clone engine state and merge the parsed block
+        let mut engine_state = self.state.clone();
+        engine_state.merge_delta(working_set.render())?;
+
+        let mut stack = Stack::new();
+        let result = eval_block_with_early_return::<WithoutDebug>(
+            &engine_state,
+            &mut stack,
+            &block,
+            PipelineData::empty(),
+        )
+        .map_err(|err| {
+            let working_set = StateWorkingSet::new(&engine_state);
+            Error::from(format_cli_error(&working_set, &err, None))
+        })?;
+
+        result.body.into_value(Span::unknown()).map_err(|err| {
+            let working_set = StateWorkingSet::new(&engine_state);
+            Error::from(format_cli_error(&working_set, &err, None))
+        })
+    }
+
+    /// Run the parsed closure with input value and pipeline data
+    pub fn run_closure(
+        &self,
+        input: Value,
+        pipeline_data: PipelineData,
+    ) -> Result<PipelineData, Error> {
         let closure = self.closure.as_ref().ok_or("Closure not parsed")?;
 
         let mut stack = Stack::new();
@@ -163,6 +228,8 @@ impl Engine {
             Box::new(StaticCommand::new()),
             Box::new(ToSse {}),
             Box::new(MjCommand::new()),
+            Box::new(MjCompileCommand::new()),
+            Box::new(MjRenderCommand::new()),
         ])
     }
 }

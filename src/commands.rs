@@ -1,9 +1,10 @@
 use crate::response::{Response, ResponseBodyType};
 use nu_engine::command_prelude::*;
 use nu_protocol::{
-    ByteStream, ByteStreamType, Category, Config, PipelineData, PipelineMetadata, ShellError,
-    Signature, Span, SyntaxShape, Type, Value,
+    ByteStream, ByteStreamType, Category, Config, CustomValue, PipelineData, PipelineMetadata,
+    ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Read;
@@ -11,6 +12,80 @@ use std::path::PathBuf;
 use tokio::sync::oneshot;
 
 use minijinja::Environment;
+use std::sync::{Arc, OnceLock, RwLock};
+
+// === Template Cache ===
+
+type TemplateCache = RwLock<HashMap<u128, Arc<Environment<'static>>>>;
+
+static TEMPLATE_CACHE: OnceLock<TemplateCache> = OnceLock::new();
+
+fn get_cache() -> &'static TemplateCache {
+    TEMPLATE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn hash_source(source: &str) -> u128 {
+    xxhash_rust::xxh3::xxh3_128(source.as_bytes())
+}
+
+/// Compile template and insert into cache. Returns hash.
+fn compile_template(source: &str) -> Result<u128, minijinja::Error> {
+    let hash = hash_source(source);
+
+    let mut cache = get_cache().write().unwrap();
+    if cache.contains_key(&hash) {
+        return Ok(hash);
+    }
+
+    let mut env = Environment::new();
+    env.add_template_owned("template".to_string(), source.to_string())?;
+    cache.insert(hash, Arc::new(env));
+    Ok(hash)
+}
+
+/// Get compiled template from cache by hash.
+fn get_compiled(hash: u128) -> Option<Arc<Environment<'static>>> {
+    get_cache().read().unwrap().get(&hash).map(Arc::clone)
+}
+
+// === CompiledTemplate CustomValue ===
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CompiledTemplate {
+    hash: u128,
+}
+
+impl CompiledTemplate {
+    /// Render this template with the given context
+    pub fn render(&self, context: &minijinja::Value) -> Result<String, minijinja::Error> {
+        let env = get_compiled(self.hash).expect("template not in cache");
+        let tmpl = env.get_template("template")?;
+        tmpl.render(context)
+    }
+}
+
+#[typetag::serde]
+impl CustomValue for CompiledTemplate {
+    fn clone_value(&self, span: Span) -> Value {
+        Value::custom(Box::new(self.clone()), span)
+    }
+
+    fn type_name(&self) -> String {
+        "CompiledTemplate".into()
+    }
+
+    fn to_base_value(&self, span: Span) -> Result<Value, ShellError> {
+        Ok(Value::string(format!("{:032x}", self.hash), span))
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
 
 thread_local! {
     pub static RESPONSE_TX: RefCell<Option<oneshot::Sender<Response>>> = const { RefCell::new(None) };
@@ -716,4 +791,194 @@ impl Command for MjCommand {
 fn nu_value_to_minijinja(val: &Value) -> minijinja::Value {
     let json = value_to_json(val, &Config::default()).unwrap_or(serde_json::Value::Null);
     minijinja::Value::from_serialize(&json)
+}
+
+// === .mj compile ===
+
+#[derive(Clone)]
+pub struct MjCompileCommand;
+
+impl Default for MjCompileCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MjCompileCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for MjCompileCommand {
+    fn name(&self) -> &str {
+        ".mj compile"
+    }
+
+    fn description(&self) -> &str {
+        "Compile a minijinja template, returning a reusable compiled template"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".mj compile")
+            .optional("file", SyntaxShape::String, "template file path")
+            .named(
+                "inline",
+                SyntaxShape::String,
+                "inline template string",
+                Some('i'),
+            )
+            .input_output_types(vec![(
+                Type::Nothing,
+                Type::Custom("CompiledTemplate".into()),
+            )])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let file: Option<String> = call.opt(engine_state, stack, 0)?;
+        let inline: Option<String> = call.get_flag(engine_state, stack, "inline")?;
+
+        // Get template source
+        let template_source = match (&file, &inline) {
+            (Some(_), Some(_)) => {
+                return Err(ShellError::GenericError {
+                    error: "Cannot specify both file and --inline".into(),
+                    msg: "use either a file path or --inline, not both".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+            (None, None) => {
+                return Err(ShellError::GenericError {
+                    error: "No template specified".into(),
+                    msg: "provide a file path or use --inline".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+            (Some(path), None) => {
+                std::fs::read_to_string(path).map_err(|e| ShellError::GenericError {
+                    error: format!("Failed to read template file: {e}"),
+                    msg: "could not read file".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                })?
+            }
+            (None, Some(tmpl)) => tmpl.clone(),
+        };
+
+        // Compile and cache the template
+        let hash = compile_template(&template_source).map_err(|e| ShellError::GenericError {
+            error: format!("Template compile error: {e}"),
+            msg: e.to_string(),
+            span: Some(head),
+            help: None,
+            inner: vec![],
+        })?;
+
+        Ok(Value::custom(Box::new(CompiledTemplate { hash }), head).into_pipeline_data())
+    }
+}
+
+// === .mj render ===
+
+#[derive(Clone)]
+pub struct MjRenderCommand;
+
+impl Default for MjRenderCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MjRenderCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for MjRenderCommand {
+    fn name(&self) -> &str {
+        ".mj render"
+    }
+
+    fn description(&self) -> &str {
+        "Render a compiled minijinja template with context from input"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".mj render")
+            .required(
+                "template",
+                SyntaxShape::Any,
+                "compiled template from '.mj compile'",
+            )
+            .input_output_types(vec![(Type::Record(vec![].into()), Type::String)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let template_val: Value = call.req(engine_state, stack, 0)?;
+
+        // Extract CompiledTemplate from the value
+        let compiled = match template_val {
+            Value::Custom { val, .. } => val
+                .as_any()
+                .downcast_ref::<CompiledTemplate>()
+                .ok_or_else(|| ShellError::TypeMismatch {
+                    err_message: "expected CompiledTemplate".into(),
+                    span: head,
+                })?
+                .clone(),
+            _ => {
+                return Err(ShellError::TypeMismatch {
+                    err_message: "expected CompiledTemplate from '.mj compile'".into(),
+                    span: head,
+                });
+            }
+        };
+
+        // Get context from input
+        let context = match input {
+            PipelineData::Value(val, _) => nu_value_to_minijinja(&val),
+            PipelineData::Empty => minijinja::Value::from(()),
+            _ => {
+                return Err(ShellError::TypeMismatch {
+                    err_message: "expected record input".into(),
+                    span: head,
+                });
+            }
+        };
+
+        // Render template
+        let rendered = compiled
+            .render(&context)
+            .map_err(|e| ShellError::GenericError {
+                error: format!("Template render error: {e}"),
+                msg: e.to_string(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            })?;
+
+        Ok(Value::string(rendered, head).into_pipeline_data())
+    }
 }
