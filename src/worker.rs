@@ -42,10 +42,14 @@ pub fn spawn_eval_thread(
         });
         let output = result?;
         let inferred_content_type = match &output {
-            PipelineData::Value(Value::Record { .. }, meta)
+            PipelineData::Value(Value::Record { val, .. }, meta)
                 if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
             {
-                Some("application/json".to_string())
+                if val.get("__html").is_some() {
+                    Some("text/html; charset=utf-8".to_string())
+                } else {
+                    Some("application/json".to_string())
+                }
             }
             PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
                 meta.as_ref().and_then(|m| m.content_type.clone())

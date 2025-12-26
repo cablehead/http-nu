@@ -491,3 +491,27 @@ async fn test_handle_mj_template() {
     assert!(body.contains("test%26foo")); // urlencode
     assert!(body.contains("[1, 2, 3]") || body.contains("[1,2,3]")); // tojson
 }
+
+#[tokio::test]
+async fn test_handle_html_record() {
+    let engine = test_engine(r#"{|req| {__html: "<div>hello</div>"} }"#);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(Arc::new(ArcSwap::from_pointee(engine)), None, req)
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("content-type").unwrap(),
+        "text/html; charset=utf-8"
+    );
+
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(body, "<div>hello</div>");
+}

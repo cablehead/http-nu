@@ -72,6 +72,12 @@ pub fn value_to_bytes(value: Value) -> Vec<u8> {
         Value::Binary { val, .. } => val,
         Value::Bool { val, .. } => val.to_string().into_bytes(),
 
+        // Records with __html field are unwrapped to HTML string
+        Value::Record { val, .. } if val.get("__html").is_some() => match val.get("__html") {
+            Some(Value::String { val, .. }) => val.clone().into_bytes(),
+            _ => Vec::new(),
+        },
+
         // Both Lists and Records are encoded as JSON
         Value::List { .. } | Value::Record { .. } => serde_json::to_string(&value_to_json(&value))
             .unwrap_or_else(|_| String::new())

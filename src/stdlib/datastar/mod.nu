@@ -17,13 +17,20 @@ export def "to dstar-patch-element" [
   --use_view_transition # Enable View Transitions API
   --id: string # SSE event ID
   --retry: int # Retry interval in milliseconds
-]: string -> record {
+]: any -> record {
+  let input = $in
+  let type = $input | describe -d | get type
+  let html = match $type {
+    "string" => $input
+    "record" => (if "__html" in $input { $input.__html } else { error make {msg: "record must have __html field"} })
+    _ => (error make {msg: $"expected string or {__html} record, got ($type)"})
+  }
   let data = [
     (if $selector != null { $"selector ($selector)" })
     (if $mode != "outer" { $"mode ($mode)" })
     (if $namespace != null { $"namespace ($namespace)" })
     (if $use_view_transition { "useViewTransition true" })
-    ...($in | lines | each { $"elements ($in)" })
+    ...($html | lines | each { $"elements ($in)" })
   ] | compact
 
   {event: "datastar-patch-elements" data: $data id: $id retry: $retry}
