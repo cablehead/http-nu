@@ -169,12 +169,12 @@ assert equal (DIV {class: x} (P "a") (P "b")).__html '<div class="x"><p>a</p><p>
 assert equal (DIV (P "a") (P "b")).__html '<div><p>a</p><p>b</p></div>'
 assert equal (DIV {class: x} "text" (P "child") "more").__html '<div class="x">text<p>child</p>more</div>'
 assert equal (DIV "text" (P "child") "more").__html '<div>text<p>child</p>more</div>'
-assert equal (DIV {class: x} [(LI "a") (LI "b")] {|| P "c" | append (P "d")}).__html '<div class="x"><li>a</li><li>b</li><p>c</p><p>d</p></div>'
+assert equal (DIV {class: x} [(LI "a") (LI "b")] {|| P "c" | append (P "d") }).__html '<div class="x"><li>a</li><li>b</li><p>c</p><p>d</p></div>'
 assert equal (
   SECTION {id: main}
-    (H1 "Title")
-    [(P "intro") (P "more")]
-    {|| UL { LI "x" | append (LI "y") }}
+  (H1 "Title")
+  [(P "intro") (P "more")]
+  {|| UL { LI "x" | append (LI "y") } }
 ).__html '<section id="main"><h1>Title</h1><p>intro</p><p>more</p><ul><li>x</li><li>y</li></ul></section>'
 
 # Test Jinja2 _var (variable expression)
@@ -193,8 +193,10 @@ assert equal (
 
 assert equal (
   DIV {class: "list"}
-    (_for {item: items}
-      (DIV {class: "item"} (_var "item")))
+  (
+    _for {item: items}
+    (DIV {class: "item"} (_var "item"))
+  )
 ).__html '<div class="list">{% for item in items %}<div class="item">{{ item }}</div>{% endfor %}</div>'
 
 # Test Jinja2 _if
@@ -208,7 +210,7 @@ assert equal (
 
 assert equal (
   _if "items"
-    (UL (_for {item: items} (LI (_var "item"))))
+  (UL (_for {item: items} (LI (_var "item"))))
 ).__html '{% if items %}<ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}'
 
 # Test escaping in _for/_if (raw strings are escaped)

@@ -79,7 +79,7 @@ export def route [
     $t if ($t | str starts-with "record") => {|req|
       let pattern = $test
       # Process pattern keys, accumulating context or returning null on mismatch
-      $pattern | columns | reduce --fold {} {|key, ctx|
+      $pattern | columns | reduce --fold {} {|key ctx|
         if $ctx == null { return null }
         match $key {
           "path-matches" => {
@@ -145,7 +145,7 @@ export def path-matches [
   # Zip and process segments, returning null on mismatch or extracted params
   $pattern_segments
   | zip $path_segments
-  | reduce --fold {} {|pair, params|
+  | reduce --fold {} {|pair params|
     if $params == null { return null }
     match ($pair.0 | str starts-with ':') {
       true => ($params | insert ($pair.0 | str substring 1..) $pair.1)

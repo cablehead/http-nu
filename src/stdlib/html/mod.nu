@@ -62,14 +62,14 @@ export def render-void-tag [tag: string attrs?: record]: nothing -> record {
 }
 
 # Jinja2 control flow
-export def _for [binding: record, ...body: any]: nothing -> record {
+export def _for [binding: record ...body: any]: nothing -> record {
   let var = $binding | columns | first
   let collection = $binding | values | first
   let children = $body | each { to-children } | str join
   {__html: $"{% for ($var) in ($collection) %}($children){% endfor %}"}
 }
 
-export def _if [cond: string, ...body: any]: nothing -> record {
+export def _if [cond: string ...body: any]: nothing -> record {
   let children = $body | each { to-children } | str join
   {__html: $"{% if ($cond) %}($children){% endif %}"}
 }
