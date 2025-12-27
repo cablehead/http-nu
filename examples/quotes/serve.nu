@@ -51,17 +51,14 @@ def quote-html []: record -> record {
 
     (
       route {method: GET path: "/"} {|req ctx|
-        HTML (
-          HEAD (
-            META {charset: "utf-8"}
-            TITLE "Live Quotes"
-            STYLE "* { box-sizing: border-box; margin: 0; }"
-            SCRIPT {type: "module" src: $DATASTAR_CDN_URL}
-          )
-          BODY {data-init: "@get('/')"} (
-            {quote: "Waiting for quotes..."} | quote-html
-          )
-        )
+        (HTML
+          (HEAD
+            (META {charset: "utf-8"})
+            (TITLE "Live Quotes")
+            (STYLE "* { box-sizing: border-box; margin: 0; }")
+            (SCRIPT {type: "module" src: $DATASTAR_CDN_URL}))
+          (BODY {data-init: "@get('/')"}
+            ({quote: "Waiting for quotes..."} | quote-html)))
       }
     )
   ]
