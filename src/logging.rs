@@ -12,12 +12,49 @@ use tracing::span::Attributes;
 use tracing::{Event, Id, Subscriber};
 use tracing_subscriber::layer::Context as LayerContext;
 use tracing_subscriber::Layer;
+use valuable::Valuable;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+// --- Valuable structs for structured logging ---
+
+#[derive(Valuable)]
+struct RequestLog {
+    proto: String,
+    method: String,
+    remote_ip: Option<String>,
+    remote_port: Option<u16>,
+    trusted_ip: Option<String>,
+    headers: HashMap<String, String>,
+    uri: String,
+    path: String,
+    query: HashMap<String, String>,
+}
+
+impl From<&crate::request::Request> for RequestLog {
+    fn from(req: &crate::request::Request) -> Self {
+        Self {
+            proto: req.proto.clone(),
+            method: req.method.to_string(),
+            remote_ip: req.remote_ip.map(|ip| ip.to_string()),
+            remote_port: req.remote_port,
+            trusted_ip: req.trusted_ip.map(|ip| ip.to_string()),
+            headers: req
+                .headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect(),
+            uri: req.uri.to_string(),
+            path: req.path.clone(),
+            query: req.query.clone(),
+        }
+    }
+}
 
 // --- Tracing events ---
 
 pub fn log_request(request_id: scru128::Scru128Id, request: &crate::request::Request) {
+    let request_log = RequestLog::from(request);
     tracing::info!(
         target: "http_nu::access",
         message = "request",
@@ -25,7 +62,7 @@ pub fn log_request(request_id: scru128::Scru128Id, request: &crate::request::Req
         method = %request.method,
         path = %request.path,
         trusted_ip = ?request.trusted_ip,
-        request = %serde_json::to_string(request).unwrap_or_default(),
+        request = request_log.as_value(),
     );
 }
 
@@ -35,12 +72,17 @@ pub fn log_response(
     headers: &hyper::header::HeaderMap,
     start_time: Instant,
 ) {
+    let headers_map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+
     tracing::info!(
         target: "http_nu::access",
         message = "response",
         request_id = %request_id,
         status = status,
-        headers = ?headers,
+        headers = headers_map.as_value(),
         latency_ms = start_time.elapsed().as_millis() as u64,
     );
 }
@@ -150,15 +192,24 @@ impl JsonVisitor {
     }
 }
 
+fn valuable_to_json(value: &valuable::Value<'_>) -> serde_json::Value {
+    use serde::Serialize;
+    valuable_serde::Serializable::new(value)
+        .serialize(serde_json::value::Serializer)
+        .unwrap_or(serde_json::Value::Null)
+}
+
 impl Visit for JsonVisitor {
+    fn record_value(&mut self, field: &Field, value: valuable::Value<'_>) {
+        self.map
+            .insert(field.name().to_string(), valuable_to_json(&value));
+    }
+
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         let name = field.name();
         let s = format!("{value:?}");
 
-        if name == "headers" {
-            self.map
-                .insert(name.to_string(), serde_json::Value::String(s));
-        } else if s == "None" {
+        if s == "None" {
             self.map.insert(name.to_string(), serde_json::Value::Null);
         } else if let Some(inner) = s.strip_prefix("Some(").and_then(|s| s.strip_suffix(')')) {
             self.map.insert(
