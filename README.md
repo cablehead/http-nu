@@ -31,6 +31,7 @@ server that fits in your back pocket.
     - [`.mj` - Render inline](#mj---render-inline)
     - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
   - [Streaming Input](#streaming-input)
+  - [Plugins](#plugins)
   - [Embedded Modules](#embedded-modules)
     - [Routing](#routing)
     - [HTML DSL](#html-dsl)
@@ -537,6 +538,29 @@ handlers, put body-consuming commands first:
     })
   ]
 }
+```
+
+### Plugins
+
+Load Nushell plugins to extend available commands.
+
+```bash
+$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc :3001 '{|req| 5 | inc}'
+$ curl -s localhost:3001
+6
+```
+
+Multiple plugins:
+
+```bash
+$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc --plugin ~/.cargo/bin/nu_plugin_query :3001 '{|req| ...}'
+```
+
+Works with eval:
+
+```bash
+$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c '1 | inc'
+2
 ```
 
 ### Embedded Modules

@@ -45,6 +45,10 @@ struct Args {
 enum Command {
     /// Evaluate a Nushell script with http-nu commands and exit
     Eval {
+        /// Load a Nushell plugin from the specified path (can be used multiple times)
+        #[clap(long = "plugin", value_parser)]
+        plugins: Vec<PathBuf>,
+
         /// Script file to evaluate, or '-' to read from stdin
         #[clap(value_parser)]
         file: Option<String>,
@@ -329,7 +333,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let interrupt = Arc::new(AtomicBool::new(false));
 
     // Handle subcommands
-    if let Some(Command::Eval { file, commands }) = args.command {
+    if let Some(Command::Eval {
+        plugins,
+        file,
+        commands,
+    }) = args.command
+    {
         let script = match (&file, &commands) {
             (Some(_), Some(_)) => {
                 eprintln!("Error: cannot specify both file and --commands");
@@ -351,8 +360,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut engine = Engine::new()?;
         engine.add_custom_commands()?;
 
-        // Load plugins for eval subcommand too
-        for plugin_path in &args.plugins {
+        for plugin_path in &plugins {
             engine.load_plugin(plugin_path)?;
         }
 
