@@ -269,11 +269,7 @@ Control log output with `--log-format`:
   timing, and bytes
 - `jsonl`: Structured JSON lines with `scru128` stamps for log aggregation
 
-Each request emits 3 phases:
-
-- **request**: Method, path, headers, client IP captured on arrival
-- **response**: Status code, response headers, latency to first byte
-- **complete**: Total bytes sent, full request duration
+Each request emits 3 phases: **request** (received), **response** (headers sent), **complete** (body finished).
 
 **Human format**
 
