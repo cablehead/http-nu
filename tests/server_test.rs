@@ -644,18 +644,25 @@ async fn test_graceful_shutdown_waits_for_inflight_requests() {
         TestServer::new("127.0.0.1:0", r#"{|req| sleep 500ms; "completed"}"#, false).await;
 
     // Start a request (will take 500ms to complete)
+    // Use --retry and --retry-connrefused to handle slow server startup on CI
     let url = format!("http://{}/", server.address);
     let request_handle = tokio::spawn(async move {
         tokio::process::Command::new("curl")
             .arg("-s")
+            .arg("--retry")
+            .arg("3")
+            .arg("--retry-delay")
+            .arg("1")
+            .arg("--retry-connrefused")
             .arg(&url)
             .output()
             .await
             .expect("curl failed")
     });
 
-    // Give the request time to start
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // Give the request time to connect and start processing
+    // Increased for CI environments (especially macOS) where timing can vary
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // Send SIGTERM to trigger graceful shutdown (doesn't kill nushell jobs like SIGINT)
     server.send_sigterm();
