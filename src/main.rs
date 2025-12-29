@@ -21,8 +21,8 @@ use http_nu::{
     handler::handle,
     listener::TlsConfig,
     logging::{
-        log_reload, log_shutdown, log_shutdown_complete, log_shutdown_timeout, log_start,
-        HumanLayer, JsonlLayer,
+        log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping, HumanLayer,
+        JsonlLayer,
     },
     Engine, Listener,
 };
@@ -169,7 +169,7 @@ async fn serve(
         while let Some(script) = rx.recv().await {
             if let Some(new_engine) = script_to_engine(&base_for_updates, &script) {
                 engine_updater.store(Arc::new(new_engine));
-                log_reload();
+                log_reloaded();
             }
         }
     });
@@ -183,7 +183,7 @@ async fn serve(
 
     let mut listener = Listener::bind(&addr, tls_config).await?;
     let startup_ms = start_time.elapsed().as_millis();
-    log_start(&format!("{listener}"), startup_ms);
+    log_started(&format!("{listener}"), startup_ms);
 
     // HTTP/1 + HTTP/2 auto-detection builder
     let http_builder = HttpConnectionBuilder::new(TokioExecutor::new());
@@ -245,7 +245,7 @@ async fn serve(
     let mut timed_out = false;
 
     if inflight > 0 {
-        log_shutdown(inflight);
+        log_stopping(inflight);
 
         tokio::select! {
             _ = graceful.shutdown() => {}
@@ -256,9 +256,9 @@ async fn serve(
     }
 
     if timed_out {
-        log_shutdown_timeout();
+        log_stop_timed_out();
     } else {
-        log_shutdown_complete();
+        log_stopped();
     }
 
     Ok(())

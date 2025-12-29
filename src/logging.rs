@@ -55,49 +55,49 @@ pub fn log_complete(request_id: scru128::Scru128Id, bytes: u64, response_time: I
     );
 }
 
-pub fn log_start(address: &str, startup_ms: u128) {
+pub fn log_started(address: &str, startup_ms: u128) {
     tracing::info!(
         target: "http_nu::lifecycle",
-        message = "start",
+        message = "started",
         address = address,
         startup_ms = startup_ms as u64,
     );
 }
 
-pub fn log_reload() {
+pub fn log_reloaded() {
     tracing::info!(
         target: "http_nu::lifecycle",
-        message = "reload",
+        message = "reloaded",
     );
 }
 
 pub fn log_error(error: &str) {
     tracing::info!(
         target: "http_nu::lifecycle",
-        message = "error",
+        message = "ERROR",
         error = error,
     );
 }
 
-pub fn log_shutdown(inflight: usize) {
+pub fn log_stopping(inflight: usize) {
     tracing::info!(
         target: "http_nu::lifecycle",
-        message = "shutdown",
+        message = "stopping",
         inflight = inflight as u64,
     );
 }
 
-pub fn log_shutdown_complete() {
+pub fn log_stopped() {
     tracing::info!(
         target: "http_nu::lifecycle",
-        message = "shutdown_complete",
+        message = "stopped",
     );
 }
 
-pub fn log_shutdown_timeout() {
+pub fn log_stop_timed_out() {
     tracing::info!(
         target: "http_nu::lifecycle",
-        message = "shutdown_timeout",
+        message = "stop_timed_out",
     );
 }
 
@@ -371,7 +371,7 @@ impl<S: Subscriber> Layer<S> for HumanLayer {
             event.record(&mut visitor);
 
             match visitor.message.as_deref() {
-                Some("start") => {
+                Some("started") => {
                     let version = env!("CARGO_PKG_VERSION");
                     let pid = std::process::id();
                     let addr = visitor.address.unwrap_or_default();
@@ -382,23 +382,23 @@ impl<S: Subscriber> Layer<S> for HumanLayer {
                     println!("'|, . ,'    pid {pid} · {addr} · {startup_ms}ms 💜");
                     println!(" !_-(_\\     {now}");
                 }
-                Some("reload") => {
+                Some("reloaded") => {
                     println!("reloaded 🔄");
                 }
-                Some("error") => {
+                Some("ERROR") => {
                     if let Some(err) = visitor.error {
                         eprintln!("{err}");
                     }
                 }
-                Some("shutdown") => {
+                Some("stopping") => {
                     let inflight = visitor.inflight.unwrap_or(0);
-                    println!("shutting down, {inflight} connection(s) in flight...");
+                    println!("stopping, {inflight} connection(s) in flight...");
                 }
-                Some("shutdown_complete") => {
+                Some("stopped") => {
                     println!("cu l8r 💜</http-nu>");
                 }
-                Some("shutdown_timeout") => {
-                    println!("shutdown timed out, forcing exit");
+                Some("stop_timed_out") => {
+                    println!("stop timed out, forcing exit");
                 }
                 _ => {}
             }
