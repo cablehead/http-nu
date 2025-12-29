@@ -164,23 +164,28 @@ impl HumanLayer {
         }
     }
 
+    fn truncate_middle(s: &str, max_len: usize) -> String {
+        if s.len() <= max_len {
+            return s.to_string();
+        }
+        let keep = (max_len - 3) / 2;
+        format!("{}...{}", &s[..keep], &s[s.len() - keep..])
+    }
+
     fn format_line(state: &RequestState, bytes: Option<u64>) -> String {
         let timestamp = Local::now().format("%H:%M:%S%.3f");
-        let ip_part = state
-            .trusted_ip
-            .as_ref()
-            .map(|ip| format!(" {ip}"))
-            .unwrap_or_default();
-        let status_part = state.status.map(|s| format!(" {s}")).unwrap_or_default();
-        let timing = state.start_time.elapsed().as_millis();
-        let bytes_part = bytes.map(|b| format!(" {b}b")).unwrap_or_default();
+        let ip = state.trusted_ip.as_deref().unwrap_or("-");
         let method = &state.method;
-        let path = &state.path;
+        let path = Self::truncate_middle(&state.path, 40);
+        let timing_ms = state.start_time.elapsed().as_millis();
 
-        if state.status.is_some() {
-            format!("{timestamp}{ip_part} {method} {path}{status_part} {timing}ms{bytes_part}")
+        if let Some(status) = state.status {
+            let bytes_val = bytes.unwrap_or(0);
+            format!(
+                "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {timing_ms:>6}ms {bytes_val:>8}b"
+            )
         } else {
-            format!("{timestamp}{ip_part} {method} {path} ...")
+            format!("{timestamp} {ip:>15} {method:<6} {path:<40} ...")
         }
     }
 }
