@@ -188,7 +188,7 @@ where
 
             let bytes = body.collect().await?.to_bytes();
             let inner_body = Full::new(bytes).map_err(|e| match e {}).boxed();
-            let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+            let logging_body = LoggingBody::new(inner_body, request_id);
             let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
             Ok(res)
         }
@@ -298,7 +298,7 @@ where
                     );
 
                     let inner_body = body.map_err(|e| e.into()).boxed();
-                    let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+                    let logging_body = LoggingBody::new(inner_body, request_id);
                     let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
                     Ok(res)
                 }
@@ -309,7 +309,7 @@ where
                     let inner_body = Full::new("Bad Gateway".into())
                         .map_err(|never| match never {})
                         .boxed();
-                    let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+                    let logging_body = LoggingBody::new(inner_body, request_id);
                     let response = hyper::Response::builder()
                         .status(502)
                         .body(logging_body.boxed())?;
@@ -421,6 +421,6 @@ async fn build_normal_response(
     };
 
     // Wrap with LoggingBody for phase 3 (complete) logging
-    let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+    let logging_body = LoggingBody::new(inner_body, request_id);
     Ok(builder.body(logging_body.boxed())?)
 }

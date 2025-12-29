@@ -45,13 +45,13 @@ pub fn log_response(
     );
 }
 
-pub fn log_complete(request_id: scru128::Scru128Id, bytes: u64, start_time: Instant) {
+pub fn log_complete(request_id: scru128::Scru128Id, bytes: u64, response_time: Instant) {
     tracing::info!(
         target: "http_nu::access",
         message = "complete",
         request_id = %request_id,
         bytes = bytes,
-        latency_ms = start_time.elapsed().as_millis() as u64,
+        duration_ms = response_time.elapsed().as_millis() as u64,
     );
 }
 
@@ -149,7 +149,7 @@ struct RequestState {
     path: String,
     trusted_ip: Option<String>,
     status: Option<u16>,
-    start_time: Instant,
+    latency_ms: Option<u64>,
 }
 
 pub struct HumanLayer {
@@ -173,20 +173,27 @@ impl HumanLayer {
         format!("{}...{}", &s[..keep], &s[s.len() - keep..])
     }
 
-    fn format_line(state: &RequestState, bytes: Option<u64>) -> String {
+    fn format_line(state: &RequestState, duration_ms: Option<u64>, bytes: Option<u64>) -> String {
         let timestamp = Local::now().format("%H:%M:%S%.3f");
         let ip = state.trusted_ip.as_deref().unwrap_or("-");
         let method = &state.method;
         let path = Self::truncate_middle(&state.path, 40);
-        let timing_ms = state.start_time.elapsed().as_millis();
 
-        if let Some(status) = state.status {
-            let bytes_val = bytes.unwrap_or(0);
-            format!(
-                "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {timing_ms:>6}ms {bytes_val:>8}b"
-            )
-        } else {
-            format!("{timestamp} {ip:>15} {method:<6} {path:<40} ...")
+        match (state.status, state.latency_ms, duration_ms, bytes) {
+            // Complete: status, latency, duration, bytes
+            (Some(status), Some(latency), Some(dur), Some(b)) => {
+                format!(
+                    "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms {dur:>6}ms {b:>8}b"
+                )
+            }
+            // Response: status, latency
+            (Some(status), Some(latency), None, None) => {
+                format!("{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms")
+            }
+            // Request pending
+            _ => {
+                format!("{timestamp} {ip:>15} {method:<6} {path:<40} ...")
+            }
         }
     }
 }
@@ -206,6 +213,8 @@ struct FieldVisitor {
     trusted_ip: Option<String>,
     status: Option<u16>,
     bytes: Option<u64>,
+    latency_ms: Option<u64>,
+    duration_ms: Option<u64>,
 }
 
 impl FieldVisitor {
@@ -218,6 +227,8 @@ impl FieldVisitor {
             trusted_ip: None,
             status: None,
             bytes: None,
+            latency_ms: None,
+            duration_ms: None,
         }
     }
 }
@@ -244,6 +255,8 @@ impl Visit for FieldVisitor {
         match field.name() {
             "status" => self.status = Some(value as u16),
             "bytes" => self.bytes = Some(value),
+            "latency_ms" => self.latency_ms = Some(value),
+            "duration_ms" => self.duration_ms = Some(value),
             _ => {}
         }
     }
@@ -289,22 +302,25 @@ impl<S: Subscriber> Layer<S> for HumanLayer {
                     path,
                     trusted_ip: visitor.trusted_ip,
                     status: None,
-                    start_time: Instant::now(),
+                    latency_ms: None,
                 };
-                pb.set_message(Self::format_line(&state, None));
+                pb.set_message(Self::format_line(&state, None, None));
                 requests.insert(request_id, state);
             }
             Some("response") => {
                 if let Some(state) = requests.get_mut(&request_id) {
                     state.status = visitor.status;
-                    state.pb.set_message(Self::format_line(state, None));
+                    state.latency_ms = visitor.latency_ms;
+                    state.pb.set_message(Self::format_line(state, None, None));
                 }
             }
             Some("complete") => {
                 if let Some(state) = requests.remove(&request_id) {
-                    state
-                        .pb
-                        .finish_with_message(Self::format_line(&state, visitor.bytes));
+                    state.pb.finish_with_message(Self::format_line(
+                        &state,
+                        visitor.duration_ms,
+                        visitor.bytes,
+                    ));
                 }
             }
             _ => {}
@@ -319,17 +335,17 @@ impl<S: Subscriber> Layer<S> for HumanLayer {
 pub struct LoggingBody<B> {
     inner: B,
     request_id: scru128::Scru128Id,
-    start_time: Instant,
+    response_time: Instant,
     bytes_sent: u64,
     logged_complete: bool,
 }
 
 impl<B> LoggingBody<B> {
-    pub fn new(inner: B, request_id: scru128::Scru128Id, start_time: Instant) -> Self {
+    pub fn new(inner: B, request_id: scru128::Scru128Id) -> Self {
         Self {
             inner,
             request_id,
-            start_time,
+            response_time: Instant::now(),
             bytes_sent: 0,
             logged_complete: false,
         }
@@ -338,7 +354,7 @@ impl<B> LoggingBody<B> {
     fn do_log_complete(&mut self) {
         if !self.logged_complete {
             self.logged_complete = true;
-            log_complete(self.request_id, self.bytes_sent, self.start_time);
+            log_complete(self.request_id, self.bytes_sent, self.response_time);
         }
     }
 }
