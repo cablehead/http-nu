@@ -395,7 +395,7 @@ impl<S: Subscriber> Layer<S> for HumanLayer {
                     println!("stopping, {inflight} connection(s) in flight...");
                 }
                 Some("stopped") => {
-                    println!("cu l8r 💜</http-nu>");
+                    println!("cu l8r </http-nu>");
                 }
                 Some("stop_timed_out") => {
                     println!("stop timed out, forcing exit");
