@@ -120,3 +120,24 @@ fn test_mj_compile_describe() {
         .unwrap();
     assert_eq!(result.as_str().unwrap(), "CompiledTemplate");
 }
+
+#[test]
+fn test_closure_captures_outer_variables() {
+    let mut engine = Engine::new().unwrap();
+    engine
+        .parse_closure(r#"let x = "captured"; {|req| $x}"#)
+        .unwrap();
+
+    let result = engine
+        .run_closure(Value::test_nothing(), PipelineData::empty())
+        .unwrap();
+
+    assert_eq!(
+        result
+            .into_value(nu_protocol::Span::test_data())
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "captured"
+    );
+}

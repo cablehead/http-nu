@@ -245,7 +245,7 @@ impl Engine {
     ) -> Result<PipelineData, Error> {
         let closure = self.closure.as_ref().ok_or("Closure not parsed")?;
 
-        let mut stack = Stack::new();
+        let mut stack = Stack::new().captures_to_stack(closure.captures.clone());
         let mut stack =
             stack.push_redirection(Some(Redirection::Pipe(OutDest::PipeSeparate)), None);
         let block = self.state.get_block(closure.block_id);
