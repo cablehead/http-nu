@@ -264,16 +264,24 @@ HTTP/2 200
 
 Control log output with `--log-format`:
 
-- `human` (default): Live-updating lines with timestamp, IP, method, path,
-  status, timing, bytes
-- `jsonl`: Structured JSON with `scru128` stamps for each event
+- `human` (default): Live-updating terminal output with startup banner,
+  per-request progress lines showing timestamp, IP, method, path, status,
+  timing, and bytes
+- `jsonl`: Structured JSON lines with `scru128` stamps for log aggregation
+
+**JSONL format:**
+
+Each HTTP request emits 3 correlated events sharing a `request_id`:
 
 ```bash
 $ http-nu --log-format jsonl :3001 '{|req| "hello"}'
-{"stamp":"0abcdef...","message":"request","method":"GET","path":"/"}
-{"stamp":"0abcdef...","message":"response","status":200,"latency_ms":1}
-{"stamp":"0abcdef...","message":"complete","bytes":5,"latency_ms":2}
+{"stamp":"...","message":"started","address":"http://127.0.0.1:3001","startup_ms":42}
+{"stamp":"...","message":"request","request_id":"...","method":"GET","path":"/","request":{...}}
+{"stamp":"...","message":"response","request_id":"...","status":200,"headers":{...},"latency_ms":1}
+{"stamp":"...","message":"complete","request_id":"...","bytes":5,"duration_ms":2}
 ```
+
+Lifecycle events: `started`, `reloaded`, `stopping`, `stopped`, `stop_timed_out`
 
 ### Trusted Proxies
 
