@@ -9,6 +9,10 @@ use tokio::time::Duration;
 use crate::commands::{MjCommand, ResponseStartCommand, StaticCommand, ToSse};
 use crate::handler::handle;
 
+fn no_trusted_proxies() -> Arc<Vec<ipnet::IpNet>> {
+    Arc::new(vec![])
+}
+
 #[tokio::test]
 async fn test_handle() {
     let engine = test_engine(r#"{|req| "hello world" }"#);
@@ -19,9 +23,14 @@ async fn test_handle() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(Arc::new(ArcSwap::from_pointee(engine)), None, req)
-        .await
-        .unwrap();
+    let resp = handle(
+        Arc::new(ArcSwap::from_pointee(engine)),
+        None,
+        no_trusted_proxies(),
+        req,
+    )
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 200);
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -55,7 +64,9 @@ async fn test_handle_with_response_start() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine.clone(), None, req).await.unwrap();
+    let resp = handle(engine.clone(), None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
 
     // Verify response metadata
     assert_eq!(resp.status(), 201);
@@ -82,7 +93,9 @@ async fn test_handle_post() {
         .body(Full::new(Bytes::from(body)))
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
 
     // Verify response status
     assert_eq!(resp.status(), 200);
@@ -106,7 +119,9 @@ async fn test_handle_streaming() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let mut body = resp.into_body();
@@ -168,7 +183,9 @@ async fn test_content_type_precedence() {
         .uri("/")
         .body(Empty::<Bytes>::new())
         .unwrap();
-    let resp1 = handle(engine.clone(), None, req1).await.unwrap();
+    let resp1 = handle(engine.clone(), None, no_trusted_proxies(), req1)
+        .await
+        .unwrap();
     assert_eq!(resp1.headers()["content-type"], "text/plain");
 
     // 2. Pipeline metadata
@@ -179,7 +196,9 @@ async fn test_content_type_precedence() {
     let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req| ls | to yaml }"#,
     )));
-    let resp2 = handle(engine.clone(), None, req2).await.unwrap();
+    let resp2 = handle(engine.clone(), None, no_trusted_proxies(), req2)
+        .await
+        .unwrap();
     assert_eq!(resp2.headers()["content-type"], "application/yaml");
 
     // 3. Record defaults to JSON
@@ -190,7 +209,9 @@ async fn test_content_type_precedence() {
     let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req| {foo: "bar"} }"#,
     )));
-    let resp3 = handle(engine.clone(), None, req3).await.unwrap();
+    let resp3 = handle(engine.clone(), None, no_trusted_proxies(), req3)
+        .await
+        .unwrap();
     assert_eq!(resp3.headers()["content-type"], "application/json");
 
     // 4. Plain text defaults to text/html
@@ -201,7 +222,9 @@ async fn test_content_type_precedence() {
     let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req| "Hello World"}"#,
     )));
-    let resp4 = handle(engine.clone(), None, req4).await.unwrap();
+    let resp4 = handle(engine.clone(), None, no_trusted_proxies(), req4)
+        .await
+        .unwrap();
     assert_eq!(resp4.headers()["content-type"], "text/html; charset=utf-8");
 }
 
@@ -217,7 +240,9 @@ async fn test_handle_bytestream() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
 
     // Verify CSV content type
     assert_eq!(resp.headers()["content-type"], "text/csv");
@@ -251,7 +276,9 @@ async fn test_handle_preserve_preamble() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
 
     // Collect and verify body
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -278,7 +305,9 @@ async fn test_handle_static() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.headers()["content-type"], "text/css");
 
@@ -324,7 +353,9 @@ async fn test_handle_binary_value() {
         .unwrap();
 
     // Currently this will panic, but after fixing it should return a response
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
 
     // Assert proper content type
     assert_eq!(resp.status(), 200);
@@ -352,7 +383,9 @@ async fn test_handle_missing_header_error() {
         .unwrap();
 
     // This should fail currently - the Nu script tries to access missing column 'host'
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
 
     // After fixing, this should return 500 with error message instead of hanging
     assert_eq!(resp.status(), 500);
@@ -376,7 +409,9 @@ async fn test_handle_script_panic() {
         .unwrap();
 
     // This should return 500 instead of hanging/crashing the thread
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 500);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     let body_str = String::from_utf8(body.to_vec()).unwrap();
@@ -399,7 +434,9 @@ async fn test_handle_nu_shell_column_error() {
         .unwrap();
 
     // Should return 500 error instead of thread panic
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 500);
 }
 
@@ -419,7 +456,9 @@ async fn test_handle_script_runtime_error() {
         .unwrap();
 
     // Should gracefully handle runtime errors
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 500);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     let body_str = String::from_utf8(body.to_vec()).unwrap();
@@ -445,7 +484,9 @@ async fn test_multi_value_set_cookie_headers() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     // Verify we have two separate Set-Cookie headers
@@ -481,7 +522,9 @@ async fn test_handle_mj_template() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(engine, None, req).await.unwrap();
+    let resp = handle(engine, None, no_trusted_proxies(), req)
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -502,9 +545,14 @@ async fn test_handle_html_record() {
         .body(Empty::<Bytes>::new())
         .unwrap();
 
-    let resp = handle(Arc::new(ArcSwap::from_pointee(engine)), None, req)
-        .await
-        .unwrap();
+    let resp = handle(
+        Arc::new(ArcSwap::from_pointee(engine)),
+        None,
+        no_trusted_proxies(),
+        req,
+    )
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),

@@ -17,13 +17,19 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 // --- Tracing events ---
 
-pub fn log_request(request_id: scru128::Scru128Id, method: &str, path: &str) {
+pub fn log_request(
+    request_id: scru128::Scru128Id,
+    method: &str,
+    path: &str,
+    trusted_ip: Option<std::net::IpAddr>,
+) {
     tracing::info!(
         target: "http_nu::access",
         message = "request",
         request_id = %request_id,
         method = method,
         path = path,
+        trusted_ip = ?trusted_ip,
     );
 }
 
@@ -140,6 +146,7 @@ struct RequestState {
     pb: ProgressBar,
     method: String,
     path: String,
+    trusted_ip: Option<String>,
     status: Option<u16>,
     start_time: Instant,
 }
@@ -159,6 +166,11 @@ impl HumanLayer {
 
     fn format_line(state: &RequestState, bytes: Option<u64>) -> String {
         let timestamp = Local::now().format("%H:%M:%S%.3f");
+        let ip_part = state
+            .trusted_ip
+            .as_ref()
+            .map(|ip| format!(" {ip}"))
+            .unwrap_or_default();
         let status_part = state.status.map(|s| format!(" {s}")).unwrap_or_default();
         let timing = state.start_time.elapsed().as_millis();
         let bytes_part = bytes.map(|b| format!(" {b}b")).unwrap_or_default();
@@ -166,9 +178,9 @@ impl HumanLayer {
         let path = &state.path;
 
         if state.status.is_some() {
-            format!("{timestamp} {method} {path}{status_part} {timing}ms{bytes_part}")
+            format!("{timestamp}{ip_part} {method} {path}{status_part} {timing}ms{bytes_part}")
         } else {
-            format!("{timestamp} {method} {path} ...")
+            format!("{timestamp}{ip_part} {method} {path} ...")
         }
     }
 }
@@ -185,6 +197,7 @@ struct FieldVisitor {
     message: Option<String>,
     method: Option<String>,
     path: Option<String>,
+    trusted_ip: Option<String>,
     status: Option<u16>,
     bytes: Option<u64>,
 }
@@ -196,6 +209,7 @@ impl FieldVisitor {
             message: None,
             method: None,
             path: None,
+            trusted_ip: None,
             status: None,
             bytes: None,
         }
@@ -209,6 +223,13 @@ impl Visit for FieldVisitor {
             "message" => self.message = Some(format!("{value:?}").trim_matches('"').to_string()),
             "method" => self.method = Some(format!("{value:?}").trim_matches('"').to_string()),
             "path" => self.path = Some(format!("{value:?}").trim_matches('"').to_string()),
+            "trusted_ip" => {
+                let s = format!("{value:?}");
+                // Parse "Some(1.2.3.4)" or "None"
+                if s.starts_with("Some(") {
+                    self.trusted_ip = Some(s[5..s.len() - 1].to_string());
+                }
+            }
             _ => {}
         }
     }
@@ -227,6 +248,7 @@ impl Visit for FieldVisitor {
             "message" => self.message = Some(value.to_string()),
             "method" => self.method = Some(value.to_string()),
             "path" => self.path = Some(value.to_string()),
+            "trusted_ip" => self.trusted_ip = Some(value.to_string()),
             _ => {}
         }
     }
@@ -259,6 +281,7 @@ impl<S: Subscriber> Layer<S> for HumanLayer {
                     pb: pb.clone(),
                     method,
                     path,
+                    trusted_ip: visitor.trusted_ip,
                     status: None,
                     start_time: Instant::now(),
                 };

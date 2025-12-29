@@ -49,6 +49,10 @@ struct Args {
     /// Log format: human (live-updating) or jsonl (structured)
     #[clap(long, default_value = "human")]
     log_format: LogFormat,
+
+    /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
+    #[clap(long = "trust-proxy", value_name = "CIDR")]
+    trust_proxies: Vec<ipnet::IpNet>,
 }
 
 #[derive(Clone, Debug, Default, clap::ValueEnum)]
@@ -137,6 +141,7 @@ async fn serve(
     base_engine: Engine,
     mut rx: mpsc::Receiver<String>,
     interrupt: Arc<AtomicBool>,
+    trusted_proxies: Vec<ipnet::IpNet>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Wait for a valid first script (loop to handle parse errors)
     let first_engine = loop {
@@ -190,6 +195,9 @@ async fn serve(
     // Graceful shutdown tracker for all connections
     let graceful = GracefulShutdown::new();
 
+    // Wrap trusted_proxies in Arc for sharing across connections
+    let trusted_proxies = Arc::new(trusted_proxies);
+
     let shutdown = shutdown_signal(interrupt.clone());
     tokio::pin!(shutdown);
 
@@ -200,9 +208,10 @@ async fn serve(
                     Ok((stream, remote_addr)) => {
                         let io = TokioIo::new(stream);
                         let engine = engine.clone();
+                        let trusted_proxies = trusted_proxies.clone();
 
                         let service = service_fn(move |req| {
-                            handle(engine.clone(), remote_addr, req)
+                            handle(engine.clone(), remote_addr, trusted_proxies.clone(), req)
                         });
 
                         // serve_connection_with_upgrades supports HTTP/1 and HTTP/2
@@ -417,5 +426,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         drop(tx); // Close the channel
     }
 
-    serve(addr, args.tls, base_engine, rx, interrupt).await
+    serve(
+        addr,
+        args.tls,
+        base_engine,
+        rx,
+        interrupt,
+        args.trust_proxies,
+    )
+    .await
 }

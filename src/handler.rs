@@ -12,7 +12,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::compression;
 use crate::logging::{log_request, log_response, LoggingBody};
-use crate::request::Request;
+use crate::request::{resolve_trusted_ip, Request};
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
 use crate::worker::spawn_eval_thread;
 
@@ -22,6 +22,7 @@ type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
     addr: Option<SocketAddr>,
+    trusted_proxies: Arc<Vec<ipnet::IpNet>>,
     req: hyper::Request<B>,
 ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
@@ -31,7 +32,7 @@ where
 {
     // Load current engine snapshot - lock-free atomic operation
     let engine = engine.load_full();
-    match handle_inner(engine, addr, req).await {
+    match handle_inner(engine, addr, trusted_proxies, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {err}");
@@ -48,6 +49,7 @@ where
 async fn handle_inner<B>(
     engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
+    trusted_proxies: Arc<Vec<ipnet::IpNet>>,
     req: hyper::Request<B>,
 ) -> HTTPResult
 where
@@ -105,12 +107,16 @@ where
     let start_time = Instant::now();
     let request_id = scru128::new();
 
+    let remote_ip = addr.as_ref().map(|a| a.ip());
+    let trusted_ip = resolve_trusted_ip(&parts.headers, remote_ip, &trusted_proxies);
+
     let request = Request {
         proto: format!("{:?}", parts.version),
         method: parts.method.clone(),
         authority: parts.uri.authority().map(|a| a.to_string()),
-        remote_ip: addr.as_ref().map(|a| a.ip()),
+        remote_ip,
         remote_port: addr.as_ref().map(|a| a.port()),
+        trusted_ip,
         headers: parts.headers.clone(),
         uri: parts.uri.clone(),
         path: parts.uri.path().to_string(),
@@ -126,7 +132,12 @@ where
     };
 
     // Phase 1: Log request
-    log_request(request_id, request.method.as_str(), &request.path);
+    log_request(
+        request_id,
+        request.method.as_str(),
+        &request.path,
+        trusted_ip,
+    );
 
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 

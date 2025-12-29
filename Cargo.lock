@@ -1481,6 +1481,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "indicatif 0.17.11",
+ "ipnet",
  "log",
  "miette",
  "minijinja",
