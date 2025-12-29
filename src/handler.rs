@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use arc_swap::ArcSwap;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
@@ -10,12 +11,37 @@ use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::compression;
+use crate::logging_body::LoggingBody;
 use crate::request::Request;
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
 use crate::worker::spawn_eval_thread;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
+
+fn header_map_to_json(headers: &hyper::header::HeaderMap) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (name, value) in headers.iter() {
+        let key = name.as_str().to_string();
+        let val = value.to_str().unwrap_or("<binary>").to_string();
+        // If key already exists, convert to array
+        if let Some(existing) = map.get_mut(&key) {
+            match existing {
+                serde_json::Value::Array(arr) => arr.push(serde_json::Value::String(val)),
+                serde_json::Value::String(s) => {
+                    *existing = serde_json::Value::Array(vec![
+                        serde_json::Value::String(s.clone()),
+                        serde_json::Value::String(val),
+                    ]);
+                }
+                _ => {}
+            }
+        } else {
+            map.insert(key, serde_json::Value::String(val));
+        }
+    }
+    serde_json::Value::Object(map)
+}
 
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
@@ -99,6 +125,10 @@ where
         },
     );
 
+    // Generate request ID and capture start time for 3-phase logging
+    let start_time = Instant::now();
+    let request_id = scru128::new();
+
     let request = Request {
         proto: format!("{:?}", parts.version),
         method: parts.method.clone(),
@@ -119,9 +149,10 @@ where
             .unwrap_or_else(std::collections::HashMap::new),
     };
 
+    // Phase 1: Log request
     println!(
         "{}",
-        serde_json::json!({"stamp": scru128::new(), "message": "request", "meta": request})
+        serde_json::json!({"stamp": request_id, "message": "request", "meta": request})
     );
 
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
@@ -147,7 +178,7 @@ where
 
     match &meta.body_type {
         ResponseBodyType::Normal => {
-            build_normal_response(&meta, Ok(body_result?), use_brotli).await
+            build_normal_response(&meta, Ok(body_result?), use_brotli, request_id, start_time).await
         }
         ResponseBodyType::Static {
             root,
@@ -168,12 +199,26 @@ where
             } else {
                 ServeDir::new(root).call(static_req).await?
             };
-            let (parts, body) = res.into_parts();
-            let bytes = body.collect().await?.to_bytes();
-            let res = hyper::Response::from_parts(
-                parts,
-                Full::new(bytes).map_err(|e| match e {}).boxed(),
+            let (res_parts, body) = res.into_parts();
+
+            // Phase 2: Log response with headers from static file server
+            let response_latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "stamp": scru128::new(),
+                    "message": "response",
+                    "request_id": request_id,
+                    "status": res_parts.status.as_u16(),
+                    "headers": header_map_to_json(&res_parts.headers),
+                    "latency_ms": response_latency_ms
+                })
             );
+
+            let bytes = body.collect().await?.to_bytes();
+            let inner_body = Full::new(bytes).map_err(|e| match e {}).boxed();
+            let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+            let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
             Ok(res)
         }
         ResponseBodyType::ReverseProxy {
@@ -273,18 +318,50 @@ where
 
             match client.request(proxy_req).await {
                 Ok(response) => {
-                    let (parts, body) = response.into_parts();
+                    let (res_parts, body) = response.into_parts();
+
+                    // Phase 2: Log response with headers from upstream
+                    let response_latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "stamp": scru128::new(),
+                            "message": "response",
+                            "request_id": request_id,
+                            "status": res_parts.status.as_u16(),
+                            "headers": header_map_to_json(&res_parts.headers),
+                            "latency_ms": response_latency_ms
+                        })
+                    );
+
                     // Stream the response body directly without buffering
-                    let res =
-                        hyper::Response::from_parts(parts, body.map_err(|e| e.into()).boxed());
+                    let inner_body = body.map_err(|e| e.into()).boxed();
+                    let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+                    let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
                     Ok(res)
                 }
                 Err(_e) => {
-                    let response = hyper::Response::builder().status(502).body(
-                        Full::new("Bad Gateway".into())
-                            .map_err(|never| match never {})
-                            .boxed(),
-                    )?;
+                    // Phase 2: Log error response
+                    let response_latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "stamp": scru128::new(),
+                            "message": "response",
+                            "request_id": request_id,
+                            "status": 502,
+                            "headers": {},
+                            "latency_ms": response_latency_ms
+                        })
+                    );
+
+                    let inner_body = Full::new("Bad Gateway".into())
+                        .map_err(|never| match never {})
+                        .boxed();
+                    let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+                    let response = hyper::Response::builder()
+                        .status(502)
+                        .body(logging_body.boxed())?;
                     Ok(response)
                 }
             }
@@ -296,6 +373,8 @@ async fn build_normal_response(
     meta: &Response,
     body_result: Result<(Option<String>, ResponseTransport), BoxError>,
     use_brotli: bool,
+    request_id: scru128::Scru128Id,
+    start_time: Instant,
 ) -> HTTPResult {
     let (inferred_content_type, body) = body_result?;
     let mut builder = hyper::Response::builder().status(meta.status);
@@ -361,9 +440,23 @@ async fn build_normal_response(
         }
     }
 
-    *builder.headers_mut().unwrap() = header_map;
+    *builder.headers_mut().unwrap() = header_map.clone();
 
-    let body = match body {
+    // Phase 2: Log response with final headers
+    let response_latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+    println!(
+        "{}",
+        serde_json::json!({
+            "stamp": scru128::new(),
+            "message": "response",
+            "request_id": request_id,
+            "status": meta.status,
+            "headers": header_map_to_json(&header_map),
+            "latency_ms": response_latency_ms
+        })
+    );
+
+    let inner_body = match body {
         ResponseTransport::Empty => Empty::<Bytes>::new()
             .map_err(|never| match never {})
             .boxed(),
@@ -389,5 +482,7 @@ async fn build_normal_response(
         }
     };
 
-    Ok(builder.body(body)?)
+    // Wrap with LoggingBody for phase 3 (complete) logging
+    let logging_body = LoggingBody::new(inner_body, request_id, start_time);
+    Ok(builder.body(logging_body.boxed())?)
 }

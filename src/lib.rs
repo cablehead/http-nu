@@ -3,6 +3,7 @@ pub mod compression;
 pub mod engine;
 pub mod handler;
 pub mod listener;
+pub mod logging_body;
 pub mod request;
 pub mod response;
 pub mod stdlib;
