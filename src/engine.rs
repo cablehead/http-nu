@@ -1,16 +1,19 @@
+use std::path::Path;
+use std::sync::{atomic::AtomicBool, Arc};
+
 use nu_cli::{add_cli_context, gather_parent_env_vars};
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
+use nu_plugin_engine::{GetPlugin, PluginDeclaration};
 use nu_protocol::engine::Command;
 use nu_protocol::format_cli_error;
 use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Redirection, Stack, StateWorkingSet},
-    OutDest, PipelineData, ShellError, Signals, Span, Value,
+    OutDest, PipelineData, PluginIdentity, RegisteredPlugin, ShellError, Signals, Span, Value,
 };
-use std::sync::{atomic::AtomicBool, Arc};
 
 use crate::commands::{
     MjCommand, MjCompileCommand, MjRenderCommand, ResponseStartCommand, ReverseProxyCommand,
@@ -50,6 +53,45 @@ impl Engine {
             working_set.add_decl(command);
         }
         self.state.merge_delta(working_set.render())?;
+        Ok(())
+    }
+
+    /// Load a Nushell plugin from the given path
+    pub fn load_plugin(&mut self, path: &Path) -> Result<(), Error> {
+        // Canonicalize the path
+        let path = path.canonicalize().map_err(|e| {
+            Error::from(format!("Failed to canonicalize plugin path {path:?}: {e}"))
+        })?;
+
+        // Create the plugin identity
+        let identity = PluginIdentity::new(&path, None).map_err(|_| {
+            Error::from(format!(
+                "Invalid plugin path {path:?}: must be named nu_plugin_*"
+            ))
+        })?;
+
+        let mut working_set = StateWorkingSet::new(&self.state);
+
+        // Add plugin to working set and get handle
+        let plugin = nu_plugin_engine::add_plugin_to_working_set(&mut working_set, &identity)?;
+
+        // Merge working set to make plugin available
+        self.state.merge_delta(working_set.render())?;
+
+        // Spawn the plugin to get its signatures
+        let interface = plugin.clone().get_plugin(None)?;
+
+        // Set plugin metadata
+        plugin.set_metadata(Some(interface.get_metadata()?));
+
+        // Add command declarations from plugin signatures
+        let mut working_set = StateWorkingSet::new(&self.state);
+        for signature in interface.get_signature()? {
+            let decl = PluginDeclaration::new(plugin.clone(), signature);
+            working_set.add_decl(Box::new(decl));
+        }
+        self.state.merge_delta(working_set.render())?;
+
         Ok(())
     }
 

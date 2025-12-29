@@ -32,6 +32,10 @@ struct Args {
     #[clap(short, long)]
     tls: Option<PathBuf>,
 
+    /// Load a Nushell plugin from the specified path (can be used multiple times)
+    #[clap(long = "plugin", value_parser)]
+    plugins: Vec<PathBuf>,
+
     /// Nushell closure to handle requests, or '-' to read from stdin
     #[clap(value_parser)]
     closure: Option<String>,
@@ -41,6 +45,10 @@ struct Args {
 enum Command {
     /// Evaluate a Nushell script with http-nu commands and exit
     Eval {
+        /// Load a Nushell plugin from the specified path (can be used multiple times)
+        #[clap(long = "plugin", value_parser)]
+        plugins: Vec<PathBuf>,
+
         /// Script file to evaluate, or '-' to read from stdin
         #[clap(value_parser)]
         file: Option<String>,
@@ -54,9 +62,16 @@ enum Command {
 /// Creates and configures the base engine with all commands, signals, and ctrlc handler.
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
+    plugins: &[PathBuf],
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
+
+    // Load plugins
+    for plugin_path in plugins {
+        engine.load_plugin(plugin_path)?;
+    }
+
     engine.set_signals(interrupt.clone());
     setup_ctrlc_handler(&engine, interrupt)?;
     Ok(engine)
@@ -318,7 +333,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let interrupt = Arc::new(AtomicBool::new(false));
 
     // Handle subcommands
-    if let Some(Command::Eval { file, commands }) = args.command {
+    if let Some(Command::Eval {
+        plugins,
+        file,
+        commands,
+    }) = args.command
+    {
         let script = match (&file, &commands) {
             (Some(_), Some(_)) => {
                 eprintln!("Error: cannot specify both file and --commands");
@@ -339,6 +359,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         let mut engine = Engine::new()?;
         engine.add_custom_commands()?;
+
+        for plugin_path in &plugins {
+            engine.load_plugin(plugin_path)?;
+        }
+
         engine.set_signals(interrupt.clone());
 
         match engine.eval(&script) {
@@ -358,8 +383,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let closure = args.closure.expect("closure required for server mode");
     let read_stdin = closure == "-";
 
-    // Create base engine with commands and signals
-    let base_engine = create_base_engine(interrupt.clone())?;
+    // Create base engine with commands, signals, and plugins
+    let base_engine = create_base_engine(interrupt.clone(), &args.plugins)?;
 
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);

@@ -1,3 +1,4 @@
+use assert_cmd::cargo::cargo_bin;
 use assert_cmd::Command;
 use std::io::Write;
 use tempfile::NamedTempFile;
@@ -89,4 +90,21 @@ fn test_eval_both_file_and_commands() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("cannot specify both"));
+}
+
+#[test]
+fn test_eval_with_plugin() {
+    let plugin_path = cargo_bin("nu_plugin_test");
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .args([
+            "eval",
+            "--plugin",
+            plugin_path.to_str().unwrap(),
+            "-c",
+            "test-plugin-cmd",
+        ])
+        .assert()
+        .success()
+        .stdout("PLUGIN_WORKS\n");
 }
