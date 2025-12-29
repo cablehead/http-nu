@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use arc_swap::ArcSwap;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
@@ -10,7 +11,8 @@ use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::compression;
-use crate::request::Request;
+use crate::logging::{log_request, log_response, LoggingBody};
+use crate::request::{resolve_trusted_ip, Request};
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
 use crate::worker::spawn_eval_thread;
 
@@ -20,6 +22,7 @@ type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
     addr: Option<SocketAddr>,
+    trusted_proxies: Arc<Vec<ipnet::IpNet>>,
     req: hyper::Request<B>,
 ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
@@ -29,7 +32,7 @@ where
 {
     // Load current engine snapshot - lock-free atomic operation
     let engine = engine.load_full();
-    match handle_inner(engine, addr, req).await {
+    match handle_inner(engine, addr, trusted_proxies, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {err}");
@@ -46,6 +49,7 @@ where
 async fn handle_inner<B>(
     engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
+    trusted_proxies: Arc<Vec<ipnet::IpNet>>,
     req: hyper::Request<B>,
 ) -> HTTPResult
 where
@@ -99,12 +103,20 @@ where
         },
     );
 
+    // Generate request ID and capture start time for 3-phase logging
+    let start_time = Instant::now();
+    let request_id = scru128::new();
+
+    let remote_ip = addr.as_ref().map(|a| a.ip());
+    let trusted_ip = resolve_trusted_ip(&parts.headers, remote_ip, &trusted_proxies);
+
     let request = Request {
         proto: format!("{:?}", parts.version),
         method: parts.method.clone(),
         authority: parts.uri.authority().map(|a| a.to_string()),
-        remote_ip: addr.as_ref().map(|a| a.ip()),
+        remote_ip,
         remote_port: addr.as_ref().map(|a| a.port()),
+        trusted_ip,
         headers: parts.headers.clone(),
         uri: parts.uri.clone(),
         path: parts.uri.path().to_string(),
@@ -119,10 +131,8 @@ where
             .unwrap_or_else(std::collections::HashMap::new),
     };
 
-    println!(
-        "{}",
-        serde_json::json!({"stamp": scru128::new(), "message": "request", "meta": request})
-    );
+    // Phase 1: Log request
+    log_request(request_id, &request);
 
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 
@@ -147,7 +157,7 @@ where
 
     match &meta.body_type {
         ResponseBodyType::Normal => {
-            build_normal_response(&meta, Ok(body_result?), use_brotli).await
+            build_normal_response(&meta, Ok(body_result?), use_brotli, request_id, start_time).await
         }
         ResponseBodyType::Static {
             root,
@@ -168,12 +178,18 @@ where
             } else {
                 ServeDir::new(root).call(static_req).await?
             };
-            let (parts, body) = res.into_parts();
-            let bytes = body.collect().await?.to_bytes();
-            let res = hyper::Response::from_parts(
-                parts,
-                Full::new(bytes).map_err(|e| match e {}).boxed(),
+            let (res_parts, body) = res.into_parts();
+            log_response(
+                request_id,
+                res_parts.status.as_u16(),
+                &res_parts.headers,
+                start_time,
             );
+
+            let bytes = body.collect().await?.to_bytes();
+            let inner_body = Full::new(bytes).map_err(|e| match e {}).boxed();
+            let logging_body = LoggingBody::new(inner_body, request_id);
+            let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
             Ok(res)
         }
         ResponseBodyType::ReverseProxy {
@@ -273,18 +289,30 @@ where
 
             match client.request(proxy_req).await {
                 Ok(response) => {
-                    let (parts, body) = response.into_parts();
-                    // Stream the response body directly without buffering
-                    let res =
-                        hyper::Response::from_parts(parts, body.map_err(|e| e.into()).boxed());
+                    let (res_parts, body) = response.into_parts();
+                    log_response(
+                        request_id,
+                        res_parts.status.as_u16(),
+                        &res_parts.headers,
+                        start_time,
+                    );
+
+                    let inner_body = body.map_err(|e| e.into()).boxed();
+                    let logging_body = LoggingBody::new(inner_body, request_id);
+                    let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
                     Ok(res)
                 }
                 Err(_e) => {
-                    let response = hyper::Response::builder().status(502).body(
-                        Full::new("Bad Gateway".into())
-                            .map_err(|never| match never {})
-                            .boxed(),
-                    )?;
+                    let empty_headers = hyper::header::HeaderMap::new();
+                    log_response(request_id, 502, &empty_headers, start_time);
+
+                    let inner_body = Full::new("Bad Gateway".into())
+                        .map_err(|never| match never {})
+                        .boxed();
+                    let logging_body = LoggingBody::new(inner_body, request_id);
+                    let response = hyper::Response::builder()
+                        .status(502)
+                        .body(logging_body.boxed())?;
                     Ok(response)
                 }
             }
@@ -296,6 +324,8 @@ async fn build_normal_response(
     meta: &Response,
     body_result: Result<(Option<String>, ResponseTransport), BoxError>,
     use_brotli: bool,
+    request_id: scru128::Scru128Id,
+    start_time: Instant,
 ) -> HTTPResult {
     let (inferred_content_type, body) = body_result?;
     let mut builder = hyper::Response::builder().status(meta.status);
@@ -361,9 +391,10 @@ async fn build_normal_response(
         }
     }
 
+    log_response(request_id, meta.status, &header_map, start_time);
     *builder.headers_mut().unwrap() = header_map;
 
-    let body = match body {
+    let inner_body = match body {
         ResponseTransport::Empty => Empty::<Bytes>::new()
             .map_err(|never| match never {})
             .boxed(),
@@ -389,5 +420,7 @@ async fn build_normal_response(
         }
     };
 
-    Ok(builder.body(body)?)
+    // Wrap with LoggingBody for phase 3 (complete) logging
+    let logging_body = LoggingBody::new(inner_body, request_id);
+    Ok(builder.body(logging_body.boxed())?)
 }

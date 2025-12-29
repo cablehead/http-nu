@@ -1470,6 +1470,7 @@ dependencies = [
  "assert_cmd",
  "brotli",
  "bytes",
+ "chrono",
  "clap",
  "ctrlc",
  "headers",
@@ -1479,6 +1480,8 @@ dependencies = [
  "http_encoding_headers",
  "hyper",
  "hyper-util",
+ "indicatif 0.17.11",
+ "ipnet",
  "log",
  "miette",
  "minijinja",
@@ -1511,6 +1514,8 @@ dependencies = [
  "typetag",
  "ureq 2.12.1",
  "url",
+ "valuable",
+ "valuable-serde",
  "xxhash-rust",
 ]
 
@@ -1771,6 +1776,19 @@ checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.0",
+]
+
+[[package]]
+name = "indicatif"
+version = "0.17.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
+dependencies = [
+ "console 0.15.11",
+ "number_prefix",
+ "portable-atomic",
+ "unicode-width 0.2.2",
+ "web-time",
 ]
 
 [[package]]
@@ -2568,7 +2586,7 @@ dependencies = [
  "http",
  "human-date-parser",
  "indexmap",
- "indicatif",
+ "indicatif 0.18.0",
  "itertools 0.14.0",
  "log",
  "lscolors",
@@ -4878,6 +4896,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+ "valuable",
+ "valuable-serde",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4887,12 +4917,17 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
+ "valuable",
+ "valuable-serde",
 ]
 
 [[package]]
@@ -5180,7 +5215,7 @@ dependencies = [
  "clap",
  "filetime",
  "fluent",
- "indicatif",
+ "indicatif 0.18.0",
  "libc",
  "linux-raw-sys 0.12.0",
  "thiserror 2.0.17",
@@ -5223,7 +5258,7 @@ dependencies = [
  "clap",
  "fluent",
  "fs_extra",
- "indicatif",
+ "indicatif 0.18.0",
  "libc",
  "thiserror 2.0.17",
  "uucore",
@@ -5337,6 +5372,30 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+dependencies = [
+ "valuable-derive",
+]
+
+[[package]]
+name = "valuable-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e3a32a9bcc0f6c6ccfd5b27bcf298c58e753bcc9eeff268157a303393183a6d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "valuable-serde"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ee0548edecd1b907be7e67789923b7d02275b9ba4a33ebc33300e2c947a8cb1"
+dependencies = [
+ "serde",
+ "valuable",
+]
 
 [[package]]
 name = "version_check"

@@ -23,6 +23,8 @@ server that fits in your back pocket.
   - [Response metadata](#response-metadata)
   - [Content-Type Inference](#content-type-inference)
   - [TLS & HTTP/2 Support](#tls-support)
+  - [Logging](#logging)
+  - [Trusted Proxies](#trusted-proxies)
   - [Serving Static Files](#serving-static-files)
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
@@ -147,6 +149,7 @@ $ http get 'http://localhost:3001/segment?foo=bar&abc=123'
  path        │ /segment
  remote_ip   │ 127.0.0.1
  remote_port │ 52007
+ trusted_ip  │ 127.0.0.1
              │ ────────────┬────────────────
  headers     │  host       │ localhost:3001
              │  user-agent │ curl/8.7.1
@@ -256,6 +259,52 @@ HTTP/2 is automatically enabled for TLS connections:
 $ curl -k --http2 -si https://localhost:3001 | head -1
 HTTP/2 200
 ```
+
+### Logging
+
+Control log output with `--log-format`:
+
+- `human` (default): Live-updating terminal output with startup banner,
+  per-request progress lines showing timestamp, IP, method, path, status,
+  timing, and bytes
+- `jsonl`: Structured JSON lines with `scru128` stamps for log aggregation
+
+Each request emits 3 phases: **request** (received), **response** (headers
+sent), **complete** (body finished).
+
+**Human format**
+
+<img width="1835" alt="human format logging output" src="https://github.com/user-attachments/assets/af4f3022-f362-4c93-82c0-5d18ffb3d9ac" />
+
+**JSONL format**
+
+Events share a `request_id` for correlation:
+
+```bash
+$ http-nu --log-format jsonl :3001 '{|req| "hello"}'
+{"stamp":"...","message":"started","address":"http://127.0.0.1:3001","startup_ms":42}
+{"stamp":"...","message":"request","request_id":"...","method":"GET","path":"/","request":{...}}
+{"stamp":"...","message":"response","request_id":"...","status":200,"headers":{...},"latency_ms":1}
+{"stamp":"...","message":"complete","request_id":"...","bytes":5,"duration_ms":2}
+```
+
+Lifecycle events: `started`, `reloaded`, `stopping`, `stopped`, `stop_timed_out`
+
+### Trusted Proxies
+
+When behind a reverse proxy, use `--trust-proxy` to extract client IP from
+`X-Forwarded-For`. Accepts CIDR notation, repeatable:
+
+```bash
+$ http-nu --trust-proxy 10.0.0.0/8 --trust-proxy 192.168.0.0/16 :3001 '{|req| $req.trusted_ip}'
+```
+
+The `trusted_ip` field is resolved by parsing `X-Forwarded-For` right-to-left,
+stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
+
+- No `--trust-proxy` flags provided
+- Remote IP is not in trusted ranges
+- No `X-Forwarded-For` header present
 
 ### Serving Static Files
 

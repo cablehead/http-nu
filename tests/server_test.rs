@@ -21,6 +21,7 @@ impl TestServer {
         plugins: &[std::path::PathBuf],
     ) -> Self {
         let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        cmd.arg("--log-format").arg("jsonl");
 
         // Add plugin arguments first
         for plugin in plugins {
@@ -78,31 +79,19 @@ impl TestServer {
     }
 
     async fn curl(&self, path: &str) -> process::Output {
-        let url = if self.address.starts_with('/') {
-            "http://localhost".to_string()
-        } else {
-            format!("http://{}", self.address)
-        };
-
         let mut cmd = tokio::process::Command::new("curl");
         if self.address.starts_with('/') {
             cmd.arg("--unix-socket").arg(&self.address);
+            cmd.arg(format!("http://localhost{path}"));
+        } else {
+            cmd.arg(format!("{}{path}", self.address));
         }
-        cmd.arg(format!("{url}{path}"));
-
         cmd.output().await.expect("Failed to execute curl")
     }
 
     async fn curl_tls(&self, path: &str) -> process::Output {
-        // Extract port from address format "127.0.0.1:8080 (TLS)"
-        let port = self
-            .address
-            .split_whitespace()
-            .next()
-            .unwrap()
-            .split(':')
-            .next_back()
-            .unwrap();
+        // Extract port from address format "https://127.0.0.1:8080"
+        let port = self.address.split(':').next_back().unwrap();
         let mut cmd = tokio::process::Command::new("curl");
         cmd.arg("--cacert")
             .arg("tests/cert.pem")
@@ -178,6 +167,7 @@ impl TestServerWithStdin {
     /// The server will wait for a valid script before emitting the "start" message.
     fn spawn(addr: &str, tls: bool) -> (Child, ChildStdin, tokio::sync::oneshot::Receiver<String>) {
         let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        cmd.arg("--log-format").arg("jsonl");
         cmd.arg(addr).arg("-");
 
         if tls {
@@ -244,7 +234,7 @@ impl TestServerWithStdin {
 
     async fn curl_get(&self) -> String {
         let mut cmd = tokio::process::Command::new("curl");
-        cmd.arg("-s").arg(format!("http://{}/", self.address));
+        cmd.arg("-s").arg(format!("{}/", self.address));
         let output = cmd.output().await.expect("Failed to execute curl");
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
@@ -356,7 +346,7 @@ async fn test_server_reverse_proxy() {
 
     // Start a proxy server that forwards to the backend with a custom header.
     let proxy_closure = format!(
-        r#"{{|req| .reverse-proxy "http://{}" {{ headers: {{ "x-custom-header": "proxy-added" }} }} }}"#,
+        r#"{{|req| .reverse-proxy "{}" {{ headers: {{ "x-custom-header": "proxy-added" }} }} }}"#,
         backend.address
     );
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
@@ -377,7 +367,7 @@ async fn test_server_reverse_proxy_strip_prefix() {
 
     // Start a proxy server with prefix stripping.
     let proxy_closure = format!(
-        r#"{{|req| .reverse-proxy "http://{}" {{ strip_prefix: "/api" }} }}"#,
+        r#"{{|req| .reverse-proxy "{}" {{ strip_prefix: "/api" }} }}"#,
         backend.address
     );
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
@@ -397,7 +387,7 @@ async fn test_server_reverse_proxy_body_handling() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start a proxy server that forwards the original request body.
-    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "{}" }}"#, backend.address);
     let proxy_forward = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -406,7 +396,7 @@ async fn test_server_reverse_proxy_body_handling() {
     cmd.arg("-s")
         .arg("-d")
         .arg("forwarded")
-        .arg(format!("http://{}", proxy_forward.address));
+        .arg(&proxy_forward.address);
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -414,7 +404,7 @@ async fn test_server_reverse_proxy_body_handling() {
 
     // Start a proxy server that overrides the request body.
     let proxy_closure = format!(
-        r#"{{|req| "override" | .reverse-proxy "http://{}" }}"#,
+        r#"{{|req| "override" | .reverse-proxy "{}" }}"#,
         backend.address
     );
     let proxy_override = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
@@ -425,7 +415,7 @@ async fn test_server_reverse_proxy_body_handling() {
     cmd.arg("-s")
         .arg("-d")
         .arg("original")
-        .arg(format!("http://{}", proxy_override.address));
+        .arg(&proxy_override.address);
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -440,7 +430,7 @@ async fn test_server_reverse_proxy_host_header() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start a proxy server.
-    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "{}" }}"#, backend.address);
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -449,7 +439,7 @@ async fn test_server_reverse_proxy_host_header() {
     cmd.arg("-s")
         .arg("-H")
         .arg("Host: example.com")
-        .arg(format!("http://{}", proxy.address));
+        .arg(&proxy.address);
     let output = cmd.output().await.expect("Failed to execute curl");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -474,7 +464,7 @@ async fn test_reverse_proxy_streaming() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Start a proxy server
-    let proxy_closure = format!(r#"{{|req| .reverse-proxy "http://{}" }}"#, backend.address);
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "{}" }}"#, backend.address);
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -485,7 +475,7 @@ async fn test_reverse_proxy_streaming() {
         .arg("-s")
         .arg("--raw")
         .arg("-N") // --no-buffer
-        .arg(format!("http://{}", backend.address))
+        .arg(&backend.address)
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to start curl for backend");
@@ -531,7 +521,7 @@ async fn test_reverse_proxy_streaming() {
         .arg("-s")
         .arg("--raw") // Don't parse chunked encoding
         .arg("-N") // --no-buffer
-        .arg(format!("http://{}", proxy.address))
+        .arg(&proxy.address)
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to start curl");
@@ -575,7 +565,7 @@ async fn test_server_reverse_proxy_custom_query() {
 
     // Start a proxy server that modifies query parameters.
     let proxy_closure = format!(
-        r#"{{|req| .reverse-proxy "http://{}" {{ query: ($req.query | upsert "context-id" "smidgeons" | reject "debug") }} }}"#,
+        r#"{{|req| .reverse-proxy "{}" {{ query: ($req.query | upsert "context-id" "smidgeons" | reject "debug") }} }}"#,
         backend.address
     );
     let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
@@ -583,10 +573,8 @@ async fn test_server_reverse_proxy_custom_query() {
 
     // Test the query parameter modification.
     let mut cmd = tokio::process::Command::new("curl");
-    cmd.arg("-s").arg(format!(
-        "http://{}/test?page=1&debug=true&limit=10",
-        proxy.address
-    ));
+    cmd.arg("-s")
+        .arg(format!("{}/test?page=1&debug=true&limit=10", proxy.address));
 
     let output = cmd.output().await.unwrap();
     assert!(output.status.success());
@@ -645,7 +633,7 @@ async fn test_graceful_shutdown_waits_for_inflight_requests() {
 
     // Start a request (will take 500ms to complete)
     // Use --retry and --retry-connrefused to handle slow server startup on CI
-    let url = format!("http://{}/", server.address);
+    let url = format!("{}/", server.address);
     let request_handle = tokio::spawn(async move {
         tokio::process::Command::new("curl")
             .arg("-s")
@@ -686,7 +674,7 @@ async fn test_http1_support() {
     let output = tokio::process::Command::new("curl")
         .arg("-s")
         .arg("--http1.1")
-        .arg(format!("http://{}/", server.address))
+        .arg(format!("{}/", server.address))
         .output()
         .await
         .expect("curl failed");
@@ -709,7 +697,7 @@ async fn test_http2_support() {
     let output = tokio::process::Command::new("curl")
         .arg("-s")
         .arg("--http2-prior-knowledge")
-        .arg(format!("http://{}/", server.address))
+        .arg(format!("{}/", server.address))
         .output()
         .await
         .expect("curl failed");
@@ -728,15 +716,8 @@ async fn test_http2_support() {
 async fn test_http2_tls_support() {
     let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, true).await;
 
-    // Extract port from address format "127.0.0.1:8080 (TLS)"
-    let port = server
-        .address
-        .split_whitespace()
-        .next()
-        .unwrap()
-        .split(':')
-        .next_back()
-        .unwrap();
+    // Extract port from address format "https://127.0.0.1:8080"
+    let port = server.address.split(':').next_back().unwrap();
 
     // Use --http2 to prefer HTTP/2 via ALPN negotiation
     let output = tokio::process::Command::new("curl")
@@ -813,7 +794,7 @@ async fn test_sse_brotli_compression_streams_immediately() {
         .arg("-N") // --no-buffer, stream data as it arrives
         .arg("-H")
         .arg("Accept-Encoding: br")
-        .arg(format!("http://{}", server.address))
+        .arg(&server.address)
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("Failed to start curl");
@@ -890,7 +871,7 @@ async fn test_to_sse_command() {
     let output = std::process::Command::new("curl")
         .arg("-s")
         .arg("-i")
-        .arg(format!("http://{}", server.address))
+        .arg(&server.address)
         .output()
         .expect("curl failed");
 
@@ -949,7 +930,7 @@ async fn test_to_sse_ignores_null_fields() {
 
     let output = std::process::Command::new("curl")
         .arg("-s")
-        .arg(format!("http://{}", server.address))
+        .arg(&server.address)
         .output()
         .expect("curl failed");
 
@@ -1008,7 +989,7 @@ async fn test_to_sse_data_list() {
 
     let output = std::process::Command::new("curl")
         .arg("-s")
-        .arg(format!("http://{}", server.address))
+        .arg(&server.address)
         .output()
         .expect("curl failed");
 
@@ -1116,9 +1097,9 @@ async fn test_server_missing_host_header() {
     .await;
 
     // Use a raw TCP connection so the test doesn't depend on `nc`
-    let mut stream = TcpStream::connect(&server.address)
-        .await
-        .expect("connect to server");
+    // Strip the http:// prefix from address for raw TCP connection
+    let addr = server.address.strip_prefix("http://").unwrap();
+    let mut stream = TcpStream::connect(addr).await.expect("connect to server");
     stream
         .write_all(b"GET / HTTP/1.0\r\n\r\n")
         .await
@@ -1219,7 +1200,7 @@ async fn test_router_method_matching() {
     let output = tokio::process::Command::new("curl")
         .arg("-X")
         .arg("POST")
-        .arg(format!("http://{}/items", server.address))
+        .arg(format!("{}/items", server.address))
         .output()
         .await
         .expect("curl failed");
@@ -1246,7 +1227,7 @@ async fn test_router_header_matching() {
     let output = tokio::process::Command::new("curl")
         .arg("-H")
         .arg("Accept: application/json")
-        .arg(format!("http://{}/", server.address))
+        .arg(format!("{}/", server.address))
         .output()
         .await
         .expect("curl failed");
@@ -1256,7 +1237,7 @@ async fn test_router_header_matching() {
     let output = tokio::process::Command::new("curl")
         .arg("-H")
         .arg("Accept: text/html")
-        .arg(format!("http://{}/", server.address))
+        .arg(format!("{}/", server.address))
         .output()
         .await
         .expect("curl failed");
@@ -1289,7 +1270,7 @@ async fn test_router_combined_conditions() {
         .arg("POST")
         .arg("-H")
         .arg("Accept: application/json")
-        .arg(format!("http://{}/api/v1/data", server.address))
+        .arg(format!("{}/api/v1/data", server.address))
         .output()
         .await
         .expect("curl failed");
@@ -1303,7 +1284,7 @@ async fn test_router_combined_conditions() {
     let output = tokio::process::Command::new("curl")
         .arg("-H")
         .arg("Accept: application/json")
-        .arg(format!("http://{}/api/v1/data", server.address))
+        .arg(format!("{}/api/v1/data", server.address))
         .output()
         .await
         .expect("curl failed");
@@ -1328,7 +1309,7 @@ async fn test_router_no_match_501() {
 
     let output = tokio::process::Command::new("curl")
         .arg("-i")
-        .arg(format!("http://{}/unknown", server.address))
+        .arg(format!("{}/unknown", server.address))
         .output()
         .await
         .expect("curl failed");

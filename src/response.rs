@@ -2,7 +2,8 @@ use nu_protocol::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(untagged)]
 pub enum HeaderValue {
     Single(String),
     Multiple(Vec<String>),

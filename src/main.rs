@@ -16,7 +16,16 @@ use tokio::signal;
 use tokio::sync::mpsc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use http_nu::{engine::script_to_engine, handler::handle, listener::TlsConfig, Engine, Listener};
+use http_nu::{
+    engine::script_to_engine,
+    handler::handle,
+    listener::TlsConfig,
+    logging::{
+        log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping, HumanLayer,
+        JsonlLayer,
+    },
+    Engine, Listener,
+};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -39,6 +48,21 @@ struct Args {
     /// Nushell closure to handle requests, or '-' to read from stdin
     #[clap(value_parser)]
     closure: Option<String>,
+
+    /// Log format: human (live-updating) or jsonl (structured)
+    #[clap(long, default_value = "human")]
+    log_format: LogFormat,
+
+    /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
+    #[clap(long = "trust-proxy", value_name = "CIDR")]
+    trust_proxies: Vec<ipnet::IpNet>,
+}
+
+#[derive(Clone, Debug, Default, clap::ValueEnum)]
+enum LogFormat {
+    #[default]
+    Human,
+    Jsonl,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -120,6 +144,8 @@ async fn serve(
     base_engine: Engine,
     mut rx: mpsc::Receiver<String>,
     interrupt: Arc<AtomicBool>,
+    trusted_proxies: Vec<ipnet::IpNet>,
+    start_time: std::time::Instant,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Wait for a valid first script (loop to handle parse errors)
     let first_engine = loop {
@@ -143,13 +169,7 @@ async fn serve(
         while let Some(script) = rx.recv().await {
             if let Some(new_engine) = script_to_engine(&base_for_updates, &script) {
                 engine_updater.store(Arc::new(new_engine));
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "stamp": scru128::new(),
-                        "message": "reload"
-                    })
-                );
+                log_reloaded();
             }
         }
     });
@@ -161,17 +181,34 @@ async fn serve(
         None
     };
 
+    let tls_enabled = tls_config.is_some();
     let mut listener = Listener::bind(&addr, tls_config).await?;
-    println!(
-        "{}",
-        serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
-    );
+    let startup_ms = start_time.elapsed().as_millis();
+    let addr_display = {
+        let raw = format!("{listener}");
+        // Format TCP addresses as clickable URLs, leave Unix sockets as-is
+        if raw.starts_with('/') {
+            raw
+        } else {
+            // Strip " (TLS)" suffix from Listener's Display
+            let addr = raw.strip_suffix(" (TLS)").unwrap_or(&raw);
+            if tls_enabled {
+                format!("https://{addr}")
+            } else {
+                format!("http://{addr}")
+            }
+        }
+    };
+    log_started(&addr_display, startup_ms);
 
     // HTTP/1 + HTTP/2 auto-detection builder
     let http_builder = HttpConnectionBuilder::new(TokioExecutor::new());
 
     // Graceful shutdown tracker for all connections
     let graceful = GracefulShutdown::new();
+
+    // Wrap trusted_proxies in Arc for sharing across connections
+    let trusted_proxies = Arc::new(trusted_proxies);
 
     let shutdown = shutdown_signal(interrupt.clone());
     tokio::pin!(shutdown);
@@ -183,9 +220,10 @@ async fn serve(
                     Ok((stream, remote_addr)) => {
                         let io = TokioIo::new(stream);
                         let engine = engine.clone();
+                        let trusted_proxies = trusted_proxies.clone();
 
                         let service = service_fn(move |req| {
-                            handle(engine.clone(), remote_addr, req)
+                            handle(engine.clone(), remote_addr, trusted_proxies.clone(), req)
                         });
 
                         // serve_connection_with_upgrades supports HTTP/1 and HTTP/2
@@ -196,6 +234,12 @@ async fn serve(
 
                         tokio::task::spawn(async move {
                             if let Err(err) = conn.await {
+                                // Suppress incomplete message errors - normal for SSE when client disconnects
+                                if let Some(hyper_err) = err.downcast_ref::<hyper::Error>() {
+                                    if hyper_err.is_incomplete_message() {
+                                        return;
+                                    }
+                                }
                                 eprintln!("Connection error: {err}");
                             }
                         });
@@ -214,30 +258,23 @@ async fn serve(
 
     // Graceful shutdown: wait for inflight connections to complete
     let inflight = graceful.count();
+    let mut timed_out = false;
+
     if inflight > 0 {
-        println!(
-            "{}",
-            serde_json::json!({
-                "stamp": scru128::new(),
-                "message": "shutdown",
-                "inflight": inflight
-            })
-        );
+        log_stopping(inflight);
 
         tokio::select! {
-            _ = graceful.shutdown() => {
-                println!(
-                    "{}",
-                    serde_json::json!({"stamp": scru128::new(), "message": "shutdown_complete"})
-                );
-            }
+            _ = graceful.shutdown() => {}
             _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                println!(
-                    "{}",
-                    serde_json::json!({"stamp": scru128::new(), "message": "shutdown_timeout"})
-                );
+                timed_out = true;
             }
         }
+    }
+
+    if timed_out {
+        log_stop_timed_out();
+    } else {
+        log_stopped();
     }
 
     Ok(())
@@ -305,13 +342,26 @@ fn setup_ctrlc_handler(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "http_nu=debug,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let args = Args::parse();
+
+    // Set up tracing based on log format
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "http_nu=info".into());
+
+    match args.log_format {
+        LogFormat::Human => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(HumanLayer::new())
+                .init();
+        }
+        LogFormat::Jsonl => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(JsonlLayer::new())
+                .init();
+        }
+    }
 
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -322,8 +372,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .default()
         .then_some(())
         .expect("failed to set nu_command crypto provider");
-
-    let args = Args::parse();
 
     // Set up interrupt signal
     let interrupt = Arc::new(AtomicBool::new(false));
@@ -389,5 +437,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         drop(tx); // Close the channel
     }
 
-    serve(addr, args.tls, base_engine, rx, interrupt).await
+    serve(
+        addr,
+        args.tls,
+        base_engine,
+        rx,
+        interrupt,
+        args.trust_proxies,
+        std::time::Instant::now(),
+    )
+    .await
 }

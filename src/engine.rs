@@ -19,6 +19,7 @@ use crate::commands::{
     MjCommand, MjCompileCommand, MjRenderCommand, ResponseStartCommand, ReverseProxyCommand,
     StaticCommand, ToSse,
 };
+use crate::logging::log_error;
 use crate::stdlib::load_http_nu_stdlib;
 use crate::Error;
 
@@ -282,16 +283,7 @@ pub fn script_to_engine(base: &Engine, script: &str) -> Option<Engine> {
     let mut engine = base.clone();
 
     if let Err(e) = engine.parse_closure(script) {
-        let err_str = e.to_string();
-        eprintln!("{err_str}");
-        println!(
-            "{}",
-            serde_json::json!({
-                "stamp": scru128::new(),
-                "message": "error",
-                "error": nu_utils::strip_ansi_string_likely(err_str)
-            })
-        );
+        log_error(&nu_utils::strip_ansi_string_likely(e.to_string()));
         return None;
     }
 
