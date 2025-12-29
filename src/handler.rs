@@ -11,7 +11,7 @@ use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::compression;
-use crate::logging::{log_response, LoggingBody};
+use crate::logging::{log_request, log_response, LoggingBody};
 use crate::request::Request;
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
 use crate::worker::spawn_eval_thread;
@@ -126,10 +126,7 @@ where
     };
 
     // Phase 1: Log request
-    println!(
-        "{}",
-        serde_json::json!({"stamp": request_id, "message": "request", "meta": request})
-    );
+    log_request(request_id, request.method.as_str(), &request.path);
 
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 

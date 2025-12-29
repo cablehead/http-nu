@@ -53,7 +53,9 @@ scru128 = { version = "3", features = ["serde"] }
 log = "0.4"
 miette = "7"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
+indicatif = "0.17"
+chrono = "0.4"
 tower-http = { version = "0.6.6", features = ["fs"] }
 tower = { version = "0.5.2", features = ["util"] }
 ureq = { version = "2.12.1", default-features = false, features = ["tls"] }

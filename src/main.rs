@@ -16,7 +16,13 @@ use tokio::signal;
 use tokio::sync::mpsc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use http_nu::{engine::script_to_engine, handler::handle, listener::TlsConfig, Engine, Listener};
+use http_nu::{
+    engine::script_to_engine,
+    handler::handle,
+    listener::TlsConfig,
+    logging::{HumanLayer, JsonlLayer},
+    Engine, Listener,
+};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -39,6 +45,17 @@ struct Args {
     /// Nushell closure to handle requests, or '-' to read from stdin
     #[clap(value_parser)]
     closure: Option<String>,
+
+    /// Log format: human (live-updating) or jsonl (structured)
+    #[clap(long, default_value = "human")]
+    log_format: LogFormat,
+}
+
+#[derive(Clone, Debug, Default, clap::ValueEnum)]
+enum LogFormat {
+    #[default]
+    Human,
+    Jsonl,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -305,13 +322,26 @@ fn setup_ctrlc_handler(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "http_nu=debug,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let args = Args::parse();
+
+    // Set up tracing based on log format
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "http_nu=info".into());
+
+    match args.log_format {
+        LogFormat::Human => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(HumanLayer::new())
+                .init();
+        }
+        LogFormat::Jsonl => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(JsonlLayer::new())
+                .init();
+        }
+    }
 
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -322,8 +352,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .default()
         .then_some(())
         .expect("failed to set nu_command crypto provider");
-
-    let args = Args::parse();
 
     // Set up interrupt signal
     let interrupt = Arc::new(AtomicBool::new(false));
