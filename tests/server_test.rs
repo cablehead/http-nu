@@ -11,7 +11,22 @@ struct TestServer {
 
 impl TestServer {
     async fn new(addr: &str, closure: &str, tls: bool) -> Self {
+        Self::new_with_plugins(addr, closure, tls, &[]).await
+    }
+
+    async fn new_with_plugins(
+        addr: &str,
+        closure: &str,
+        tls: bool,
+        plugins: &[std::path::PathBuf],
+    ) -> Self {
         let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+
+        // Add plugin arguments first
+        for plugin in plugins {
+            cmd.arg("--plugin").arg(plugin);
+        }
+
         cmd.arg(addr).arg(closure);
 
         if tls {
@@ -1314,4 +1329,22 @@ async fn test_router_no_match_501() {
     let response = String::from_utf8_lossy(&output.stdout);
     assert!(response.contains("501 Not Implemented"));
     assert!(response.contains("No route configured"));
+}
+
+/// Tests that plugins can be loaded and their commands used
+#[tokio::test]
+async fn test_plugin_loading() {
+    let plugin_path = cargo_bin("nu_plugin_test");
+    let server = TestServer::new_with_plugins(
+        "127.0.0.1:0",
+        "{|req| test-plugin-cmd}",
+        false,
+        &[plugin_path],
+    )
+    .await;
+
+    let output = server.curl("/").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "PLUGIN_WORKS");
 }
