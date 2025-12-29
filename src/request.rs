@@ -112,3 +112,94 @@ pub fn request_to_value(request: &Request, span: Span) -> Value {
 
     Value::record(record, span)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers_with_xff(xff: &str) -> http::header::HeaderMap {
+        let mut headers = http::header::HeaderMap::new();
+        headers.insert("x-forwarded-for", xff.parse().unwrap());
+        headers
+    }
+
+    fn parse_cidr(s: &str) -> ipnet::IpNet {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn test_no_trusted_proxies_returns_remote_ip() {
+        let headers = http::header::HeaderMap::new();
+        let remote: IpAddr = "1.2.3.4".parse().unwrap();
+        let result = resolve_trusted_ip(&headers, Some(remote), &[]);
+        assert_eq!(result, Some(remote));
+    }
+
+    #[test]
+    fn test_remote_not_trusted_returns_remote_ip() {
+        let headers = headers_with_xff("5.6.7.8");
+        let remote: IpAddr = "1.2.3.4".parse().unwrap();
+        let trusted = vec![parse_cidr("10.0.0.0/8")];
+        let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
+        assert_eq!(result, Some(remote));
+    }
+
+    #[test]
+    fn test_xff_extracts_client_ip() {
+        // Client -> Proxy1 (10.0.0.1) -> Proxy2 (10.0.0.2) -> Server
+        // XFF: "5.6.7.8, 10.0.0.1"
+        let headers = headers_with_xff("5.6.7.8, 10.0.0.1");
+        let remote: IpAddr = "10.0.0.2".parse().unwrap();
+        let trusted = vec![parse_cidr("10.0.0.0/8")];
+        let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
+        assert_eq!(result, Some("5.6.7.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_xff_stops_at_first_untrusted() {
+        // Attacker spoofs XFF with fake IP, but we stop at first untrusted
+        // XFF: "fake.ip, 5.6.7.8, 10.0.0.1"
+        let headers = headers_with_xff("1.1.1.1, 5.6.7.8, 10.0.0.1");
+        let remote: IpAddr = "10.0.0.2".parse().unwrap();
+        let trusted = vec![parse_cidr("10.0.0.0/8")];
+        let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
+        // Should return 5.6.7.8, not 1.1.1.1 (which could be spoofed)
+        assert_eq!(result, Some("5.6.7.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_all_xff_trusted_returns_remote() {
+        let headers = headers_with_xff("10.0.0.5, 10.0.0.1");
+        let remote: IpAddr = "10.0.0.2".parse().unwrap();
+        let trusted = vec![parse_cidr("10.0.0.0/8")];
+        let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
+        assert_eq!(result, Some(remote));
+    }
+
+    #[test]
+    fn test_no_xff_header_returns_remote() {
+        let headers = http::header::HeaderMap::new();
+        let remote: IpAddr = "10.0.0.2".parse().unwrap();
+        let trusted = vec![parse_cidr("10.0.0.0/8")];
+        let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
+        assert_eq!(result, Some(remote));
+    }
+
+    #[test]
+    fn test_multiple_trusted_cidrs() {
+        let headers = headers_with_xff("5.6.7.8, 192.168.1.1");
+        let remote: IpAddr = "10.0.0.2".parse().unwrap();
+        let trusted = vec![parse_cidr("10.0.0.0/8"), parse_cidr("192.168.0.0/16")];
+        let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
+        assert_eq!(result, Some("5.6.7.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_ipv6_support() {
+        let headers = headers_with_xff("2001:db8::1, ::ffff:10.0.0.1");
+        let remote: IpAddr = "::ffff:10.0.0.2".parse().unwrap();
+        let trusted = vec![parse_cidr("::ffff:10.0.0.0/104")];
+        let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
+        assert_eq!(result, Some("2001:db8::1".parse().unwrap()));
+    }
+}
