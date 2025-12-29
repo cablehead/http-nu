@@ -11,7 +11,7 @@ use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::compression;
-use crate::logging_body::LoggingBody;
+use crate::logging::LoggingBody;
 use crate::request::Request;
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
 use crate::worker::spawn_eval_thread;
