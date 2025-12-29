@@ -269,6 +269,8 @@ Control log output with `--log-format`:
   timing, and bytes
 - `jsonl`: Structured JSON lines with `scru128` stamps for log aggregation
 
+<img width="1835" alt="human format logging output" src="https://github.com/user-attachments/assets/af4f3022-f362-4c93-82c0-5d18ffb3d9ac" />
+
 **JSONL format:**
 
 Each HTTP request emits 3 correlated events sharing a `request_id`:
