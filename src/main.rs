@@ -19,7 +19,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use http_nu::{engine::script_to_engine, handler::handle, listener::TlsConfig, Engine, Listener};
 
 #[derive(Parser, Debug)]
-#[clap(version, args_conflicts_with_subcommands = true)]
+#[clap(version)]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
@@ -33,7 +33,7 @@ struct Args {
     tls: Option<PathBuf>,
 
     /// Load a Nushell plugin from the specified path (can be used multiple times)
-    #[clap(long = "plugin", value_parser)]
+    #[clap(long = "plugin", global = true, value_parser)]
     plugins: Vec<PathBuf>,
 
     /// Nushell closure to handle requests, or '-' to read from stdin
@@ -45,10 +45,6 @@ struct Args {
 enum Command {
     /// Evaluate a Nushell script with http-nu commands and exit
     Eval {
-        /// Load a Nushell plugin from the specified path (can be used multiple times)
-        #[clap(long = "plugin", value_parser)]
-        plugins: Vec<PathBuf>,
-
         /// Script file to evaluate, or '-' to read from stdin
         #[clap(value_parser)]
         file: Option<String>,
@@ -333,12 +329,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let interrupt = Arc::new(AtomicBool::new(false));
 
     // Handle subcommands
-    if let Some(Command::Eval {
-        plugins,
-        file,
-        commands,
-    }) = args.command
-    {
+    if let Some(Command::Eval { file, commands }) = args.command {
         let script = match (&file, &commands) {
             (Some(_), Some(_)) => {
                 eprintln!("Error: cannot specify both file and --commands");
@@ -360,7 +351,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut engine = Engine::new()?;
         engine.add_custom_commands()?;
 
-        for plugin_path in &plugins {
+        for plugin_path in &args.plugins {
             engine.load_plugin(plugin_path)?;
         }
 
