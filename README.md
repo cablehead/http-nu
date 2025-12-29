@@ -23,6 +23,8 @@ server that fits in your back pocket.
   - [Response metadata](#response-metadata)
   - [Content-Type Inference](#content-type-inference)
   - [TLS & HTTP/2 Support](#tls-support)
+  - [Logging](#logging)
+  - [Trusted Proxies](#trusted-proxies)
   - [Serving Static Files](#serving-static-files)
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
@@ -147,6 +149,7 @@ $ http get 'http://localhost:3001/segment?foo=bar&abc=123'
  path        │ /segment
  remote_ip   │ 127.0.0.1
  remote_port │ 52007
+ trusted_ip  │ 127.0.0.1
              │ ────────────┬────────────────
  headers     │  host       │ localhost:3001
              │  user-agent │ curl/8.7.1
@@ -256,6 +259,37 @@ HTTP/2 is automatically enabled for TLS connections:
 $ curl -k --http2 -si https://localhost:3001 | head -1
 HTTP/2 200
 ```
+
+### Logging
+
+Control log output with `--log-format`:
+
+- `human` (default): Live-updating lines with timestamp, IP, method, path,
+  status, timing, bytes
+- `jsonl`: Structured JSON with `scru128` stamps for each event
+
+```bash
+$ http-nu --log-format jsonl :3001 '{|req| "hello"}'
+{"stamp":"0abcdef...","message":"request","method":"GET","path":"/"}
+{"stamp":"0abcdef...","message":"response","status":200,"latency_ms":1}
+{"stamp":"0abcdef...","message":"complete","bytes":5,"latency_ms":2}
+```
+
+### Trusted Proxies
+
+When behind a reverse proxy, use `--trust-proxy` to extract client IP from
+`X-Forwarded-For`. Accepts CIDR notation, repeatable:
+
+```bash
+$ http-nu --trust-proxy 10.0.0.0/8 --trust-proxy 192.168.0.0/16 :3001 '{|req| $req.trusted_ip}'
+```
+
+The `trusted_ip` field is resolved by parsing `X-Forwarded-For` right-to-left,
+stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
+
+- No `--trust-proxy` flags provided
+- Remote IP is not in trusted ranges
+- No `X-Forwarded-For` header present
 
 ### Serving Static Files
 
