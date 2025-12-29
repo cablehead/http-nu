@@ -41,7 +41,13 @@ jobs:
       # 1) Check out source
       - uses: actions/checkout@v4
 
-      # 2) Cache Dagger BuildKit cache (restore and save)
+      # 2) Free up disk space (Windows cross-compile needs ~20GB)
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      # 3) Cache Dagger BuildKit cache (restore and save)
       - name: Cache Dagger
         uses: actions/cache@v4
         with:
@@ -50,18 +56,18 @@ jobs:
           restore-keys: |
             dagger-${{ runner.os }}-${{ matrix.target }}-
 
-      # 3) Boot the Dagger engine
+      # 4) Boot the Dagger engine
       - name: Setup Dagger
         uses: dagger/dagger-for-github@8.0.0
         with:
           version: "0.18.10"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 4) Defensive: pre-pull the engine image
+      # 5) Defensive: pre-pull the engine image
       - name: Pre-pull Dagger Engine
         run: docker pull registry.dagger.io/engine:v0.18.10
 
-      # 5) Run one Dagger build function and export artifact
+      # 6) Run one Dagger build function and export artifact
       - name: Build with Dagger
         uses: dagger/dagger-for-github@8.0.0
         with:
@@ -69,7 +75,7 @@ jobs:
           call: ${{ matrix.dagger_fn }} --src upload --src . export --path ./artifacts/${{ matrix.artifact }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # 6) Upload artifact for fan-in job
+      # 7) Upload artifact for fan-in job
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
