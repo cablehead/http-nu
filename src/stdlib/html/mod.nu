@@ -80,7 +80,10 @@ export def _var [expr: string]: nothing -> record {
 }
 
 # Document metadata
-export def HTML [...args: any]: nothing -> record { render-tag html ...$args }
+export def HTML [...args: any]: nothing -> record {
+  let inner = render-tag html ...$args
+  {__html: $"<!DOCTYPE html>($inner.__html)"}
+}
 export def HEAD [...args: any]: nothing -> record { render-tag head ...$args }
 export def TITLE [...args: any]: nothing -> record { render-tag title ...$args }
 export def BASE [attrs?: record]: nothing -> record { render-void-tag base $attrs }

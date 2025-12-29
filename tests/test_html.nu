@@ -217,3 +217,8 @@ assert equal (
 assert equal (
   _for {x: xs} (LI "<script>bad</script>")
 ).__html '{% for x in xs %}<li>&lt;script&gt;bad&lt;/script&gt;</li>{% endfor %}'
+
+# Test HTML includes DOCTYPE
+assert equal (HTML).__html '<!DOCTYPE html><html></html>'
+assert equal (HTML (HEAD) (BODY)).__html '<!DOCTYPE html><html><head></head><body></body></html>'
+assert equal (HTML {lang: "en"} (BODY "hi")).__html '<!DOCTYPE html><html lang="en"><body>hi</body></html>'
