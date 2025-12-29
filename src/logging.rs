@@ -428,10 +428,11 @@ impl<S: Subscriber> Layer<S> for HumanLayer {
                     let addr = visitor.address.unwrap_or_default();
                     let startup_ms = visitor.startup_ms.unwrap_or(0);
                     let now = Local::now().to_rfc2822();
+                    println!("<http-nu version=\"{version}\">");
                     println!("     __  ,");
-                    println!(" .--()°'.'  <http-nu version=\"{version}\">");
-                    println!("'|, . ,'    pid {pid} · {addr} · {startup_ms}ms 💜");
-                    println!(" !_-(_\\     {now}");
+                    println!(" .--()°'.'  pid {pid} · {addr} · {startup_ms}ms 💜");
+                    println!("'|, . ,'    {now}");
+                    println!(" !_-(_\\");
                 }
                 Some("reloaded") => {
                     println!("reloaded 🔄");
