@@ -7,6 +7,7 @@ use std::sync::{
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use chrono::Local;
 use clap::Parser;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -135,6 +136,7 @@ fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn serve(
     addr: String,
     tls: Option<PathBuf>,
@@ -142,6 +144,8 @@ async fn serve(
     mut rx: mpsc::Receiver<String>,
     interrupt: Arc<AtomicBool>,
     trusted_proxies: Vec<ipnet::IpNet>,
+    log_format: LogFormat,
+    start_time: std::time::Instant,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Wait for a valid first script (loop to handle parse errors)
     let first_engine = loop {
@@ -184,10 +188,25 @@ async fn serve(
     };
 
     let mut listener = Listener::bind(&addr, tls_config).await?;
-    println!(
-        "{}",
-        serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
-    );
+    let startup_ms = start_time.elapsed().as_millis();
+    match log_format {
+        LogFormat::Jsonl => {
+            println!(
+                "{}",
+                serde_json::json!({"stamp": scru128::new(), "message": "start", "address": format!("{}", listener)})
+            );
+        }
+        LogFormat::Human => {
+            let version = env!("CARGO_PKG_VERSION");
+            let pid = std::process::id();
+            let addr = format!("{listener}");
+            let now = Local::now().to_rfc2822();
+            println!("     __  ,");
+            println!(" .--()°'.'  <http-nu {version}>");
+            println!("'|, . ,'    pid {pid} · {addr} · {startup_ms}ms 💜");
+            println!(" !_-(_\\     {now}");
+        }
+    }
 
     // HTTP/1 + HTTP/2 auto-detection builder
     let http_builder = HttpConnectionBuilder::new(TokioExecutor::new());
@@ -439,6 +458,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         rx,
         interrupt,
         args.trust_proxies,
+        args.log_format,
+        std::time::Instant::now(),
     )
     .await
 }

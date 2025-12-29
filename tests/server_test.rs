@@ -21,6 +21,7 @@ impl TestServer {
         plugins: &[std::path::PathBuf],
     ) -> Self {
         let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        cmd.arg("--log-format").arg("jsonl");
 
         // Add plugin arguments first
         for plugin in plugins {
@@ -178,6 +179,7 @@ impl TestServerWithStdin {
     /// The server will wait for a valid script before emitting the "start" message.
     fn spawn(addr: &str, tls: bool) -> (Child, ChildStdin, tokio::sync::oneshot::Receiver<String>) {
         let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        cmd.arg("--log-format").arg("jsonl");
         cmd.arg(addr).arg("-");
 
         if tls {
