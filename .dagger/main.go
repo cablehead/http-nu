@@ -21,7 +21,7 @@ func (m *HttpNu) withCaches(container *dagger.Container, targetSuffix string) *d
 
 func (m *HttpNu) Upload(
 	ctx context.Context,
-	// +ignore=["**", "!Cargo.toml", "!Cargo.lock", "!src/**", "!xs.nu", "!scripts/**"]
+	// +ignore=["**", "!Cargo.toml", "!Cargo.lock", "!src/**", "!xs.nu", "!scripts/**", "!tests/test_plugin/**"]
 	src *dagger.Directory) *dagger.Directory {
 	return src
 }
