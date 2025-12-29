@@ -222,6 +222,12 @@ async fn serve(
 
                         tokio::task::spawn(async move {
                             if let Err(err) = conn.await {
+                                // Suppress incomplete message errors - normal for SSE when client disconnects
+                                if let Some(hyper_err) = err.downcast_ref::<hyper::Error>() {
+                                    if hyper_err.is_incomplete_message() {
+                                        return;
+                                    }
+                                }
                                 eprintln!("Connection error: {err}");
                             }
                         });
