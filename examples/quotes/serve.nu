@@ -4,7 +4,7 @@ use http-nu/html *
 
 def quote-html []: record -> record {
   let q = $in
-  DIV {
+  (DIV {
     id: "quote"
     style: {
       background-color: "#e8e6e3"
@@ -17,23 +17,22 @@ def quote-html []: record -> record {
       justify-content: center
       overflow: hidden
     }
-  } (
-    P {
+  }
+    (P {
       style: {
         font-family: "Georgia, serif"
         font-style: italic
         text-align: center
       }
-    } $"\"($q.quote)\""
-    P {
+    } $"\"($q.quote)\"")
+    (P {
       style: {
         font-family: "'American Typewriter', Courier, monospace"
         font-size: 4vmax
         text-align: right
         margin-top: 10vh
       }
-    } $"— ($q.who? | default 'Anonymous')"
-  )
+    } $"— ($q.who? | default 'Anonymous')"))
 }
 
 {|req|
