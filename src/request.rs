@@ -17,9 +17,10 @@ pub fn resolve_trusted_ip(
     }
 
     // Check if remote_ip itself is trusted
+    // None (Unix socket) is implicitly trusted when --trust-proxy is configured
     let remote_is_trusted = remote_ip
         .map(|ip| trusted_proxies.iter().any(|net| net.contains(&ip)))
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     if !remote_is_trusted {
         return remote_ip;
@@ -34,8 +35,10 @@ pub fn resolve_trusted_ip(
     // Parse IPs from right to left
     let ips: Vec<&str> = xff.split(',').map(|s| s.trim()).collect();
 
+    let mut leftmost_ip = None;
     for ip_str in ips.into_iter().rev() {
         if let Ok(ip) = ip_str.parse::<IpAddr>() {
+            leftmost_ip = Some(ip);
             // If this IP is not in trusted proxies, it's the client
             if !trusted_proxies.iter().any(|net| net.contains(&ip)) {
                 return Some(ip);
@@ -43,8 +46,8 @@ pub fn resolve_trusted_ip(
         }
     }
 
-    // All IPs were trusted proxies, fall back to remote_ip
-    remote_ip
+    // All IPs were trusted proxies - use leftmost IP from XFF, or fall back to remote_ip
+    leftmost_ip.or(remote_ip)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -168,12 +171,13 @@ mod tests {
     }
 
     #[test]
-    fn test_all_xff_trusted_returns_remote() {
+    fn test_all_xff_trusted_returns_leftmost() {
+        // When all XFF IPs are trusted, return the leftmost (original client)
         let headers = headers_with_xff("10.0.0.5, 10.0.0.1");
         let remote: IpAddr = "10.0.0.2".parse().unwrap();
         let trusted = vec![parse_cidr("10.0.0.0/8")];
         let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
-        assert_eq!(result, Some(remote));
+        assert_eq!(result, Some("10.0.0.5".parse().unwrap()));
     }
 
     #[test]
@@ -201,5 +205,33 @@ mod tests {
         let trusted = vec![parse_cidr("::ffff:10.0.0.0/104")];
         let result = resolve_trusted_ip(&headers, Some(remote), &trusted);
         assert_eq!(result, Some("2001:db8::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_unix_socket_with_xff() {
+        // Unix socket: remote_ip is None, but trust-proxy is configured
+        let headers = headers_with_xff("5.6.7.8, 10.0.0.1");
+        let trusted = vec![parse_cidr("10.0.0.0/8")];
+        let result = resolve_trusted_ip(&headers, None, &trusted);
+        assert_eq!(result, Some("5.6.7.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_unix_socket_no_xff() {
+        // Unix socket with no XFF header → None
+        let headers = http::header::HeaderMap::new();
+        let trusted = vec![parse_cidr("10.0.0.0/8")];
+        let result = resolve_trusted_ip(&headers, None, &trusted);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_trust_all_uses_leftmost_xff() {
+        // When trusting 0.0.0.0/0, all IPs are "trusted" but we should still
+        // return the leftmost (client) IP from the XFF chain
+        let headers = headers_with_xff("38.147.250.103");
+        let trusted = vec![parse_cidr("0.0.0.0/0")];
+        let result = resolve_trusted_ip(&headers, None, &trusted);
+        assert_eq!(result, Some("38.147.250.103".parse().unwrap()));
     }
 }

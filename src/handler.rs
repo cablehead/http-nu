@@ -132,12 +132,7 @@ where
     };
 
     // Phase 1: Log request
-    log_request(
-        request_id,
-        request.method.as_str(),
-        &request.path,
-        trusted_ip,
-    );
+    log_request(request_id, &request);
 
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 

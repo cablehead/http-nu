@@ -17,19 +17,15 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 // --- Tracing events ---
 
-pub fn log_request(
-    request_id: scru128::Scru128Id,
-    method: &str,
-    path: &str,
-    trusted_ip: Option<std::net::IpAddr>,
-) {
+pub fn log_request(request_id: scru128::Scru128Id, request: &crate::request::Request) {
     tracing::info!(
         target: "http_nu::access",
         message = "request",
         request_id = %request_id,
-        method = method,
-        path = path,
-        trusted_ip = ?trusted_ip,
+        method = %request.method,
+        path = %request.path,
+        trusted_ip = ?request.trusted_ip,
+        request = %serde_json::to_string(request).unwrap_or_default(),
     );
 }
 
@@ -110,14 +106,19 @@ impl JsonVisitor {
 impl Visit for JsonVisitor {
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         let name = field.name();
+        let s = format!("{value:?}");
+
         if name == "headers" {
-            // Parse the debug output as header map
+            self.map
+                .insert(name.to_string(), serde_json::Value::String(s));
+        } else if s == "None" {
+            self.map.insert(name.to_string(), serde_json::Value::Null);
+        } else if let Some(inner) = s.strip_prefix("Some(").and_then(|s| s.strip_suffix(')')) {
             self.map.insert(
                 name.to_string(),
-                serde_json::Value::String(format!("{value:?}")),
+                serde_json::Value::String(inner.trim_matches('"').to_string()),
             );
         } else {
-            let s = format!("{value:?}");
             self.map.insert(
                 name.to_string(),
                 serde_json::Value::String(s.trim_matches('"').to_string()),
