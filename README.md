@@ -606,7 +606,8 @@ use http-nu/html *
 [`<!DOCTYPE html>`](https://html.spec.whatwg.org/multipage/syntax.html#the-doctype).
 All HTML5 elements available as uppercase commands (`DIV`, `SPAN`, `UL`, etc.).
 Attributes via record, children via args or closure. Lists from `each` are
-automatically joined. Plain strings are auto-escaped for XSS protection.
+automatically joined. Plain strings are auto-escaped for XSS protection;
+`{__html: "<b>trusted</b>"}` bypasses escaping for pre-sanitized content.
 
 `style` accepts a record; values can be lists for comma-separated CSS (e.g.
 `font-family`): `{style: {font-family: [Arial sans-serif] padding: 10px}}`
