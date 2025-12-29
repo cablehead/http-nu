@@ -6,6 +6,48 @@ use hyper::body::{Body, Bytes, Frame, SizeHint};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+pub fn log_response(
+    request_id: scru128::Scru128Id,
+    status: u16,
+    headers: &hyper::header::HeaderMap,
+    start_time: Instant,
+) {
+    println!(
+        "{}",
+        serde_json::json!({
+            "stamp": scru128::new(),
+            "message": "response",
+            "request_id": request_id,
+            "status": status,
+            "headers": header_map_to_json(headers),
+            "latency_ms": start_time.elapsed().as_millis()
+        })
+    );
+}
+
+fn header_map_to_json(headers: &hyper::header::HeaderMap) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (name, value) in headers.iter() {
+        let key = name.as_str().to_string();
+        let val = value.to_str().unwrap_or("<binary>").to_string();
+        if let Some(existing) = map.get_mut(&key) {
+            match existing {
+                serde_json::Value::Array(arr) => arr.push(serde_json::Value::String(val)),
+                serde_json::Value::String(s) => {
+                    *existing = serde_json::Value::Array(vec![
+                        serde_json::Value::String(s.clone()),
+                        serde_json::Value::String(val),
+                    ]);
+                }
+                _ => {}
+            }
+        } else {
+            map.insert(key, serde_json::Value::String(val));
+        }
+    }
+    serde_json::Value::Object(map)
+}
+
 pub struct LoggingBody<B> {
     inner: B,
     request_id: scru128::Scru128Id,
@@ -28,7 +70,6 @@ impl<B> LoggingBody<B> {
     fn log_complete(&mut self) {
         if !self.logged_complete {
             self.logged_complete = true;
-            let latency_ms = self.start_time.elapsed().as_secs_f64() * 1000.0;
             println!(
                 "{}",
                 serde_json::json!({
@@ -36,7 +77,7 @@ impl<B> LoggingBody<B> {
                     "message": "complete",
                     "request_id": self.request_id,
                     "bytes": self.bytes_sent,
-                    "latency_ms": latency_ms
+                    "latency_ms": self.start_time.elapsed().as_millis()
                 })
             );
         }
@@ -82,7 +123,6 @@ where
 
 impl<B> Drop for LoggingBody<B> {
     fn drop(&mut self) {
-        // Log complete if we haven't already (e.g., client disconnected early)
         self.log_complete();
     }
 }
