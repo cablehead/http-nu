@@ -115,6 +115,14 @@ $ (printf '{|req| "v1"}\0'; sleep 5; printf '{|req| "v2"}') | http-nu :3001 -
 JSON status is emitted to stdout: `"start"` on first load, `"reload"` on
 updates, `"error"` on parse failures.
 
+Watch a file and reload on changes:
+
+```nushell
+watch ./serve.nu | prepend {operation: Write} | each {
+  (cat serve.nu) + (char -i 0)
+} | to text | http-nu /run/sock -
+```
+
 ### POST: echo
 
 ```bash
