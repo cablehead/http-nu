@@ -55,6 +55,52 @@ pub fn log_complete(request_id: scru128::Scru128Id, bytes: u64, response_time: I
     );
 }
 
+pub fn log_start(address: &str, startup_ms: u128) {
+    tracing::info!(
+        target: "http_nu::lifecycle",
+        message = "start",
+        address = address,
+        startup_ms = startup_ms as u64,
+    );
+}
+
+pub fn log_reload() {
+    tracing::info!(
+        target: "http_nu::lifecycle",
+        message = "reload",
+    );
+}
+
+pub fn log_error(error: &str) {
+    tracing::info!(
+        target: "http_nu::lifecycle",
+        message = "error",
+        error = error,
+    );
+}
+
+pub fn log_shutdown(inflight: usize) {
+    tracing::info!(
+        target: "http_nu::lifecycle",
+        message = "shutdown",
+        inflight = inflight as u64,
+    );
+}
+
+pub fn log_shutdown_complete() {
+    tracing::info!(
+        target: "http_nu::lifecycle",
+        message = "shutdown_complete",
+    );
+}
+
+pub fn log_shutdown_timeout() {
+    tracing::info!(
+        target: "http_nu::lifecycle",
+        message = "shutdown_timeout",
+    );
+}
+
 // --- JSONL layer with scru128 stamps ---
 
 pub struct JsonlLayer;
@@ -73,7 +119,8 @@ impl Default for JsonlLayer {
 
 impl<S: Subscriber> Layer<S> for JsonlLayer {
     fn on_event(&self, event: &Event<'_>, _ctx: LayerContext<'_, S>) {
-        if event.metadata().target() != "http_nu::access" {
+        let target = event.metadata().target();
+        if target != "http_nu::access" && target != "http_nu::lifecycle" {
             return;
         }
 
@@ -273,9 +320,92 @@ impl Visit for FieldVisitor {
     }
 }
 
+// Visitor for lifecycle events
+struct LifecycleVisitor {
+    message: Option<String>,
+    address: Option<String>,
+    startup_ms: Option<u64>,
+    inflight: Option<u64>,
+    error: Option<String>,
+}
+
+impl LifecycleVisitor {
+    fn new() -> Self {
+        Self {
+            message: None,
+            address: None,
+            startup_ms: None,
+            inflight: None,
+            error: None,
+        }
+    }
+}
+
+impl Visit for LifecycleVisitor {
+    fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {}
+
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        match field.name() {
+            "startup_ms" => self.startup_ms = Some(value),
+            "inflight" => self.inflight = Some(value),
+            _ => {}
+        }
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        match field.name() {
+            "message" => self.message = Some(value.to_string()),
+            "address" => self.address = Some(value.to_string()),
+            "error" => self.error = Some(value.to_string()),
+            _ => {}
+        }
+    }
+}
+
 impl<S: Subscriber> Layer<S> for HumanLayer {
     fn on_event(&self, event: &Event<'_>, _ctx: LayerContext<'_, S>) {
-        if event.metadata().target() != "http_nu::access" {
+        let target = event.metadata().target();
+
+        if target == "http_nu::lifecycle" {
+            let mut visitor = LifecycleVisitor::new();
+            event.record(&mut visitor);
+
+            match visitor.message.as_deref() {
+                Some("start") => {
+                    let version = env!("CARGO_PKG_VERSION");
+                    let pid = std::process::id();
+                    let addr = visitor.address.unwrap_or_default();
+                    let startup_ms = visitor.startup_ms.unwrap_or(0);
+                    let now = Local::now().to_rfc2822();
+                    println!("     __  ,");
+                    println!(" .--()°'.'  <http-nu version=\"{version}\">");
+                    println!("'|, . ,'    pid {pid} · {addr} · {startup_ms}ms 💜");
+                    println!(" !_-(_\\     {now}");
+                }
+                Some("reload") => {
+                    println!("reloaded 🔄");
+                }
+                Some("error") => {
+                    if let Some(err) = visitor.error {
+                        eprintln!("{err}");
+                    }
+                }
+                Some("shutdown") => {
+                    let inflight = visitor.inflight.unwrap_or(0);
+                    println!("shutting down, {inflight} connection(s) in flight...");
+                }
+                Some("shutdown_complete") => {
+                    println!("cu l8r 💜</http-nu>");
+                }
+                Some("shutdown_timeout") => {
+                    println!("shutdown timed out, forcing exit");
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if target != "http_nu::access" {
             return;
         }
 
