@@ -181,9 +181,25 @@ async fn serve(
         None
     };
 
+    let tls_enabled = tls_config.is_some();
     let mut listener = Listener::bind(&addr, tls_config).await?;
     let startup_ms = start_time.elapsed().as_millis();
-    log_started(&format!("{listener}"), startup_ms);
+    let addr_display = {
+        let raw = format!("{listener}");
+        // Format TCP addresses as clickable URLs, leave Unix sockets as-is
+        if raw.starts_with('/') {
+            raw
+        } else {
+            // Strip " (TLS)" suffix from Listener's Display
+            let addr = raw.strip_suffix(" (TLS)").unwrap_or(&raw);
+            if tls_enabled {
+                format!("https://{addr}")
+            } else {
+                format!("http://{addr}")
+            }
+        }
+    };
+    log_started(&addr_display, startup_ms);
 
     // HTTP/1 + HTTP/2 auto-detection builder
     let http_builder = HttpConnectionBuilder::new(TokioExecutor::new());
