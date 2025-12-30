@@ -141,3 +141,62 @@ fn test_closure_captures_outer_variables() {
         "captured"
     );
 }
+
+#[test]
+fn test_highlight_rust() {
+    let engine = eval_engine();
+    let result = engine.eval(r#""fn main() {}" | .highlight rust"#).unwrap();
+    let html = result.as_str().unwrap();
+    assert!(html.contains("span"));
+    assert!(html.contains("source rust"));
+}
+
+#[test]
+fn test_highlight_nushell() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(r#""{|req| $req.path}" | .highlight nu"#)
+        .unwrap();
+    let html = result.as_str().unwrap();
+    assert!(html.contains("span"));
+    assert!(html.contains("source nu"));
+}
+
+#[test]
+fn test_highlight_theme_list() {
+    let engine = eval_engine();
+    let result = engine.eval(r#".highlight theme"#).unwrap();
+    let themes = result.as_list().unwrap();
+    assert!(!themes.is_empty());
+    // Check for some known themes
+    let theme_names: Vec<_> = themes.iter().filter_map(|v| v.as_str().ok()).collect();
+    assert!(theme_names.contains(&"Dracula"));
+    assert!(theme_names.contains(&"Monokai Extended"));
+}
+
+#[test]
+fn test_highlight_theme_css() {
+    let engine = eval_engine();
+    let result = engine.eval(r#".highlight theme Dracula"#).unwrap();
+    let css = result.as_str().unwrap();
+    assert!(css.contains("color:"));
+    assert!(css.contains("background-color:"));
+}
+
+#[test]
+fn test_highlight_lang_list() {
+    let engine = eval_engine();
+    let result = engine.eval(r#".highlight lang"#).unwrap();
+    let langs = result.as_list().unwrap();
+    assert!(!langs.is_empty());
+    // Check structure: each item should have name and extensions
+    let first = langs.first().unwrap().as_record().unwrap();
+    assert!(first.get("name").is_some());
+    assert!(first.get("extensions").is_some());
+    // Check Nushell is present with "nu" extension
+    let has_nushell = langs.iter().any(|v| {
+        let rec = v.as_record().unwrap();
+        rec.get("name").unwrap().as_str().unwrap() == "Nushell"
+    });
+    assert!(has_nushell);
+}

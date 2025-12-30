@@ -16,8 +16,8 @@ use nu_protocol::{
 };
 
 use crate::commands::{
-    MjCommand, MjCompileCommand, MjRenderCommand, ResponseStartCommand, ReverseProxyCommand,
-    StaticCommand, ToSse,
+    HighlightCommand, HighlightLangCommand, HighlightThemeCommand, MjCommand, MjCompileCommand,
+    MjRenderCommand, ResponseStartCommand, ReverseProxyCommand, StaticCommand, ToSse,
 };
 use crate::logging::log_error;
 use crate::stdlib::load_http_nu_stdlib;
@@ -273,6 +273,9 @@ impl Engine {
             Box::new(MjCommand::new()),
             Box::new(MjCompileCommand::new()),
             Box::new(MjRenderCommand::new()),
+            Box::new(HighlightCommand::new()),
+            Box::new(HighlightThemeCommand::new()),
+            Box::new(HighlightLangCommand::new()),
         ])
     }
 }

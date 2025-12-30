@@ -32,6 +32,7 @@ server that fits in your back pocket.
   - [Templates](#templates)
     - [`.mj` - Render inline](#mj---render-inline)
     - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
+  - [Syntax Highlighting](#syntax-highlighting)
   - [Streaming Input](#streaming-input)
   - [Plugins](#plugins)
   - [Embedded Modules](#embedded-modules)
@@ -569,6 +570,19 @@ use http-nu/html *
 let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
 {items: [a b c]} | .mj render $tpl
 # <ul><li>a</li><li>b</li><li>c</li></ul>
+```
+
+### Syntax Highlighting
+
+Highlight code to HTML with CSS classes.
+
+```bash
+$ http-nu eval -c '"fn main() {}" | .highlight rust'
+<span class="source rust">...
+
+$ .highlight lang           # list languages
+$ .highlight theme          # list themes
+$ .highlight theme Dracula  # get CSS
 ```
 
 ### Streaming Input

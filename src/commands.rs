@@ -14,6 +14,10 @@ use tokio::sync::oneshot;
 use minijinja::Environment;
 use std::sync::{Arc, OnceLock, RwLock};
 
+use syntect::html::{ClassStyle, ClassedHTMLGenerator};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
+
 // === Template Cache ===
 
 type TemplateCache = RwLock<HashMap<u128, Arc<Environment<'static>>>>;
@@ -1021,5 +1025,247 @@ impl Command for MjRenderCommand {
             })?;
 
         Ok(Value::string(rendered, head).into_pipeline_data())
+    }
+}
+
+// === Syntax Highlighting ===
+
+struct SyntaxHighlighter {
+    syntax_set: SyntaxSet,
+}
+
+impl SyntaxHighlighter {
+    fn new() -> Self {
+        const SYNTAX_SET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/syntax_set.bin"));
+        let syntax_set = syntect::dumps::from_binary(SYNTAX_SET);
+        Self { syntax_set }
+    }
+
+    fn highlight(&self, code: &str, lang: Option<&str>) -> String {
+        let syntax = match lang {
+            Some(lang) => self
+                .syntax_set
+                .find_syntax_by_token(lang)
+                .or_else(|| self.syntax_set.find_syntax_by_extension(lang)),
+            None => None,
+        }
+        .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+
+        let mut html_generator = ClassedHTMLGenerator::new_with_class_style(
+            syntax,
+            &self.syntax_set,
+            ClassStyle::Spaced,
+        );
+
+        for line in LinesWithEndings::from(code) {
+            let _ = html_generator.parse_html_for_line_which_includes_newline(line);
+        }
+
+        html_generator.finalize()
+    }
+
+    fn list_syntaxes(&self) -> Vec<(String, Vec<String>)> {
+        self.syntax_set
+            .syntaxes()
+            .iter()
+            .map(|s| (s.name.clone(), s.file_extensions.clone()))
+            .collect()
+    }
+}
+
+static HIGHLIGHTER: OnceLock<SyntaxHighlighter> = OnceLock::new();
+
+fn get_highlighter() -> &'static SyntaxHighlighter {
+    HIGHLIGHTER.get_or_init(SyntaxHighlighter::new)
+}
+
+// === .highlight command ===
+
+#[derive(Clone)]
+pub struct HighlightCommand;
+
+impl Default for HighlightCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HighlightCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for HighlightCommand {
+    fn name(&self) -> &str {
+        ".highlight"
+    }
+
+    fn description(&self) -> &str {
+        "Syntax highlight code, outputting HTML with CSS classes"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".highlight")
+            .required("lang", SyntaxShape::String, "language for highlighting")
+            .input_output_types(vec![(Type::String, Type::String)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let lang: String = call.req(engine_state, stack, 0)?;
+
+        let code = match input {
+            PipelineData::Value(Value::String { val, .. }, _) => val,
+            PipelineData::ByteStream(stream, _) => stream.into_string()?,
+            _ => {
+                return Err(ShellError::TypeMismatch {
+                    err_message: "expected string input".into(),
+                    span: head,
+                });
+            }
+        };
+
+        let highlighter = get_highlighter();
+        let html = highlighter.highlight(&code, Some(&lang));
+
+        Ok(Value::string(html, head).into_pipeline_data())
+    }
+}
+
+// === .highlight theme command ===
+
+#[derive(Clone)]
+pub struct HighlightThemeCommand;
+
+impl Default for HighlightThemeCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HighlightThemeCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for HighlightThemeCommand {
+    fn name(&self) -> &str {
+        ".highlight theme"
+    }
+
+    fn description(&self) -> &str {
+        "List available themes or get CSS for a specific theme"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".highlight theme")
+            .optional("name", SyntaxShape::String, "theme name (omit to list all)")
+            .input_output_types(vec![
+                (Type::Nothing, Type::List(Box::new(Type::String))),
+                (Type::Nothing, Type::String),
+            ])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let name: Option<String> = call.opt(engine_state, stack, 0)?;
+
+        let assets = syntect_assets::assets::HighlightingAssets::from_binary();
+
+        match name {
+            None => {
+                let themes: Vec<Value> = assets.themes().map(|t| Value::string(t, head)).collect();
+                Ok(Value::list(themes, head).into_pipeline_data())
+            }
+            Some(theme_name) => {
+                let theme = assets.get_theme(&theme_name);
+                let css = syntect::html::css_for_theme_with_class_style(theme, ClassStyle::Spaced)
+                    .map_err(|e| ShellError::GenericError {
+                        error: format!("Failed to generate CSS: {e}"),
+                        msg: e.to_string(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    })?;
+                Ok(Value::string(css, head).into_pipeline_data())
+            }
+        }
+    }
+}
+
+// === .highlight lang command ===
+
+#[derive(Clone)]
+pub struct HighlightLangCommand;
+
+impl Default for HighlightLangCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HighlightLangCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for HighlightLangCommand {
+    fn name(&self) -> &str {
+        ".highlight lang"
+    }
+
+    fn description(&self) -> &str {
+        "List available languages for syntax highlighting"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".highlight lang")
+            .input_output_types(vec![(Type::Nothing, Type::List(Box::new(Type::record())))])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        _engine_state: &EngineState,
+        _stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let highlighter = get_highlighter();
+        let langs: Vec<Value> = highlighter
+            .list_syntaxes()
+            .into_iter()
+            .map(|(name, exts)| {
+                Value::record(
+                    nu_protocol::record! {
+                        "name" => Value::string(name, head),
+                        "extensions" => Value::list(
+                            exts.into_iter().map(|e| Value::string(e, head)).collect(),
+                            head
+                        ),
+                    },
+                    head,
+                )
+            })
+            .collect();
+        Ok(Value::list(langs, head).into_pipeline_data())
     }
 }
