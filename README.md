@@ -554,6 +554,14 @@ let tpl = (.mj compile --inline "{% for i in items %}{{ i }}{% endfor %}")
 [{items: [1,2,3]}, {items: [4,5,6]}] | each { .mj render $tpl }
 ```
 
+Compile once at handler load, render per-request:
+
+```nushell
+let page = .mj compile "templates/page.html"
+
+{|req| $req.query | .mj render $page}
+```
+
 With HTML DSL (accepts `{__html}` records directly):
 
 ```nushell
