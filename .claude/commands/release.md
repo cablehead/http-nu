@@ -65,10 +65,14 @@ gh run watch <run-id> --exit-status
 ### 7. Homebrew Formula Update
 
 - Clone `../homebrew-tap` if not present: `git clone https://github.com/cablehead/homebrew-tap.git`
-- Download macOS tarball and calculate SHA256:
+- **Wait 10+ seconds** after build completes for GitHub CDN propagation
+- Download macOS tarball, verify integrity, and calculate SHA256:
   ```bash
   cd /tmp
+  rm -f http-nu-v$ARGUMENTS-macos.tar.gz
   curl -sL https://github.com/cablehead/http-nu/releases/download/v$ARGUMENTS/http-nu-darwin-arm64.tar.gz -o http-nu-v$ARGUMENTS-macos.tar.gz
+  # Verify download by extracting and checking binary
+  tar -tzf http-nu-v$ARGUMENTS-macos.tar.gz  # should list: http-nu
   sha256sum http-nu-v$ARGUMENTS-macos.tar.gz
   ```
 - Update `../homebrew-tap/Formula/http-nu.rb` with new version, URL, and SHA256 checksum
