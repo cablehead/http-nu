@@ -83,7 +83,7 @@ def badge [...args] {
 
 def taglines [] {
   (
-    DIV {class: [max-w-3xl mx-auto bg-card text-center rotate-ccw-1 pt-12 px-6 pb-6 rounded-5xl]}
+    DIV {class: [max-w-3xl mx-auto bg-card text-center rotate-ccw-1 pt-12 px-6 pb-2 rounded-5xl]}
     (svg-top)
     (IMG {class: [block mx-auto] style: "max-width: 90%;" src: "/ellie.png"})
     (badge {class: "rotate-ccw-3"} (A {href: "https://www.nushell.sh"} "Nushell") "-scriptable!")
@@ -152,6 +152,89 @@ def hero [] {
   )
 }
 
+def install-tab [name: string, label: string] {
+  BUTTON {
+    class: [px-4 py-2 font-mono text-sm cursor-pointer border-none transition-colors]
+    "data-class:bg-dark": $"$tab === '($name)'"
+    "data-class:text-white": $"$tab === '($name)'"
+    "data-class:bg-none": $"$tab !== '($name)'"
+    "data-class:text-primary": $"$tab !== '($name)'"
+    "data-on:click": $"$tab = '($name)'"
+  } $label
+}
+
+def install-content [name: string, ...children] {
+  DIV {
+    class: [font-mono]
+    "data-show": $"$tab === '($name)'"
+  } ...$children
+}
+
+def wave-divider [] {
+  SVG {
+    class: [w-full mb-8]
+    viewBox: "0 0 1200 150"
+    preserveAspectRatio: "none"
+    xmlns: "http://www.w3.org/2000/svg"
+    style: "height: 100px; display: block;"
+  } (
+    PATH {
+      d: "M0,50 Q300,150 600,50 T1200,50 L1200,150 L0,150 Z"
+      fill: "var(--color-accent-green)"
+    }
+  ) (
+    PATH {
+      d: "M0,80 Q300,0 600,80 T1200,80 L1200,150 L0,150 Z"
+      fill: "var(--color-accent-orange)"
+    }
+  )
+}
+
+def install-section [] {
+  (
+    DIV {
+      class: [mt-8]
+      "data-signals:tab": "'brew'"
+    }
+    (DIV {class: [text-2xl mb-4 font-mono]} "Give it a try")
+    (
+      DIV {class: [flex items-center h-titlebar px-4 bg-purple rounded-t-lg overflow-hidden]}
+      (install-tab "brew" "Homebrew")
+      (install-tab "cargo" "Cargo")
+      (install-tab "eget" "eget")
+      (install-tab "nix" "Nix")
+    )
+    (
+      DIV {class: [flex items-center justify-between py-4 px-5 rounded-b-lg bg-dark]}
+      (DIV {}
+        (install-content "brew" "brew install cablehead/tap/http-nu")
+        (install-content "cargo" "cargo install http-nu")
+        (install-content "eget" "eget cablehead/http-nu")
+        (install-content "nix" "nix-shell -p http-nu")
+      )
+      (
+        BUTTON {
+          class: [bg-none border-none text-primary cursor-pointer text-lg p-1 transition-colors hover:text-white]
+          "data-signals:ic": "false"
+          "data-on:click": r#'
+            const c = {
+              brew: 'brew install cablehead/tap/http-nu',
+              cargo: 'cargo install http-nu',
+              eget: 'eget cablehead/http-nu',
+              nix: 'nix-shell -p http-nu'
+            };
+            navigator.clipboard.writeText(c[$tab]);
+            $ic = true;
+            setTimeout(() => $ic = false, 250)
+          '#
+        }
+        (SPAN {data-show: "!$ic"} (icon "mdi:content-copy"))
+        (SPAN {data-show: "$ic" style: "display:none"} (icon "mdi:check"))
+      )
+    )
+  )
+}
+
 {|req|
   dispatch $req [
     (
@@ -185,6 +268,8 @@ def hero [] {
             BODY {class: [p-2 md:p-8] data-init: "@get('/_sse')"}
             (header-bar)
             (taglines)
+            (wave-divider)
+            (install-section)
             (hero)
           )
         )

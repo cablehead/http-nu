@@ -34,7 +34,7 @@
 }
 
 html {
-  font: 1rem/1.6 sans-serif;
+  font: 1.125rem/1.6 sans-serif;
   background: radial-gradient(
     ellipse at center,
     var(--color-bg-body) 0%,
@@ -107,6 +107,9 @@ li {
 }
 .justify-end {
   justify-content: flex-end;
+}
+.justify-center {
+  justify-content: center;
 }
 .justify-between {
   justify-content: space-between;
@@ -214,6 +217,10 @@ li {
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
 }
+.py-4 {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
 .pt-12 {
   padding-top: 3rem;
 }
@@ -231,6 +238,9 @@ li {
 .my-2 {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
+}
+.mt-1 {
+  margin-top: 0.25rem;
 }
 .mt-2 {
   margin-top: 0.5rem;
@@ -255,6 +265,9 @@ li {
 }
 .mb-4 {
   margin-bottom: 1rem;
+}
+.mb-8 {
+  margin-bottom: 2rem;
 }
 .ml-2 {
   margin-left: 0.5rem;
@@ -405,6 +418,9 @@ li {
 .bg-none {
   background: none;
 }
+.bg-dark {
+  background: rgba(0, 0, 0, 0.25);
+}
 
 /* -- Borders & Rounded -- */
 .rounded {
@@ -412,6 +428,14 @@ li {
 }
 .rounded-lg {
   border-radius: 0.75rem;
+}
+.rounded-t-lg {
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+}
+.rounded-b-lg {
+  border-bottom-left-radius: 0.75rem;
+  border-bottom-right-radius: 0.75rem;
 }
 .rounded-full {
   border-radius: 50%;
@@ -421,6 +445,15 @@ li {
 } /* approved: follows Tailwind pattern */
 .border-none {
   border: none;
+}
+.border-b-2 {
+  border-bottom: 2px solid;
+}
+.border-transparent {
+  border-color: transparent;
+}
+.border-purple {
+  border-color: var(--color-accent-purple);
 }
 
 /* -- Transforms -- */
