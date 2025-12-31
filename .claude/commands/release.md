@@ -62,15 +62,44 @@ gh run list --limit 1
 gh run watch <run-id> --exit-status
 ```
 
-### 7. Cargo Publish (Optional)
+### 7. Homebrew Formula Update
 
-After CI completes and binaries are verified:
+- Clone `../homebrew-tap` if not present: `git clone https://github.com/cablehead/homebrew-tap.git`
+- Download macOS tarball and calculate SHA256:
+  ```bash
+  cd /tmp
+  curl -sL https://github.com/cablehead/http-nu/releases/download/v$ARGUMENTS/http-nu-darwin-arm64.tar.gz -o http-nu-v$ARGUMENTS-macos.tar.gz
+  sha256sum http-nu-v$ARGUMENTS-macos.tar.gz
+  ```
+- Update `../homebrew-tap/Formula/http-nu.rb` with new version, URL, and SHA256 checksum
+- Commit and push homebrew formula changes
+
+### 8. Manual Verification Required
+
+**⚠️ CRITICAL: macOS Verification BEFORE Publishing to Crates.io**
+
+After homebrew formula is updated, **PAUSE** and ask a macOS user to test:
+
+```bash
+brew uninstall http-nu  # if previously installed
+brew install cablehead/tap/http-nu
+http-nu --version  # should show v$ARGUMENTS
+```
+
+**STOP HERE if verification fails.** Publishing to crates.io is irreversible.
+
+### 9. Cargo Publish
+
+**Only proceed after macOS verification passes.**
 
 ```bash
 cargo publish
 ```
 
+**Warning**: This step cannot be undone - you cannot unpublish from crates.io
+
 ## Release Complete
 
 - GitHub release: https://github.com/cablehead/http-nu/releases/tag/v$ARGUMENTS
+- Homebrew: `brew install cablehead/tap/http-nu`
 - Crates.io: `cargo install http-nu`

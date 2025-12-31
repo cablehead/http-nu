@@ -56,6 +56,12 @@ server that fits in your back pocket.
 eget cablehead/http-nu
 ```
 
+### Homebrew (macOS)
+
+```bash
+brew install cablehead/tap/http-nu
+```
+
 ### cargo
 
 ```bash
