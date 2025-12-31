@@ -130,12 +130,55 @@ export def WBR [attrs?: record]: nothing -> record { render-void-tag wbr $attrs 
 export def IMG [attrs?: record]: nothing -> record { render-void-tag img $attrs }
 export def IFRAME [...args: any]: nothing -> record { render-tag iframe ...$args }
 export def EMBED [attrs?: record]: nothing -> record { render-void-tag embed $attrs }
+export def OBJECT [...args: any]: nothing -> record { render-tag object ...$args }
 export def VIDEO [...args: any]: nothing -> record { render-tag video ...$args }
 export def AUDIO [...args: any]: nothing -> record { render-tag audio ...$args }
 export def SOURCE [attrs?: record]: nothing -> record { render-void-tag source $attrs }
 export def TRACK [attrs?: record]: nothing -> record { render-void-tag track $attrs }
 export def CANVAS [...args: any]: nothing -> record { render-tag canvas ...$args }
+
+# SVG container
 export def SVG [...args: any]: nothing -> record { render-tag svg ...$args }
+
+# SVG container/structural elements
+export def G [...args: any]: nothing -> record { render-tag g ...$args }
+export def DEFS [...args: any]: nothing -> record { render-tag defs ...$args }
+export def SYMBOL [...args: any]: nothing -> record { render-tag symbol ...$args }
+export def USE [...args: any]: nothing -> record { render-tag use ...$args }
+
+# SVG basic shapes
+export def CIRCLE [...args: any]: nothing -> record { render-tag circle ...$args }
+export def ELLIPSE [...args: any]: nothing -> record { render-tag ellipse ...$args }
+export def LINE [...args: any]: nothing -> record { render-tag line ...$args }
+export def PATH [...args: any]: nothing -> record { render-tag path ...$args }
+export def POLYGON [...args: any]: nothing -> record { render-tag polygon ...$args }
+export def POLYLINE [...args: any]: nothing -> record { render-tag polyline ...$args }
+export def RECT [...args: any]: nothing -> record { render-tag rect ...$args }
+
+# SVG text
+export def TEXT [...args: any]: nothing -> record { render-tag text ...$args }
+export def TEXTPATH [...args: any]: nothing -> record { render-tag textPath ...$args }
+export def TSPAN [...args: any]: nothing -> record { render-tag tspan ...$args }
+
+# SVG gradients and patterns
+export def LINEARGRADIENT [...args: any]: nothing -> record { render-tag linearGradient ...$args }
+export def RADIALGRADIENT [...args: any]: nothing -> record { render-tag radialGradient ...$args }
+export def STOP [...args: any]: nothing -> record { render-tag stop ...$args }
+export def PATTERN [...args: any]: nothing -> record { render-tag pattern ...$args }
+
+# SVG clipping and masking
+export def CLIPPATH [...args: any]: nothing -> record { render-tag clipPath ...$args }
+export def MASK [...args: any]: nothing -> record { render-tag mask ...$args }
+
+# SVG other
+export def FOREIGNOBJECT [...args: any]: nothing -> record { render-tag foreignObject ...$args }
+export def IMAGE [...args: any]: nothing -> record { render-tag image ...$args }
+export def MARKER [...args: any]: nothing -> record { render-tag marker ...$args }
+export def DESC [...args: any]: nothing -> record { render-tag desc ...$args }
+export def SVGTITLE [...args: any]: nothing -> record { render-tag title ...$args }
+
+# MathML
+export def MATH [...args: any]: nothing -> record { render-tag math ...$args }
 
 # Tables
 export def TABLE [...args: any]: nothing -> record { render-tag table ...$args }
