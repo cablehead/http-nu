@@ -3,7 +3,7 @@
 The surprisingly performant, [Nushell](https://www.nushell.sh)-scriptable HTTP
 server that fits in your back pocket.
 
-<img width="456" alt="image" src="https://github.com/user-attachments/assets/5a208b01-ed6d-4f17-a3e9-b070cbdea163" />
+<img width="600"  alt="ellie" src="https://github.com/user-attachments/assets/95e70206-4db9-465a-947a-82b3ca5f4656" />
 
 ---
 
