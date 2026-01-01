@@ -55,9 +55,6 @@ pub enum Event {
     // Access events
     Request {
         request_id: scru128::Scru128Id,
-        method: String,
-        path: String,
-        trusted_ip: Option<String>,
         request: Box<RequestData>,
     },
     Response {
@@ -111,13 +108,9 @@ fn emit(event: Event) {
 // --- Public emit functions ---
 
 pub fn log_request(request_id: scru128::Scru128Id, request: &Request) {
-    let data = RequestData::from(request);
     emit(Event::Request {
         request_id,
-        method: data.method.clone(),
-        path: data.path.clone(),
-        trusted_ip: data.trusted_ip.clone(),
-        request: Box::new(data),
+        request: Box::new(RequestData::from(request)),
     });
 }
 
@@ -218,18 +211,15 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
             let json = match event {
                 Event::Request {
                     request_id,
-                    method,
-                    path,
-                    trusted_ip,
                     request,
                 } => {
                     serde_json::json!({
                         "stamp": stamp,
                         "message": "request",
                         "request_id": request_id.to_string(),
-                        "method": method,
-                        "path": path,
-                        "trusted_ip": trusted_ip,
+                        "method": &request.method,
+                        "path": &request.path,
+                        "trusted_ip": &request.trusted_ip,
                         "request": request,
                     })
                 }
@@ -414,10 +404,7 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
                 }
                 Event::Request {
                     request_id,
-                    method,
-                    path,
-                    trusted_ip,
-                    ..
+                    request,
                 } => {
                     let now = std::time::Instant::now();
                     if now.duration_since(last_shown) < min_interval {
@@ -437,9 +424,9 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
 
                     let state = RequestState {
                         pb: pb.clone(),
-                        method,
-                        path,
-                        trusted_ip,
+                        method: request.method.clone(),
+                        path: request.path.clone(),
+                        trusted_ip: request.trusted_ip.clone(),
                         status: None,
                         latency_ms: None,
                     };
