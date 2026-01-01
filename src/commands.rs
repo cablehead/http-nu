@@ -410,6 +410,8 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
     let span = val.span();
     let rec = match val {
         Value::Record { val, .. } => val,
+        // Propagate the original error instead of creating a new "expected record" error
+        Value::Error { error, .. } => return Err(*error),
         other => {
             return Err(ShellError::TypeMismatch {
                 err_message: format!("expected record, got {}", other.get_type()),

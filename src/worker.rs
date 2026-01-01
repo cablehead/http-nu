@@ -1,9 +1,10 @@
 use crate::commands::RESPONSE_TX;
+use crate::logging::log_error;
 use crate::request::{request_to_value, Request};
 use crate::response::{value_to_bytes, Response, ResponseBodyType, ResponseTransport};
 use nu_protocol::{
-    engine::{Job, ThreadJob},
-    PipelineData, Value,
+    engine::{Job, StateWorkingSet, ThreadJob},
+    format_cli_error, PipelineData, Value,
 };
 use std::io::Read;
 use std::sync::{mpsc, Arc};
@@ -65,6 +66,10 @@ pub fn spawn_eval_thread(
                 let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
                 Ok(())
             }
+            PipelineData::Value(Value::Error { error, .. }, _) => {
+                let working_set = StateWorkingSet::new(&engine.state);
+                Err(format_cli_error(&working_set, error.as_ref(), None).into())
+            }
             PipelineData::Value(value, _) => {
                 let _ = body_tx.send((
                     inferred_content_type,
@@ -76,6 +81,12 @@ pub fn spawn_eval_thread(
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
                 let _ = body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
                 for value in stream.into_inner() {
+                    // Check for errors in the stream and log them properly
+                    if let Value::Error { error, .. } = &value {
+                        let working_set = StateWorkingSet::new(&engine.state);
+                        log_error(&format_cli_error(&working_set, error.as_ref(), None));
+                        break;
+                    }
                     if stream_tx.blocking_send(value_to_bytes(value)).is_err() {
                         break;
                     }
@@ -100,7 +111,19 @@ pub fn spawn_eval_thread(
                                 break;
                             }
                         }
-                        Err(err) => return Err(err.into()),
+                        Err(err) => {
+                            // Try to extract ShellError from the io::Error for proper formatting
+                            use nu_protocol::shell_error::bridge::ShellErrorBridge;
+                            if let Some(bridge) = err
+                                .get_ref()
+                                .and_then(|e| e.downcast_ref::<ShellErrorBridge>())
+                            {
+                                let working_set = StateWorkingSet::new(&engine.state);
+                                log_error(&format_cli_error(&working_set, &bridge.0, None));
+                                break; // Error already logged, just stop streaming
+                            }
+                            return Err(err.into());
+                        }
                     }
                 }
                 Ok(())
@@ -148,7 +171,7 @@ pub fn spawn_eval_thread(
         };
 
         if let Some(err) = err_msg {
-            eprintln!("Error in eval thread: {err}");
+            log_error(&err);
             if let (Some(meta_tx), Some(body_tx)) = (meta_tx_opt.take(), body_tx_opt.take()) {
                 let _ = meta_tx.send(Response {
                     status: 500,
