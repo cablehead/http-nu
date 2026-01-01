@@ -1,9 +1,34 @@
-# http-nu [![Cross-platform CI](https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg)](https://github.com/cablehead/http-nu/actions/workflows/ci.yml) [![Discord](https://img.shields.io/discord/1182364431435436042?logo=discord)](https://discord.gg/sGgYVKnk73)
+<!-- LOGO -->
+<h1>
+<p align="center">
+  <a href="https://http-nu.cross.stream">
+    <img alt="http-nu" src="./www/assets/og.png" />
+  </a>
+  <br><br>
+  http-nu
+</h1>
+  <p align="center">
+    The surprisingly performant, <a href="https://www.nushell.sh">Nushell</a>-scriptable HTTP server that fits in your back pocket.
+    <br />
+    <a href="#install">Install</a>
+    ·
+    <a href="#reference">Reference</a>
+    ·
+    <a href="https://discord.com/invite/YNbScHBHrh">Discord</a>
+  </p>
+</p>
 
-The surprisingly performant, [Nushell](https://www.nushell.sh)-scriptable HTTP
-server that fits in your back pocket.
-
-<img width="600"  alt="ellie" src="https://github.com/user-attachments/assets/95e70206-4db9-465a-947a-82b3ca5f4656" />
+<p align="center">
+  <a href="https://github.com/cablehead/http-nu/actions/workflows/ci.yml">
+    <img src="https://github.com/cablehead/http-nu/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://discord.com/invite/YNbScHBHrh">
+    <img src="https://img.shields.io/discord/1182364431435436042?logo=discord" alt="Discord">
+  </a>
+  <a href="https://crates.io/crates/http-nu">
+    <img src="https://img.shields.io/crates/v/http-nu.svg" alt="Crates">
+  </a>
+</p>
 
 ---
 
@@ -11,8 +36,9 @@ server that fits in your back pocket.
 
 - [Install](#install)
   - [eget](#eget)
+  - [Homebrew](#homebrew-macos)
   - [cargo](#cargo)
-  - [NixOS](#nixos)
+  - [Nix](#nix)
 - [Reference](#reference)
   - [GET: Hello world](#get-hello-world)
   - [UNIX domain sockets](#unix-domain-sockets)
@@ -68,7 +94,11 @@ brew install cablehead/tap/http-nu
 cargo install http-nu --locked
 ```
 
-### NixOS
+### Nix
+
+```bash
+nix-shell -p http-nu
+```
 
 http-nu is available in [nixpkgs](https://github.com/NixOS/nixpkgs). For
 packaging and maintenance documentation, see
