@@ -50,12 +50,7 @@ rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
 rustls-pemfile = "2.1.0"
 tokio-rustls = "0.26.0"
 scru128 = { version = "3", features = ["serde"] }
-log = "0.4"
 miette = "7"
-tracing = { version = "0.1.41", features = ["valuable"] }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json", "valuable"] }
-valuable = { version = "0.1", features = ["derive"] }
-valuable-serde = "0.1"
 indicatif = "0.17"
 chrono = "0.4"
 ipnet = "2"

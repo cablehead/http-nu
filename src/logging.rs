@@ -1,41 +1,39 @@
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Instant;
 
 use chrono::Local;
 use hyper::body::{Body, Bytes, Frame, SizeHint};
+use hyper::header::HeaderMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use tracing::field::{Field, Visit};
-use tracing::span::Attributes;
-use tracing::{Event, Id, Subscriber};
-use tracing_subscriber::layer::Context as LayerContext;
-use tracing_subscriber::Layer;
-use valuable::Valuable;
+use serde::Serialize;
+
+use crate::request::Request;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-// --- Valuable structs for structured logging ---
+// --- Event enum: zero-copy where possible ---
 
-#[derive(Valuable)]
-struct RequestLog {
-    proto: String,
-    method: String,
-    remote_ip: Option<String>,
-    remote_port: Option<u16>,
-    trusted_ip: Option<String>,
-    headers: HashMap<String, String>,
-    uri: String,
-    path: String,
-    query: HashMap<String, String>,
+#[derive(Serialize)]
+pub struct RequestData<'a> {
+    pub proto: &'a str,
+    pub method: &'a str,
+    pub remote_ip: Option<String>,
+    pub remote_port: Option<u16>,
+    pub trusted_ip: Option<String>,
+    pub headers: HashMap<String, String>,
+    pub uri: String,
+    pub path: &'a str,
+    pub query: &'a HashMap<String, String>,
 }
 
-impl From<&crate::request::Request> for RequestLog {
-    fn from(req: &crate::request::Request) -> Self {
+impl<'a> From<&'a Request> for RequestData<'a> {
+    fn from(req: &'a Request) -> Self {
         Self {
-            proto: req.proto.clone(),
-            method: req.method.to_string(),
+            proto: &req.proto,
+            method: req.method.as_str(),
             remote_ip: req.remote_ip.map(|ip| ip.to_string()),
             remote_port: req.remote_port,
             trusted_ip: req.trusted_ip.map(|ip| ip.to_string()),
@@ -45,31 +43,85 @@ impl From<&crate::request::Request> for RequestLog {
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect(),
             uri: req.uri.to_string(),
-            path: req.path.clone(),
-            query: req.query.clone(),
+            path: &req.path,
+            query: &req.query,
         }
     }
 }
 
-// --- Tracing events ---
+pub enum Event<'a> {
+    // Access events
+    Request {
+        request_id: scru128::Scru128Id,
+        method: &'a str,
+        path: &'a str,
+        trusted_ip: Option<String>,
+        request: RequestData<'a>,
+    },
+    Response {
+        request_id: scru128::Scru128Id,
+        status: u16,
+        headers: HashMap<String, String>,
+        latency_ms: u64,
+    },
+    Complete {
+        request_id: scru128::Scru128Id,
+        bytes: u64,
+        duration_ms: u64,
+    },
 
-pub fn log_request(request_id: scru128::Scru128Id, request: &crate::request::Request) {
-    let request_log = RequestLog::from(request);
-    tracing::info!(
-        target: "http_nu::access",
-        message = "request",
-        request_id = %request_id,
-        method = %request.method,
-        path = %request.path,
-        trusted_ip = ?request.trusted_ip,
-        request = request_log.as_value(),
-    );
+    // Lifecycle events
+    Started {
+        address: &'a str,
+        startup_ms: u64,
+    },
+    Reloaded,
+    Error {
+        error: &'a str,
+    },
+    Stopping {
+        inflight: usize,
+    },
+    Stopped,
+    StopTimedOut,
+}
+
+// --- Handler trait ---
+
+pub trait Handler: Send + Sync {
+    fn handle(&self, event: Event<'_>);
+}
+
+// --- Global handler ---
+
+static HANDLER: OnceLock<Box<dyn Handler>> = OnceLock::new();
+
+pub fn set_handler(handler: impl Handler + 'static) {
+    let _ = HANDLER.set(Box::new(handler));
+}
+
+fn emit(event: Event<'_>) {
+    if let Some(handler) = HANDLER.get() {
+        handler.handle(event);
+    }
+}
+
+// --- Public emit functions ---
+
+pub fn log_request(request_id: scru128::Scru128Id, request: &Request) {
+    emit(Event::Request {
+        request_id,
+        method: request.method.as_str(),
+        path: &request.path,
+        trusted_ip: request.trusted_ip.map(|ip| ip.to_string()),
+        request: RequestData::from(request),
+    });
 }
 
 pub fn log_response(
     request_id: scru128::Scru128Id,
     status: u16,
-    headers: &hyper::header::HeaderMap,
+    headers: &HeaderMap,
     start_time: Instant,
 ) {
     let headers_map: HashMap<String, String> = headers
@@ -77,169 +129,153 @@ pub fn log_response(
         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
         .collect();
 
-    tracing::info!(
-        target: "http_nu::access",
-        message = "response",
-        request_id = %request_id,
-        status = status,
-        headers = headers_map.as_value(),
-        latency_ms = start_time.elapsed().as_millis() as u64,
-    );
+    emit(Event::Response {
+        request_id,
+        status,
+        headers: headers_map,
+        latency_ms: start_time.elapsed().as_millis() as u64,
+    });
 }
 
 pub fn log_complete(request_id: scru128::Scru128Id, bytes: u64, response_time: Instant) {
-    tracing::info!(
-        target: "http_nu::access",
-        message = "complete",
-        request_id = %request_id,
-        bytes = bytes,
-        duration_ms = response_time.elapsed().as_millis() as u64,
-    );
+    emit(Event::Complete {
+        request_id,
+        bytes,
+        duration_ms: response_time.elapsed().as_millis() as u64,
+    });
 }
 
 pub fn log_started(address: &str, startup_ms: u128) {
-    tracing::info!(
-        target: "http_nu::lifecycle",
-        message = "started",
-        address = address,
-        startup_ms = startup_ms as u64,
-    );
+    emit(Event::Started {
+        address,
+        startup_ms: startup_ms as u64,
+    });
 }
 
 pub fn log_reloaded() {
-    tracing::info!(
-        target: "http_nu::lifecycle",
-        message = "reloaded",
-    );
+    emit(Event::Reloaded);
 }
 
 pub fn log_error(error: &str) {
-    tracing::info!(
-        target: "http_nu::lifecycle",
-        message = "ERROR",
-        error = error,
-    );
+    emit(Event::Error { error });
 }
 
 pub fn log_stopping(inflight: usize) {
-    tracing::info!(
-        target: "http_nu::lifecycle",
-        message = "stopping",
-        inflight = inflight as u64,
-    );
+    emit(Event::Stopping { inflight });
 }
 
 pub fn log_stopped() {
-    tracing::info!(
-        target: "http_nu::lifecycle",
-        message = "stopped",
-    );
+    emit(Event::Stopped);
 }
 
 pub fn log_stop_timed_out() {
-    tracing::info!(
-        target: "http_nu::lifecycle",
-        message = "stop_timed_out",
-    );
+    emit(Event::StopTimedOut);
 }
 
-// --- JSONL layer with scru128 stamps ---
+// --- JSONL handler ---
 
-pub struct JsonlLayer;
+pub struct JsonlHandler;
 
-impl JsonlLayer {
-    pub fn new() -> Self {
-        Self
+impl Handler for JsonlHandler {
+    fn handle(&self, event: Event<'_>) {
+        let stamp = scru128::new().to_string();
+
+        let json = match event {
+            Event::Request {
+                request_id,
+                method,
+                path,
+                trusted_ip,
+                request,
+            } => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "request",
+                    "request_id": request_id.to_string(),
+                    "method": method,
+                    "path": path,
+                    "trusted_ip": trusted_ip,
+                    "request": request,
+                })
+            }
+            Event::Response {
+                request_id,
+                status,
+                headers,
+                latency_ms,
+            } => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "response",
+                    "request_id": request_id.to_string(),
+                    "status": status,
+                    "headers": headers,
+                    "latency_ms": latency_ms,
+                })
+            }
+            Event::Complete {
+                request_id,
+                bytes,
+                duration_ms,
+            } => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "complete",
+                    "request_id": request_id.to_string(),
+                    "bytes": bytes,
+                    "duration_ms": duration_ms,
+                })
+            }
+            Event::Started {
+                address,
+                startup_ms,
+            } => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "started",
+                    "address": address,
+                    "startup_ms": startup_ms,
+                })
+            }
+            Event::Reloaded => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "reloaded",
+                })
+            }
+            Event::Error { error } => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "error",
+                    "error": error,
+                })
+            }
+            Event::Stopping { inflight } => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "stopping",
+                    "inflight": inflight,
+                })
+            }
+            Event::Stopped => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "stopped",
+                })
+            }
+            Event::StopTimedOut => {
+                serde_json::json!({
+                    "stamp": stamp,
+                    "message": "stop_timed_out",
+                })
+            }
+        };
+
+        println!("{}", serde_json::to_string(&json).unwrap_or_default());
     }
 }
 
-impl Default for JsonlLayer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<S: Subscriber> Layer<S> for JsonlLayer {
-    fn on_event(&self, event: &Event<'_>, _ctx: LayerContext<'_, S>) {
-        let target = event.metadata().target();
-        if target != "http_nu::access" && target != "http_nu::lifecycle" {
-            return;
-        }
-
-        let mut visitor = JsonVisitor::new();
-        event.record(&mut visitor);
-
-        visitor.map.insert(
-            "stamp".to_string(),
-            serde_json::Value::String(scru128::new().to_string()),
-        );
-
-        if let Ok(json) = serde_json::to_string(&visitor.map) {
-            println!("{json}");
-        }
-    }
-}
-
-struct JsonVisitor {
-    map: serde_json::Map<String, serde_json::Value>,
-}
-
-impl JsonVisitor {
-    fn new() -> Self {
-        Self {
-            map: serde_json::Map::new(),
-        }
-    }
-}
-
-fn valuable_to_json(value: &valuable::Value<'_>) -> serde_json::Value {
-    use serde::Serialize;
-    valuable_serde::Serializable::new(value)
-        .serialize(serde_json::value::Serializer)
-        .unwrap_or(serde_json::Value::Null)
-}
-
-impl Visit for JsonVisitor {
-    fn record_value(&mut self, field: &Field, value: valuable::Value<'_>) {
-        self.map
-            .insert(field.name().to_string(), valuable_to_json(&value));
-    }
-
-    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        let name = field.name();
-        let s = format!("{value:?}");
-
-        if s == "None" {
-            self.map.insert(name.to_string(), serde_json::Value::Null);
-        } else if let Some(inner) = s.strip_prefix("Some(").and_then(|s| s.strip_suffix(')')) {
-            self.map.insert(
-                name.to_string(),
-                serde_json::Value::String(inner.trim_matches('"').to_string()),
-            );
-        } else {
-            self.map.insert(
-                name.to_string(),
-                serde_json::Value::String(s.trim_matches('"').to_string()),
-            );
-        }
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.map.insert(
-            field.name().to_string(),
-            serde_json::Value::Number(value.into()),
-        );
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.map.insert(
-            field.name().to_string(),
-            serde_json::Value::String(value.to_string()),
-        );
-    }
-}
-
-// --- Human-readable layer using indicatif ---
+// --- Human-readable handler using indicatif ---
 
 struct RequestState {
     pb: ProgressBar,
@@ -250,16 +286,16 @@ struct RequestState {
     latency_ms: Option<u64>,
 }
 
-pub struct HumanLayer {
+pub struct HumanHandler {
     mp: MultiProgress,
-    requests: Arc<Mutex<HashMap<String, RequestState>>>,
+    requests: Mutex<HashMap<String, RequestState>>,
 }
 
-impl HumanLayer {
+impl HumanHandler {
     pub fn new() -> Self {
         Self {
             mp: MultiProgress::new(),
-            requests: Arc::new(Mutex::new(HashMap::new())),
+            requests: Mutex::new(HashMap::new()),
         }
     }
 
@@ -296,220 +332,95 @@ impl HumanLayer {
     }
 }
 
-impl Default for HumanLayer {
+impl Default for HumanHandler {
     fn default() -> Self {
         Self::new()
     }
 }
 
-// Visitor to extract fields from tracing events
-struct FieldVisitor {
-    request_id: Option<String>,
-    message: Option<String>,
-    method: Option<String>,
-    path: Option<String>,
-    trusted_ip: Option<String>,
-    status: Option<u16>,
-    bytes: Option<u64>,
-    latency_ms: Option<u64>,
-    duration_ms: Option<u64>,
-}
-
-impl FieldVisitor {
-    fn new() -> Self {
-        Self {
-            request_id: None,
-            message: None,
-            method: None,
-            path: None,
-            trusted_ip: None,
-            status: None,
-            bytes: None,
-            latency_ms: None,
-            duration_ms: None,
-        }
-    }
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        match field.name() {
-            "request_id" => self.request_id = Some(format!("{value:?}")),
-            "message" => self.message = Some(format!("{value:?}").trim_matches('"').to_string()),
-            "method" => self.method = Some(format!("{value:?}").trim_matches('"').to_string()),
-            "path" => self.path = Some(format!("{value:?}").trim_matches('"').to_string()),
-            "trusted_ip" => {
-                let s = format!("{value:?}");
-                // Parse "Some(1.2.3.4)" or "None"
-                if s.starts_with("Some(") {
-                    self.trusted_ip = Some(s[5..s.len() - 1].to_string());
-                }
+impl Handler for HumanHandler {
+    fn handle(&self, event: Event<'_>) {
+        match event {
+            Event::Started {
+                address,
+                startup_ms,
+            } => {
+                let version = env!("CARGO_PKG_VERSION");
+                let pid = std::process::id();
+                let now = Local::now().to_rfc2822();
+                println!("<http-nu version=\"{version}\">");
+                println!("     __  ,");
+                println!(" .--()°'.'  pid {pid} · {address} · {startup_ms}ms 💜");
+                println!("'|, . ,'    {now}");
+                println!(" !_-(_\\");
             }
-            _ => {}
-        }
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        match field.name() {
-            "status" => self.status = Some(value as u16),
-            "bytes" => self.bytes = Some(value),
-            "latency_ms" => self.latency_ms = Some(value),
-            "duration_ms" => self.duration_ms = Some(value),
-            _ => {}
-        }
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        match field.name() {
-            "request_id" => self.request_id = Some(value.to_string()),
-            "message" => self.message = Some(value.to_string()),
-            "method" => self.method = Some(value.to_string()),
-            "path" => self.path = Some(value.to_string()),
-            "trusted_ip" => self.trusted_ip = Some(value.to_string()),
-            _ => {}
-        }
-    }
-}
-
-// Visitor for lifecycle events
-struct LifecycleVisitor {
-    message: Option<String>,
-    address: Option<String>,
-    startup_ms: Option<u64>,
-    inflight: Option<u64>,
-    error: Option<String>,
-}
-
-impl LifecycleVisitor {
-    fn new() -> Self {
-        Self {
-            message: None,
-            address: None,
-            startup_ms: None,
-            inflight: None,
-            error: None,
-        }
-    }
-}
-
-impl Visit for LifecycleVisitor {
-    fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {}
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        match field.name() {
-            "startup_ms" => self.startup_ms = Some(value),
-            "inflight" => self.inflight = Some(value),
-            _ => {}
-        }
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        match field.name() {
-            "message" => self.message = Some(value.to_string()),
-            "address" => self.address = Some(value.to_string()),
-            "error" => self.error = Some(value.to_string()),
-            _ => {}
-        }
-    }
-}
-
-impl<S: Subscriber> Layer<S> for HumanLayer {
-    fn on_event(&self, event: &Event<'_>, _ctx: LayerContext<'_, S>) {
-        let target = event.metadata().target();
-
-        if target == "http_nu::lifecycle" {
-            let mut visitor = LifecycleVisitor::new();
-            event.record(&mut visitor);
-
-            match visitor.message.as_deref() {
-                Some("started") => {
-                    let version = env!("CARGO_PKG_VERSION");
-                    let pid = std::process::id();
-                    let addr = visitor.address.unwrap_or_default();
-                    let startup_ms = visitor.startup_ms.unwrap_or(0);
-                    let now = Local::now().to_rfc2822();
-                    println!("<http-nu version=\"{version}\">");
-                    println!("     __  ,");
-                    println!(" .--()°'.'  pid {pid} · {addr} · {startup_ms}ms 💜");
-                    println!("'|, . ,'    {now}");
-                    println!(" !_-(_\\");
-                }
-                Some("reloaded") => {
-                    println!("reloaded 🔄");
-                }
-                Some("ERROR") => {
-                    if let Some(err) = visitor.error {
-                        eprintln!("{err}");
-                    }
-                }
-                Some("stopping") => {
-                    let inflight = visitor.inflight.unwrap_or(0);
-                    println!("stopping, {inflight} connection(s) in flight...");
-                }
-                Some("stopped") => {
-                    println!("cu l8r </http-nu>");
-                }
-                Some("stop_timed_out") => {
-                    println!("stop timed out, forcing exit");
-                }
-                _ => {}
+            Event::Reloaded => {
+                println!("reloaded 🔄");
             }
-            return;
-        }
-
-        if target != "http_nu::access" {
-            return;
-        }
-
-        let mut visitor = FieldVisitor::new();
-        event.record(&mut visitor);
-
-        let Some(request_id) = visitor.request_id else {
-            return;
-        };
-
-        let mut requests = self.requests.lock().unwrap();
-
-        match visitor.message.as_deref() {
-            Some("request") => {
-                let method = visitor.method.unwrap_or_default();
-                let path = visitor.path.unwrap_or_default();
+            Event::Error { error } => {
+                eprintln!("{error}");
+            }
+            Event::Stopping { inflight } => {
+                println!("stopping, {inflight} connection(s) in flight...");
+            }
+            Event::Stopped => {
+                println!("cu l8r </http-nu>");
+            }
+            Event::StopTimedOut => {
+                println!("stop timed out, forcing exit");
+            }
+            Event::Request {
+                request_id,
+                method,
+                path,
+                trusted_ip,
+                ..
+            } => {
+                let mut requests = self.requests.lock().unwrap();
 
                 let pb = self.mp.add(ProgressBar::new_spinner());
                 pb.set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
 
                 let state = RequestState {
                     pb: pb.clone(),
-                    method,
-                    path,
-                    trusted_ip: visitor.trusted_ip,
+                    method: method.to_string(),
+                    path: path.to_string(),
+                    trusted_ip,
                     status: None,
                     latency_ms: None,
                 };
                 pb.set_message(Self::format_line(&state, None, None));
-                requests.insert(request_id, state);
+                requests.insert(request_id.to_string(), state);
             }
-            Some("response") => {
-                if let Some(state) = requests.get_mut(&request_id) {
-                    state.status = visitor.status;
-                    state.latency_ms = visitor.latency_ms;
+            Event::Response {
+                request_id,
+                status,
+                latency_ms,
+                ..
+            } => {
+                let mut requests = self.requests.lock().unwrap();
+                if let Some(state) = requests.get_mut(&request_id.to_string()) {
+                    state.status = Some(status);
+                    state.latency_ms = Some(latency_ms);
                     state.pb.set_message(Self::format_line(state, None, None));
                 }
             }
-            Some("complete") => {
-                if let Some(state) = requests.remove(&request_id) {
+            Event::Complete {
+                request_id,
+                bytes,
+                duration_ms,
+            } => {
+                let mut requests = self.requests.lock().unwrap();
+                if let Some(state) = requests.remove(&request_id.to_string()) {
                     state.pb.finish_with_message(Self::format_line(
                         &state,
-                        visitor.duration_ms,
-                        visitor.bytes,
+                        Some(duration_ms),
+                        Some(bytes),
                     ));
                 }
             }
-            _ => {}
         }
     }
-
-    fn on_new_span(&self, _attrs: &Attributes<'_>, _id: &Id, _ctx: LayerContext<'_, S>) {}
 }
 
 // --- LoggingBody wrapper ---

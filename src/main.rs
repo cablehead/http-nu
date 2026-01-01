@@ -8,24 +8,22 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use clap::Parser;
+use http_nu::{
+    engine::script_to_engine,
+    handler::handle,
+    listener::TlsConfig,
+    logging::{
+        log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping, set_handler,
+        HumanHandler, JsonlHandler,
+    },
+    Engine, Listener,
+};
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as HttpConnectionBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
 use tokio::signal;
 use tokio::sync::mpsc;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-use http_nu::{
-    engine::script_to_engine,
-    handler::handle,
-    listener::TlsConfig,
-    logging::{
-        log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping, HumanLayer,
-        JsonlLayer,
-    },
-    Engine, Listener,
-};
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -344,23 +342,10 @@ fn setup_ctrlc_handler(
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
-    // Set up tracing based on log format
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "http_nu=info".into());
-
+    // Set up logging handler based on log format
     match args.log_format {
-        LogFormat::Human => {
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(HumanLayer::new())
-                .init();
-        }
-        LogFormat::Jsonl => {
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(JsonlLayer::new())
-                .init();
-        }
+        LogFormat::Human => set_handler(HumanHandler::new()),
+        LogFormat::Jsonl => set_handler(JsonlHandler),
     }
 
     rustls::crypto::aws_lc_rs::default_provider()
