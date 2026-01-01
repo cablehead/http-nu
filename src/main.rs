@@ -232,9 +232,11 @@ async fn serve(
 
                         tokio::task::spawn(async move {
                             if let Err(err) = conn.await {
-                                // Suppress incomplete message errors - normal for SSE when client disconnects
+                                // Suppress errors normal for client disconnect
                                 if let Some(hyper_err) = err.downcast_ref::<hyper::Error>() {
-                                    if hyper_err.is_incomplete_message() {
+                                    if hyper_err.is_incomplete_message()
+                                        || hyper_err.is_body_write_aborted()
+                                    {
                                         return;
                                     }
                                 }

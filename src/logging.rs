@@ -1,19 +1,53 @@
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::pin::Pin;
 use std::sync::OnceLock;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
 use chrono::Local;
+use crossterm::{cursor, execute, terminal};
 use hyper::body::{Body, Bytes, Frame, SizeHint};
 use hyper::header::HeaderMap;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::request::Request;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+// --- Token bucket rate limiter ---
+
+struct TokenBucket {
+    tokens: f64,
+    capacity: f64,
+    refill_rate: f64,
+    last_refill: Instant,
+}
+
+impl TokenBucket {
+    fn new(capacity: f64, refill_rate: f64, now: Instant) -> Self {
+        Self {
+            tokens: capacity,
+            capacity,
+            refill_rate,
+            last_refill: now,
+        }
+    }
+
+    fn try_consume(&mut self, now: Instant) -> bool {
+        let elapsed = now.duration_since(self.last_refill).as_secs_f64();
+        self.tokens = (self.tokens + elapsed * self.refill_rate).min(self.capacity);
+        self.last_refill = now;
+
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 // --- Event enum: owned data for async broadcast ---
 
@@ -313,10 +347,10 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
 // --- Human-readable handler (dedicated thread) ---
 
 struct RequestState {
-    pb: ProgressBar,
     method: String,
     path: String,
     trusted_ip: Option<String>,
+    start_time: Instant,
     status: Option<u16>,
     latency_ms: Option<u64>,
 }
@@ -329,46 +363,111 @@ fn truncate_middle(s: &str, max_len: usize) -> String {
     format!("{}...{}", &s[..keep], &s[s.len() - keep..])
 }
 
-fn format_line(state: &RequestState, duration_ms: Option<u64>, bytes: Option<u64>) -> String {
+struct ActiveZone {
+    stdout: io::Stdout,
+    line_count: usize,
+}
+
+impl ActiveZone {
+    fn new() -> Self {
+        Self {
+            stdout: io::stdout(),
+            line_count: 0,
+        }
+    }
+
+    /// Clear the active zone and move cursor back to start
+    fn clear(&mut self) {
+        if self.line_count > 0 {
+            let _ = execute!(
+                self.stdout,
+                cursor::MoveUp(self.line_count as u16),
+                terminal::Clear(terminal::ClearType::FromCursorDown)
+            );
+            self.line_count = 0;
+        }
+    }
+
+    /// Print a permanent line (scrolls up, not part of active zone)
+    fn print_permanent(&mut self, line: &str) {
+        self.clear();
+        println!("{line}");
+        let _ = self.stdout.flush();
+    }
+
+    /// Redraw all active requests
+    fn redraw(&mut self, active_ids: &[String], requests: &HashMap<String, RequestState>) {
+        self.line_count = 0;
+        if !active_ids.is_empty() {
+            println!("· · ·  ✈ in flight  · · ·");
+            self.line_count += 1;
+            for id in active_ids {
+                if let Some(state) = requests.get(id) {
+                    let line = format_active_line(state);
+                    println!("{line}");
+                    self.line_count += 1;
+                }
+            }
+        }
+        let _ = self.stdout.flush();
+    }
+}
+
+fn format_active_line(state: &RequestState) -> String {
     let timestamp = Local::now().format("%H:%M:%S%.3f");
     let ip = state.trusted_ip.as_deref().unwrap_or("-");
     let method = &state.method;
     let path = truncate_middle(&state.path, 40);
+    let elapsed = state.start_time.elapsed().as_secs_f64();
 
-    match (state.status, state.latency_ms, duration_ms, bytes) {
-        // Complete: status, latency, duration, bytes
-        (Some(status), Some(latency), Some(dur), Some(b)) => {
+    match (state.status, state.latency_ms) {
+        (Some(status), Some(latency)) => {
             format!(
-                "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms {dur:>6}ms {b:>8}b"
+                "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms {elapsed:>6.1}s"
             )
         }
-        // Response: status, latency
-        (Some(status), Some(latency), None, None) => {
-            format!("{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms")
-        }
-        // Request pending
         _ => {
-            format!("{timestamp} {ip:>15} {method:<6} {path:<40} ...")
+            format!("{timestamp} {ip:>15} {method:<6} {path:<40} ... {elapsed:>6.1}s")
         }
     }
+}
+
+fn format_complete_line(state: &RequestState, duration_ms: u64, bytes: u64) -> String {
+    let timestamp = Local::now().format("%H:%M:%S%.3f");
+    let ip = state.trusted_ip.as_deref().unwrap_or("-");
+    let method = &state.method;
+    let path = truncate_middle(&state.path, 40);
+    let status = state.status.unwrap_or(0);
+    let latency = state.latency_ms.unwrap_or(0);
+
+    format!(
+        "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms {duration_ms:>6}ms {bytes:>8}b"
+    )
 }
 
 pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
     std::thread::spawn(move || {
         let mut rx = rx;
-        let mp = MultiProgress::new();
+        let mut zone = ActiveZone::new();
         let mut requests: HashMap<String, RequestState> = HashMap::new();
+        let mut active_ids: Vec<String> = Vec::new();
 
-        // Rate limiting: ~10 requests/sec visible
-        let min_interval = std::time::Duration::from_millis(100);
-        let mut last_shown = std::time::Instant::now();
+        // Rate limiting: token bucket (burst 40, refill 20/sec)
+        let mut rate_limiter = TokenBucket::new(40.0, 20.0, Instant::now());
         let mut skipped: u64 = 0;
+        let mut lagged: u64 = 0;
 
         loop {
             let event = match rx.blocking_recv() {
                 Ok(event) => event,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                    skipped += n;
+                    lagged += n;
+                    // Clear all pending - their Response/Complete events may have been dropped
+                    requests.clear();
+                    active_ids.clear();
+                    zone.print_permanent(&format!(
+                        "⚠ lagged: dropped {n} events, cleared in-flight"
+                    ));
                     continue;
                 }
                 Err(broadcast::error::RecvError::Closed) => break,
@@ -381,57 +480,65 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
                     let version = env!("CARGO_PKG_VERSION");
                     let pid = std::process::id();
                     let now = Local::now().to_rfc2822();
-                    println!("<http-nu version=\"{version}\">");
-                    println!("     __  ,");
-                    println!(" .--()°'.'  pid {pid} · {address} · {startup_ms}ms 💜");
-                    println!("'|, . ,'    {now}");
-                    println!(" !_-(_\\");
+                    zone.print_permanent(&format!("<http-nu version=\"{version}\">"));
+                    zone.print_permanent("     __  ,");
+                    zone.print_permanent(&format!(
+                        " .--()°'.'  pid {pid} · {address} · {startup_ms}ms 💜"
+                    ));
+                    zone.print_permanent(&format!("'|, . ,'    {now}"));
+                    zone.print_permanent(" !_-(_\\");
+                    zone.redraw(&active_ids, &requests);
                 }
                 Event::Reloaded => {
-                    println!("reloaded 🔄");
+                    zone.print_permanent("reloaded 🔄");
+                    zone.redraw(&active_ids, &requests);
                 }
                 Event::Error { error } => {
-                    eprintln!("{error}");
+                    zone.clear();
+                    eprintln!("ERROR: {error}");
+                    zone.redraw(&active_ids, &requests);
                 }
                 Event::Stopping { inflight } => {
-                    println!("stopping, {inflight} connection(s) in flight...");
+                    zone.print_permanent(&format!(
+                        "stopping, {inflight} connection(s) in flight..."
+                    ));
+                    zone.redraw(&active_ids, &requests);
                 }
                 Event::Stopped => {
+                    zone.clear();
                     println!("cu l8r </http-nu>");
                 }
                 Event::StopTimedOut => {
-                    println!("stop timed out, forcing exit");
+                    zone.print_permanent("stop timed out, forcing exit");
                 }
                 Event::Request {
                     request_id,
                     request,
                 } => {
-                    let now = std::time::Instant::now();
-                    if now.duration_since(last_shown) < min_interval {
+                    if !rate_limiter.try_consume(Instant::now()) {
                         skipped += 1;
                         continue;
                     }
-                    last_shown = now;
 
                     // Print skip summary if any
                     if skipped > 0 {
-                        println!("... skipped {skipped} requests");
+                        zone.print_permanent(&format!("... skipped {skipped} requests"));
                         skipped = 0;
                     }
 
-                    let pb = mp.add(ProgressBar::new_spinner());
-                    pb.set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-
+                    let id = request_id.to_string();
                     let state = RequestState {
-                        pb: pb.clone(),
                         method: request.method.clone(),
                         path: request.path.clone(),
                         trusted_ip: request.trusted_ip.clone(),
+                        start_time: Instant::now(),
                         status: None,
                         latency_ms: None,
                     };
-                    pb.set_message(format_line(&state, None, None));
-                    requests.insert(request_id.to_string(), state);
+                    requests.insert(id.clone(), state);
+                    active_ids.push(id);
+                    zone.clear();
+                    zone.redraw(&active_ids, &requests);
                 }
                 Event::Response {
                     request_id,
@@ -439,10 +546,12 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
                     latency_ms,
                     ..
                 } => {
-                    if let Some(state) = requests.get_mut(&request_id.to_string()) {
+                    let id = request_id.to_string();
+                    if let Some(state) = requests.get_mut(&id) {
                         state.status = Some(status);
                         state.latency_ms = Some(latency_ms);
-                        state.pb.set_message(format_line(state, None, None));
+                        zone.clear();
+                        zone.redraw(&active_ids, &requests);
                     }
                 }
                 Event::Complete {
@@ -450,50 +559,66 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
                     bytes,
                     duration_ms,
                 } => {
-                    if let Some(state) = requests.remove(&request_id.to_string()) {
-                        state.pb.finish_with_message(format_line(
-                            &state,
-                            Some(duration_ms),
-                            Some(bytes),
-                        ));
+                    let id = request_id.to_string();
+                    if let Some(state) = requests.remove(&id) {
+                        active_ids.retain(|x| x != &id);
+                        let line = format_complete_line(&state, duration_ms, bytes);
+                        zone.print_permanent(&line);
+                        zone.redraw(&active_ids, &requests);
                     }
                 }
             }
         }
 
-        // Final skip summary
+        // Final summaries
+        zone.clear();
         if skipped > 0 {
             println!("... skipped {skipped} requests");
         }
+        if lagged > 0 {
+            println!("⚠ total lagged: {lagged} events dropped");
+        }
     });
+}
+
+// --- RequestGuard: ensures Complete fires even on abort ---
+
+pub struct RequestGuard {
+    request_id: scru128::Scru128Id,
+    start: Instant,
+    bytes_sent: u64,
+}
+
+impl RequestGuard {
+    pub fn new(request_id: scru128::Scru128Id) -> Self {
+        Self {
+            request_id,
+            start: Instant::now(),
+            bytes_sent: 0,
+        }
+    }
+
+    pub fn request_id(&self) -> scru128::Scru128Id {
+        self.request_id
+    }
+}
+
+impl Drop for RequestGuard {
+    fn drop(&mut self) {
+        log_complete(self.request_id, self.bytes_sent, self.start);
+    }
 }
 
 // --- LoggingBody wrapper ---
 
 pub struct LoggingBody<B> {
     inner: B,
-    request_id: scru128::Scru128Id,
-    response_time: Instant,
-    bytes_sent: u64,
-    logged_complete: bool,
+    guard: RequestGuard,
 }
 
 impl<B> LoggingBody<B> {
-    pub fn new(inner: B, request_id: scru128::Scru128Id) -> Self {
-        Self {
-            inner,
-            request_id,
-            response_time: Instant::now(),
-            bytes_sent: 0,
-            logged_complete: false,
-        }
-    }
-
-    fn do_log_complete(&mut self) {
-        if !self.logged_complete {
-            self.logged_complete = true;
-            log_complete(self.request_id, self.bytes_sent, self.response_time);
-        }
+    pub fn new(inner: B, guard: RequestGuard) -> Self {
+        Self { inner, guard }
     }
 }
 
@@ -512,15 +637,12 @@ where
         match inner.poll_frame(cx) {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(data) = frame.data_ref() {
-                    self.bytes_sent += data.len() as u64;
+                    self.guard.bytes_sent += data.len() as u64;
                 }
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
-            Poll::Ready(None) => {
-                self.do_log_complete();
-                Poll::Ready(None)
-            }
+            Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -534,8 +656,54 @@ where
     }
 }
 
-impl<B> Drop for LoggingBody<B> {
-    fn drop(&mut self) {
-        self.do_log_complete();
+// No Drop impl needed - guard's Drop fires Complete
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn token_bucket_allows_burst() {
+        let start = Instant::now();
+        let mut bucket = TokenBucket::new(40.0, 20.0, start);
+
+        // Should allow 40 requests immediately
+        for _ in 0..40 {
+            assert!(bucket.try_consume(start));
+        }
+        // 41st should fail
+        assert!(!bucket.try_consume(start));
+    }
+
+    #[test]
+    fn token_bucket_refills_over_time() {
+        let start = Instant::now();
+        let mut bucket = TokenBucket::new(40.0, 20.0, start);
+
+        // Drain the bucket
+        for _ in 0..40 {
+            bucket.try_consume(start);
+        }
+        assert!(!bucket.try_consume(start));
+
+        // After 100ms, should have 2 tokens (20/sec * 0.1s)
+        let later = start + Duration::from_millis(100);
+        assert!(bucket.try_consume(later));
+        assert!(bucket.try_consume(later));
+        assert!(!bucket.try_consume(later));
+    }
+
+    #[test]
+    fn token_bucket_caps_at_capacity() {
+        let start = Instant::now();
+        let mut bucket = TokenBucket::new(40.0, 20.0, start);
+
+        // Wait a long time - should still cap at 40
+        let later = start + Duration::from_secs(10);
+        for _ in 0..40 {
+            assert!(bucket.try_consume(later));
+        }
+        assert!(!bucket.try_consume(later));
     }
 }

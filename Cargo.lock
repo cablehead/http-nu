@@ -1494,6 +1494,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "crossterm",
  "ctrlc",
  "headers",
  "http",
@@ -1502,7 +1503,6 @@ dependencies = [
  "http_encoding_headers",
  "hyper",
  "hyper-util",
- "indicatif 0.17.11",
  "ipnet",
  "miette",
  "minijinja",
@@ -1795,19 +1795,6 @@ checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.0",
-]
-
-[[package]]
-name = "indicatif"
-version = "0.17.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
-dependencies = [
- "console 0.15.11",
- "number_prefix",
- "portable-atomic",
- "unicode-width 0.2.2",
- "web-time",
 ]
 
 [[package]]
@@ -2596,7 +2583,7 @@ dependencies = [
  "http",
  "human-date-parser",
  "indexmap",
- "indicatif 0.18.0",
+ "indicatif",
  "itertools 0.14.0",
  "log",
  "lscolors",
@@ -5237,7 +5224,7 @@ dependencies = [
  "clap",
  "filetime",
  "fluent",
- "indicatif 0.18.0",
+ "indicatif",
  "libc",
  "linux-raw-sys 0.12.0",
  "thiserror 2.0.17",
@@ -5280,7 +5267,7 @@ dependencies = [
  "clap",
  "fluent",
  "fs_extra",
- "indicatif 0.18.0",
+ "indicatif",
  "libc",
  "thiserror 2.0.17",
  "uucore",

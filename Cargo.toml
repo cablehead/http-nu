@@ -51,7 +51,7 @@ rustls-pemfile = "2.1.0"
 tokio-rustls = "0.26.0"
 scru128 = { version = "3", features = ["serde"] }
 miette = "7"
-indicatif = "0.17"
+crossterm = "0.29"
 chrono = "0.4"
 ipnet = "2"
 tower-http = { version = "0.6.6", features = ["fs"] }

@@ -11,7 +11,7 @@ use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::compression;
-use crate::logging::{log_request, log_response, LoggingBody};
+use crate::logging::{log_request, log_response, LoggingBody, RequestGuard};
 use crate::request::{resolve_trusted_ip, Request};
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
 use crate::worker::spawn_eval_thread;
@@ -103,9 +103,10 @@ where
         },
     );
 
-    // Generate request ID and capture start time for 3-phase logging
+    // Generate request ID and guard for logging
     let start_time = Instant::now();
     let request_id = scru128::new();
+    let guard = RequestGuard::new(request_id);
 
     let remote_ip = addr.as_ref().map(|a| a.ip());
     let trusted_ip = resolve_trusted_ip(&parts.headers, remote_ip, &trusted_proxies);
@@ -157,7 +158,7 @@ where
 
     match &meta.body_type {
         ResponseBodyType::Normal => {
-            build_normal_response(&meta, Ok(body_result?), use_brotli, request_id, start_time).await
+            build_normal_response(&meta, Ok(body_result?), use_brotli, guard, start_time).await
         }
         ResponseBodyType::Static {
             root,
@@ -188,7 +189,7 @@ where
 
             let bytes = body.collect().await?.to_bytes();
             let inner_body = Full::new(bytes).map_err(|e| match e {}).boxed();
-            let logging_body = LoggingBody::new(inner_body, request_id);
+            let logging_body = LoggingBody::new(inner_body, guard);
             let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
             Ok(res)
         }
@@ -298,7 +299,7 @@ where
                     );
 
                     let inner_body = body.map_err(|e| e.into()).boxed();
-                    let logging_body = LoggingBody::new(inner_body, request_id);
+                    let logging_body = LoggingBody::new(inner_body, guard);
                     let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
                     Ok(res)
                 }
@@ -309,7 +310,7 @@ where
                     let inner_body = Full::new("Bad Gateway".into())
                         .map_err(|never| match never {})
                         .boxed();
-                    let logging_body = LoggingBody::new(inner_body, request_id);
+                    let logging_body = LoggingBody::new(inner_body, guard);
                     let response = hyper::Response::builder()
                         .status(502)
                         .body(logging_body.boxed())?;
@@ -324,9 +325,10 @@ async fn build_normal_response(
     meta: &Response,
     body_result: Result<(Option<String>, ResponseTransport), BoxError>,
     use_brotli: bool,
-    request_id: scru128::Scru128Id,
+    guard: RequestGuard,
     start_time: Instant,
 ) -> HTTPResult {
+    let request_id = guard.request_id();
     let (inferred_content_type, body) = body_result?;
     let mut builder = hyper::Response::builder().status(meta.status);
     let mut header_map = hyper::header::HeaderMap::new();
@@ -421,6 +423,6 @@ async fn build_normal_response(
     };
 
     // Wrap with LoggingBody for phase 3 (complete) logging
-    let logging_body = LoggingBody::new(inner_body, request_id);
+    let logging_body = LoggingBody::new(inner_body, guard);
     Ok(builder.body(logging_body.boxed())?)
 }
