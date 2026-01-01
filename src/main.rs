@@ -13,7 +13,7 @@ use http_nu::{
     handler::handle,
     listener::TlsConfig,
     logging::{
-        init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
+        init_channel, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
         run_human_handler, run_jsonl_handler,
     },
     Engine, Listener,
@@ -343,7 +343,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
     // Set up logging handler based on log format (both spawn dedicated threads)
-    let rx = init_broadcast();
+    let rx = init_channel();
     match args.log_format {
         LogFormat::Human => run_human_handler(rx),
         LogFormat::Jsonl => run_jsonl_handler(rx),

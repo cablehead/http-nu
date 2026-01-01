@@ -9,7 +9,7 @@ use hyper::body::{Body, Bytes, Frame, SizeHint};
 use hyper::header::HeaderMap;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serde::Serialize;
-use tokio::sync::broadcast;
+use std::sync::mpsc;
 
 use crate::request::Request;
 
@@ -50,7 +50,6 @@ impl From<&Request> for RequestData {
     }
 }
 
-#[derive(Clone)]
 pub enum Event {
     // Access events
     Request {
@@ -88,23 +87,19 @@ pub enum Event {
     StopTimedOut,
 }
 
-// --- Broadcast channel ---
+// --- mpsc channel ---
 
-static SENDER: OnceLock<broadcast::Sender<Event>> = OnceLock::new();
+static SENDER: OnceLock<mpsc::Sender<Event>> = OnceLock::new();
 
-pub fn init_broadcast() -> broadcast::Receiver<Event> {
-    let (tx, rx) = broadcast::channel(65536);
+pub fn init_channel() -> mpsc::Receiver<Event> {
+    let (tx, rx) = mpsc::channel();
     let _ = SENDER.set(tx);
     rx
 }
 
-pub fn subscribe() -> Option<broadcast::Receiver<Event>> {
-    SENDER.get().map(|tx| tx.subscribe())
-}
-
 fn emit(event: Event) {
     if let Some(tx) = SENDER.get() {
-        let _ = tx.send(event); // non-blocking, drops if no receivers
+        let _ = tx.send(event);
     }
 }
 
@@ -179,31 +174,13 @@ pub fn log_stop_timed_out() {
 
 // --- JSONL handler (dedicated writer thread does serialization + IO) ---
 
-pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
+pub fn run_jsonl_handler(rx: mpsc::Receiver<Event>) {
     use std::io::Write;
 
     std::thread::spawn(move || {
-        let mut rx = rx;
         let mut stdout = std::io::BufWriter::new(std::io::stdout().lock());
 
-        loop {
-            let event = match rx.blocking_recv() {
-                Ok(event) => event,
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    let json = serde_json::json!({
-                        "stamp": scru128::new().to_string(),
-                        "message": "lagged",
-                        "dropped": n,
-                    });
-                    if let Ok(line) = serde_json::to_string(&json) {
-                        let _ = writeln!(stdout, "{line}");
-                        let _ = stdout.flush();
-                    }
-                    continue;
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
-            };
-
+        while let Ok(event) = rx.recv() {
             let needs_flush = matches!(
                 &event,
                 Event::Started { .. }
@@ -310,8 +287,8 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
                 let _ = writeln!(stdout, "{line}");
             }
 
-            // Flush if lifecycle event or channel is empty (idle)
-            if needs_flush || rx.is_empty() {
+            // Flush on lifecycle events
+            if needs_flush {
                 let _ = stdout.flush();
             }
         }
@@ -363,9 +340,8 @@ fn format_line(state: &RequestState, duration_ms: Option<u64>, bytes: Option<u64
     }
 }
 
-pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
+pub fn run_human_handler(rx: mpsc::Receiver<Event>) {
     std::thread::spawn(move || {
-        let mut rx = rx;
         let mp = MultiProgress::new();
         let mut requests: HashMap<String, RequestState> = HashMap::new();
 
@@ -374,15 +350,7 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
         let mut last_shown = std::time::Instant::now();
         let mut skipped: u64 = 0;
 
-        loop {
-            let event = match rx.blocking_recv() {
-                Ok(event) => event,
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    skipped += n;
-                    continue;
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
-            };
+        while let Ok(event) = rx.recv() {
             match event {
                 Event::Started {
                     address,
