@@ -152,7 +152,7 @@ def hero [] {
   )
 }
 
-def install-tab [name: string, label: string] {
+def install-tab [name: string label: string] {
   BUTTON {
     class: [px-4 py-2 font-mono text-sm cursor-pointer border-none transition-colors]
     "data-class:bg-dark": $"$tab === '($name)'"
@@ -163,7 +163,7 @@ def install-tab [name: string, label: string] {
   } $label
 }
 
-def install-content [name: string, ...children] {
+def install-content [name: string ...children] {
   DIV {
     class: [font-mono]
     "data-show": $"$tab === '($name)'"
@@ -195,8 +195,14 @@ def install-section [] {
     DIV {
       class: [mt-8]
       "data-signals:tab": "'brew'"
-    }
-    (DIV {class: [text-2xl mb-4 font-mono]} "Give it a try")
+    } (
+      DIV {class: [text-2xl mb-4 font-mono flex items-center gap-2 font-bold]} "Give it a try" (
+        IMG {
+          src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"
+          style: "height: 1.5em;"
+        }
+      )
+    )
     (
       DIV {class: [flex items-center h-titlebar px-4 bg-purple rounded-t-lg overflow-hidden]}
       (install-tab "brew" "Homebrew")
@@ -206,7 +212,8 @@ def install-section [] {
     )
     (
       DIV {class: [flex items-center justify-between py-4 px-5 rounded-b-lg bg-dark]}
-      (DIV {}
+      (
+        DIV {}
         (install-content "brew" "$ brew install cablehead/tap/http-nu")
         (install-content "cargo" "$ cargo install --locked http-nu")
         (install-content "eget" "$ eget cablehead/http-nu")
