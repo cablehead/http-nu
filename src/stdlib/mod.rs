@@ -1,4 +1,3 @@
-use log::trace;
 use nu_protocol::{
     engine::{EngineState, StateWorkingSet, VirtualPath},
     VirtualPathId,
@@ -22,8 +21,6 @@ fn create_virt_file(working_set: &mut StateWorkingSet, name: &str, content: &str
 /// This embeds the stdlib modules at compile time and makes them available
 /// via the virtual filesystem. Users can import with: use http-nu/router *, use http-nu/html *
 pub fn load_http_nu_stdlib(engine_state: &mut EngineState) -> Result<(), miette::ErrReport> {
-    trace!("load_http_nu_stdlib");
-
     let mut working_set = StateWorkingSet::new(engine_state);
     let mut http_nu_virt_paths = vec![];
 

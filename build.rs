@@ -4,7 +4,6 @@ use syntect::dumps::dump_to_file;
 use syntect::parsing::SyntaxSet;
 
 fn main() {
-    println!("cargo:rustc-cfg=tracing_unstable");
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("syntax_set.bin");
 
