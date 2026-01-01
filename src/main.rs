@@ -13,8 +13,8 @@ use http_nu::{
     handler::handle,
     listener::TlsConfig,
     logging::{
-        log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping, set_handler,
-        HumanHandler, JsonlHandler,
+        init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
+        run_human_handler, run_jsonl_handler,
     },
     Engine, Listener,
 };
@@ -342,10 +342,11 @@ fn setup_ctrlc_handler(
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
-    // Set up logging handler based on log format
+    // Set up logging handler based on log format (both spawn dedicated threads)
+    let rx = init_broadcast();
     match args.log_format {
-        LogFormat::Human => set_handler(HumanHandler::new()),
-        LogFormat::Jsonl => set_handler(JsonlHandler),
+        LogFormat::Human => run_human_handler(rx),
+        LogFormat::Jsonl => run_jsonl_handler(rx),
     }
 
     rustls::crypto::aws_lc_rs::default_provider()

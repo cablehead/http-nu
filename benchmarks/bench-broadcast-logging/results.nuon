@@ -1,0 +1,1 @@
+[[format, requests_per_sec, avg_latency_ms, dropped, connections, duration]; [jsonl, 24930.25, 2.0, 0, 50, "5s"], [human, 26570.5, 1.88, 0, 50, "5s"]]
