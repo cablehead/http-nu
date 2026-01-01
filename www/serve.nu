@@ -207,10 +207,10 @@ def install-section [] {
     (
       DIV {class: [flex items-center justify-between py-4 px-5 rounded-b-lg bg-dark]}
       (DIV {}
-        (install-content "brew" "brew install cablehead/tap/http-nu")
-        (install-content "cargo" "cargo install http-nu")
-        (install-content "eget" "eget cablehead/http-nu")
-        (install-content "nix" "nix-shell -p http-nu")
+        (install-content "brew" "$ brew install cablehead/tap/http-nu")
+        (install-content "cargo" "$ cargo install --locked http-nu")
+        (install-content "eget" "$ eget cablehead/http-nu")
+        (install-content "nix" "$ nix-shell -p http-nu")
       )
       (
         BUTTON {
@@ -219,7 +219,7 @@ def install-section [] {
           "data-on:click": r#'
             const c = {
               brew: 'brew install cablehead/tap/http-nu',
-              cargo: 'cargo install http-nu',
+              cargo: 'cargo install --locked http-nu',
               eget: 'eget cablehead/http-nu',
               nix: 'nix-shell -p http-nu'
             };
