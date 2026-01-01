@@ -1,0 +1,1 @@
+[[server, worker_type, workers, requests_per_sec, avg_latency_ms, connections, duration]; [flask-gunicorn, sync, 4, 14855.03, 3.36, 50, "5s"], [flask-gunicorn, sync, 12, 18821.16, 2.65, 50, "5s"], [flask-gunicorn, gevent, 4, 16132.47, 3.08, 50, "5s"], [flask-gunicorn, gevent, 12, 27783.3, 1.77, 50, "5s"], [flask-gunicorn, gevent, 24, 25593.67, 1.9, 50, "5s"]]
