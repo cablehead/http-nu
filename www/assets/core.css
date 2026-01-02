@@ -16,10 +16,12 @@
   --color-bg-body: #0077b6;
   --color-bg-html: var(--color-bg-body);
   --color-bg-card: var(--color-bg-body);
-  --color-text-primary: #f4d9a0;
+  --color-text-primary: rgba(255, 255, 255, 0.85);
+  --color-text-header: #f4d9a0;
   --color-accent-orange: #e86f3a;
   --color-accent-green: #2a9d4a;
   --color-accent-purple: #8b7ab8;
+  --color-accent-red: #e05252;
 }
 
 /* ==========================================================================
@@ -34,7 +36,7 @@
 }
 
 html {
-  font: 1.125rem/1.6 sans-serif;
+  font: 1.125rem/1.6 "Source Sans 3", sans-serif;
   background: radial-gradient(
     ellipse at center,
     var(--color-bg-body) 0%,
@@ -332,11 +334,25 @@ li {
 
 /* -- Typography -- */
 .font-mono {
-  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-family: "Source Code Pro", "SF Mono", "Fira Code", "Consolas", monospace;
 }
 .font-bold {
   font-weight: bold;
 }
+.font-normal {
+  font-weight: normal;
+}
+
+code {
+  font-family: "Source Code Pro", "SF Mono", "Fira Code", "Consolas", monospace;
+}
+
+:not(pre) > code {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 0em 0.15em 0.1em;
+  border-radius: 5px;
+}
+
 .text-sm {
   font-size: 0.875rem;
 }
@@ -361,9 +377,6 @@ li {
 .text-5xl {
   font-size: 3rem;
 }
-.text-fluid-lg {
-  font-size: clamp(0.75rem, 1.5vw + 0.5rem, 1.25rem);
-}
 .text-fluid-xl {
   font-size: clamp(1.5rem, 4vw + 0.5rem, 3.5rem);
 }
@@ -386,6 +399,9 @@ li {
 /* -- Colors (using CSS vars) -- */
 .text-primary {
   color: var(--color-text-primary);
+}
+.text-header {
+  color: var(--color-text-header);
 }
 .text-white {
   color: #fff;
@@ -411,6 +427,9 @@ li {
 }
 .bg-purple {
   background-color: var(--color-accent-purple);
+}
+.bg-red {
+  background-color: var(--color-accent-red);
 }
 .bg-white {
   background: #fff;
@@ -463,8 +482,14 @@ li {
 .rotate-ccw-3 {
   transform: rotate(-3deg);
 }
+.rotate-ccw-5 {
+  transform: rotate(-5deg);
+}
 .rotate-cw-2 {
   transform: rotate(2deg);
+}
+.rotate-cw-4 {
+  transform: rotate(4deg);
 }
 
 /* -- Overflow -- */
