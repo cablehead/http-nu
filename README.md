@@ -111,22 +111,28 @@ packaging and maintenance documentation, see
 ### GET: Hello world
 
 ```bash
-$ http-nu :3001 '{|req| "Hello world"}'
+$ http-nu :3001 -c '{|req| "Hello world"}'
 $ curl -s localhost:3001
 Hello world
+```
+
+Or from a file:
+
+```bash
+$ http-nu :3001 ./handler.nu
 ```
 
 ### UNIX domain sockets
 
 ```bash
-$ http-nu ./sock '{|req| "Hello world"}'
+$ http-nu ./sock -c '{|req| "Hello world"}'
 $ curl -s --unix-socket ./sock localhost
 Hello world
 ```
 
-### Reading closures from stdin
+### Reading scripts from stdin
 
-You can also pass `-` as the closure argument to read the closure from stdin:
+Pass `-` to read the script from stdin:
 
 ```bash
 $ echo '{|req| "Hello from stdin"}' | http-nu :3001 -
@@ -134,7 +140,7 @@ $ curl -s localhost:3001
 Hello from stdin
 ```
 
-This is especially useful for more complex closures stored in files:
+Or pipe a file:
 
 ```bash
 $ cat handler.nu | http-nu :3001 -
@@ -168,7 +174,7 @@ watch ./serve.nu | prepend {operation: Write} | each {
 ### POST: echo
 
 ```bash
-$ http-nu :3001 '{|req| $in}'
+$ http-nu :3001 -c '{|req| $in}'
 $ curl -s -d Hai localhost:3001
 Hai
 ```
@@ -178,7 +184,7 @@ Hai
 The Request metadata is passed as an argument to the closure.
 
 ```bash
-$ http-nu :3001 '{|req| $req}'
+$ http-nu :3001 -c '{|req| $req}'
 $ curl -s 'localhost:3001/segment?foo=bar&abc=123' # or
 $ http get 'http://localhost:3001/segment?foo=bar&abc=123'
 ─────────────┬───────────────────────────────
@@ -200,7 +206,7 @@ $ http get 'http://localhost:3001/segment?foo=bar&abc=123'
              │ ─────┴─────
 ─────────────┴───────────────────────────────
 
-$ http-nu :3001 '{|req| $"hello: ($req.path)"}'
+$ http-nu :3001 -c '{|req| $"hello: ($req.path)"}'
 $ http get 'http://localhost:3001/yello'
 hello: /yello
 ```
@@ -223,7 +229,7 @@ Header values can be strings or lists of strings. Multiple values (e.g.,
 Set-Cookie) are sent as separate HTTP headers per RFC 6265.
 
 ```
-$ http-nu :3001 '{|req| .response {status: 404}; "sorry, eh"}'
+$ http-nu :3001 -c '{|req| .response {status: 404}; "sorry, eh"}'
 $ curl -si localhost:3001
 HTTP/1.1 404 Not Found
 transfer-encoding: chunked
@@ -280,7 +286,7 @@ Examples:
 Enable TLS by providing a PEM file containing both certificate and private key:
 
 ```bash
-$ http-nu :3001 --tls cert.pem '{|req| "Secure Hello"}'
+$ http-nu :3001 --tls cert.pem -c '{|req| "Secure Hello"}'
 $ curl -k https://localhost:3001
 Secure Hello
 ```
@@ -358,13 +364,13 @@ files).
 Here's an example:
 
 ```bash
-$ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path}'
+$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
 ```
 
 For single page applications you can provide a fallback file:
 
 ```bash
-$ http-nu :3001 '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
+$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
 ```
 
 ### Streaming responses
@@ -374,7 +380,7 @@ immediately as HTTP chunks. This allows real-time data transmission without
 waiting for the entire response to be ready.
 
 ```bash
-$ http-nu :3001 '{|req|
+$ http-nu :3001 -c '{|req|
   .response {status: 200}
   generate {|_|
     sleep 1sec
@@ -428,7 +434,7 @@ data: [1,2,3]
 ```
 
 ```bash
-$ http-nu :3001 '{|req|
+$ http-nu :3001 -c '{|req|
   .response {headers: {"content-type": "text/event-stream"}}
   tail -F source.json | lines | from json | to sse
 }'
@@ -486,7 +492,7 @@ closure will be ignored.
 
 ```bash
 # Simple proxy to backend server
-$ http-nu :3001 '{|req| .reverse-proxy "http://localhost:8080"}'
+$ http-nu :3001 -c '{|req| .reverse-proxy "http://localhost:8080"}'
 ```
 
 #### Configuration Options
@@ -507,7 +513,7 @@ The optional second parameter allows you to customize the proxy behavior:
 **Add custom headers:**
 
 ```bash
-$ http-nu :3001 '{|req|
+$ http-nu :3001 -c '{|req|
   .reverse-proxy "http://api.example.com" {
     headers: {
       "X-API-Key": "secret123"
@@ -520,7 +526,7 @@ $ http-nu :3001 '{|req|
 **API gateway with path stripping:**
 
 ```bash
-$ http-nu :3001 '{|req|
+$ http-nu :3001 -c '{|req|
   .reverse-proxy "http://localhost:8080" {
     strip_prefix: "/api/v1"
   }
@@ -531,21 +537,21 @@ $ http-nu :3001 '{|req|
 **Forward original request body:**
 
 ```bash
-$ http-nu :3001 '{|req| .reverse-proxy "http://backend:8080"}'
+$ http-nu :3001 -c '{|req| .reverse-proxy "http://backend:8080"}'
 # If .reverse-proxy is first in closure, original body is forwarded (implicit $in)
 ```
 
 **Override request body:**
 
 ```bash
-$ http-nu :3001 '{|req| "custom body" | .reverse-proxy "http://backend:8080"}'
+$ http-nu :3001 -c '{|req| "custom body" | .reverse-proxy "http://backend:8080"}'
 # Whatever you pipe into .reverse-proxy becomes the request body
 ```
 
 **Modify query parameters:**
 
 ```bash
-$ http-nu :3001 '{|req|
+$ http-nu :3001 -c '{|req|
   .reverse-proxy "http://backend:8080" {
     query: ($req.query | upsert "context-id" "smidgeons" | reject "debug")
   }
@@ -561,7 +567,7 @@ templates. Pipe a record as context.
 #### `.mj` - Render inline
 
 ```bash
-$ http-nu :3001 '{|req| {name: "world"} | .mj --inline "Hello {{ name }}!"}'
+$ http-nu :3001 -c '{|req| {name: "world"} | .mj --inline "Hello {{ name }}!"}'
 $ curl -s localhost:3001
 Hello world!
 ```
@@ -569,7 +575,7 @@ Hello world!
 From a file:
 
 ```bash
-$ http-nu :3001 '{|req| $req.query | .mj "templates/page.html"}'
+$ http-nu :3001 -c '{|req| $req.query | .mj "templates/page.html"}'
 ```
 
 #### `.mj compile` / `.mj render` - Precompiled templates

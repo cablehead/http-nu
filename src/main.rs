@@ -43,9 +43,13 @@ struct Args {
     #[clap(long = "plugin", global = true, value_parser)]
     plugins: Vec<PathBuf>,
 
-    /// Nushell closure to handle requests, or '-' to read from stdin
+    /// Script file to run, or '-' to read from stdin
     #[clap(value_parser)]
-    closure: Option<String>,
+    script: Option<String>,
+
+    /// Run script from command line instead of file
+    #[clap(short = 'c', long = "commands")]
+    commands: Option<String>,
 
     /// Log format: human (live-updating) or jsonl (structured)
     #[clap(long, default_value = "human")]
@@ -414,8 +418,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Server mode (default)
     let addr = args.addr.expect("addr required for server mode");
-    let closure = args.closure.expect("closure required for server mode");
-    let read_stdin = closure == "-";
+
+    // Determine script source: -c flag, stdin (-), or file
+    let (script_content, read_stdin) = match (&args.script, &args.commands) {
+        (Some(_), Some(_)) => {
+            eprintln!("Error: cannot specify both script file and --commands");
+            std::process::exit(1);
+        }
+        (None, None) => {
+            eprintln!("Error: provide a script file or use --commands");
+            std::process::exit(1);
+        }
+        (None, Some(cmd)) => (Some(cmd.clone()), false),
+        (Some(path), None) if path == "-" => (None, true),
+        (Some(path), None) => {
+            let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                eprintln!("Error reading {path}: {e}");
+                std::process::exit(1);
+            });
+            (Some(content), false)
+        }
+    };
 
     // Create base engine with commands, signals, and plugins
     let base_engine = create_base_engine(interrupt.clone(), &args.plugins, &args.include_paths)?;
@@ -427,8 +450,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Spawn dedicated stdin reader thread
         spawn_stdin_reader(tx);
     } else {
-        // Send the closure as a script
-        tx.send(closure).await.expect("channel closed unexpectedly");
+        // Send the script content
+        tx.send(script_content.unwrap())
+            .await
+            .expect("channel closed unexpectedly");
         drop(tx); // Close the channel
     }
 

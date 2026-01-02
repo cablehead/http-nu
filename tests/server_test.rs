@@ -28,7 +28,7 @@ impl TestServer {
             cmd.arg("--plugin").arg(plugin);
         }
 
-        cmd.arg(addr).arg(closure);
+        cmd.arg(addr).arg("-c").arg(closure);
 
         if tls {
             cmd.arg("--tls").arg("tests/combined.pem");
@@ -747,6 +747,7 @@ async fn test_parse_error_ansi_formatting() {
 
     let output = tokio::process::Command::new(cargo_bin("http-nu"))
         .arg("127.0.0.1:0")
+        .arg("-c")
         .arg("{|req| use nonexistent oauth}")
         .output()
         .await
