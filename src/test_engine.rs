@@ -145,7 +145,9 @@ fn test_closure_captures_outer_variables() {
 #[test]
 fn test_highlight_rust() {
     let engine = eval_engine();
-    let result = engine.eval(r#""fn main() {}" | .highlight rust"#).unwrap();
+    let result = engine
+        .eval(r#""fn main() {}" | .highlight rust | get __html"#)
+        .unwrap();
     let html = result.as_str().unwrap();
     assert!(html.contains("span"));
     assert!(html.contains("source rust"));
@@ -155,7 +157,7 @@ fn test_highlight_rust() {
 fn test_highlight_nushell() {
     let engine = eval_engine();
     let result = engine
-        .eval(r#""{|req| $req.path}" | .highlight nu"#)
+        .eval(r#""{|req| $req.path}" | .highlight nu | get __html"#)
         .unwrap();
     let html = result.as_str().unwrap();
     assert!(html.contains("span"));
@@ -199,4 +201,95 @@ fn test_highlight_lang_list() {
         rec.get("name").unwrap().as_str().unwrap() == "Nushell"
     });
     assert!(has_nushell);
+}
+
+#[test]
+fn test_md_basic() {
+    let engine = eval_engine();
+    let result = engine.eval(r##""# Hello" | .md | get __html"##).unwrap();
+    let html = result.as_str().unwrap();
+    assert_eq!(html, "<h1>Hello</h1>\n");
+}
+
+#[test]
+fn test_md_formatting() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(r#""Some **bold** and *italic* text." | .md | get __html"#)
+        .unwrap();
+    let html = result.as_str().unwrap();
+    assert!(html.contains("<strong>bold</strong>"));
+    assert!(html.contains("<em>italic</em>"));
+}
+
+#[test]
+fn test_md_code_block_highlighted() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(
+            r#""```rust
+fn main() {}
+```" | .md | get __html"#,
+        )
+        .unwrap();
+    let html = result.as_str().unwrap();
+    assert!(html.contains("<pre><code class=\"language-rust\">"));
+    assert!(html.contains("source rust"));
+    assert!(html.contains("</code></pre>"));
+}
+
+#[test]
+fn test_md_code_block_no_lang() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(
+            r#""```
+plain code
+```" | .md | get __html"#,
+        )
+        .unwrap();
+    let html = result.as_str().unwrap();
+    assert!(html.contains("<pre><code>"));
+    assert!(!html.contains("class=\"language-"));
+}
+
+#[test]
+fn test_md_escapes_html_in_untrusted_string() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(r#""<script>evil()</script>" | .md | get __html"#)
+        .unwrap();
+    let html = result.as_str().unwrap();
+    // Should be escaped, not raw
+    assert!(html.contains("&lt;script&gt;"));
+    assert!(!html.contains("<script>"));
+}
+
+#[test]
+fn test_md_passes_html_in_trusted_record() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(r#"{__html: "<strong>bold</strong>"} | .md | get __html"#)
+        .unwrap();
+    let html = result.as_str().unwrap();
+    // Should pass through raw
+    assert!(html.contains("<strong>bold</strong>"));
+}
+
+#[test]
+fn test_md_autolink_still_works() {
+    let engine = eval_engine();
+    let result = engine
+        .eval(r#""<http://example.com>" | .md | get __html"#)
+        .unwrap();
+    let html = result.as_str().unwrap();
+    // Autolink should become a proper link, not escaped
+    assert!(html.contains("href=\"http://example.com\""));
+}
+
+#[test]
+fn test_md_record_without_html_errors() {
+    let engine = eval_engine();
+    let result = engine.eval(r#"{foo: "bar"} | .md"#);
+    assert!(result.is_err());
 }

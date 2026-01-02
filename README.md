@@ -59,6 +59,7 @@
     - [`.mj` - Render inline](#mj---render-inline)
     - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
   - [Syntax Highlighting](#syntax-highlighting)
+  - [Markdown](#markdown)
   - [Streaming Input](#streaming-input)
   - [Plugins](#plugins)
   - [Module Paths](#module-paths)
@@ -614,13 +615,31 @@ let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
 Highlight code to HTML with CSS classes.
 
 ```bash
-$ http-nu eval -c '"fn main() {}" | .highlight rust'
-<span class="source rust">...
+$ http-nu eval -c 'use http-nu/html *; PRE { "fn main() {}" | .highlight rust } | get __html'
+<pre><span class="source rust">...
 
 $ .highlight lang           # list languages
 $ .highlight theme          # list themes
 $ .highlight theme Dracula  # get CSS
 ```
+
+### Markdown
+
+Convert Markdown to HTML with syntax-highlighted code blocks.
+
+```bash
+$ http-nu eval -c '"# Hello **world**" | .md | get __html'
+<h1>Hello <strong>world</strong></h1>
+```
+
+Code blocks use `.highlight` internally:
+
+````bash
+$ http-nu eval -c '"```rust
+fn main() {}
+```" | .md | get __html'
+<pre><code class="language-rust"><span class="source rust">...
+````
 
 ### Streaming Input
 

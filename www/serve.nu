@@ -140,7 +140,7 @@ def code-block [] {
     (
       PRE {class: [px-5 pb-5 font-mono text-code leading-relaxed overflow-x-auto text-left]} [
         (SPAN {class: "comment"} "$ r#'\n")
-        (CODE {__html: $highlighted})
+        (CODE $highlighted)
         (SPAN {class: "comment"} "'# | http-nu :3001 -")
       ]
     )
@@ -176,50 +176,10 @@ def hero [] {
 def datastar-demo-section [] {
   let code = open snippets/datastar.nu
   let highlighted = $code | .highlight nu
+  let prose = open content/datastar-demo.md | .md
   DIV {class: [mt-8]} [
     (section-header "Built-in Datastar SDK")
-    (
-      DIV {class: [max-w-3xl leading-relaxed]} [
-        (
-          P {class: [mb-4]}
-          "Adapted from "
-          (A {href: "https://data-star.dev"} "data-star.dev")
-          "'s intro example. Client-side: "
-          (CODE "data-signals")
-          " tracks "
-          (CODE "running")
-          " state. On click, "
-          (CODE "running=true")
-          " disables the button via "
-          (CODE "data-attr:disabled")
-          " and "
-          (CODE "data-class")
-          "."
-        )
-        (
-          P {class: [mb-4]}
-          "Server-side: "
-          (CODE "from datastar-request")
-          " extracts signals (like interval). "
-          (CODE "generate")
-          " streams values while maintaining state via its accumulator, building up the message character by character. Each iteration pipes through "
-          (CODE "to dstar-patch-element")
-          " for DOM updates."
-        )
-        (
-          P
-          "Finally, "
-          (CODE "append")
-          " adds a "
-          (CODE "to dstar-patch-signal")
-          " to set "
-          (CODE "running=false")
-          ", re-enabling the button when done. "
-          (CODE "to sse")
-          " handles Content-Type and formats everything as server-sent events."
-        )
-      ]
-    )
+    (DIV {class: [max-w-3xl leading-relaxed]} $prose)
     (
       DIV {class: [flex flex-col gap-4 mt-8 md:flex-row md:items-start]} [
         # Code side
@@ -228,7 +188,7 @@ def datastar-demo-section [] {
             (DIV {class: [flex items-center h-titlebar px-4 gap-2 bg-purple]} (window-dots))
             (
               PRE {class: [px-5 pb-5 font-mono text-code leading-relaxed overflow-x-auto text-left]}
-              (CODE {__html: $highlighted})
+              (CODE $highlighted)
             )
           ]
         )

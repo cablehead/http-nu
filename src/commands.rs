@@ -1110,7 +1110,7 @@ impl Command for HighlightCommand {
     fn signature(&self) -> Signature {
         Signature::build(".highlight")
             .required("lang", SyntaxShape::String, "language for highlighting")
-            .input_output_types(vec![(Type::String, Type::String)])
+            .input_output_types(vec![(Type::String, Type::record())])
             .category(Category::Custom("http".into()))
     }
 
@@ -1138,7 +1138,13 @@ impl Command for HighlightCommand {
         let highlighter = get_highlighter();
         let html = highlighter.highlight(&code, Some(&lang));
 
-        Ok(Value::string(html, head).into_pipeline_data())
+        Ok(Value::record(
+            nu_protocol::record! {
+                "__html" => Value::string(html, head),
+            },
+            head,
+        )
+        .into_pipeline_data())
     }
 }
 
@@ -1269,5 +1275,150 @@ impl Command for HighlightLangCommand {
             })
             .collect();
         Ok(Value::list(langs, head).into_pipeline_data())
+    }
+}
+
+// === .md command ===
+
+use pulldown_cmark::{html, CodeBlockKind, Event, Parser as MarkdownParser, Tag, TagEnd};
+
+#[derive(Clone)]
+pub struct MdCommand;
+
+impl Default for MdCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MdCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for MdCommand {
+    fn name(&self) -> &str {
+        ".md"
+    }
+
+    fn description(&self) -> &str {
+        "Convert Markdown to HTML with syntax-highlighted code blocks"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".md")
+            .input_output_types(vec![
+                (Type::String, Type::record()),
+                (Type::record(), Type::record()),
+            ])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        _engine_state: &EngineState,
+        _stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+
+        // Determine if input is trusted ({__html: ...}) or untrusted (plain string)
+        let (markdown, trusted) = match input.into_value(head)? {
+            Value::String { val, .. } => (val, false),
+            Value::Record { val, .. } => {
+                if let Some(html_val) = val.get("__html") {
+                    (html_val.as_str()?.to_string(), true)
+                } else {
+                    return Err(ShellError::TypeMismatch {
+                        err_message: "expected string or {__html: ...}".into(),
+                        span: head,
+                    });
+                }
+            }
+            other => {
+                return Err(ShellError::TypeMismatch {
+                    err_message: format!(
+                        "expected string or {{__html: ...}}, got {}",
+                        other.get_type()
+                    ),
+                    span: head,
+                });
+            }
+        };
+
+        let highlighter = get_highlighter();
+
+        let mut in_code_block = false;
+        let mut current_code = String::new();
+        let mut current_lang: Option<String> = None;
+
+        let parser = MarkdownParser::new(&markdown).map(|event| match event {
+            Event::Start(Tag::CodeBlock(kind)) => {
+                in_code_block = true;
+                current_code.clear();
+                current_lang = match kind {
+                    CodeBlockKind::Fenced(info) => {
+                        let lang = info.split_whitespace().next().unwrap_or("");
+                        if lang.is_empty() {
+                            None
+                        } else {
+                            Some(lang.to_string())
+                        }
+                    }
+                    CodeBlockKind::Indented => None,
+                };
+                Event::Text("".into())
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                in_code_block = false;
+                let highlighted = highlighter.highlight(&current_code, current_lang.as_deref());
+                let mut html_out = String::new();
+                html_out.push_str("<pre><code");
+                if let Some(lang) = &current_lang {
+                    html_out.push_str(&format!(" class=\"language-{lang}\""));
+                }
+                html_out.push('>');
+                html_out.push_str(&highlighted);
+                html_out.push_str("</code></pre>");
+                Event::Html(html_out.into())
+            }
+            Event::Text(text) => {
+                if in_code_block {
+                    current_code.push_str(&text);
+                    Event::Text("".into())
+                } else {
+                    Event::Text(text)
+                }
+            }
+            // Escape raw HTML if input is untrusted
+            Event::Html(html) => {
+                if trusted {
+                    Event::Html(html)
+                } else {
+                    Event::Text(html) // push_html escapes Text
+                }
+            }
+            Event::InlineHtml(html) => {
+                if trusted {
+                    Event::InlineHtml(html)
+                } else {
+                    Event::Text(html)
+                }
+            }
+            e => e,
+        });
+
+        let mut html_output = String::new();
+        html::push_html(&mut html_output, parser);
+
+        Ok(Value::record(
+            nu_protocol::record! {
+                "__html" => Value::string(html_output, head),
+            },
+            head,
+        )
+        .into_pipeline_data())
     }
 }
