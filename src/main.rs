@@ -54,6 +54,10 @@ struct Args {
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
     #[clap(long = "trust-proxy", value_name = "CIDR")]
     trust_proxies: Vec<ipnet::IpNet>,
+
+    /// Set NU_LIB_DIRS for module resolution (can be repeated)
+    #[clap(short = 'I', long = "include-path", global = true, value_name = "PATH")]
+    include_paths: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, clap::ValueEnum)]
@@ -81,9 +85,11 @@ enum Command {
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
     plugins: &[PathBuf],
+    include_paths: &[PathBuf],
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
+    engine.set_lib_dirs(include_paths)?;
 
     // Load plugins
     for plugin_path in plugins {
@@ -386,6 +392,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         let mut engine = Engine::new()?;
         engine.add_custom_commands()?;
+        engine.set_lib_dirs(&args.include_paths)?;
 
         for plugin_path in &args.plugins {
             engine.load_plugin(plugin_path)?;
@@ -411,7 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let read_stdin = closure == "-";
 
     // Create base engine with commands, signals, and plugins
-    let base_engine = create_base_engine(interrupt.clone(), &args.plugins)?;
+    let base_engine = create_base_engine(interrupt.clone(), &args.plugins, &args.include_paths)?;
 
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);

@@ -1,7 +1,7 @@
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::Command;
 use std::io::Write;
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 
 #[test]
 fn test_eval_commands_flag() {
@@ -107,4 +107,47 @@ fn test_eval_with_plugin() {
         .assert()
         .success()
         .stdout("PLUGIN_WORKS\n");
+}
+
+#[test]
+fn test_eval_include_path() {
+    let dir = TempDir::new().unwrap();
+    let module_path = dir.path().join("mymod.nu");
+    std::fs::write(&module_path, "export def hello [] { 'world' }").unwrap();
+
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .args([
+            "-I",
+            dir.path().to_str().unwrap(),
+            "eval",
+            "-c",
+            "use mymod.nu; mymod hello",
+        ])
+        .assert()
+        .success()
+        .stdout("world\n");
+}
+
+#[test]
+fn test_eval_include_path_multiple() {
+    let dir1 = TempDir::new().unwrap();
+    let dir2 = TempDir::new().unwrap();
+    std::fs::write(dir1.path().join("mod1.nu"), "export def a [] { 1 }").unwrap();
+    std::fs::write(dir2.path().join("mod2.nu"), "export def b [] { 2 }").unwrap();
+
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .args([
+            "-I",
+            dir1.path().to_str().unwrap(),
+            "-I",
+            dir2.path().to_str().unwrap(),
+            "eval",
+            "-c",
+            "use mod1.nu; use mod2.nu; (mod1 a) + (mod2 b)",
+        ])
+        .assert()
+        .success()
+        .stdout("3\n");
 }

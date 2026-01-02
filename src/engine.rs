@@ -12,7 +12,8 @@ use nu_protocol::format_cli_error;
 use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Redirection, Stack, StateWorkingSet},
-    OutDest, PipelineData, PluginIdentity, RegisteredPlugin, ShellError, Signals, Span, Value,
+    OutDest, PipelineData, PluginIdentity, RegisteredPlugin, ShellError, Signals, Span, Type,
+    Value,
 };
 
 use crate::commands::{
@@ -178,6 +179,29 @@ impl Engine {
     /// Sets the interrupt signal for the engine
     pub fn set_signals(&mut self, interrupt: Arc<AtomicBool>) {
         self.state.set_signals(Signals::new(interrupt));
+    }
+
+    /// Sets NU_LIB_DIRS const for module resolution
+    pub fn set_lib_dirs(&mut self, paths: &[std::path::PathBuf]) -> Result<(), Error> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let span = Span::unknown();
+        let vals: Vec<Value> = paths
+            .iter()
+            .map(|p| Value::string(p.to_string_lossy(), span))
+            .collect();
+
+        let mut working_set = StateWorkingSet::new(&self.state);
+        let var_id = working_set.add_variable(
+            b"$NU_LIB_DIRS".into(),
+            span,
+            Type::List(Box::new(Type::String)),
+            false,
+        );
+        working_set.set_variable_const_val(var_id, Value::list(vals, span));
+        self.state.merge_delta(working_set.render())?;
+        Ok(())
     }
 
     /// Evaluate a script string and return the result value

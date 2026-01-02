@@ -61,6 +61,7 @@
   - [Syntax Highlighting](#syntax-highlighting)
   - [Streaming Input](#streaming-input)
   - [Plugins](#plugins)
+  - [Module Paths](#module-paths)
   - [Embedded Modules](#embedded-modules)
     - [Routing](#routing)
     - [HTML DSL](#html-dsl)
@@ -668,6 +669,14 @@ Works with eval:
 ```bash
 $ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c '1 | inc'
 2
+```
+
+### Module Paths
+
+Make module paths available with `-I` / `--include-path`:
+
+```bash
+$ http-nu -I ./lib -I ./vendor :3001 '{|req| use mymod.nu; ...}'
 ```
 
 ### Embedded Modules
