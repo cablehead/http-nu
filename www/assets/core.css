@@ -62,6 +62,13 @@ a:hover {
   opacity: 0.8;
 }
 
+p {
+  margin-bottom: 1rem;
+}
+p:last-child {
+  margin-bottom: 0;
+}
+
 svg {
   display: block;
   margin: 0 auto;
