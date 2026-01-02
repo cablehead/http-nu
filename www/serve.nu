@@ -100,7 +100,7 @@ def taglines [] {
     (
       DIV {class: [flex justify-center items-center]} [
         (badge {class: "rotate-ccw-5"} (A {href: "https://www.nushell.sh"} "Nushell") "-scriptable!")
-        (badge {bg: "red" class: "rotate-cw-4"} (A {href: "https://data-star.dev"} "Datastar") " Built-in")
+        (badge {bg: "red" class: "rotate-cw-4"} (A {href: "https://data-star.dev"} "Datastar") "-ready")
       ]
     )
     (badge {bg: "green" size: "xl" class: "uppercase tracking-wide mx-auto"} "HTTP Server")
