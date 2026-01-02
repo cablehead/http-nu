@@ -1,8 +1,12 @@
 ## CSS Architecture
 
-**Decision:** Utility-only CSS classes. Use Nushell commands for components.
+**Base typography first.** Raw HTML tags (`p`, `a`, `code`, `ul`, `li`, etc.)
+should look great without any classes. Establish strong, consistent defaults so
+markdown and plain HTML render beautifully.
 
-- No component classes (`.card`, `.badge`, `.code-block`)
-- Single-purpose utility classes inspired by Tailwind (`.mt-4`, `.flex`, `.text-primary`)
-- Compose utilities via Nushell `def` commands that return HTML
-- Default styling only on raw HTML tags (`a`, `svg`, `html`, `body`)
+**Utility classes sparingly.** Use single-purpose classes (`.flex`, `.mt-4`,
+`.text-primary`) for layout and localized adjustments. Avoid adding classes to
+semantic elements when base styles suffice.
+
+**No component classes.** Instead of `.card` or `.badge`, compose reusable
+patterns as Nushell `def` commands that return HTML fragments.
