@@ -24,7 +24,8 @@ let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
 
 ## Context
 
-http-nu embeds an HTML DSL in nushell. This ADR documents the design decisions around tag naming, XSS prevention, and the path to performance.
+http-nu embeds an HTML DSL in nushell. This ADR documents the design decisions
+around tag naming, XSS prevention, and the path to performance.
 
 ## Tag Naming
 
@@ -57,6 +58,7 @@ _div {class: "card"} {
 The `+tag` variants append to pipeline. Designed for sibling elements.
 
 **Problems:**
+
 - Two ways to do the same thing (`_div` vs `+div`)
 - Mental overhead deciding which to use
 - Doubles the API surface (100+ tag functions become 200+)
@@ -76,6 +78,7 @@ HTML (
 **Decision:** Use uppercase only.
 
 **Rationale:**
+
 - One way to do things
 - Visually distinct from nushell builtins (`div` vs `DIV`)
 - Lisp-style nesting reads naturally
@@ -98,7 +101,8 @@ But nested tags must pass through unescaped:
 DIV (SPAN "safe")  # must NOT escape the <span>
 ```
 
-Both arrive as plain string arguments. We need to distinguish trusted from untrusted.
+Both arrive as plain string arguments. We need to distinguish trusted from
+untrusted.
 
 ### Solution: Record wrapper
 
@@ -115,28 +119,32 @@ Tags return `{__html: "..."}`. Plain strings get auto-escaped in `to-children`:
 {__html: "<div><span>nested</span></div>"}
 ```
 
-The `__html` field marks trusted content. Strings without the wrapper are escaped.
+The `__html` field marks trusted content. Strings without the wrapper are
+escaped.
 
 ## Performance
 
 Benchmarks rendering a 100-row user table:
 
-| Approach | Time | vs baseline | Notes |
-|----------|------|-------------|-------|
-| string-no-escape | 186ms | — | no XSS protection |
-| record-escaped | 202ms | +8.6% | `{__html}` wrapper |
-| custom-type | 1275ms | +585% | Rust boundary overhead |
-| mj-compiled | 2.5ms | -98.7% | compile + render |
-| mj-render-only | 0.86ms | -99.5% | pre-compiled |
+| Approach         | Time   | vs baseline | Notes                  |
+| ---------------- | ------ | ----------- | ---------------------- |
+| string-no-escape | 186ms  | —           | no XSS protection      |
+| record-escaped   | 202ms  | +8.6%       | `{__html}` wrapper     |
+| custom-type      | 1275ms | +585%       | Rust boundary overhead |
+| mj-compiled      | 2.5ms  | -98.7%      | compile + render       |
+| mj-render-only   | 0.86ms | -99.5%      | pre-compiled           |
 
 **Observations:**
+
 1. Record-wrapped escaping adds ~9% overhead — acceptable for XSS protection
 2. Rust custom types are 6x slower due to boundary crossing per tag
 3. Compiled Jinja2 templates are 74-216x faster than nushell DSL
 
 ### Why the DSL is slow
 
-Each tag call evaluates nushell code. A 100-row table with 4 columns means ~400 tag invocations, each doing:
+Each tag call evaluates nushell code. A 100-row table with 4 columns means ~400
+tag invocations, each doing:
+
 - Argument parsing
 - Type checking (`describe -d`)
 - String concatenation
@@ -151,7 +159,8 @@ Each tag call evaluates nushell code. A 100-row table with 4 columns means ~400 
 
 ## Jinja2 Integration
 
-Rather than optimize the nushell interpreter, we leverage minijinja. The DSL gains Jinja2 control flow:
+Rather than optimize the nushell interpreter, we leverage minijinja. The DSL
+gains Jinja2 control flow:
 
 ```nushell
 # _var emits {{ expr }}
@@ -177,7 +186,9 @@ let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
 # <ul><li>a</li><li>b</li><li>c</li></ul>
 ```
 
-**Trade-off:** Jinja2 templates can't use nushell closures or `each`. The `_for`/`_if`/`_var` elements generate static template strings. For dynamic nushell logic, use the runtime DSL and accept the ~200ms overhead.
+**Trade-off:** Jinja2 templates can't use nushell closures or `each`. The
+`_for`/`_if`/`_var` elements generate static template strings. For dynamic
+nushell logic, use the runtime DSL and accept the ~200ms overhead.
 
 ## Summary
 

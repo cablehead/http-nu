@@ -3,6 +3,7 @@
 ## Context
 
 http-nu needs structured logging:
+
 - Request/response lifecycle (headers, timing, bytes)
 - Two output formats: human-readable terminal, JSONL for tooling
 - High throughput without blocking request handling
@@ -10,15 +11,19 @@ http-nu needs structured logging:
 
 ## Options
 
-**tracing**: Rich ecosystem, but `valuable` feature (needed for custom structs) requires `RUSTFLAGS="--cfg tracing_unstable"`. Breaks `cargo install`. Rejected.
+**tracing**: Rich ecosystem, but `valuable` feature (needed for custom structs)
+requires `RUSTFLAGS="--cfg tracing_unstable"`. Breaks `cargo install`. Rejected.
 
-**emit**: Viable. Native serde, stable, works with cargo install. Provides emit_term (human) and emit_file (rolling JSONL to files). However:
+**emit**: Viable. Native serde, stable, works with cargo install. Provides
+emit_term (human) and emit_file (rolling JSONL to files). However:
+
 - emit_file targets files, not stdout
 - We'd need a custom emitter for stdout JSONL anyway
 - Rate-limiting for human output not built-in
 - Adds dependency for ~300 lines of purpose-built code
 
-**custom**: Typed Event enum, broadcast channel, dedicated handler threads. Simple, fits exact requirements.
+**custom**: Typed Event enum, broadcast channel, dedicated handler threads.
+Simple, fits exact requirements.
 
 ## Decision
 
@@ -51,12 +56,15 @@ Request Path                    Handler Thread
   continue                     serialize + write
 ```
 
-**JSONL handler**: Dedicated thread, BufWriter, flushes when channel empty. 24K+ req/sec sustained.
+**JSONL handler**: Dedicated thread, BufWriter, flushes when channel empty. 24K+
+req/sec sustained.
 
-**Human handler**: Dedicated thread, rate-limited to ~10 req/sec. Tracks skipped requests. Once shown, a request's full lifecycle completes.
+**Human handler**: Dedicated thread, rate-limited to ~10 req/sec. Tracks skipped
+requests. Once shown, a request's full lifecycle completes.
 
 ## Tradeoffs
 
-- Events are cloned at emit (headers→HashMap, IPs→String). Acceptable at current throughput.
+- Events are cloned at emit (headers→HashMap, IPs→String). Acceptable at current
+  throughput.
 - No file rotation, OTLP, or other emit features. Not needed—stdout only.
 - ~300 lines to maintain vs external dependency.

@@ -1,4 +1,5 @@
-> **Note:** See [ADR-0003](0003-html-dsl-design.md) for the consolidated HTML DSL design.
+> **Note:** See [ADR-0003](0003-html-dsl-design.md) for the consolidated HTML
+> DSL design.
 
 # HTML Escaping Strategy
 
@@ -25,7 +26,9 @@ The fix is escaping `<`, `>`, `&` in `to-children` at `src/stdlib/html/mod.nu`:
 _div $evil (_footer "my content")
 ```
 
-Both arguments arrive as strings. We can't tell that arg1 must NOT be trusted, but arg2 MUST be trusted—escaping `(_footer ...)` would break the `<footer>` tag we just generated.
+Both arguments arrive as strings. We can't tell that arg1 must NOT be trusted,
+but arg2 MUST be trusted—escaping `(_footer ...)` would break the `<footer>` tag
+we just generated.
 
 We need to distinguish safe from unsafe strings.
 
@@ -33,7 +36,8 @@ We need to distinguish safe from unsafe strings.
 
 ### A: `esc` for untrusted input
 
-`_div (esc $evil)` escapes, `_div (_span "x")` works unchanged. Current API preserved. Opt-in safety—easy to forget.
+`_div (esc $evil)` escapes, `_div (_span "x")` works unchanged. Current API
+preserved. Opt-in safety—easy to forget.
 
 ### B: `| html` at end
 
@@ -54,4 +58,5 @@ The `| html` command unwraps to string:
 <div>hello</div>
 ```
 
-Strings without `__html` wrapper get escaped automatically. Secure by default. Requires piping final output.
+Strings without `__html` wrapper get escaped automatically. Secure by default.
+Requires piping final output.

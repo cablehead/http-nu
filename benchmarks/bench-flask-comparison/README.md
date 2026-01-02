@@ -1,6 +1,7 @@
 # Benchmark: Flask + gunicorn
 
-Baseline benchmark for Flask served via gunicorn, for comparison against http-nu.
+Baseline benchmark for Flask served via gunicorn, for comparison against
+http-nu.
 
 ## Requirements
 

@@ -2,7 +2,8 @@
 
 ## Summary
 
-`test_parse_error_ansi_formatting` is flaky due to a race condition between the main thread and the logging handler thread.
+`test_parse_error_ansi_formatting` is flaky due to a race condition between the
+main thread and the logging handler thread.
 
 ## Symptoms
 
@@ -26,7 +27,9 @@ Main Thread                          Handler Thread
  6. process terminates ←──────────────────┘  event lost
 ```
 
-The broadcast channel delivers the error event, but the handler thread may not have called `blocking_recv()` before the main thread panics and terminates the process.
+The broadcast channel delivers the error event, but the handler thread may not
+have called `blocking_recv()` before the main thread panics and terminates the
+process.
 
 ## Affected Code
 
@@ -43,4 +46,6 @@ The broadcast channel delivers the error event, but the handler thread may not h
 
 ## Status
 
-Known issue, low priority. The error handling works correctly in practice—the race only manifests in the specific test scenario where parse fails on the only script provided via CLI argument.
+Known issue, low priority. The error handling works correctly in practice—the
+race only manifests in the specific test scenario where parse fails on the only
+script provided via CLI argument.

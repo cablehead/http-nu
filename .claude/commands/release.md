@@ -31,6 +31,7 @@ git log --oneline --pretty=format:"* %s (%ad)" --date=short ${last_tag}..HEAD
 ```
 
 Create `changes/v$ARGUMENTS.md` with:
+
 - `# v$ARGUMENTS` header
 - `## Highlights` section with notable user-facing changes
 - `## Raw commits` section with commit list
@@ -64,7 +65,8 @@ gh run watch <run-id> --exit-status
 
 ### 7. Homebrew Formula Update
 
-- Clone `../homebrew-tap` if not present: `git clone https://github.com/cablehead/homebrew-tap.git`
+- Clone `../homebrew-tap` if not present:
+  `git clone https://github.com/cablehead/homebrew-tap.git`
 - **Wait 10+ seconds** after build completes for GitHub CDN propagation
 - Download macOS tarball, verify integrity, and calculate SHA256:
   ```bash
@@ -75,7 +77,8 @@ gh run watch <run-id> --exit-status
   tar -tzf http-nu-v$ARGUMENTS-macos.tar.gz  # should list: http-nu
   sha256sum http-nu-v$ARGUMENTS-macos.tar.gz
   ```
-- Update `../homebrew-tap/Formula/http-nu.rb` with new version, URL, and SHA256 checksum
+- Update `../homebrew-tap/Formula/http-nu.rb` with new version, URL, and SHA256
+  checksum
 - Commit and push homebrew formula changes
 
 ### 8. Manual Verification Required

@@ -1,4 +1,5 @@
-> **Note:** See [ADR-0003](0003-html-dsl-design.md) for the consolidated HTML DSL design.
+> **Note:** See [ADR-0003](0003-html-dsl-design.md) for the consolidated HTML
+> DSL design.
 
 # Explicit Append in HTML DSL
 
@@ -17,7 +18,8 @@ _ul { _li "hi" | ("foo" | _li $in) }
 # Got: <ul>foo<li>foo</li></ul>
 ```
 
-`_li $in` appended `<li>foo</li>` to its `$in` (also "foo"), producing `foo<li>foo</li>`.
+`_li $in` appended `<li>foo</li>` to its `$in` (also "foo"), producing
+`foo<li>foo</li>`.
 
 ## Decision
 

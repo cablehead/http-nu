@@ -18,13 +18,18 @@ Clicking executes the JavaScript.
 
 ## Why Current Design Doesn't Cover This
 
-`.md` escapes raw HTML by intercepting `Event::Html` and `Event::InlineHtml`. Markdown links emit structured events (`Event::Start(Tag::Link {...})`), not HTML events—the URL passes through as data.
+`.md` escapes raw HTML by intercepting `Event::Html` and `Event::InlineHtml`.
+Markdown links emit structured events (`Event::Start(Tag::Link {...})`), not
+HTML events—the URL passes through as data.
 
 ## Potential Fixes
 
-1. **Intercept link events** - check `dest_url` for dangerous schemes (`javascript:`, `data:`, `vbscript:`)
-2. **Allowlist schemes** - only permit `http:`, `https:`, `mailto:`, relative paths
-3. **Rely on CSP** - Content-Security-Policy headers block inline script execution
+1. **Intercept link events** - check `dest_url` for dangerous schemes
+   (`javascript:`, `data:`, `vbscript:`)
+2. **Allowlist schemes** - only permit `http:`, `https:`, `mailto:`, relative
+   paths
+3. **Rely on CSP** - Content-Security-Policy headers block inline script
+   execution
 
 ## Tradeoffs
 

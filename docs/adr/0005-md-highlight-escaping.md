@@ -1,10 +1,12 @@
 # Markdown and Highlight Escaping
 
-Extends [ADR-0002](0002-html-escaping-strategy.md)'s `{__html: ...}` convention to `.md` and `.highlight` commands.
+Extends [ADR-0002](0002-html-escaping-strategy.md)'s `{__html: ...}` convention
+to `.md` and `.highlight` commands.
 
 ## Background
 
 ADR-0002 established:
+
 - Strings are escaped by default in the HTML DSL
 - `{__html: ...}` marks trusted content that bypasses escaping
 - Secure by default, opt-in for raw HTML
@@ -22,16 +24,18 @@ $req.body | .md  # user submits: <script>evil()</script>
 
 ### `.highlight`
 
-Always escapes input. Code is never trusted as HTML—syntect's `ClassedHTMLGenerator` HTML-escapes content automatically. Returns `{__html: ...}` for DSL composition.
+Always escapes input. Code is never trusted as HTML—syntect's
+`ClassedHTMLGenerator` HTML-escapes content automatically. Returns
+`{__html: ...}` for DSL composition.
 
 ### `.md`
 
 Accepts two input types:
 
-| Input | Trust | HTML Handling |
-|-------|-------|---------------|
-| `"string"` | Untrusted | Escape raw HTML |
-| `{__html: "..."}` | Trusted | Pass through |
+| Input             | Trust     | HTML Handling   |
+| ----------------- | --------- | --------------- |
+| `"string"`        | Untrusted | Escape raw HTML |
+| `{__html: "..."}` | Trusted   | Pass through    |
 
 Implementation intercepts pulldown-cmark events:
 
@@ -42,7 +46,8 @@ Event::Html(html) => {
 }
 ```
 
-Markdown syntax using `<>` (autolinks, etc.) still works—pulldown-cmark emits these as structured events, not `Event::Html`.
+Markdown syntax using `<>` (autolinks, etc.) still works—pulldown-cmark emits
+these as structured events, not `Event::Html`.
 
 ## Examples
 
