@@ -22,6 +22,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as HttpConnectionBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
+use notify::{RecursiveMode, Watcher};
 use tokio::signal;
 use tokio::sync::mpsc;
 
@@ -48,8 +49,14 @@ struct Args {
     script: Option<String>,
 
     /// Run script from command line instead of file
-    #[clap(short = 'c', long = "commands")]
+    #[clap(short = 'c', long = "commands", conflicts_with = "watch")]
     commands: Option<String>,
+
+    /// Watch for script changes and reload automatically.
+    /// For file scripts: watches the script's directory for any changes.
+    /// For stdin (-): reads null-terminated scripts for hot reload.
+    #[clap(short = 'w', long = "watch")]
+    watch: bool,
 
     /// Log format: human (live-updating) or jsonl (structured)
     #[clap(long, default_value = "human")]
@@ -103,6 +110,66 @@ fn create_base_engine(
     engine.set_signals(interrupt.clone());
     setup_ctrlc_handler(&engine, interrupt)?;
     Ok(engine)
+}
+
+/// Spawns a file watcher that watches the script's directory for any changes.
+/// When a change is detected, re-reads the script file and sends it.
+fn spawn_file_watcher(script_path: PathBuf, tx: mpsc::Sender<String>) {
+    std::thread::spawn(move || {
+        let watch_dir = script_path.parent().unwrap_or(&script_path).to_path_buf();
+
+        let (raw_tx, raw_rx) = std::sync::mpsc::channel();
+
+        let mut watcher = notify::recommended_watcher(raw_tx).expect("Failed to create watcher");
+
+        watcher
+            .watch(&watch_dir, RecursiveMode::Recursive)
+            .expect("Failed to watch directory");
+
+        // Keep watcher alive
+        let _watcher = watcher;
+
+        // Set to past time so first event isn't debounced
+        let mut last_reload = std::time::Instant::now() - Duration::from_secs(1);
+        let debounce = Duration::from_millis(100);
+
+        for result in raw_rx {
+            match result {
+                Ok(event) => {
+                    // Only react to modifications, not access/open events
+                    use notify::EventKind;
+                    let is_modification = matches!(
+                        event.kind,
+                        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+                    );
+                    if !is_modification {
+                        continue;
+                    }
+
+                    // Debounce rapid events
+                    if last_reload.elapsed() < debounce {
+                        continue;
+                    }
+                    last_reload = std::time::Instant::now();
+
+                    // Re-read and send the script file
+                    match std::fs::read_to_string(&script_path) {
+                        Ok(content) => {
+                            if tx.blocking_send(content).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading script file: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Watch error: {e:?}");
+                }
+            }
+        }
+    });
 }
 
 /// Spawns a dedicated OS thread that reads null-terminated scripts from stdin and sends them.
@@ -419,42 +486,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Server mode (default)
     let addr = args.addr.expect("addr required for server mode");
 
-    // Determine script source: -c flag, stdin (-), or file
-    let (script_content, read_stdin) = match (&args.script, &args.commands) {
-        (Some(_), Some(_)) => {
-            eprintln!("Error: cannot specify both script file and --commands");
-            std::process::exit(1);
-        }
-        (None, None) => {
-            eprintln!("Error: provide a script file or use --commands");
-            std::process::exit(1);
-        }
-        (None, Some(cmd)) => (Some(cmd.clone()), false),
-        (Some(path), None) if path == "-" => (None, true),
-        (Some(path), None) => {
-            let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
-                eprintln!("Error reading {path}: {e}");
-                std::process::exit(1);
-            });
-            (Some(content), false)
-        }
-    };
-
     // Create base engine with commands, signals, and plugins
     let base_engine = create_base_engine(interrupt.clone(), &args.plugins, &args.include_paths)?;
 
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);
 
-    if read_stdin {
-        // Spawn dedicated stdin reader thread
-        spawn_stdin_reader(tx);
-    } else {
-        // Send the script content
-        tx.send(script_content.unwrap())
-            .await
-            .expect("channel closed unexpectedly");
-        drop(tx); // Close the channel
+    // Determine script source and set up appropriate watcher/reader
+    match (&args.script, &args.commands, args.watch) {
+        (Some(_), Some(_), _) => {
+            eprintln!("Error: cannot specify both script file and --commands");
+            std::process::exit(1);
+        }
+        (None, None, _) => {
+            eprintln!("Error: provide a script file or use --commands");
+            std::process::exit(1);
+        }
+        // -c flag: use command content directly (conflicts_with prevents -w)
+        (None, Some(cmd), false) => {
+            tx.send(cmd.clone())
+                .await
+                .expect("channel closed unexpectedly");
+            drop(tx);
+        }
+        // stdin without -w: read once
+        (Some(path), None, false) if path == "-" => {
+            let mut content = String::new();
+            std::io::stdin()
+                .read_to_string(&mut content)
+                .expect("Failed to read from stdin");
+            tx.send(content).await.expect("channel closed unexpectedly");
+            drop(tx);
+        }
+        // stdin with -w: spawn stdin reader for null-terminated scripts
+        (Some(path), None, true) if path == "-" => {
+            spawn_stdin_reader(tx);
+        }
+        // file without -w: read once
+        (Some(path), None, false) => {
+            let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                eprintln!("Error reading {path}: {e}");
+                std::process::exit(1);
+            });
+            tx.send(content).await.expect("channel closed unexpectedly");
+            drop(tx);
+        }
+        // file with -w: read initial content and spawn file watcher
+        (Some(path), None, true) => {
+            let script_path = PathBuf::from(path);
+            let content = std::fs::read_to_string(&script_path).unwrap_or_else(|e| {
+                eprintln!("Error reading {path}: {e}");
+                std::process::exit(1);
+            });
+            tx.send(content).await.expect("channel closed unexpectedly");
+            spawn_file_watcher(script_path, tx);
+        }
+        // -c with -w is prevented by clap conflicts_with
+        (None, Some(_), true) => unreachable!(),
     }
 
     serve(

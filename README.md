@@ -42,8 +42,8 @@
 - [Reference](#reference)
   - [GET: Hello world](#get-hello-world)
   - [UNIX domain sockets](#unix-domain-sockets)
-  - [Reading closures from stdin](#reading-closures-from-stdin)
-    - [Dynamic reloads](#dynamic-reloads)
+  - [Watch Mode](#watch-mode)
+  - [Reading from stdin](#reading-from-stdin)
   - [POST: echo](#post-echo)
   - [Request metadata](#request-metadata)
   - [Response metadata](#response-metadata)
@@ -119,8 +119,12 @@ Hello world
 Or from a file:
 
 ```bash
-$ http-nu :3001 ./handler.nu
+$ http-nu :3001 ./serve.nu
 ```
+
+Check out the [`examples/basic.nu`](examples/basic.nu) file in the repository
+for a complete example that implements a mini web server with multiple routes,
+form handling, and streaming responses.
 
 ### UNIX domain sockets
 
@@ -130,46 +134,32 @@ $ curl -s --unix-socket ./sock localhost
 Hello world
 ```
 
-### Reading scripts from stdin
+### Watch Mode
+
+Use `-w` / `--watch` to automatically reload when files change:
+
+```bash
+$ http-nu :3001 -w ./serve.nu
+```
+
+This watches the script's directory for any changes (including included files)
+and hot-reloads the handler. Useful during development.
+
+### Reading from stdin
 
 Pass `-` to read the script from stdin:
 
 ```bash
-$ echo '{|req| "Hello from stdin"}' | http-nu :3001 -
-$ curl -s localhost:3001
-Hello from stdin
+$ echo '{|req| "hello"}' | http-nu :3001 -
 ```
 
-Or pipe a file:
+With `-w`, send null-terminated scripts to hot-reload the handler:
 
 ```bash
-$ cat handler.nu | http-nu :3001 -
+$ (printf '{|req| "v1"}\0'; sleep 5; printf '{|req| "v2"}') | http-nu :3001 - -w
 ```
 
-Check out the [`examples/basic.nu`](examples/basic.nu) file in the repository
-for a complete example that implements a mini web server with multiple routes,
-form handling, and streaming responses.
-
-#### Dynamic reloads
-
-When reading from stdin, you can send multiple null-terminated scripts to
-hot-reload the handler without restarting the server. This example starts with
-"v1", then after 5 seconds switches to "v2":
-
-```bash
-$ (printf '{|req| "v1"}\0'; sleep 5; printf '{|req| "v2"}') | http-nu :3001 -
-```
-
-JSON status is emitted to stdout: `"start"` on first load, `"reload"` on
-updates, `"error"` on parse failures.
-
-Watch a file and reload on changes:
-
-```nushell
-watch ./serve.nu | prepend {operation: Write} | each {
-  (cat serve.nu) + (char -i 0)
-} | to text | http-nu /run/sock -
-```
+Each `\0`-terminated script replaces the handler.
 
 ### POST: echo
 

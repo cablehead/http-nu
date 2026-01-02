@@ -67,6 +67,8 @@ xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 syntect = "5.3.0"
 syntect-assets = "0.23.6"
 pulldown-cmark = "0.12.2"
+notify = "8"
+notify-debouncer-mini = "0.6"
 
 [build-dependencies]
 syntect = "5.3.0"
