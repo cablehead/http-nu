@@ -62,6 +62,10 @@ struct Args {
     #[clap(long, default_value = "human")]
     log_format: LogFormat,
 
+    /// Path to cross.stream store directory (enables .cat, .append, .cas commands)
+    #[clap(long)]
+    store: Option<PathBuf>,
+
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
     #[clap(long = "trust-proxy", value_name = "CIDR")]
     trust_proxies: Vec<ipnet::IpNet>,
@@ -93,10 +97,38 @@ enum Command {
 }
 
 /// Creates and configures the base engine with all commands, signals, and ctrlc handler.
+#[cfg(feature = "store")]
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
     plugins: &[PathBuf],
     include_paths: &[PathBuf],
+    store: Option<&xs::store::Store>,
+) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
+    let mut engine = Engine::new()?;
+    engine.add_custom_commands()?;
+    engine.set_lib_dirs(include_paths)?;
+
+    // Load plugins
+    for plugin_path in plugins {
+        engine.load_plugin(plugin_path)?;
+    }
+
+    // Add cross.stream commands if store is enabled
+    if let Some(store) = store {
+        engine.add_store_commands(store)?;
+    }
+
+    engine.set_signals(interrupt.clone());
+    setup_ctrlc_handler(&engine, interrupt)?;
+    Ok(engine)
+}
+
+#[cfg(not(feature = "store"))]
+fn create_base_engine(
+    interrupt: Arc<AtomicBool>,
+    plugins: &[PathBuf],
+    include_paths: &[PathBuf],
+    _store_path: Option<&PathBuf>,
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
@@ -486,8 +518,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Server mode (default)
     let addr = args.addr.expect("addr required for server mode");
 
+    // Create cross.stream store if --store is specified
+    #[cfg(feature = "store")]
+    let store = args
+        .store
+        .as_ref()
+        .map(|p| xs::store::Store::new(p.clone()));
+
+    // Spawn xs API server if store is enabled
+    #[cfg(feature = "store")]
+    if let Some(ref store) = store {
+        let store_for_api = store.clone();
+        tokio::spawn(async move {
+            // Create minimal nu::Engine for API (vestigial, not actually used)
+            let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
+            if let Err(e) = xs::api::serve(store_for_api, engine, None).await {
+                eprintln!("Store API server error: {e}");
+            }
+        });
+    }
+
     // Create base engine with commands, signals, and plugins
-    let base_engine = create_base_engine(interrupt.clone(), &args.plugins, &args.include_paths)?;
+    #[cfg(feature = "store")]
+    let base_engine = create_base_engine(
+        interrupt.clone(),
+        &args.plugins,
+        &args.include_paths,
+        store.as_ref(),
+    )?;
+
+    #[cfg(not(feature = "store"))]
+    let base_engine = create_base_engine(
+        interrupt.clone(),
+        &args.plugins,
+        &args.include_paths,
+        args.store.as_ref(),
+    )?;
 
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);

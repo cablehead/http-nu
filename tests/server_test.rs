@@ -11,7 +11,7 @@ struct TestServer {
 
 impl TestServer {
     async fn new(addr: &str, closure: &str, tls: bool) -> Self {
-        Self::new_with_plugins(addr, closure, tls, &[]).await
+        Self::new_with_options(addr, closure, tls, &[], None).await
     }
 
     async fn new_with_plugins(
@@ -20,12 +20,31 @@ impl TestServer {
         tls: bool,
         plugins: &[std::path::PathBuf],
     ) -> Self {
+        Self::new_with_options(addr, closure, tls, plugins, None).await
+    }
+
+    async fn new_with_store(addr: &str, closure: &str, store_path: &std::path::Path) -> Self {
+        Self::new_with_options(addr, closure, false, &[], Some(store_path)).await
+    }
+
+    async fn new_with_options(
+        addr: &str,
+        closure: &str,
+        tls: bool,
+        plugins: &[std::path::PathBuf],
+        store_path: Option<&std::path::Path>,
+    ) -> Self {
         let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
         cmd.arg("--log-format").arg("jsonl");
 
         // Add plugin arguments first
         for plugin in plugins {
             cmd.arg("--plugin").arg(plugin);
+        }
+
+        // Add store path if provided
+        if let Some(path) = store_path {
+            cmd.arg("--store").arg(path);
         }
 
         cmd.arg(addr).arg("-c").arg(closure);
@@ -1605,4 +1624,88 @@ async fn test_watch_stdin_dynamic_reload() {
 
     // 9. Curl should return "3" (script was processed on stdin close)
     assert_eq!(server.curl_get().await, "3");
+}
+
+// ============================================================================
+// Store integration tests (cross.stream)
+// ============================================================================
+
+/// Tests that .cat -f streams frames appended via .append
+#[tokio::test]
+async fn test_store_cat_follow_receives_appended_frames() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    // Server with two endpoints:
+    // GET /stream - streams frames from topic "ping" as JSONL
+    // POST /append - appends a frame to topic "ping"
+    let server = TestServer::new_with_store(
+        "127.0.0.1:0",
+        r#"{|req|
+            if $req.method == "GET" and $req.path == "/stream" {
+                .cat -f -t -T ping | each {|frame| $frame | to json -r | $"($in)\n" }
+            } else if $req.method == "POST" and $req.path == "/append" {
+                $in | .append ping --meta {source: "test"}
+                "ok"
+            } else {
+                {status: 404} | .response $in; "not found"
+            }
+        }"#,
+        &store_path,
+    )
+    .await;
+
+    // Start long-poll connection to /stream
+    let stream_url = format!("{}/stream", server.address);
+    let mut stream_child = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-N") // no buffering
+        .arg(&stream_url)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start curl for stream");
+
+    let stream_stdout = stream_child.stdout.take().unwrap();
+    let mut stream_reader = BufReader::new(stream_stdout).lines();
+
+    // Give the stream connection time to establish
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Append a frame via POST /append
+    let append_output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("hello world")
+        .arg(format!("{}/append", server.address))
+        .output()
+        .await
+        .expect("Failed to execute append curl");
+
+    assert!(append_output.status.success());
+    assert_eq!(String::from_utf8_lossy(&append_output.stdout).trim(), "ok");
+
+    // Read the streamed frame from the long-poll connection
+    let frame_line = timeout(std::time::Duration::from_secs(5), stream_reader.next_line())
+        .await
+        .expect("Timed out waiting for streamed frame")
+        .expect("Failed to read line")
+        .expect("Stream ended unexpectedly");
+
+    // Parse the JSONL and verify it's our frame
+    let frame: serde_json::Value =
+        serde_json::from_str(&frame_line).expect("Failed to parse frame JSON");
+
+    assert_eq!(frame["topic"], "ping", "Frame should have topic 'ping'");
+    assert_eq!(
+        frame["meta"]["source"], "test",
+        "Frame should have meta.source 'test'"
+    );
+    assert!(frame["hash"].is_string(), "Frame should have a hash");
+
+    // Clean up
+    let _ = stream_child.kill().await;
 }

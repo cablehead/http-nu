@@ -54,6 +54,7 @@
   - [Serving Static Files](#serving-static-files)
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
+  - [Embedded Store](#embedded-store)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
     - [`.mj` - Render inline](#mj---render-inline)
@@ -454,6 +455,40 @@ data: {"date":"2025-01-31 04:01:27.387723 -05:00"}
 data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
 ...
 ```
+
+### Embedded Store
+
+Embed [cross.stream](https://www.cross.stream) for real-time state and event
+streaming. Append-only frames, automatic indexing, content-addressed storage.
+Enable with `--store <path>`:
+
+```bash
+$ http-nu :3001 --store ./store ./serve.nu
+```
+
+**Commands available in handlers:**
+
+| Command   | Description                                      |
+| --------- | ------------------------------------------------ |
+| `.cat`    | Read frames (`-f` follow, `-t` tail, `-T` topic) |
+| `.head`   | Get latest frame for topic (`--follow` stream)   |
+| `.append` | Write frame to topic (`--meta` for metadata)     |
+| `.get`    | Retrieve frame by ID                             |
+| `.remove` | Remove frame by ID                               |
+| `.cas`    | Content-addressable storage operations           |
+| `.id`     | Generate/unpack/pack SCRU128 IDs                 |
+
+**SSE with store:**
+
+```nushell
+{|req|
+  .head quotes --follow
+  | each {|frame| $frame.meta | to dstar-patch-element }
+  | to sse
+}
+```
+
+See the [xs documentation](https://www.cross.stream) to learn more.
 
 ### Reverse Proxy
 
