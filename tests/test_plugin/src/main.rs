@@ -46,5 +46,7 @@ impl SimplePluginCommand for TestCommand {
 }
 
 fn main() {
+    // Simulate slow plugin startup to verify plugin process is shared across requests
+    std::thread::sleep(std::time::Duration::from_millis(100));
     serve_plugin(&TestPlugin, MsgPackSerializer)
 }

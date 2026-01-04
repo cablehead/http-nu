@@ -1299,6 +1299,37 @@ async fn test_plugin_loading() {
     assert_eq!(stdout.trim(), "PLUGIN_WORKS");
 }
 
+/// Tests that plugin process is shared across requests (not spawned per-request).
+/// The test plugin has a 100ms startup delay. If plugins were spawned per-request,
+/// 10 requests would take at least 1000ms. With shared plugins, it should complete
+/// well under 200ms total.
+#[tokio::test]
+async fn test_plugin_process_shared_across_requests() {
+    let plugin_path = cargo_bin("nu_plugin_test");
+    let server = TestServer::new_with_plugins(
+        "127.0.0.1:0",
+        "{|req| test-plugin-cmd}",
+        false,
+        &[plugin_path],
+    )
+    .await;
+
+    let start = std::time::Instant::now();
+
+    for _ in 0..10 {
+        let output = server.curl("/").await;
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(stdout.trim(), "PLUGIN_WORKS");
+    }
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(200),
+        "10 requests took {elapsed:?}, expected < 200ms (plugin should be shared, not spawned per-request)"
+    );
+}
+
 // ============================================================================
 // Watch mode tests (-w/--watch)
 // ============================================================================
