@@ -9,6 +9,82 @@ use tokio::net::TcpListener;
 use tokio::net::UnixListener;
 use tokio_rustls::TlsAcceptor;
 
+#[cfg(windows)]
+mod win_uds_compat {
+    use std::io;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+    use tokio_util::compat::Compat;
+    use win_uds::net::{AsyncListener, AsyncStream};
+
+    pub struct WinUnixStream(Compat<AsyncStream>);
+
+    impl WinUnixStream {
+        pub async fn connect<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
+            use tokio_util::compat::FuturesAsyncReadCompatExt;
+            let stream = AsyncStream::connect(path).await?;
+            Ok(Self(stream.compat()))
+        }
+    }
+
+    impl AsyncRead for WinUnixStream {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.0).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for WinUnixStream {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.0).poll_write(cx, buf)
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.0).poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.0).poll_shutdown(cx)
+        }
+    }
+
+    pub struct WinUnixListener {
+        inner: AsyncListener,
+        path: std::path::PathBuf,
+    }
+
+    impl WinUnixListener {
+        pub fn bind<P: AsRef<std::path::Path>>(path: P) -> io::Result<Self> {
+            let path_buf = path.as_ref().to_path_buf();
+            Ok(Self {
+                inner: AsyncListener::bind(path)?,
+                path: path_buf,
+            })
+        }
+
+        pub async fn accept(&self) -> io::Result<(WinUnixStream, ())> {
+            use tokio_util::compat::FuturesAsyncReadCompatExt;
+            let (stream, _addr) = self.inner.accept().await?;
+            Ok((WinUnixStream(stream.compat()), ()))
+        }
+
+        pub fn local_addr(&self) -> io::Result<std::path::PathBuf> {
+            Ok(self.path.clone())
+        }
+    }
+}
+
+#[cfg(windows)]
+use win_uds_compat::{WinUnixListener, WinUnixStream};
+
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
 impl<T: AsyncRead + AsyncWrite> AsyncReadWrite for T {}
@@ -80,6 +156,8 @@ pub enum Listener {
     },
     #[cfg(unix)]
     Unix(UnixListener),
+    #[cfg(windows)]
+    Unix(WinUnixListener),
 }
 
 impl Listener {
@@ -116,27 +194,57 @@ impl Listener {
                 let (stream, _) = listener.accept().await?;
                 Ok((Box::new(stream), None))
             }
+            #[cfg(windows)]
+            Listener::Unix(listener) => {
+                let (stream, _) = listener.accept().await?;
+                Ok((Box::new(stream), None))
+            }
         }
     }
 
     pub async fn bind(addr: &str, tls_config: Option<TlsConfig>) -> io::Result<Self> {
+        // Check if address looks like a Unix socket path
+        fn is_unix_path(addr: &str) -> bool {
+            addr.starts_with('/') || addr.starts_with('.')
+        }
+
+        #[cfg(windows)]
+        fn is_windows_path(s: &str) -> bool {
+            let bytes = s.as_bytes();
+            bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && (bytes[2] == b'\\' || bytes[2] == b'/')
+        }
+
         #[cfg(windows)]
         {
-            // On Windows, treat all addresses as TCP
-            let mut addr = addr.to_owned();
-            if addr.starts_with(':') {
-                addr = format!("127.0.0.1{addr}");
+            if is_unix_path(addr) || is_windows_path(addr) {
+                if tls_config.is_some() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "TLS is not supported with Unix domain sockets",
+                    ));
+                }
+                let _ = std::fs::remove_file(addr);
+                let listener = WinUnixListener::bind(addr)?;
+                Ok(Listener::Unix(listener))
+            } else {
+                let mut addr = addr.to_owned();
+                if addr.starts_with(':') {
+                    addr = format!("127.0.0.1{addr}");
+                }
+                let listener = TcpListener::bind(addr).await?;
+                Ok(Listener::Tcp {
+                    listener: Arc::new(listener),
+                    tls_config,
+                })
             }
-            let listener = TcpListener::bind(addr).await?;
-            Ok(Listener::Tcp {
-                listener: Arc::new(listener),
-                tls_config,
-            })
         }
 
         #[cfg(unix)]
         {
-            if addr.starts_with('/') || addr.starts_with('.') {
+            if is_unix_path(addr) {
                 if tls_config.is_some() {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
@@ -175,6 +283,10 @@ impl Clone for Listener {
             Listener::Unix(_) => {
                 panic!("Cannot clone a Unix listener")
             }
+            #[cfg(windows)]
+            Listener::Unix(_) => {
+                panic!("Cannot clone a Unix listener")
+            }
         }
     }
 }
@@ -203,6 +315,11 @@ impl std::fmt::Display for Listener {
             Listener::Unix(listener) => {
                 let addr = listener.local_addr().unwrap();
                 let path = addr.as_pathname().unwrap();
+                write!(f, "{}", path.display())
+            }
+            #[cfg(windows)]
+            Listener::Unix(listener) => {
+                let path = listener.local_addr().unwrap();
                 write!(f, "{}", path.display())
             }
         }
