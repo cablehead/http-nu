@@ -83,7 +83,7 @@ mod win_uds_compat {
 }
 
 #[cfg(windows)]
-use win_uds_compat::{WinUnixListener, WinUnixStream};
+use win_uds_compat::WinUnixListener;
 
 pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
@@ -333,6 +333,9 @@ mod tests {
 
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
+
+    #[cfg(windows)]
+    use super::win_uds_compat::WinUnixStream;
 
     async fn exercise_listener(addr: &str) {
         let mut listener = Listener::bind(addr, None).await.unwrap();
