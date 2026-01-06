@@ -306,7 +306,7 @@ impl Engine {
     }
 
     /// Adds cross.stream store commands (.cat, .append, .cas, .head) to the engine
-    #[cfg(feature = "store")]
+    #[cfg(feature = "cross-stream")]
     pub fn add_store_commands(&mut self, store: &xs::store::Store) -> Result<(), Error> {
         use xs::store::ZERO_CONTEXT;
 
@@ -337,14 +337,6 @@ impl Engine {
             )),
             Box::new(xs::nu::commands::scru128_command::Scru128Command::new()),
         ])
-    }
-
-    /// Stub when store feature is not enabled
-    #[cfg(not(feature = "store"))]
-    pub fn add_store_commands(&mut self, _store: &()) -> Result<(), Error> {
-        Err(Error::from(
-            "cross.stream store support not compiled in (enable 'store' feature)",
-        ))
     }
 }
 

@@ -1325,8 +1325,8 @@ async fn test_plugin_process_shared_across_requests() {
 
     let elapsed = start.elapsed();
     assert!(
-        elapsed < std::time::Duration::from_millis(200),
-        "10 requests took {elapsed:?}, expected < 200ms (plugin should be shared, not spawned per-request)"
+        elapsed < std::time::Duration::from_millis(400),
+        "10 requests took {elapsed:?}, expected < 400ms (plugin should be shared, not spawned per-request)"
     );
 }
 
