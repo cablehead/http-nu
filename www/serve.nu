@@ -361,7 +361,7 @@ def install-section [] {
               (META {name: "viewport" content: "width=device-width, initial-scale=1.0"})
               (TITLE "http-nu")
               (META {property: "og:title" content: "http-nu"})
-              (META {property: "og:description" content: "The surprisingly performant Nushell-scriptable HTTP server that fits in your back pocket"})
+              (META {property: "og:description" content: "The surprisingly performant, Datastar-ready, Nushell-scriptable HTTP server that fits in your back pocket"})
               (META {property: "og:image" content: "https://http-nu.cross.stream/og.png"})
               (META {property: "og:type" content: "website"})
               (META {name: "twitter:card" content: "summary_large_image"})

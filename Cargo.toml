@@ -3,10 +3,10 @@ members = [".", "tests/test_plugin"]
 
 [package]
 name = "http-nu"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 rust-version = "1.88.0"
-description = "The surprisingly performant, Nushell-scriptable HTTP server that fits in your back pocket."
+description = "The surprisingly performant, Datastar-ready, Nushell-scriptable HTTP server that fits in your back pocket."
 license = "MIT"
 repository = "https://github.com/cablehead/http-nu"
 readme = "README.md"
