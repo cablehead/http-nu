@@ -306,6 +306,7 @@ impl Engine {
     }
 
     /// Adds cross.stream store commands (.cat, .append, .cas, .head) to the engine
+    #[cfg(feature = "cross-stream")]
     pub fn add_store_commands(&mut self, store: &xs::store::Store) -> Result<(), Error> {
         use xs::store::ZERO_CONTEXT;
 

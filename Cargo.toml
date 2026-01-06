@@ -73,6 +73,10 @@ notify-debouncer-mini = "0.6"
 [dependencies.cross-stream]
 git = "https://github.com/cablehead/xs"
 branch = "windows-support"
+optional = true
+
+[features]
+default = ["cross-stream"]
 
 [target.'cfg(windows)'.dependencies]
 win_uds = "=0.2.0"

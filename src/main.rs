@@ -97,6 +97,7 @@ enum Command {
 }
 
 /// Creates and configures the base engine with all commands, signals, and ctrlc handler.
+#[cfg(feature = "cross-stream")]
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
     plugins: &[PathBuf],
@@ -115,6 +116,25 @@ fn create_base_engine(
     // Add cross.stream commands if store is enabled
     if let Some(store) = store {
         engine.add_store_commands(store)?;
+    }
+
+    engine.set_signals(interrupt.clone());
+    setup_ctrlc_handler(&engine, interrupt)?;
+    Ok(engine)
+}
+
+#[cfg(not(feature = "cross-stream"))]
+fn create_base_engine(
+    interrupt: Arc<AtomicBool>,
+    plugins: &[PathBuf],
+    include_paths: &[PathBuf],
+) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
+    let mut engine = Engine::new()?;
+    engine.add_custom_commands()?;
+    engine.set_lib_dirs(include_paths)?;
+
+    for plugin_path in plugins {
+        engine.load_plugin(plugin_path)?;
     }
 
     engine.set_signals(interrupt.clone());
@@ -497,12 +517,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = args.addr.expect("addr required for server mode");
 
     // Create cross.stream store if --store is specified
+    #[cfg(feature = "cross-stream")]
     let store = args
         .store
         .as_ref()
         .map(|p| xs::store::Store::new(p.clone()));
 
     // Spawn xs API server if store is enabled
+    #[cfg(feature = "cross-stream")]
     if let Some(ref store) = store {
         let store_for_api = store.clone();
         tokio::spawn(async move {
@@ -515,12 +537,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // Create base engine with commands, signals, and plugins
+    #[cfg(feature = "cross-stream")]
     let base_engine = create_base_engine(
         interrupt.clone(),
         &args.plugins,
         &args.include_paths,
         store.as_ref(),
     )?;
+
+    #[cfg(not(feature = "cross-stream"))]
+    let base_engine = create_base_engine(interrupt.clone(), &args.plugins, &args.include_paths)?;
 
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);
