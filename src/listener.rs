@@ -346,26 +346,29 @@ mod tests {
                 let addr = listener.local_addr().unwrap();
                 addr.as_pathname().unwrap().to_string_lossy().to_string()
             }
+            #[cfg(windows)]
+            Listener::Unix(listener) => {
+                let path = listener.local_addr().unwrap();
+                path.to_string_lossy().to_string()
+            }
         };
 
         let client_task: tokio::task::JoinHandle<
             Result<Box<dyn AsyncReadWrite + Send + Unpin>, std::io::Error>,
         > = tokio::spawn(async move {
+            #[cfg(unix)]
             if listener_addr.starts_with('/') {
-                #[cfg(unix)]
-                {
-                    use tokio::net::UnixStream;
-                    let stream = UnixStream::connect(&listener_addr).await?;
-                    Ok(Box::new(stream) as AsyncReadWriteBox)
-                }
-                #[cfg(not(unix))]
-                {
-                    panic!("Unix sockets not supported on this platform");
-                }
-            } else {
-                let stream = TcpStream::connect(&listener_addr).await?;
-                Ok(Box::new(stream) as AsyncReadWriteBox)
+                use tokio::net::UnixStream;
+                let stream = UnixStream::connect(&listener_addr).await?;
+                return Ok(Box::new(stream) as AsyncReadWriteBox);
             }
+            #[cfg(windows)]
+            if listener_addr.starts_with('/') || listener_addr.chars().nth(1) == Some(':') {
+                let stream = WinUnixStream::connect(&listener_addr).await?;
+                return Ok(Box::new(stream) as AsyncReadWriteBox);
+            }
+            let stream = TcpStream::connect(&listener_addr).await?;
+            Ok(Box::new(stream) as AsyncReadWriteBox)
         });
 
         let (mut serve, _) = listener.accept().await.unwrap();
