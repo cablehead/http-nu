@@ -151,3 +151,19 @@ fn test_eval_include_path_multiple() {
         .success()
         .stdout("3\n");
 }
+
+#[test]
+fn test_mj_template_inheritance_and_include() {
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .args([
+            "eval",
+            "-c",
+            r#"{name: "World"} | .mj "examples/template-inheritance/page.html""#,
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("<nav>Home | About</nav>"))
+        .stdout(predicates::str::contains("<title>My Page</title>"))
+        .stdout(predicates::str::contains("Hello World"));
+}

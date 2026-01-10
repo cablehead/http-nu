@@ -603,6 +603,10 @@ From a file:
 $ http-nu :3001 -c '{|req| $req.query | .mj "templates/page.html"}'
 ```
 
+File-based templates support `{% extends %}`, `{% include %}`, and
+`{% import %}`. Referenced templates resolve from the template's directory and
+subdirectories only - no parent traversal (`../`) or absolute paths.
+
 #### `.mj compile` / `.mj render` - Precompiled templates
 
 Compile once, render many. Syntax errors caught at compile time.

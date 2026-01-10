@@ -11,7 +11,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use tokio::sync::oneshot;
 
-use minijinja::Environment;
+use minijinja::{path_loader, Environment};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use syntect::html::{ClassStyle, ClassedHTMLGenerator};
@@ -714,37 +714,25 @@ impl Command for MjCommand {
         let file: Option<String> = call.opt(engine_state, stack, 0)?;
         let inline: Option<String> = call.get_flag(engine_state, stack, "inline")?;
 
-        // Get template source
-        let template_source = match (&file, &inline) {
-            (Some(_), Some(_)) => {
-                return Err(ShellError::GenericError {
-                    error: "Cannot specify both file and --inline".into(),
-                    msg: "use either a file path or --inline, not both".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                });
-            }
-            (None, None) => {
-                return Err(ShellError::GenericError {
-                    error: "No template specified".into(),
-                    msg: "provide a file path or use --inline".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                });
-            }
-            (Some(path), None) => {
-                std::fs::read_to_string(path).map_err(|e| ShellError::GenericError {
-                    error: format!("Failed to read template file: {e}"),
-                    msg: "could not read file".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                })?
-            }
-            (None, Some(tmpl)) => tmpl.clone(),
-        };
+        // Validate arguments
+        if file.is_some() && inline.is_some() {
+            return Err(ShellError::GenericError {
+                error: "Cannot specify both file and --inline".into(),
+                msg: "use either a file path or --inline, not both".into(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            });
+        }
+        if file.is_none() && inline.is_none() {
+            return Err(ShellError::GenericError {
+                error: "No template specified".into(),
+                msg: "provide a file path or use --inline".into(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            });
+        }
 
         // Get context from input
         let context = match input {
@@ -758,26 +746,49 @@ impl Command for MjCommand {
             }
         };
 
-        // Render template
+        // Set up environment and get template
         let mut env = Environment::new();
-        env.add_template("template", &template_source)
-            .map_err(|e| ShellError::GenericError {
-                error: format!("Template parse error: {e}"),
-                msg: e.to_string(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            })?;
-
-        let tmpl = env
-            .get_template("template")
-            .map_err(|e| ShellError::GenericError {
-                error: format!("Failed to get template: {e}"),
-                msg: e.to_string(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            })?;
+        let tmpl = if let Some(ref path) = file {
+            let path = std::path::Path::new(path);
+            let abs_path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir().unwrap_or_default().join(path)
+            };
+            if let Some(parent) = abs_path.parent() {
+                env.set_loader(path_loader(parent));
+            }
+            let name = abs_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("template");
+            env.get_template(name)
+                .map_err(|e| ShellError::GenericError {
+                    error: format!("Template error: {e}"),
+                    msg: e.to_string(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                })?
+        } else {
+            let source = inline.as_ref().unwrap();
+            env.add_template("template", source)
+                .map_err(|e| ShellError::GenericError {
+                    error: format!("Template parse error: {e}"),
+                    msg: e.to_string(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                })?;
+            env.get_template("template")
+                .map_err(|e| ShellError::GenericError {
+                    error: format!("Failed to get template: {e}"),
+                    msg: e.to_string(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                })?
+        };
 
         let rendered = tmpl
             .render(&context)
