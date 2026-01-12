@@ -39,7 +39,7 @@ url = "2.5.0"
 nu-cli = "0.109.1"
 nu-cmd-lang = "0.109.1"
 nu-cmd-extra = "0.109.1"
-nu-command = "0.109.1"
+nu-command = { version = "0.109.1", features = ["sqlite"] }
 nu-engine = "0.109.1"
 nu-parser = "0.109.1"
 nu-plugin-engine = "0.109.1"
