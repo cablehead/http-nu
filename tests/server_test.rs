@@ -11,7 +11,7 @@ struct TestServer {
 
 impl TestServer {
     async fn new(addr: &str, closure: &str, tls: bool) -> Self {
-        Self::new_with_options(addr, closure, tls, &[], None).await
+        Self::new_with_options(addr, closure, tls, &[], None, false).await
     }
 
     async fn new_with_plugins(
@@ -20,11 +20,19 @@ impl TestServer {
         tls: bool,
         plugins: &[std::path::PathBuf],
     ) -> Self {
-        Self::new_with_options(addr, closure, tls, plugins, None).await
+        Self::new_with_options(addr, closure, tls, plugins, None, false).await
     }
 
     async fn new_with_store(addr: &str, closure: &str, store_path: &std::path::Path) -> Self {
-        Self::new_with_options(addr, closure, false, &[], Some(store_path)).await
+        Self::new_with_options(addr, closure, false, &[], Some(store_path), false).await
+    }
+
+    async fn new_with_store_and_services(
+        addr: &str,
+        closure: &str,
+        store_path: &std::path::Path,
+    ) -> Self {
+        Self::new_with_options(addr, closure, false, &[], Some(store_path), true).await
     }
 
     async fn new_with_options(
@@ -33,6 +41,7 @@ impl TestServer {
         tls: bool,
         plugins: &[std::path::PathBuf],
         store_path: Option<&std::path::Path>,
+        services: bool,
     ) -> Self {
         let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
         cmd.arg("--log-format").arg("jsonl");
@@ -45,6 +54,9 @@ impl TestServer {
         // Add store path if provided
         if let Some(path) = store_path {
             cmd.arg("--store").arg(path);
+            if services {
+                cmd.arg("--services");
+            }
         }
 
         cmd.arg(addr).arg("-c").arg(closure);
@@ -1739,4 +1751,151 @@ async fn test_store_cat_follow_receives_appended_frames() {
 
     // Clean up
     let _ = stream_child.kill().await;
+}
+
+/// Tests that --services enables xs handlers
+#[tokio::test]
+async fn test_services_flag_enables_handlers() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    // Start server with --store and --services
+    let server =
+        TestServer::new_with_store_and_services("127.0.0.1:0", r#"{|req| "ok"}"#, &store_path)
+            .await;
+
+    // Give services time to start
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let sock_path = store_path.join("sock");
+
+    // Wait for the socket to be created
+    let sock_ready = timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if sock_path.exists() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        sock_ready.is_ok(),
+        "Socket was not created at {sock_path:?}"
+    );
+
+    // Start a streaming reader via the xs API socket
+    let mut stream_child = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-N") // no buffering
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("http://localhost/?follow=true")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start curl for stream");
+
+    let stream_stdout = stream_child.stdout.take().unwrap();
+    let mut stream_reader = BufReader::new(stream_stdout).lines();
+
+    // Give the stream connection time to establish
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Register a simple echo handler via the xs API socket
+    let handler_script = r#"{run: {|frame| $frame.topic | .append echo.out}}"#;
+    let register_output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-d")
+        .arg(handler_script)
+        .arg("http://localhost/echo.register")
+        .output()
+        .await
+        .expect("Failed to register handler");
+
+    assert!(
+        register_output.status.success(),
+        "Handler registration failed: {}",
+        String::from_utf8_lossy(&register_output.stderr)
+    );
+
+    // Wait for handler to become active by reading streamed frames
+    let active_frame = timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let line = stream_reader
+                .next_line()
+                .await
+                .expect("Failed to read line")
+                .expect("Stream ended unexpectedly");
+            eprintln!("[TEST] Received frame: {line}");
+            let frame: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let topic = frame["topic"].as_str().unwrap();
+            if topic == "echo.active" || topic == "echo.unregistered" {
+                return frame;
+            }
+        }
+    })
+    .await
+    .expect("Handler did not become active or fail");
+
+    assert_eq!(
+        active_frame["topic"], "echo.active",
+        "Handler failed to activate"
+    );
+
+    // Trigger the handler via the xs API socket
+    let trigger_output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("http://localhost/test.trigger")
+        .output()
+        .await
+        .expect("Failed to trigger handler");
+
+    assert!(
+        trigger_output.status.success(),
+        "Trigger failed: {}",
+        String::from_utf8_lossy(&trigger_output.stderr)
+    );
+
+    // Wait for the handler output
+    let output_frame = timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let line = stream_reader.next_line().await.unwrap().unwrap();
+            let frame: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if frame["topic"] == "echo.out" {
+                return frame;
+            }
+        }
+    })
+    .await
+    .expect("Handler did not produce output");
+
+    assert_eq!(output_frame["topic"], "echo.out");
+
+    // Verify the handler echoed the trigger topic by fetching CAS content
+    let hash = output_frame["hash"].as_str().unwrap();
+    let cas_output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg(format!("http://localhost/cas/{hash}"))
+        .output()
+        .await
+        .expect("Failed to fetch CAS content");
+
+    assert_eq!(String::from_utf8_lossy(&cas_output.stdout), "test.trigger");
+
+    // Clean up
+    let _ = stream_child.kill().await;
+    drop(server);
 }

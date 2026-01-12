@@ -66,6 +66,10 @@ struct Args {
     #[clap(long)]
     store: Option<PathBuf>,
 
+    /// Enable xs services (handlers, generators, commands). Requires --store.
+    #[clap(long, requires = "store")]
+    services: bool,
+
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
     #[clap(long = "trust-proxy", value_name = "CIDR")]
     trust_proxies: Vec<ipnet::IpNet>,
@@ -528,12 +532,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Some(ref store) = store {
         let store_for_api = store.clone();
         tokio::spawn(async move {
-            // Create minimal nu::Engine for API (vestigial, not actually used)
             let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
             if let Err(e) = xs::api::serve(store_for_api, engine, None).await {
                 eprintln!("Store API server error: {e}");
             }
         });
+
+        // Spawn xs services (handlers, generators, commands) if --services is set
+        if args.services {
+            let store_for_handlers = store.clone();
+            tokio::spawn(async move {
+                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
+                if let Err(e) = xs::handlers::serve(store_for_handlers, engine).await {
+                    eprintln!("Handlers serve error: {e}");
+                }
+            });
+
+            let store_for_generators = store.clone();
+            tokio::spawn(async move {
+                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
+                if let Err(e) = xs::generators::serve(store_for_generators, engine).await {
+                    eprintln!("Generators serve error: {e}");
+                }
+            });
+
+            let store_for_commands = store.clone();
+            tokio::spawn(async move {
+                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
+                if let Err(e) = xs::commands::serve(store_for_commands, engine).await {
+                    eprintln!("Commands serve error: {e}");
+                }
+            });
+        }
     }
 
     // Create base engine with commands, signals, and plugins
