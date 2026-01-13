@@ -277,7 +277,7 @@ Examples:
 Enable TLS by providing a PEM file containing both certificate and private key:
 
 ```bash
-$ http-nu :3001 --tls cert.pem -c '{|req| "Secure Hello"}'
+$ http-nu :3001 --tls combined.pem -c '{|req| "Secure Hello"}'
 $ curl -k https://localhost:3001
 Secure Hello
 ```
