@@ -84,6 +84,10 @@ win_uds = "=0.2.0"
 syntect = "5.3.0"
 
 
+[profile.release]
+lto = true
+codegen-units = 1
+
 [dev-dependencies]
 tempfile = "3.10.1"
 assert_cmd = "2.0"
