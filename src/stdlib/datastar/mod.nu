@@ -39,14 +39,20 @@ export def "to dstar-patch-element" [
 # Patch signals via SSE (JSON Merge Patch RFC 7386)
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
+# Accepts a record (serialized to JSON) or a string (passed through as-is).
 export def "to dstar-patch-signal" [
   --only_if_missing # Only set signals missing on client
   --id: string # SSE event ID
   --retry: int # Retry interval in milliseconds
-]: record -> record {
+]: any -> record {
+  let input = $in
+  let json_str = match ($input | describe -d | get type) {
+    "string" => $input
+    _ => ($input | to json --raw)
+  }
   let data = [
     (if $only_if_missing { "onlyIfMissing true" })
-    ...($in | to json --raw | lines | each { $"signals ($in)" })
+    ...($json_str | lines | each { $"signals ($in)" })
   ] | compact
 
   {event: "datastar-patch-signals" data: $data id: $id retry: $retry}

@@ -99,6 +99,18 @@ def test_patch_signal_only_if_missing [] {
   assert ("onlyIfMissing true" in $result.data)
 }
 
+# Test patch-signal with raw string input (multiline)
+def test_patch_signal_raw_string [] {
+  let raw = "{\n\"one\": 1,\n\"two\": 2}"
+  let result = $raw | to dstar-patch-signal
+
+  assert equal $result.event "datastar-patch-signals"
+  assert equal ($result.data | length) 3
+  assert equal ($result.data | get 0) "signals {"
+  assert equal ($result.data | get 1) "signals \"one\": 1,"
+  assert equal ($result.data | get 2) "signals \"two\": 2}"
+}
+
 # Test execute-script
 def test_execute_script [] {
   let script = "console.log('Hello from Datastar')"
@@ -215,6 +227,7 @@ def main [] {
   test_patch_element_namespace
   test_patch_signal_record
   test_patch_signal_only_if_missing
+  test_patch_signal_raw_string
   test_execute_script
   test_execute_script_no_auto_remove
   test_execute_script_attributes
