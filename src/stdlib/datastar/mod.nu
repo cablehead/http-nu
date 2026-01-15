@@ -80,6 +80,13 @@ export def "to dstar-execute-script" [
   {event: "datastar-patch-elements" data: $data id: $id retry: $retry}
 }
 
+# Redirect via SSE (executes JavaScript to change window.location.href)
+#
+# Returns a record for `to sse`. Pipe the result to `to sse` for output.
+export def "to dstar-redirect" []: string -> record {
+  $"setTimeout\(\(\) => window.location.href = '($in)'\);" | to dstar-execute-script
+}
+
 # Parse signals from request (GET query `datastar` param or POST body JSON)
 # Usage: $in | from datastar-request $req
 export def "from datastar-request" [req: record]: string -> record {

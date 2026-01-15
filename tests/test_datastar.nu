@@ -195,6 +195,17 @@ def test_to_sse_with_id_retry [] {
   assert ($result | str contains "event: datastar-patch-signals")
 }
 
+# Test redirect helper
+def test_redirect [] {
+  let result = "/dashboard" | to dstar-redirect
+
+  assert equal $result.event "datastar-patch-elements"
+  assert ("selector body" in $result.data)
+  assert ("mode append" in $result.data)
+  assert ($result.data | any { str contains "window.location.href = '/dashboard'" })
+  assert ($result.data | any { str contains "setTimeout" })
+}
+
 # Run all tests
 def main [] {
   test_patch_element_record
@@ -214,4 +225,5 @@ def main [] {
   test_from_datastar_request_empty
   test_to_sse_integration
   test_to_sse_with_id_retry
+  test_redirect
 }

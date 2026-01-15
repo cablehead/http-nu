@@ -895,6 +895,8 @@ to dstar-execute-script [
   --retry: int
 ]: string -> record
 
+to dstar-redirect []: string -> record  # "/url" | to dstar-redirect
+
 from datastar-request [req: record]: string -> record  # $in | from datastar-request $req
 ```
 
