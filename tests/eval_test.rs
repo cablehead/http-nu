@@ -164,7 +164,8 @@ fn test_eval_include_path_multiple() {
 }
 
 #[test]
-fn test_mj_template_inheritance_and_include() {
+fn test_mj_file_with_external_refs() {
+    // .mj "file" with extends/include - works because loader is set up
     Command::cargo_bin("http-nu")
         .unwrap()
         .args([
@@ -177,4 +178,53 @@ fn test_mj_template_inheritance_and_include() {
         .stdout(predicates::str::contains("<nav>Home | About</nav>"))
         .stdout(predicates::str::contains("<title>My Page</title>"))
         .stdout(predicates::str::contains("Hello World"));
+}
+
+#[test]
+fn test_mj_inline_with_external_refs() {
+    // .mj --inline with include - FAILS: no loader for cwd
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .current_dir("examples/template-inheritance")
+        .args([
+            "eval",
+            "-c",
+            r#"{} | .mj --inline '{% include "nav.html" %}'"#,
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("<nav>Home | About</nav>"));
+}
+
+#[test]
+fn test_mj_compile_file_with_external_refs() {
+    // .mj compile "file" + render - FAILS: loader not preserved in cache
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .args([
+            "eval",
+            "-c",
+            r#"let t = .mj compile "examples/template-inheritance/page.html"; {name: "World"} | .mj render $t"#,
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("<nav>Home | About</nav>"))
+        .stdout(predicates::str::contains("<title>My Page</title>"))
+        .stdout(predicates::str::contains("Hello World"));
+}
+
+#[test]
+fn test_mj_compile_inline_with_external_refs() {
+    // .mj compile --inline + render - FAILS: no loader for cwd
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .current_dir("examples/template-inheritance")
+        .args([
+            "eval",
+            "-c",
+            r#"let t = .mj compile --inline '{% include "nav.html" %}'; {} | .mj render $t"#,
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("<nav>Home | About</nav>"));
 }

@@ -29,13 +29,15 @@ fn get_cache() -> &'static TemplateCache {
     TEMPLATE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn hash_source(source: &str) -> u128 {
-    xxhash_rust::xxh3::xxh3_128(source.as_bytes())
+fn hash_source_and_path(source: &str, base_dir: &std::path::Path) -> u128 {
+    let mut data = source.as_bytes().to_vec();
+    data.extend_from_slice(base_dir.to_string_lossy().as_bytes());
+    xxhash_rust::xxh3::xxh3_128(&data)
 }
 
 /// Compile template and insert into cache. Returns hash.
-fn compile_template(source: &str) -> Result<u128, minijinja::Error> {
-    let hash = hash_source(source);
+fn compile_template(source: &str, base_dir: &std::path::Path) -> Result<u128, minijinja::Error> {
+    let hash = hash_source_and_path(source, base_dir);
 
     let mut cache = get_cache().write().unwrap();
     if cache.contains_key(&hash) {
@@ -43,6 +45,7 @@ fn compile_template(source: &str) -> Result<u128, minijinja::Error> {
     }
 
     let mut env = Environment::new();
+    env.set_loader(path_loader(base_dir));
     env.add_template_owned("template".to_string(), source.to_string())?;
     cache.insert(hash, Arc::new(env));
     Ok(hash)
@@ -773,6 +776,10 @@ impl Command for MjCommand {
                 })?
         } else {
             let source = inline.as_ref().unwrap();
+            // Use cwd as loader base for inline templates
+            if let Ok(cwd) = std::env::current_dir() {
+                env.set_loader(path_loader(cwd));
+            }
             env.add_template("template", source)
                 .map_err(|e| ShellError::GenericError {
                     error: format!("Template parse error: {e}"),
@@ -905,8 +912,8 @@ impl Command for MjCompileCommand {
             },
         };
 
-        // Get template source
-        let template_source = match (&file, &inline_str) {
+        // Get template source and base directory
+        let (template_source, base_dir) = match (&file, &inline_str) {
             (Some(_), Some(_)) => {
                 return Err(ShellError::GenericError {
                     error: "Cannot specify both file and --inline".into(),
@@ -926,24 +933,38 @@ impl Command for MjCompileCommand {
                 });
             }
             (Some(path), None) => {
-                std::fs::read_to_string(path).map_err(|e| ShellError::GenericError {
-                    error: format!("Failed to read template file: {e}"),
-                    msg: "could not read file".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                })?
+                let path = std::path::Path::new(path);
+                let abs_path = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    std::env::current_dir().unwrap_or_default().join(path)
+                };
+                let base_dir = abs_path.parent().unwrap_or(&abs_path).to_path_buf();
+                let source =
+                    std::fs::read_to_string(&abs_path).map_err(|e| ShellError::GenericError {
+                        error: format!("Failed to read template file: {e}"),
+                        msg: "could not read file".into(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    })?;
+                (source, base_dir)
             }
-            (None, Some(tmpl)) => tmpl.clone(),
+            (None, Some(tmpl)) => {
+                let base_dir = std::env::current_dir().unwrap_or_default();
+                (tmpl.clone(), base_dir)
+            }
         };
 
         // Compile and cache the template
-        let hash = compile_template(&template_source).map_err(|e| ShellError::GenericError {
-            error: format!("Template compile error: {e}"),
-            msg: e.to_string(),
-            span: Some(head),
-            help: None,
-            inner: vec![],
+        let hash = compile_template(&template_source, &base_dir).map_err(|e| {
+            ShellError::GenericError {
+                error: format!("Template compile error: {e}"),
+                msg: e.to_string(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            }
         })?;
 
         Ok(Value::custom(Box::new(CompiledTemplate { hash }), head).into_pipeline_data())
