@@ -112,11 +112,15 @@ pub enum Event {
     Error {
         error: String,
     },
+    Print {
+        message: String,
+    },
     Stopping {
         inflight: usize,
     },
     Stopped,
     StopTimedOut,
+    Shutdown,
 }
 
 // --- Broadcast channel ---
@@ -192,6 +196,12 @@ pub fn log_error(error: &str) {
     });
 }
 
+pub fn log_print(message: &str) {
+    emit(Event::Print {
+        message: message.to_string(),
+    });
+}
+
 pub fn log_stopping(inflight: usize) {
     emit(Event::Stopping { inflight });
 }
@@ -204,9 +214,13 @@ pub fn log_stop_timed_out() {
     emit(Event::StopTimedOut);
 }
 
+pub fn shutdown() {
+    emit(Event::Shutdown);
+}
+
 // --- JSONL handler (dedicated writer thread does serialization + IO) ---
 
-pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
+pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHandle<()> {
     use std::io::Write;
 
     std::thread::spawn(move || {
@@ -231,6 +245,11 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
                 Err(broadcast::error::RecvError::Closed) => break,
             };
 
+            if matches!(event, Event::Shutdown) {
+                let _ = stdout.flush();
+                break;
+            }
+
             let needs_flush = matches!(
                 &event,
                 Event::Started { .. }
@@ -238,6 +257,7 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
                     | Event::StopTimedOut
                     | Event::Reloaded
                     | Event::Error { .. }
+                    | Event::Print { .. }
             );
 
             let stamp = scru128::new().to_string();
@@ -309,6 +329,13 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
                         "error": error,
                     })
                 }
+                Event::Print { message } => {
+                    serde_json::json!({
+                        "stamp": stamp,
+                        "message": "print",
+                        "content": message,
+                    })
+                }
                 Event::Stopping { inflight } => {
                     serde_json::json!({
                         "stamp": stamp,
@@ -328,6 +355,7 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
                         "message": "stop_timed_out",
                     })
                 }
+                Event::Shutdown => unreachable!(),
             };
 
             if let Ok(line) = serde_json::to_string(&json) {
@@ -341,7 +369,7 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) {
         }
 
         let _ = stdout.flush();
-    });
+    })
 }
 
 // --- Human-readable handler (dedicated thread) ---
@@ -445,7 +473,7 @@ fn format_complete_line(state: &RequestState, duration_ms: u64, bytes: u64) -> S
     )
 }
 
-pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
+pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut rx = rx;
         let mut zone = ActiveZone::new();
@@ -496,6 +524,10 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
                 Event::Error { error } => {
                     zone.clear();
                     eprintln!("ERROR: {error}");
+                    zone.redraw(&active_ids, &requests);
+                }
+                Event::Print { message } => {
+                    zone.print_permanent(&format!("PRINT: {message}"));
                     zone.redraw(&active_ids, &requests);
                 }
                 Event::Stopping { inflight } => {
@@ -567,6 +599,7 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
                         zone.redraw(&active_ids, &requests);
                     }
                 }
+                Event::Shutdown => break,
             }
         }
 
@@ -578,7 +611,7 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) {
         if lagged > 0 {
             println!("⚠ total lagged: {lagged} events dropped");
         }
-    });
+    })
 }
 
 // --- RequestGuard: ensures Complete fires even on abort ---

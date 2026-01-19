@@ -6,7 +6,7 @@ use http_body_util::{BodyExt, Empty, Full};
 use hyper::{body::Bytes, Request};
 use tokio::time::Duration;
 
-use crate::commands::{MjCommand, ResponseStartCommand, StaticCommand, ToSse};
+use crate::commands::{MjCommand, PrintCommand, ResponseStartCommand, StaticCommand, ToSse};
 use crate::handler::handle;
 
 fn no_trusted_proxies() -> Arc<Vec<ipnet::IpNet>> {
@@ -323,6 +323,7 @@ fn test_engine(script: &str) -> crate::Engine {
             Box::new(StaticCommand::new()),
             Box::new(ToSse {}),
             Box::new(MjCommand::new()),
+            Box::new(PrintCommand::new()),
         ])
         .unwrap();
     engine.parse_closure(script).unwrap();

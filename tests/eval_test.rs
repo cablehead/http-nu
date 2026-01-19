@@ -62,6 +62,17 @@ fn test_eval_mj_compile_and_render() {
 }
 
 #[test]
+fn test_eval_print() {
+    Command::cargo_bin("http-nu")
+        .unwrap()
+        .args(["--log-format", "jsonl", "eval", "-c", r#"print "hello""#])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(r#""message":"print""#))
+        .stdout(predicates::str::contains(r#""content":"hello""#));
+}
+
+#[test]
 fn test_eval_syntax_error() {
     Command::cargo_bin("http-nu")
         .unwrap()

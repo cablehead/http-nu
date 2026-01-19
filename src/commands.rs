@@ -1,3 +1,4 @@
+use crate::logging::log_print;
 use crate::response::{Response, ResponseBodyType};
 use nu_engine::command_prelude::*;
 use nu_protocol::{
@@ -1431,5 +1432,119 @@ impl Command for MdCommand {
             head,
         )
         .into_pipeline_data())
+    }
+}
+
+// === .print command ===
+
+#[derive(Clone)]
+pub struct PrintCommand;
+
+impl Default for PrintCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PrintCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for PrintCommand {
+    fn name(&self) -> &str {
+        "print"
+    }
+
+    fn description(&self) -> &str {
+        "Print the given values to the http-nu logging system."
+    }
+
+    fn extra_description(&self) -> &str {
+        r#"This command outputs to http-nu's logging system rather than stdout/stderr.
+Messages appear in both human-readable and JSONL output modes.
+
+`print` may be used inside blocks of code (e.g.: hooks) to display text during execution without interfering with the pipeline."#
+    }
+
+    fn search_terms(&self) -> Vec<&str> {
+        vec!["display"]
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build("print")
+            .input_output_types(vec![
+                (Type::Nothing, Type::Nothing),
+                (Type::Any, Type::Nothing),
+            ])
+            .allow_variants_without_examples(true)
+            .rest("rest", SyntaxShape::Any, "the values to print")
+            .switch(
+                "no-newline",
+                "print without inserting a newline for the line ending",
+                Some('n'),
+            )
+            .switch("stderr", "print to stderr instead of stdout", Some('e'))
+            .switch(
+                "raw",
+                "print without formatting (including binary data)",
+                Some('r'),
+            )
+            .category(Category::Strings)
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let args: Vec<Value> = call.rest(engine_state, stack, 0)?;
+        let no_newline = call.has_flag(engine_state, stack, "no-newline")?;
+        let config = stack.get_config(engine_state);
+
+        let format_value = |val: &Value| -> String { val.to_expanded_string(" ", &config) };
+
+        if !args.is_empty() {
+            let messages: Vec<String> = args.iter().map(format_value).collect();
+            let message = if no_newline {
+                messages.join("")
+            } else {
+                messages.join("\n")
+            };
+            log_print(&message);
+        } else if !input.is_nothing() {
+            let message = match input {
+                PipelineData::Value(val, _) => format_value(&val),
+                PipelineData::ListStream(stream, _) => {
+                    let vals: Vec<String> = stream.into_iter().map(|v| format_value(&v)).collect();
+                    vals.join("\n")
+                }
+                PipelineData::ByteStream(stream, _) => stream.into_string()?,
+                PipelineData::Empty => String::new(),
+            };
+            if !message.is_empty() {
+                log_print(&message);
+            }
+        }
+
+        Ok(PipelineData::empty())
+    }
+
+    fn examples(&self) -> Vec<Example<'_>> {
+        vec![
+            Example {
+                description: "Print 'hello world'",
+                example: r#"print "hello world""#,
+                result: None,
+            },
+            Example {
+                description: "Print the sum of 2 and 3",
+                example: r#"print (2 + 3)"#,
+                result: None,
+            },
+        ]
     }
 }

@@ -326,6 +326,9 @@ $ http-nu --log-format jsonl :3001 '{|req| "hello"}'
 
 Lifecycle events: `started`, `reloaded`, `stopping`, `stopped`, `stop_timed_out`
 
+The `print` command outputs to the logging system (appears as `message: "print"`
+in JSONL).
+
 ### Trusted Proxies
 
 When behind a reverse proxy, use `--trust-proxy` to extract client IP from

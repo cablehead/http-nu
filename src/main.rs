@@ -14,7 +14,7 @@ use http_nu::{
     listener::TlsConfig,
     logging::{
         init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
-        run_human_handler, run_jsonl_handler,
+        run_human_handler, run_jsonl_handler, shutdown,
     },
     Engine, Listener,
 };
@@ -457,10 +457,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Set up logging handler based on log format (both spawn dedicated threads)
     let rx = init_broadcast();
-    match args.log_format {
+    let log_handle = match args.log_format {
         LogFormat::Human => run_human_handler(rx),
         LogFormat::Jsonl => run_jsonl_handler(rx),
-    }
+    };
 
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -505,16 +505,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         engine.set_signals(interrupt.clone());
 
-        match engine.eval(&script) {
+        let exit_code = match engine.eval(&script) {
             Ok(value) => {
-                println!("{}", value.to_expanded_string(" ", &engine.state.config));
-                return Ok(());
+                let output = value.to_expanded_string(" ", &engine.state.config);
+                if !output.is_empty() {
+                    println!("{output}");
+                }
+                0
             }
             Err(e) => {
                 eprintln!("{e}");
-                std::process::exit(1);
+                1
             }
-        }
+        };
+        shutdown();
+        log_handle.join().ok();
+        std::process::exit(exit_code);
     }
 
     // Server mode (default)
@@ -643,5 +649,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         args.trust_proxies,
         std::time::Instant::now(),
     )
-    .await
+    .await?;
+
+    shutdown();
+    log_handle.join().ok();
+    Ok(())
 }
