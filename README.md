@@ -255,7 +255,8 @@ Content-type is determined in the following order of precedence:
 2. Pipeline metadata content-type (e.g., from `to yaml`)
 3. For Record values with no content-type, defaults to `application/json`
 4. For lists or streams of records, defaults to `application/x-ndjson` (JSONL)
-5. Otherwise defaults to `text/html; charset=utf-8`
+5. For binary values or byte streams, defaults to `application/octet-stream`
+6. Otherwise defaults to `text/html; charset=utf-8`
 
 Examples:
 
@@ -272,7 +273,10 @@ Examples:
 # 4. List of records auto-converts to JSONL (newline-delimited JSON)
 {|req| [{a: 1}, {b: 2}, {c: 3}] }  # Returns as application/x-ndjson
 
-# 5. Default
+# 5. Binary data
+{|req| 0x[deadbeef] }  # Returns as application/octet-stream
+
+# 6. Default
 {|req| "Hello" }  # Returns as text/html; charset=utf-8
 ```
 

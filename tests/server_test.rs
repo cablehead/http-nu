@@ -1987,3 +1987,24 @@ async fn test_html_record_not_jsonl() {
     );
     assert!(response.contains("<h1>Hello</h1>"), "Expected HTML body");
 }
+
+#[tokio::test]
+async fn test_binary_octet_stream_content_type() {
+    let server = TestServer::new("127.0.0.1:0", "{|req| 0x[deadbeef]}", false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg("-i")
+        .arg(&server.address)
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        response.contains("content-type: application/octet-stream"),
+        "Expected application/octet-stream content-type for binary, got: {response}"
+    );
+}

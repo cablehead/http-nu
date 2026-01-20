@@ -66,6 +66,11 @@ pub fn spawn_eval_thread(
             {
                 Some("application/x-ndjson".to_string())
             }
+            PipelineData::Value(Value::Binary { .. }, meta)
+                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+            {
+                Some("application/octet-stream".to_string())
+            }
             PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
                 meta.as_ref().and_then(|m| m.content_type.clone())
             }
@@ -161,10 +166,11 @@ pub fn spawn_eval_thread(
             }
             PipelineData::ByteStream(stream, meta) => {
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
-                let _ = body_tx.send((
-                    meta.as_ref().and_then(|m| m.content_type.clone()),
-                    ResponseTransport::Stream(stream_rx),
-                ));
+                let content_type = meta
+                    .as_ref()
+                    .and_then(|m| m.content_type.clone())
+                    .or_else(|| Some("application/octet-stream".to_string()));
+                let _ = body_tx.send((content_type, ResponseTransport::Stream(stream_rx)));
                 let mut reader = stream
                     .reader()
                     .ok_or_else(|| "ByteStream has no reader".to_string())?;
