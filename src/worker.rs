@@ -1,7 +1,9 @@
 use crate::commands::RESPONSE_TX;
 use crate::logging::log_error;
 use crate::request::{request_to_value, Request};
-use crate::response::{value_to_bytes, Response, ResponseBodyType, ResponseTransport};
+use crate::response::{
+    value_to_bytes, value_to_json, Response, ResponseBodyType, ResponseTransport,
+};
 use nu_protocol::{
     engine::{Job, StateWorkingSet, ThreadJob},
     format_cli_error, PipelineData, Value,
@@ -9,6 +11,11 @@ use nu_protocol::{
 use std::io::Read;
 use std::sync::{mpsc, Arc};
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
+
+/// Check if a value is a record without __html field
+fn is_jsonl_record(value: &Value) -> bool {
+    matches!(value, Value::Record { val, .. } if val.get("__html").is_none())
+}
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -52,6 +59,13 @@ pub fn spawn_eval_thread(
                     Some("application/json".to_string())
                 }
             }
+            PipelineData::Value(Value::List { vals, .. }, meta)
+                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none()
+                    && !vals.is_empty()
+                    && vals.iter().all(is_jsonl_record) =>
+            {
+                Some("application/x-ndjson".to_string())
+            }
             PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
                 meta.as_ref().and_then(|m| m.content_type.clone())
             }
@@ -70,6 +84,21 @@ pub fn spawn_eval_thread(
                 let working_set = StateWorkingSet::new(&engine.state);
                 Err(format_cli_error(&working_set, error.as_ref(), None).into())
             }
+            PipelineData::Value(Value::List { vals, .. }, _)
+                if !vals.is_empty() && vals.iter().all(is_jsonl_record) =>
+            {
+                // JSONL: each record as JSON line
+                let jsonl: Vec<u8> = vals
+                    .into_iter()
+                    .flat_map(|v| {
+                        let mut line = serde_json::to_vec(&value_to_json(&v)).unwrap_or_default();
+                        line.push(b'\n');
+                        line
+                    })
+                    .collect();
+                let _ = body_tx.send((inferred_content_type, ResponseTransport::Full(jsonl)));
+                Ok(())
+            }
             PipelineData::Value(value, _) => {
                 let _ = body_tx.send((
                     inferred_content_type,
@@ -79,15 +108,52 @@ pub fn spawn_eval_thread(
             }
             PipelineData::ListStream(stream, _) => {
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
-                let _ = body_tx.send((inferred_content_type, ResponseTransport::Stream(stream_rx)));
-                for value in stream.into_inner() {
-                    // Check for errors in the stream and log them properly
+                let mut iter = stream.into_inner();
+
+                // Peek first value to determine mode
+                let first = iter.next();
+                let use_jsonl = first.as_ref().is_some_and(is_jsonl_record);
+                let content_type = if use_jsonl {
+                    Some("application/x-ndjson".to_string())
+                } else {
+                    inferred_content_type
+                };
+
+                let _ = body_tx.send((content_type, ResponseTransport::Stream(stream_rx)));
+
+                // Helper to send a value
+                let send_value = |stream_tx: &tokio_mpsc::Sender<Vec<u8>>, value: Value| -> bool {
+                    let bytes = if use_jsonl {
+                        let mut line =
+                            serde_json::to_vec(&value_to_json(&value)).unwrap_or_default();
+                        line.push(b'\n');
+                        line
+                    } else {
+                        value_to_bytes(value)
+                    };
+                    stream_tx.blocking_send(bytes).is_ok()
+                };
+
+                // Process first value
+                if let Some(value) = first {
+                    if let Value::Error { error, .. } = &value {
+                        let working_set = StateWorkingSet::new(&engine.state);
+                        log_error(&format_cli_error(&working_set, error.as_ref(), None));
+                        return Ok(());
+                    }
+                    if !send_value(&stream_tx, value) {
+                        return Ok(());
+                    }
+                }
+
+                // Process remaining values
+                for value in iter {
                     if let Value::Error { error, .. } = &value {
                         let working_set = StateWorkingSet::new(&engine.state);
                         log_error(&format_cli_error(&working_set, error.as_ref(), None));
                         break;
                     }
-                    if stream_tx.blocking_send(value_to_bytes(value)).is_err() {
+                    if !send_value(&stream_tx, value) {
                         break;
                     }
                 }

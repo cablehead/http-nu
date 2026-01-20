@@ -254,7 +254,8 @@ Content-type is determined in the following order of precedence:
 
 2. Pipeline metadata content-type (e.g., from `to yaml`)
 3. For Record values with no content-type, defaults to `application/json`
-4. Otherwise defaults to `text/html; charset=utf-8`
+4. For lists or streams of records, defaults to `application/x-ndjson` (JSONL)
+5. Otherwise defaults to `text/html; charset=utf-8`
 
 Examples:
 
@@ -268,8 +269,17 @@ Examples:
 # 3. Record auto-converts to JSON
 {|req| {foo: "bar"} }  # Returns as application/json
 
-# 4. Default
+# 4. List of records auto-converts to JSONL (newline-delimited JSON)
+{|req| [{a: 1}, {b: 2}, {c: 3}] }  # Returns as application/x-ndjson
+
+# 5. Default
 {|req| "Hello" }  # Returns as text/html; charset=utf-8
+```
+
+To consume a JSONL endpoint from Nushell:
+
+```nushell
+http get http://localhost:3001 | from json --objects | each {|row| ... }
 ```
 
 ### TLS Support

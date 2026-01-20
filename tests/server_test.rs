@@ -1899,3 +1899,91 @@ async fn test_services_flag_enables_handlers() {
     let _ = stream_child.kill().await;
     drop(server);
 }
+
+#[tokio::test]
+async fn test_record_json_content_type() {
+    let server = TestServer::new("127.0.0.1:0", "{|req| {foo: 1, bar: 'hello'}}", false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg("-i")
+        .arg(&server.address)
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        response.contains("content-type: application/json"),
+        "Expected application/json content-type, got: {response}"
+    );
+    assert!(
+        response.contains(r#""foo":1"#) || response.contains(r#""foo": 1"#),
+        "Expected JSON body with foo:1"
+    );
+}
+
+#[tokio::test]
+async fn test_list_of_records_jsonl_content_type() {
+    let server = TestServer::new("127.0.0.1:0", "{|req| [{a: 1}, {b: 2}, {c: 3}]}", false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg("-i")
+        .arg(&server.address)
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        response.contains("content-type: application/x-ndjson"),
+        "Expected application/x-ndjson content-type, got: {response}"
+    );
+
+    // Check JSONL format: each record on its own line
+    assert!(
+        response.contains(r#"{"a":1}"#),
+        "Expected JSONL line with a:1"
+    );
+    assert!(
+        response.contains(r#"{"b":2}"#),
+        "Expected JSONL line with b:2"
+    );
+    assert!(
+        response.contains(r#"{"c":3}"#),
+        "Expected JSONL line with c:3"
+    );
+}
+
+#[tokio::test]
+async fn test_html_record_not_jsonl() {
+    // Records with __html should get text/html, not JSON
+    let server = TestServer::new(
+        "127.0.0.1:0",
+        r#"{|req| {__html: "<h1>Hello</h1>"}}"#,
+        false,
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg("-i")
+        .arg(&server.address)
+        .output()
+        .expect("curl failed");
+
+    assert!(output.status.success());
+    let response = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        response.contains("content-type: text/html"),
+        "Expected text/html content-type for __html record, got: {response}"
+    );
+    assert!(response.contains("<h1>Hello</h1>"), "Expected HTML body");
+}
