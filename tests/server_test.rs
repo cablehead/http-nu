@@ -1924,7 +1924,8 @@ async fn test_record_json_content_type() {
 }
 
 #[tokio::test]
-async fn test_list_of_records_jsonl_content_type() {
+async fn test_list_of_records_json_content_type() {
+    // Lists serialize as JSON arrays (streams serialize as JSONL)
     let server = TestServer::new("127.0.0.1:0", "{|req| [{a: 1}, {b: 2}, {c: 3}]}", false).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
@@ -1939,22 +1940,14 @@ async fn test_list_of_records_jsonl_content_type() {
     let response = String::from_utf8_lossy(&output.stdout);
 
     assert!(
-        response.contains("content-type: application/x-ndjson"),
-        "Expected application/x-ndjson content-type, got: {response}"
+        response.contains("content-type: application/json"),
+        "Expected application/json content-type, got: {response}"
     );
 
-    // Check JSONL format: each record on its own line
+    // Check JSON array format
     assert!(
-        response.contains(r#"{"a":1}"#),
-        "Expected JSONL line with a:1"
-    );
-    assert!(
-        response.contains(r#"{"b":2}"#),
-        "Expected JSONL line with b:2"
-    );
-    assert!(
-        response.contains(r#"{"c":3}"#),
-        "Expected JSONL line with c:3"
+        response.contains(r#"[{"a":1},{"b":2},{"c":3}]"#),
+        "Expected JSON array, got: {response}"
     );
 }
 

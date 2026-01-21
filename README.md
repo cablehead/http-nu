@@ -257,7 +257,8 @@ Content-type is determined in the following order of precedence:
 
 3. Inferred from value type:
    - Record -> `application/json`
-   - List or stream of records -> `application/x-ndjson` (JSONL)
+   - List -> `application/json` (JSON array)
+   - Stream of records -> `application/x-ndjson` (JSONL)
    - Binary or byte stream -> `application/octet-stream`
    - Empty (null) -> no Content-Type header
 
@@ -274,7 +275,8 @@ Examples:
 
 # 3. Inferred from value type
 {|req| {foo: "bar"} }                 # Record -> application/json
-{|req| [{a: 1}, {b: 2}, {c: 3}] }     # List of records -> application/x-ndjson
+{|req| [{a: 1}, {b: 2}, {c: 3}] }     # List -> application/json (array)
+{|req| 1..10 | each { {n: $in} } }    # Stream of records -> application/x-ndjson
 {|req| 0x[deadbeef] }                 # Binary -> application/octet-stream
 {|req| null }                         # Empty -> no Content-Type header
 

@@ -53,6 +53,19 @@ pub fn spawn_eval_thread(
             let _ = tx.borrow_mut().take(); // This will drop the sender if it wasn't used
         });
         let output = result?;
+
+        // Content-type inference (when pipeline metadata has no content-type):
+        //
+        // | Value type       | Content-Type           | Conversion          |
+        // |------------------|------------------------|---------------------|
+        // | Record (__html)  | text/html              | unwrap __html       |
+        // | Record           | application/json       | JSON object         |
+        // | List             | application/json       | JSON array          |
+        // | Binary           | application/octet-stream | raw bytes         |
+        // | Empty/Nothing    | None (no header)       | empty               |
+        // | ListStream       | application/x-ndjson   | JSONL (if records)  |
+        // | Other            | text/html (default)    | .to_string()        |
+        //
         let inferred_content_type = match &output {
             PipelineData::Value(Value::Record { val, .. }, meta)
                 if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
@@ -63,12 +76,10 @@ pub fn spawn_eval_thread(
                     Some("application/json".to_string())
                 }
             }
-            PipelineData::Value(Value::List { vals, .. }, meta)
-                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none()
-                    && !vals.is_empty()
-                    && vals.iter().all(is_jsonl_record) =>
+            PipelineData::Value(Value::List { .. }, meta)
+                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
             {
-                Some("application/x-ndjson".to_string())
+                Some("application/json".to_string())
             }
             PipelineData::Value(Value::Binary { .. }, meta)
                 if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
@@ -97,26 +108,6 @@ pub fn spawn_eval_thread(
             PipelineData::Value(Value::Error { error, .. }, _) => {
                 let working_set = StateWorkingSet::new(&engine.state);
                 Err(format_cli_error(&working_set, error.as_ref(), None).into())
-            }
-            PipelineData::Value(Value::List { vals, .. }, meta)
-                if !vals.is_empty() && vals.iter().all(is_jsonl_record) =>
-            {
-                let http_meta = extract_http_response_meta(meta.as_ref());
-                // JSONL: each record as JSON line
-                let jsonl: Vec<u8> = vals
-                    .into_iter()
-                    .flat_map(|v| {
-                        let mut line = serde_json::to_vec(&value_to_json(&v)).unwrap_or_default();
-                        line.push(b'\n');
-                        line
-                    })
-                    .collect();
-                let _ = body_tx.send((
-                    inferred_content_type,
-                    http_meta,
-                    ResponseTransport::Full(jsonl),
-                ));
-                Ok(())
             }
             PipelineData::Value(value, meta) => {
                 let http_meta = extract_http_response_meta(meta.as_ref());
