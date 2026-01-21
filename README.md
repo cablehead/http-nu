@@ -206,23 +206,23 @@ hello: /yello
 
 ### Response metadata
 
-You can set the Response metadata using the `.response` custom command.
+Set HTTP response status and headers using nushell's pipeline metadata:
 
 ```nushell
-.response {
+"body" | metadata set --merge {'http.response': {
   status: <number>  # Optional, HTTP status code (default: 200)
   headers: {        # Optional, HTTP headers
     <key>: <value>  # Single value: "text/plain"
     <key>: [<value>, <value>]  # Multiple values: ["cookie1=a", "cookie2=b"]
   }
-}
+}}
 ```
 
 Header values can be strings or lists of strings. Multiple values (e.g.,
 Set-Cookie) are sent as separate HTTP headers per RFC 6265.
 
 ```
-$ http-nu :3001 -c '{|req| .response {status: 404}; "sorry, eh"}'
+$ http-nu :3001 -c '{|req| "sorry, eh" | metadata set --merge {"http.response": {status: 404}}}'
 $ curl -si localhost:3001
 HTTP/1.1 404 Not Found
 transfer-encoding: chunked
@@ -234,27 +234,26 @@ sorry, eh
 Multi-value headers:
 
 ```nushell
-.response {
+"cookies set" | metadata set --merge {'http.response': {
   headers: {
     "Set-Cookie": ["session=abc; Path=/", "token=xyz; Secure"]
   }
-}
+}}
 ```
 
 ### Content-Type Inference
 
 Content-type is determined in the following order of precedence:
 
-1. Headers set via `.response` command:
+1. Headers set via `http.response` metadata:
    ```nushell
-   .response {
-     headers: {
-       "Content-Type": "text/plain"
-     }
-   }
+   "body" | metadata set --merge {'http.response': {
+     headers: {"Content-Type": "text/plain"}
+   }}
    ```
 
-2. Pipeline metadata content-type (e.g., from `to yaml`)
+2. Pipeline metadata content-type (e.g., from `to yaml` or
+   `metadata set --content-type`)
 3. For Record values with no content-type, defaults to `application/json`
 4. For lists or streams of records, defaults to `application/x-ndjson` (JSONL)
 5. For binary values or byte streams, defaults to `application/octet-stream`
@@ -264,7 +263,7 @@ Examples:
 
 ```nushell
 # 1. Explicit header takes precedence
-{|req| .response {headers: {"Content-Type": "text/plain"}}; {foo: "bar"} }  # Returns as text/plain
+{|req| {foo: "bar"} | metadata set --merge {'http.response': {headers: {"Content-Type": "text/plain"}}} }
 
 # 2. Pipeline metadata
 {|req| ls | to yaml }  # Returns as application/x-yaml
@@ -391,7 +390,6 @@ waiting for the entire response to be ready.
 
 ```bash
 $ http-nu :3001 -c '{|req|
-  .response {status: 200}
   generate {|_|
     sleep 1sec
     {out: (date now | to text | $in + "\n") next: true }
@@ -444,8 +442,8 @@ data: [1,2,3]
 ```
 
 ```bash
+# Note: `to sse` automatically sets content-type: text/event-stream
 $ http-nu :3001 -c '{|req|
-  .response {headers: {"content-type": "text/event-stream"}}
   tail -F source.json | lines | from json | to sse
 }'
 
@@ -771,8 +769,7 @@ use http-nu/router *
 
     # Method + path
     (route {method: "POST", path: "/users"} {|req ctx|
-      .response {status: 201}
-      "Created"
+      "Created" | metadata set --merge {'http.response': {status: 201}}
     })
 
     # Path parameters
@@ -787,8 +784,7 @@ use http-nu/router *
 
     # Fallback (always matches)
     (route true {|req ctx|
-      .response {status: 404}
-      "Not Found"
+      "Not Found" | metadata set --merge {'http.response': {status: 404}}
     })
   ]
 }

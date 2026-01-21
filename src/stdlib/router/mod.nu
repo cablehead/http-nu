@@ -16,8 +16,7 @@
 #
 #     # Method + exact path - use record
 #     (route {method: "POST", path: "/users"} {|req ctx|
-#       .response {status: 201}
-#       "User created"
+#       "User created" | metadata set --merge {'http.response': {status: 201}}
 #     })
 #
 #     # Path parameters - use special key path-matches
@@ -27,7 +26,7 @@
 #     (route {has-header: {accept: "application/json"}} {|req ctx| {status: "ok"}})
 #
 #     # Fallback (always matches)
-#     (route true {|req ctx| .response {status: 404}; "Not Found"})
+#     (route true {|req ctx| "Not Found" | metadata set --merge {'http.response': {status: 404}}})
 #   ]
 # }
 # ```
@@ -201,8 +200,7 @@ def find-match [
   routes: list
 ]: nothing -> record {
   let fallback = route true {|req ctx|
-    try { .response {status: 501} }
-    "No route configured"
+    "No route configured" | metadata set --merge {'http.response': {status: 501}}
   }
 
   $routes

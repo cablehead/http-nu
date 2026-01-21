@@ -20,8 +20,7 @@ use nu_protocol::{
 
 use crate::commands::{
     HighlightCommand, HighlightLangCommand, HighlightThemeCommand, MdCommand, MjCommand,
-    MjCompileCommand, MjRenderCommand, PrintCommand, ResponseStartCommand, ReverseProxyCommand,
-    StaticCommand, ToSse,
+    MjCompileCommand, MjRenderCommand, PrintCommand, ReverseProxyCommand, StaticCommand, ToSse,
 };
 use crate::logging::log_error;
 use crate::stdlib::load_http_nu_stdlib;
@@ -296,7 +295,6 @@ impl Engine {
     /// Adds http-nu custom commands to the engine
     pub fn add_custom_commands(&mut self) -> Result<(), Error> {
         self.add_commands(vec![
-            Box::new(ResponseStartCommand::new()),
             Box::new(ReverseProxyCommand::new()),
             Box::new(StaticCommand::new()),
             Box::new(ToSse {}),

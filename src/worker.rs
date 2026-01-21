@@ -2,7 +2,8 @@ use crate::commands::RESPONSE_TX;
 use crate::logging::log_error;
 use crate::request::{request_to_value, Request};
 use crate::response::{
-    value_to_bytes, value_to_json, Response, ResponseBodyType, ResponseTransport,
+    extract_http_response_meta, value_to_bytes, value_to_json, HttpResponseMeta, Response,
+    ResponseTransport,
 };
 use nu_protocol::{
     engine::{Job, StateWorkingSet, ThreadJob},
@@ -19,13 +20,16 @@ fn is_jsonl_record(value: &Value) -> bool {
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+/// Result of pipeline evaluation containing content-type, HTTP response metadata, and body
+pub type PipelineResult = (Option<String>, HttpResponseMeta, ResponseTransport);
+
 pub fn spawn_eval_thread(
     engine: Arc<crate::Engine>,
     request: Request,
     stream: nu_protocol::ByteStream,
 ) -> (
     oneshot::Receiver<Response>,
-    oneshot::Receiver<(Option<String>, ResponseTransport)>,
+    oneshot::Receiver<PipelineResult>,
 ) {
     let (meta_tx, meta_rx) = tokio::sync::oneshot::channel();
     let (body_tx, body_rx) = tokio::sync::oneshot::channel();
@@ -35,7 +39,7 @@ pub fn spawn_eval_thread(
         request: Request,
         stream: nu_protocol::ByteStream,
         meta_tx: oneshot::Sender<Response>,
-        body_tx: oneshot::Sender<(Option<String>, ResponseTransport)>,
+        body_tx: oneshot::Sender<PipelineResult>,
     ) -> Result<(), BoxError> {
         RESPONSE_TX.with(|tx| {
             *tx.borrow_mut() = Some(meta_tx);
@@ -78,20 +82,26 @@ pub fn spawn_eval_thread(
         };
         match output {
             PipelineData::Empty => {
-                let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+                let _ = body_tx.send((
+                    inferred_content_type,
+                    HttpResponseMeta::default(),
+                    ResponseTransport::Empty,
+                ));
                 Ok(())
             }
-            PipelineData::Value(Value::Nothing { .. }, _) => {
-                let _ = body_tx.send((inferred_content_type, ResponseTransport::Empty));
+            PipelineData::Value(Value::Nothing { .. }, meta) => {
+                let http_meta = extract_http_response_meta(meta.as_ref());
+                let _ = body_tx.send((inferred_content_type, http_meta, ResponseTransport::Empty));
                 Ok(())
             }
             PipelineData::Value(Value::Error { error, .. }, _) => {
                 let working_set = StateWorkingSet::new(&engine.state);
                 Err(format_cli_error(&working_set, error.as_ref(), None).into())
             }
-            PipelineData::Value(Value::List { vals, .. }, _)
+            PipelineData::Value(Value::List { vals, .. }, meta)
                 if !vals.is_empty() && vals.iter().all(is_jsonl_record) =>
             {
+                let http_meta = extract_http_response_meta(meta.as_ref());
                 // JSONL: each record as JSON line
                 let jsonl: Vec<u8> = vals
                     .into_iter()
@@ -101,17 +111,24 @@ pub fn spawn_eval_thread(
                         line
                     })
                     .collect();
-                let _ = body_tx.send((inferred_content_type, ResponseTransport::Full(jsonl)));
-                Ok(())
-            }
-            PipelineData::Value(value, _) => {
                 let _ = body_tx.send((
                     inferred_content_type,
+                    http_meta,
+                    ResponseTransport::Full(jsonl),
+                ));
+                Ok(())
+            }
+            PipelineData::Value(value, meta) => {
+                let http_meta = extract_http_response_meta(meta.as_ref());
+                let _ = body_tx.send((
+                    inferred_content_type,
+                    http_meta,
                     ResponseTransport::Full(value_to_bytes(value)),
                 ));
                 Ok(())
             }
-            PipelineData::ListStream(stream, _) => {
+            PipelineData::ListStream(stream, meta) => {
+                let http_meta = extract_http_response_meta(meta.as_ref());
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
                 let mut iter = stream.into_inner();
 
@@ -124,7 +141,11 @@ pub fn spawn_eval_thread(
                     inferred_content_type
                 };
 
-                let _ = body_tx.send((content_type, ResponseTransport::Stream(stream_rx)));
+                let _ = body_tx.send((
+                    content_type,
+                    http_meta,
+                    ResponseTransport::Stream(stream_rx),
+                ));
 
                 // Helper to send a value
                 let send_value = |stream_tx: &tokio_mpsc::Sender<Vec<u8>>, value: Value| -> bool {
@@ -165,12 +186,17 @@ pub fn spawn_eval_thread(
                 Ok(())
             }
             PipelineData::ByteStream(stream, meta) => {
+                let http_meta = extract_http_response_meta(meta.as_ref());
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
                 let content_type = meta
                     .as_ref()
                     .and_then(|m| m.content_type.clone())
                     .or_else(|| Some("application/octet-stream".to_string()));
-                let _ = body_tx.send((content_type, ResponseTransport::Stream(stream_rx)));
+                let _ = body_tx.send((
+                    content_type,
+                    http_meta,
+                    ResponseTransport::Stream(stream_rx),
+                ));
                 let mut reader = stream
                     .reader()
                     .ok_or_else(|| "ByteStream has no reader".to_string())?;
@@ -244,14 +270,17 @@ pub fn spawn_eval_thread(
 
         if let Some(err) = err_msg {
             log_error(&err);
-            if let (Some(meta_tx), Some(body_tx)) = (meta_tx_opt.take(), body_tx_opt.take()) {
-                let _ = meta_tx.send(Response {
-                    status: 500,
+            // Drop meta_tx - we don't use it for normal responses anymore
+            // (only .static and .reverse-proxy use it)
+            drop(meta_tx_opt.take());
+            if let Some(body_tx) = body_tx_opt.take() {
+                let error_meta = HttpResponseMeta {
+                    status: Some(500),
                     headers: std::collections::HashMap::new(),
-                    body_type: ResponseBodyType::Normal,
-                });
+                };
                 let _ = body_tx.send((
                     Some("text/plain; charset=utf-8".to_string()),
+                    error_meta,
                     ResponseTransport::Full(format!("Script error: {err}").into_bytes()),
                 ));
             }

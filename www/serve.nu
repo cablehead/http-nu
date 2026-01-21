@@ -347,8 +347,7 @@ def install-section [] {
   dispatch $req [
     (
       route {method: GET path: "/syntax.css"} {|req ctx|
-        .response {headers: {content-type: "text/css"}}
-        .highlight theme Dracula
+        .highlight theme Dracula | metadata set --content-type "text/css"
       }
     )
 

@@ -6,7 +6,7 @@ use http_body_util::{BodyExt, Empty, Full};
 use hyper::{body::Bytes, Request};
 use tokio::time::Duration;
 
-use crate::commands::{MjCommand, PrintCommand, ResponseStartCommand, StaticCommand, ToSse};
+use crate::commands::{MjCommand, PrintCommand, StaticCommand, ToSse};
 use crate::handler::handle;
 
 fn no_trusted_proxies() -> Arc<Vec<ipnet::IpNet>> {
@@ -44,14 +44,13 @@ async fn test_handle_with_response_start() {
         r#"{|req|
         match $req {
             {uri: "/resource" method: "POST"} => {
-                .response {
+                "created resource" | metadata set --merge {'http.response': {
                     status: 201
                     headers: {
-                    "Content-Type": "text/plain"
-                    "X-Custom": "test"
+                        "Content-Type": "text/plain"
+                        "X-Custom": "test"
                     }
-                }
-                "created resource"
+                }}
             }
         }
     }"#,
@@ -175,8 +174,7 @@ async fn test_content_type_precedence() {
     // 1. Explicit header should take precedence
     let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
-           .response {headers: {"Content-Type": "text/plain"}}
-           {foo: "bar"}
+           {foo: "bar"} | metadata set --merge {'http.response': {headers: {"Content-Type": "text/plain"}}}
        }"#,
     )));
     let req1 = Request::builder()
@@ -319,7 +317,6 @@ fn test_engine(script: &str) -> crate::Engine {
     let mut engine = crate::Engine::new().unwrap();
     engine
         .add_commands(vec![
-            Box::new(ResponseStartCommand::new()),
             Box::new(StaticCommand::new()),
             Box::new(ToSse {}),
             Box::new(MjCommand::new()),
@@ -341,10 +338,9 @@ async fn test_handle_binary_value() {
     // Create engine that returns a binary value directly
     let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
-        .response {
+        0x[89 50 4E 47 0D 0A 1A 0A FF AA BB CC DD] | metadata set --merge {'http.response': {
             headers: {"Content-Type": "application/octet-stream"}
-        }
-        0x[89 50 4E 47 0D 0A 1A 0A FF AA BB CC DD]  # Creates a Binary value type
+        }}
     }"#,
     )));
 
@@ -470,13 +466,12 @@ async fn test_handle_script_runtime_error() {
 async fn test_multi_value_set_cookie_headers() {
     let engine = Arc::new(ArcSwap::from_pointee(test_engine(
         r#"{|req|
-            .response {
+            "cookies set" | metadata set --merge {'http.response': {
                 status: 200
                 headers: {
                     "Set-Cookie": ["session=abc123; Path=/; HttpOnly", "token=xyz789; Path=/; Secure"]
                 }
-            }
-            "cookies set"
+            }}
         }"#,
     )));
 

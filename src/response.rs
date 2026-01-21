@@ -9,6 +9,14 @@ pub enum HeaderValue {
     Multiple(Vec<String>),
 }
 
+/// HTTP response metadata extracted from pipeline metadata (`http.response`)
+#[derive(Clone, Debug, Default)]
+pub struct HttpResponseMeta {
+    pub status: Option<u16>,
+    pub headers: HashMap<String, HeaderValue>,
+}
+
+/// Special response types that bypass normal body handling
 #[derive(Clone, Debug)]
 pub struct Response {
     pub status: u16,
@@ -62,6 +70,54 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
         }
         _ => todo!(),
     }
+}
+
+/// Extract HTTP response metadata from pipeline metadata's `http.response` field
+pub fn extract_http_response_meta(
+    metadata: Option<&nu_protocol::PipelineMetadata>,
+) -> HttpResponseMeta {
+    let Some(meta) = metadata else {
+        return HttpResponseMeta::default();
+    };
+
+    let Some(http_response) = meta.custom.get("http.response") else {
+        return HttpResponseMeta::default();
+    };
+
+    let Ok(record) = http_response.as_record() else {
+        return HttpResponseMeta::default();
+    };
+
+    let status = record
+        .get("status")
+        .and_then(|v| v.as_int().ok())
+        .map(|v| v as u16);
+
+    let headers = record
+        .get("headers")
+        .and_then(|v| v.as_record().ok())
+        .map(|headers_record| {
+            let mut map = HashMap::new();
+            for (k, v) in headers_record.iter() {
+                let header_value = match v {
+                    Value::String { val, .. } => HeaderValue::Single(val.clone()),
+                    Value::List { vals, .. } => {
+                        let strings: Vec<String> = vals
+                            .iter()
+                            .filter_map(|v| v.as_str().ok())
+                            .map(|s| s.to_string())
+                            .collect();
+                        HeaderValue::Multiple(strings)
+                    }
+                    _ => continue,
+                };
+                map.insert(k.clone(), header_value);
+            }
+            map
+        })
+        .unwrap_or_default();
+
+    HttpResponseMeta { status, headers }
 }
 
 pub fn value_to_bytes(value: Value) -> Vec<u8> {

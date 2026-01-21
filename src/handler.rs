@@ -15,7 +15,7 @@ use crate::compression;
 use crate::logging::{log_request, log_response, LoggingBody, RequestGuard};
 use crate::request::{resolve_trusted_ip, Request};
 use crate::response::{Response, ResponseBodyType, ResponseTransport};
-use crate::worker::spawn_eval_thread;
+use crate::worker::{spawn_eval_thread, PipelineResult};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
@@ -140,41 +140,26 @@ where
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 
     // Wait for both:
-    // 1. Metadata - either from .response or default values when closure skips .response
-    // 2. Body pipeline to start (but not necessarily complete as it may stream)
-    let (meta, body_result): (
-        Response,
-        Result<(Option<String>, ResponseTransport), BoxError>,
-    ) = tokio::join!(
-        async {
-            meta_rx.await.unwrap_or(Response {
-                status: 200,
-                headers: std::collections::HashMap::new(),
-                body_type: ResponseBodyType::Normal,
-            })
-        },
-        async { bridged_body.await.map_err(|e| e.into()) }
-    );
+    // 1. Special response (from .static or .reverse-proxy) - None if normal response
+    // 2. Body pipeline result (includes http.response metadata for normal responses)
+    let (special_response, body_result): (Option<Response>, Result<PipelineResult, BoxError>) =
+        tokio::join!(async { meta_rx.await.ok() }, async {
+            bridged_body.await.map_err(|e| e.into())
+        });
 
     let use_brotli = compression::accepts_brotli(&parts.headers);
 
-    match &meta.body_type {
-        ResponseBodyType::Normal => {
-            build_normal_response(
-                &meta,
-                Ok(body_result?),
-                use_brotli,
-                guard,
-                start_time,
-                reload_token,
-            )
-            .await
+    // Check if we got a special response (.static or .reverse-proxy)
+    match special_response.as_ref().map(|r| &r.body_type) {
+        Some(ResponseBodyType::Normal) | None => {
+            // Normal response - use metadata from pipeline
+            build_normal_response(body_result?, use_brotli, guard, start_time, reload_token).await
         }
-        ResponseBodyType::Static {
+        Some(ResponseBodyType::Static {
             root,
             path,
             fallback,
-        } => {
+        }) => {
             let mut static_req = hyper::Request::new(Empty::<Bytes>::new());
             *static_req.uri_mut() = format!("/{path}").parse().unwrap();
             *static_req.method_mut() = parts.method.clone();
@@ -203,14 +188,14 @@ where
             let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
             Ok(res)
         }
-        ResponseBodyType::ReverseProxy {
+        Some(ResponseBodyType::ReverseProxy {
             target_url,
             headers,
             preserve_host,
             strip_prefix,
             request_body,
             query,
-        } => {
+        }) => {
             let body = Full::new(Bytes::from(request_body.clone()));
             let mut proxy_req = hyper::Request::new(body);
 
@@ -332,22 +317,26 @@ where
 }
 
 async fn build_normal_response(
-    meta: &Response,
-    body_result: Result<(Option<String>, ResponseTransport), BoxError>,
+    pipeline_result: PipelineResult,
     use_brotli: bool,
     guard: RequestGuard,
     start_time: Instant,
     reload_token: CancellationToken,
 ) -> HTTPResult {
     let request_id = guard.request_id();
-    let (inferred_content_type, body) = body_result?;
-    let mut builder = hyper::Response::builder().status(meta.status);
+    let (inferred_content_type, http_meta, body) = pipeline_result;
+    let status = http_meta.status.unwrap_or(200);
+    let mut builder = hyper::Response::builder().status(status);
     let mut header_map = hyper::header::HeaderMap::new();
 
-    let content_type = meta
+    // Content-type precedence:
+    // 1. Explicit in http.response headers (highest priority)
+    // 2. Pipeline metadata content_type (from `to json`, etc.)
+    // 3. Auto-detection default
+    let content_type = http_meta
         .headers
         .get("content-type")
-        .or(meta.headers.get("Content-Type"))
+        .or(http_meta.headers.get("Content-Type"))
         .and_then(|hv| match hv {
             crate::response::HeaderValue::Single(s) => Some(s.clone()),
             crate::response::HeaderValue::Multiple(v) => v.first().cloned(),
@@ -385,7 +374,7 @@ async fn build_normal_response(
         );
     }
 
-    for (k, v) in &meta.headers {
+    for (k, v) in &http_meta.headers {
         if k.to_lowercase() != "content-type" {
             let header_name = hyper::header::HeaderName::from_bytes(k.as_bytes())?;
 
@@ -405,7 +394,7 @@ async fn build_normal_response(
         }
     }
 
-    log_response(request_id, meta.status, &header_map, start_time);
+    log_response(request_id, status, &header_map, start_time);
     *builder.headers_mut().unwrap() = header_map;
 
     let inner_body = match body {

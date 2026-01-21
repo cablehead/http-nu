@@ -492,7 +492,6 @@ async fn test_reverse_proxy_streaming() {
     let backend = TestServer::new(
         "127.0.0.1:0",
         r#"{|req|
-            .response {status: 200}
             1..3 | each {|i|
                 sleep 100ms
                 $"chunk-($i)\n"
@@ -817,11 +816,10 @@ async fn test_sse_brotli_compression_streams_immediately() {
     let server = TestServer::new(
         "127.0.0.1:0",
         r#"{|req|
-            .response {status: 200, headers: {"Content-Type": "text/event-stream"}}
             1..4 | each {|i|
                 sleep 200ms
-                $"data: event-($i)\n\n"
-            }
+                {data: $"event-($i)"}
+            } | to sse
         }"#,
         false,
     )
@@ -1693,7 +1691,7 @@ async fn test_store_cat_follow_receives_appended_frames() {
                 $in | .append ping --meta {source: "test"}
                 "ok"
             } else {
-                {status: 404} | .response $in; "not found"
+                "not found" | metadata set --merge {'http.response': {status: 404}}
             }
         }"#,
         &store_path,
@@ -2018,11 +2016,10 @@ async fn test_sse_cancelled_on_hot_reload() {
 
     // Send initial SSE script - stream many events slowly
     let sse_script = r#"{|req|
-        .response {headers: {"Content-Type": "text/event-stream"}}
         1..100 | each {|i|
             sleep 100ms
-            $"data: event-($i)\n\n"
-        }
+            {data: $"event-($i)"}
+        } | to sse
     }"#;
     stdin.write_all(sse_script.as_bytes()).await.unwrap();
     stdin.write_all(b"\0").await.unwrap();

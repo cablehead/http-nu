@@ -159,7 +159,7 @@ assert equal (
 ) "fallback"
 
 # Testing dispatch with no matching routes
-# Note: In standalone test we can't check .response metadata,
+# Note: In standalone test we can't check http.response metadata,
 # but when embedded in http-nu it will set status: 501
 let routes5 = [
   (route {method: "POST" path: "/users"} {|req ctx| "created" })
