@@ -254,10 +254,14 @@ Content-type is determined in the following order of precedence:
 
 2. Pipeline metadata content-type (e.g., from `to yaml` or
    `metadata set --content-type`)
-3. For Record values with no content-type, defaults to `application/json`
-4. For lists or streams of records, defaults to `application/x-ndjson` (JSONL)
-5. For binary values or byte streams, defaults to `application/octet-stream`
-6. Otherwise defaults to `text/html; charset=utf-8`
+
+3. Inferred from value type:
+   - Record -> `application/json`
+   - List or stream of records -> `application/x-ndjson` (JSONL)
+   - Binary or byte stream -> `application/octet-stream`
+   - Empty (null) -> no Content-Type header
+
+4. Default: `text/html; charset=utf-8`
 
 Examples:
 
@@ -268,16 +272,13 @@ Examples:
 # 2. Pipeline metadata
 {|req| ls | to yaml }  # Returns as application/x-yaml
 
-# 3. Record auto-converts to JSON
-{|req| {foo: "bar"} }  # Returns as application/json
+# 3. Inferred from value type
+{|req| {foo: "bar"} }                 # Record -> application/json
+{|req| [{a: 1}, {b: 2}, {c: 3}] }     # List of records -> application/x-ndjson
+{|req| 0x[deadbeef] }                 # Binary -> application/octet-stream
+{|req| null }                         # Empty -> no Content-Type header
 
-# 4. List of records auto-converts to JSONL (newline-delimited JSON)
-{|req| [{a: 1}, {b: 2}, {c: 3}] }  # Returns as application/x-ndjson
-
-# 5. Binary data
-{|req| 0x[deadbeef] }  # Returns as application/octet-stream
-
-# 6. Default
+# 4. Default
 {|req| "Hello" }  # Returns as text/html; charset=utf-8
 ```
 

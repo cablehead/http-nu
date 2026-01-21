@@ -224,6 +224,20 @@ async fn test_content_type_precedence() {
         .await
         .unwrap();
     assert_eq!(resp4.headers()["content-type"], "text/html; charset=utf-8");
+
+    // 5. Empty body has no Content-Type header
+    let req5 = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(r#"{|req| null}"#)));
+    let resp5 = handle(engine.clone(), None, no_trusted_proxies(), req5)
+        .await
+        .unwrap();
+    assert!(
+        resp5.headers().get("content-type").is_none(),
+        "Empty body should not have Content-Type header"
+    );
 }
 
 #[tokio::test]

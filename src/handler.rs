@@ -330,9 +330,10 @@ async fn build_normal_response(
     let mut header_map = hyper::header::HeaderMap::new();
 
     // Content-type precedence:
-    // 1. Explicit in http.response headers (highest priority)
-    // 2. Pipeline metadata content_type (from `to json`, etc.)
-    // 3. Auto-detection default
+    // 1. Explicit in http.response headers
+    // 2. Pipeline metadata (from `to json`, etc.)
+    // 3. Inferred: record->json, binary->octet-stream, list/stream of records->ndjson, empty->None
+    // 4. Default: text/html
     let content_type = http_meta
         .headers
         .get("content-type")
@@ -342,12 +343,20 @@ async fn build_normal_response(
             crate::response::HeaderValue::Multiple(v) => v.first().cloned(),
         })
         .or(inferred_content_type)
-        .unwrap_or("text/html; charset=utf-8".to_string());
+        .or_else(|| {
+            if matches!(body, ResponseTransport::Empty) {
+                None
+            } else {
+                Some("text/html; charset=utf-8".to_string())
+            }
+        });
 
-    header_map.insert(
-        hyper::header::CONTENT_TYPE,
-        hyper::header::HeaderValue::from_str(&content_type)?,
-    );
+    if let Some(ref ct) = content_type {
+        header_map.insert(
+            hyper::header::CONTENT_TYPE,
+            hyper::header::HeaderValue::from_str(ct)?,
+        );
+    }
 
     // Add compression headers if using brotli
     if use_brotli {
@@ -362,7 +371,7 @@ async fn build_normal_response(
     }
 
     // Add SSE-required headers for event streams
-    let is_sse = content_type == "text/event-stream";
+    let is_sse = content_type.as_deref() == Some("text/event-stream");
     if is_sse {
         header_map.insert(
             hyper::header::CACHE_CONTROL,

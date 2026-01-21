@@ -26,7 +26,7 @@ Prefer calm, matter-of-fact technical tone.
 ## Code Quality
 
 Always run `./scripts/check.sh` before committing. Use `cargo fmt` to fix
-formatting issues.
+formatting issues. Use ASCII characters only in code, comments, and documentation.
 
 ## Release Process
 
