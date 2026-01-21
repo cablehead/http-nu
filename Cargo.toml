@@ -32,6 +32,7 @@ hyper-util = { version = "0.1", features = ["full", "server-auto"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io", "compat"] }
+futures-util = "0.3"
 
 bytes = "1.6.0"
 url = "2.5.0"

@@ -2008,3 +2008,101 @@ async fn test_binary_octet_stream_content_type() {
         "Expected application/octet-stream content-type for binary, got: {response}"
     );
 }
+
+#[tokio::test]
+async fn test_sse_cancelled_on_hot_reload() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    // Spawn server with an SSE endpoint that streams indefinitely
+    let (mut child, mut stdin, addr_rx) = TestServerWithStdin::spawn("127.0.0.1:0", false);
+
+    // Send initial SSE script - stream many events slowly
+    let sse_script = r#"{|req|
+        .response {headers: {"Content-Type": "text/event-stream"}}
+        1..100 | each {|i|
+            sleep 100ms
+            $"data: event-($i)\n\n"
+        }
+    }"#;
+    stdin.write_all(sse_script.as_bytes()).await.unwrap();
+    stdin.write_all(b"\0").await.unwrap();
+    stdin.flush().await.unwrap();
+
+    // Wait for server to start
+    let address = tokio::time::timeout(std::time::Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Server didn't start")
+        .expect("Channel closed");
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Start curl to SSE endpoint
+    let mut sse_child = tokio::process::Command::new("curl")
+        .arg("-sN")
+        .arg(&address)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start curl");
+
+    let stdout = sse_child.stdout.take().expect("Failed to get stdout");
+    let mut reader = BufReader::new(stdout).lines();
+
+    // Read a few events to confirm SSE is working
+    let mut events_received = 0;
+    for _ in 0..3 {
+        if let Ok(Ok(Some(line))) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), reader.next_line()).await
+        {
+            if line.starts_with("data:") {
+                events_received += 1;
+            }
+        }
+    }
+    assert!(
+        events_received >= 1,
+        "Should have received at least one SSE event before reload"
+    );
+
+    // Trigger hot reload with a different script
+    let new_script = r#"{|req| "reloaded"}"#;
+    stdin.write_all(new_script.as_bytes()).await.unwrap();
+    stdin.write_all(b"\0").await.unwrap();
+    stdin.flush().await.unwrap();
+
+    // Wait for reload to process
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // After reload, the SSE stream should be cancelled.
+    // With HTTP keep-alive, curl won't exit on its own, but no more events should arrive.
+    // Try to read another event - it should timeout (stream cancelled) or return None.
+    let more_events =
+        tokio::time::timeout(std::time::Duration::from_millis(500), reader.next_line()).await;
+
+    // Either timeout (stream stalled) or None (stream ended) is acceptable
+    let stream_stopped = match more_events {
+        Err(_) => true,                                   // Timeout - no more data
+        Ok(Ok(None)) => true,                             // Stream ended
+        Ok(Ok(Some(line))) => !line.starts_with("data:"), // Got something but not an event
+        Ok(Err(_)) => true,                               // Read error
+    };
+    assert!(stream_stopped, "SSE stream should stop after reload");
+
+    // Kill the curl process since it won't exit with keep-alive
+    sse_child.kill().await.ok();
+
+    // Verify the new handler works
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg(&address)
+        .output()
+        .expect("curl failed");
+
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "reloaded",
+        "New handler should be active after reload"
+    );
+
+    // Cleanup - kill the server
+    child.kill().await.ok();
+}

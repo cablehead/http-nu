@@ -2445,6 +2445,7 @@ dependencies = [
  "cross-stream",
  "crossterm",
  "ctrlc",
+ "futures-util",
  "headers",
  "http",
  "http-body-util",

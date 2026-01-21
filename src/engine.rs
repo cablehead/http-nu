@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::sync::{atomic::AtomicBool, Arc};
 
+use tokio_util::sync::CancellationToken;
+
 use nu_cli::{add_cli_context, gather_parent_env_vars};
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
@@ -29,6 +31,8 @@ use crate::Error;
 pub struct Engine {
     pub state: EngineState,
     pub closure: Option<Closure>,
+    /// Cancellation token triggered on engine reload
+    pub reload_token: CancellationToken,
 }
 
 impl Engine {
@@ -47,6 +51,7 @@ impl Engine {
         Ok(Self {
             state: engine_state,
             closure: None,
+            reload_token: CancellationToken::new(),
         })
     }
 
@@ -345,6 +350,8 @@ impl Engine {
 /// On error, prints to stderr and emits JSON to stdout, returning None.
 pub fn script_to_engine(base: &Engine, script: &str) -> Option<Engine> {
     let mut engine = base.clone();
+    // Fresh cancellation token for this engine instance
+    engine.reload_token = CancellationToken::new();
 
     if let Err(e) = engine.parse_closure(script) {
         log_error(&nu_utils::strip_ansi_string_likely(e.to_string()));

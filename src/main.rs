@@ -277,6 +277,8 @@ async fn serve(
     tokio::spawn(async move {
         while let Some(script) = rx.recv().await {
             if let Some(new_engine) = script_to_engine(&base_for_updates, &script) {
+                // Signal reload to cancel SSE streams on old engine
+                engine_updater.load().reload_token.cancel();
                 engine_updater.store(Arc::new(new_engine));
                 log_reloaded();
             }

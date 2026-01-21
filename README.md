@@ -144,7 +144,9 @@ $ http-nu :3001 -w ./serve.nu
 ```
 
 This watches the script's directory for any changes (including included files)
-and hot-reloads the handler. Useful during development.
+and hot-reloads the handler. Useful during development. Active
+[SSE connections](#server-sent-events) are aborted on reload to trigger client
+reconnection.
 
 ### Reading from stdin
 

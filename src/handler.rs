@@ -3,10 +3,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
+use futures_util::StreamExt;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::StreamExt;
+use tokio_util::sync::CancellationToken;
 use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -135,6 +136,7 @@ where
     // Phase 1: Log request
     log_request(request_id, &request);
 
+    let reload_token = engine.reload_token.clone();
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 
     // Wait for both:
@@ -158,7 +160,15 @@ where
 
     match &meta.body_type {
         ResponseBodyType::Normal => {
-            build_normal_response(&meta, Ok(body_result?), use_brotli, guard, start_time).await
+            build_normal_response(
+                &meta,
+                Ok(body_result?),
+                use_brotli,
+                guard,
+                start_time,
+                reload_token,
+            )
+            .await
         }
         ResponseBodyType::Static {
             root,
@@ -327,6 +337,7 @@ async fn build_normal_response(
     use_brotli: bool,
     guard: RequestGuard,
     start_time: Instant,
+    reload_token: CancellationToken,
 ) -> HTTPResult {
     let request_id = guard.request_id();
     let (inferred_content_type, body) = body_result?;
@@ -362,7 +373,8 @@ async fn build_normal_response(
     }
 
     // Add SSE-required headers for event streams
-    if content_type == "text/event-stream" {
+    let is_sse = content_type == "text/event-stream";
+    if is_sse {
         header_map.insert(
             hyper::header::CACHE_CONTROL,
             hyper::header::HeaderValue::from_static("no-cache"),
@@ -415,9 +427,29 @@ async fn build_normal_response(
         ResponseTransport::Stream(rx) => {
             if use_brotli {
                 compression::compress_stream(rx)
+            } else if is_sse {
+                // SSE streams abort on reload (error triggers client retry)
+                let stream = futures_util::stream::try_unfold(
+                    (ReceiverStream::new(rx), reload_token),
+                    |(mut data_rx, token)| async move {
+                        tokio::select! {
+                            biased;
+                            _ = token.cancelled() => {
+                                Err(std::io::Error::other("reload").into())
+                            }
+                            item = StreamExt::next(&mut data_rx) => {
+                                match item {
+                                    Some(data) => Ok(Some((Frame::data(Bytes::from(data)), (data_rx, token)))),
+                                    None => Ok(None),
+                                }
+                            }
+                        }
+                    },
+                );
+                BodyExt::boxed(StreamBody::new(stream))
             } else {
                 let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
-                StreamBody::new(stream).boxed()
+                BodyExt::boxed(StreamBody::new(stream))
             }
         }
     };
