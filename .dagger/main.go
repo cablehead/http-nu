@@ -38,14 +38,21 @@ func (m *HttpNu) DarwinEnv(
 	)
 }
 
-func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
-	return m.DarwinEnv(ctx, src).
+func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
+	container := m.DarwinEnv(ctx, src).
 		WithExec([]string{"rustup", "update", "stable"}).
 		WithExec([]string{"rustup", "default", "stable"}).
 		WithExec([]string{"rustup", "target", "add", "aarch64-apple-darwin"}).
-		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"}).
-		WithExec([]string{"tar", "-czf", "/tmp/http-nu-darwin-arm64.tar.gz", "-C", "/app/target/aarch64-apple-darwin/release", "http-nu"}).
-		File("/tmp/http-nu-darwin-arm64.tar.gz")
+		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"})
+
+	container = container.WithExec([]string{"sh", "-c", `
+		mkdir -p /tmp/http-nu-` + version + `
+		cp /app/target/aarch64-apple-darwin/release/http-nu /tmp/http-nu-` + version + `/
+		cd /tmp
+		tar -czf http-nu-` + version + `-darwin-arm64.tar.gz http-nu-` + version + `
+	`})
+
+	return container.File("/tmp/http-nu-" + version + "-darwin-arm64.tar.gz")
 }
 
 func (m *HttpNu) WindowsEnv(
@@ -71,15 +78,22 @@ func (m *HttpNu) WindowsEnv(
 	)
 }
 
-func (m *HttpNu) WindowsBuild(ctx context.Context, src *dagger.Directory) *dagger.File {
-	return m.WindowsEnv(ctx, src).
+func (m *HttpNu) WindowsBuild(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
+	container := m.WindowsEnv(ctx, src).
 		WithExec([]string{"rustup", "update", "stable"}).
 		WithExec([]string{"rustup", "default", "stable"}).
 		WithExec([]string{"rustup", "target", "add", "x86_64-pc-windows-gnu"}).
 		WithExec([]string{"cargo", "check", "--release", "--tests", "--target", "x86_64-pc-windows-gnu"}).
-		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-pc-windows-gnu"}).
-		WithExec([]string{"tar", "-czf", "/tmp/http-nu-windows-amd64.tar.gz", "-C", "/app/target/x86_64-pc-windows-gnu/release", "http-nu.exe"}).
-		File("/tmp/http-nu-windows-amd64.tar.gz")
+		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-pc-windows-gnu"})
+
+	container = container.WithExec([]string{"sh", "-c", `
+		mkdir -p /tmp/http-nu-` + version + `
+		cp /app/target/x86_64-pc-windows-gnu/release/http-nu.exe /tmp/http-nu-` + version + `/
+		cd /tmp
+		tar -czf http-nu-` + version + `-windows-amd64.tar.gz http-nu-` + version + `
+	`})
+
+	return container.File("/tmp/http-nu-" + version + "-windows-amd64.tar.gz")
 }
 
 func (m *HttpNu) LinuxArm64Env(
@@ -94,11 +108,18 @@ func (m *HttpNu) LinuxArm64Env(
 	)
 }
 
-func (m *HttpNu) LinuxArm64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
-	return m.LinuxArm64Env(ctx, src).
-		WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-unknown-linux-musl"}).
-		WithExec([]string{"tar", "-czf", "/tmp/http-nu-linux-arm64.tar.gz", "-C", "/app/target/aarch64-unknown-linux-musl/release", "http-nu"}).
-		File("/tmp/http-nu-linux-arm64.tar.gz")
+func (m *HttpNu) LinuxArm64Build(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
+	container := m.LinuxArm64Env(ctx, src).
+		WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-unknown-linux-musl"})
+
+	container = container.WithExec([]string{"sh", "-c", `
+		mkdir -p /tmp/http-nu-` + version + `
+		cp /app/target/aarch64-unknown-linux-musl/release/http-nu /tmp/http-nu-` + version + `/
+		cd /tmp
+		tar -czf http-nu-` + version + `-linux-arm64.tar.gz http-nu-` + version + `
+	`})
+
+	return container.File("/tmp/http-nu-" + version + "-linux-arm64.tar.gz")
 }
 
 func (m *HttpNu) LinuxAmd64Env(
@@ -113,9 +134,16 @@ func (m *HttpNu) LinuxAmd64Env(
 	)
 }
 
-func (m *HttpNu) LinuxAmd64Build(ctx context.Context, src *dagger.Directory) *dagger.File {
-	return m.LinuxAmd64Env(ctx, src).
-		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"}).
-		WithExec([]string{"tar", "-czf", "/tmp/http-nu-linux-amd64.tar.gz", "-C", "/app/target/x86_64-unknown-linux-musl/release", "http-nu"}).
-		File("/tmp/http-nu-linux-amd64.tar.gz")
+func (m *HttpNu) LinuxAmd64Build(ctx context.Context, src *dagger.Directory, version string) *dagger.File {
+	container := m.LinuxAmd64Env(ctx, src).
+		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"})
+
+	container = container.WithExec([]string{"sh", "-c", `
+		mkdir -p /tmp/http-nu-` + version + `
+		cp /app/target/x86_64-unknown-linux-musl/release/http-nu /tmp/http-nu-` + version + `/
+		cd /tmp
+		tar -czf http-nu-` + version + `-linux-amd64.tar.gz http-nu-` + version + `
+	`})
+
+	return container.File("/tmp/http-nu-" + version + "-linux-amd64.tar.gz")
 }

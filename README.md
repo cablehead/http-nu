@@ -93,6 +93,14 @@ brew install cablehead/tap/http-nu
 
 ### cargo
 
+For fast installation using pre-built binaries:
+
+```bash
+cargo binstall http-nu
+```
+
+Or build from source:
+
 ```bash
 cargo install http-nu --locked
 ```
