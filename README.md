@@ -490,21 +490,21 @@ $ http-nu :3001 --store ./store ./serve.nu
 
 **Commands available in handlers:**
 
-| Command   | Description                                      |
-| --------- | ------------------------------------------------ |
-| `.cat`    | Read frames (`-f` follow, `-t` tail, `-T` topic) |
-| `.head`   | Get latest frame for topic (`--follow` stream)   |
-| `.append` | Write frame to topic (`--meta` for metadata)     |
-| `.get`    | Retrieve frame by ID                             |
-| `.remove` | Remove frame by ID                               |
-| `.cas`    | Content-addressable storage operations           |
-| `.id`     | Generate/unpack/pack SCRU128 IDs                 |
+| Command   | Description                                     |
+| --------- | ----------------------------------------------- |
+| `.cat`    | Read frames (`-f` follow, `-n` new, `-T` topic) |
+| `.last`   | Get latest frame for topic (`--follow` stream)  |
+| `.append` | Write frame to topic (`--meta` for metadata)    |
+| `.get`    | Retrieve frame by ID                            |
+| `.remove` | Remove frame by ID                              |
+| `.cas`    | Content-addressable storage operations          |
+| `.id`     | Generate/unpack/pack SCRU128 IDs                |
 
 **SSE with store:**
 
 ```nushell
 {|req|
-  .head quotes --follow
+  .last quotes --follow
   | each {|frame| $frame.meta | to dstar-patch-element }
   | to sse
 }
