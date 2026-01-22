@@ -9,5 +9,5 @@ name = "nu_plugin_test"
 bench = false
 
 [dependencies]
-nu-plugin = "0.109.1"
-nu-protocol = { version = "0.109.1", features = ["plugin"] }
+nu-plugin = "0.110.0"
+nu-protocol = { version = "0.110.0", features = ["plugin"] }

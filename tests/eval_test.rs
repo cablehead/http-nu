@@ -1,12 +1,18 @@
-use assert_cmd::cargo::cargo_bin;
 use assert_cmd::Command;
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::{NamedTempFile, TempDir};
+
+/// Get path to a workspace member binary (uses deprecated function because
+/// CARGO_BIN_EXE_* env vars only work for same-package binaries)
+#[allow(deprecated)]
+fn workspace_bin(name: &str) -> PathBuf {
+    assert_cmd::cargo::cargo_bin(name)
+}
 
 #[test]
 fn test_eval_commands_flag() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval", "-c", "1 + 2"])
         .assert()
         .success()
@@ -18,8 +24,7 @@ fn test_eval_file() {
     let mut file = NamedTempFile::new().unwrap();
     writeln!(file, "3 + 4").unwrap();
 
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval", file.path().to_str().unwrap()])
         .assert()
         .success()
@@ -28,8 +33,7 @@ fn test_eval_file() {
 
 #[test]
 fn test_eval_stdin() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval", "-"])
         .write_stdin("5 + 6")
         .assert()
@@ -39,8 +43,7 @@ fn test_eval_stdin() {
 
 #[test]
 fn test_eval_mj_compile() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval", "-c", r#".mj compile --inline "test" | describe"#])
         .assert()
         .success()
@@ -49,8 +52,7 @@ fn test_eval_mj_compile() {
 
 #[test]
 fn test_eval_mj_compile_and_render() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args([
             "eval",
             "-c",
@@ -63,8 +65,7 @@ fn test_eval_mj_compile_and_render() {
 
 #[test]
 fn test_eval_print() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["--log-format", "jsonl", "eval", "-c", r#"print "hello""#])
         .assert()
         .success()
@@ -74,8 +75,7 @@ fn test_eval_print() {
 
 #[test]
 fn test_eval_syntax_error() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval", "-c", "1 +"])
         .assert()
         .failure();
@@ -83,8 +83,7 @@ fn test_eval_syntax_error() {
 
 #[test]
 fn test_eval_no_input() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval"])
         .assert()
         .failure()
@@ -95,8 +94,7 @@ fn test_eval_no_input() {
 
 #[test]
 fn test_eval_both_file_and_commands() {
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval", "-c", "1", "file.nu"])
         .assert()
         .failure()
@@ -105,9 +103,8 @@ fn test_eval_both_file_and_commands() {
 
 #[test]
 fn test_eval_with_plugin() {
-    let plugin_path = cargo_bin("nu_plugin_test");
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    let plugin_path = workspace_bin("nu_plugin_test");
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args([
             "eval",
             "--plugin",
@@ -126,8 +123,7 @@ fn test_eval_include_path() {
     let module_path = dir.path().join("mymod.nu");
     std::fs::write(&module_path, "export def hello [] { 'world' }").unwrap();
 
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args([
             "-I",
             dir.path().to_str().unwrap(),
@@ -147,8 +143,7 @@ fn test_eval_include_path_multiple() {
     std::fs::write(dir1.path().join("mod1.nu"), "export def a [] { 1 }").unwrap();
     std::fs::write(dir2.path().join("mod2.nu"), "export def b [] { 2 }").unwrap();
 
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args([
             "-I",
             dir1.path().to_str().unwrap(),
@@ -166,8 +161,7 @@ fn test_eval_include_path_multiple() {
 #[test]
 fn test_mj_file_with_external_refs() {
     // .mj "file" with extends/include - works because loader is set up
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args([
             "eval",
             "-c",
@@ -183,8 +177,7 @@ fn test_mj_file_with_external_refs() {
 #[test]
 fn test_mj_inline_with_external_refs() {
     // .mj --inline with include - FAILS: no loader for cwd
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .current_dir("examples/template-inheritance")
         .args([
             "eval",
@@ -199,8 +192,7 @@ fn test_mj_inline_with_external_refs() {
 #[test]
 fn test_mj_compile_file_with_external_refs() {
     // .mj compile "file" + render - FAILS: loader not preserved in cache
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args([
             "eval",
             "-c",
@@ -216,8 +208,7 @@ fn test_mj_compile_file_with_external_refs() {
 #[test]
 fn test_mj_compile_inline_with_external_refs() {
     // .mj compile --inline + render - FAILS: no loader for cwd
-    Command::cargo_bin("http-nu")
-        .unwrap()
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .current_dir("examples/template-inheritance")
         .args([
             "eval",

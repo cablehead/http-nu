@@ -1,8 +1,15 @@
-use assert_cmd::cargo::cargo_bin;
+use std::path::PathBuf;
 use std::process;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::time::timeout;
+
+/// Get path to a workspace member binary (uses deprecated function because
+/// CARGO_BIN_EXE_* env vars only work for same-package binaries)
+#[allow(deprecated)]
+fn workspace_bin(name: &str) -> PathBuf {
+    assert_cmd::cargo::cargo_bin(name)
+}
 
 struct TestServer {
     child: Child,
@@ -43,7 +50,7 @@ impl TestServer {
         store_path: Option<&std::path::Path>,
         services: bool,
     ) -> Self {
-        let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
         cmd.arg("--log-format").arg("jsonl");
 
         // Add plugin arguments first
@@ -206,7 +213,7 @@ impl TestServerWithStdin {
         addr: &str,
         tls: bool,
     ) -> (Child, ChildStdin, tokio::sync::oneshot::Receiver<String>) {
-        let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+        let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
         cmd.arg("--log-format").arg("jsonl");
         cmd.arg(addr).arg("-").arg("-w");
 
@@ -782,9 +789,7 @@ async fn test_http2_tls_support() {
 
 #[tokio::test]
 async fn test_parse_error_ansi_formatting() {
-    use assert_cmd::cargo::cargo_bin;
-
-    let output = tokio::process::Command::new(cargo_bin("http-nu"))
+    let output = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .arg("127.0.0.1:0")
         .arg("-c")
         .arg("{|req| use nonexistent oauth}")
@@ -1294,7 +1299,7 @@ async fn test_router_no_match_501() {
 /// Tests that plugins can be loaded and their commands used
 #[tokio::test]
 async fn test_plugin_loading() {
-    let plugin_path = cargo_bin("nu_plugin_test");
+    let plugin_path = workspace_bin("nu_plugin_test");
     let server = TestServer::new_with_plugins(
         "127.0.0.1:0",
         "{|req| test-plugin-cmd}",
@@ -1315,7 +1320,7 @@ async fn test_plugin_loading() {
 /// well under 200ms total.
 #[tokio::test]
 async fn test_plugin_process_shared_across_requests() {
-    let plugin_path = cargo_bin("nu_plugin_test");
+    let plugin_path = workspace_bin("nu_plugin_test");
     let server = TestServer::new_with_plugins(
         "127.0.0.1:0",
         "{|req| test-plugin-cmd}",
@@ -1347,7 +1352,7 @@ async fn test_plugin_process_shared_across_requests() {
 /// Tests that -w/--watch flag is incompatible with -c/--commands flag
 #[tokio::test]
 async fn test_watch_flag_incompatible_with_commands() {
-    let output = tokio::process::Command::new(cargo_bin("http-nu"))
+    let output = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .arg("127.0.0.1:0")
         .arg("-c")
         .arg("{|req| 'hello'}")
@@ -1374,7 +1379,7 @@ async fn test_watch_file_reload_on_change() {
     std::fs::write(&script_path, r#"{|req| "version1"}"#).unwrap();
 
     // Start server with --watch
-    let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
     cmd.arg("--log-format")
         .arg("jsonl")
         .arg("127.0.0.1:0")
@@ -1468,7 +1473,7 @@ async fn test_watch_directory_change_triggers_reload() {
     .unwrap();
 
     // Start server with --watch
-    let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
     cmd.arg("--log-format")
         .arg("jsonl")
         .arg("127.0.0.1:0")
@@ -1545,7 +1550,7 @@ async fn test_watch_directory_change_triggers_reload() {
 /// Tests that stdin mode works without -w (one-shot read)
 #[tokio::test]
 async fn test_stdin_one_shot() {
-    let mut cmd = tokio::process::Command::new(cargo_bin("http-nu"));
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
     cmd.arg("--log-format")
         .arg("jsonl")
         .arg("127.0.0.1:0")
@@ -1686,7 +1691,7 @@ async fn test_store_cat_follow_receives_appended_frames() {
         "127.0.0.1:0",
         r#"{|req|
             if $req.method == "GET" and $req.path == "/stream" {
-                .cat -f -t -T ping | each {|frame| $frame | to json -r | $"($in)\n" }
+                .cat -f -n -T ping | each {|frame| $frame | to json -r | $"($in)\n" }
             } else if $req.method == "POST" and $req.path == "/append" {
                 $in | .append ping --meta {source: "test"}
                 "ok"
@@ -1812,7 +1817,7 @@ async fn test_services_flag_enables_handlers() {
         .arg(&sock_path)
         .arg("-d")
         .arg(handler_script)
-        .arg("http://localhost/echo.register")
+        .arg("http://localhost/append/echo.register")
         .output()
         .await
         .expect("Failed to register handler");
@@ -1854,7 +1859,7 @@ async fn test_services_flag_enables_handlers() {
         .arg("POST")
         .arg("--unix-socket")
         .arg(&sock_path)
-        .arg("http://localhost/test.trigger")
+        .arg("http://localhost/append/test.trigger")
         .output()
         .await
         .expect("Failed to trigger handler");

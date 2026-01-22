@@ -116,6 +116,7 @@ impl Engine {
                 inner: vec![],
             };
             return Err(Error::from(format_cli_error(
+                None,
                 &working_set,
                 &shell_error,
                 None,
@@ -132,6 +133,7 @@ impl Engine {
                 inner: vec![],
             };
             return Err(Error::from(format_cli_error(
+                None,
                 &working_set,
                 &shell_error,
                 None,
@@ -149,7 +151,7 @@ impl Engine {
         )
         .map_err(|err| {
             let working_set = StateWorkingSet::new(&self.state);
-            Error::from(format_cli_error(&working_set, &err, None))
+            Error::from(format_cli_error(None, &working_set, &err, None))
         })?;
 
         let closure = result
@@ -157,12 +159,12 @@ impl Engine {
             .into_value(Span::unknown())
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
-                Error::from(format_cli_error(&working_set, &err, None))
+                Error::from(format_cli_error(None, &working_set, &err, None))
             })?
             .into_closure()
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
-                Error::from(format_cli_error(&working_set, &err, None))
+                Error::from(format_cli_error(None, &working_set, &err, None))
             })?;
 
         // Verify closure accepts exactly one argument
@@ -223,6 +225,7 @@ impl Engine {
                 inner: vec![],
             };
             return Err(Error::from(format_cli_error(
+                None,
                 &working_set,
                 &shell_error,
                 None,
@@ -238,6 +241,7 @@ impl Engine {
                 inner: vec![],
             };
             return Err(Error::from(format_cli_error(
+                None,
                 &working_set,
                 &shell_error,
                 None,
@@ -257,12 +261,12 @@ impl Engine {
         )
         .map_err(|err| {
             let working_set = StateWorkingSet::new(&engine_state);
-            Error::from(format_cli_error(&working_set, &err, None))
+            Error::from(format_cli_error(None, &working_set, &err, None))
         })?;
 
         result.body.into_value(Span::unknown()).map_err(|err| {
             let working_set = StateWorkingSet::new(&engine_state);
-            Error::from(format_cli_error(&working_set, &err, None))
+            Error::from(format_cli_error(None, &working_set, &err, None))
         })
     }
 
@@ -288,7 +292,7 @@ impl Engine {
             .map(|exec_data| exec_data.body)
             .map_err(|err| {
                 let working_set = StateWorkingSet::new(&self.state);
-                Error::from(format_cli_error(&working_set, &err, None))
+                Error::from(format_cli_error(None, &working_set, &err, None))
             })
     }
 
@@ -309,30 +313,21 @@ impl Engine {
         ])
     }
 
-    /// Adds cross.stream store commands (.cat, .append, .cas, .head) to the engine
+    /// Adds cross.stream store commands (.cat, .append, .cas, .last) to the engine
     #[cfg(feature = "cross-stream")]
     pub fn add_store_commands(&mut self, store: &xs::store::Store) -> Result<(), Error> {
-        use xs::store::ZERO_CONTEXT;
-
         self.add_commands(vec![
             Box::new(xs::nu::commands::cat_stream_command::CatStreamCommand::new(
                 store.clone(),
-                ZERO_CONTEXT,
             )),
             Box::new(xs::nu::commands::append_command::AppendCommand::new(
                 store.clone(),
-                ZERO_CONTEXT,
                 serde_json::json!({}),
             )),
             Box::new(xs::nu::commands::cas_command::CasCommand::new(
                 store.clone(),
             )),
-            Box::new(
-                xs::nu::commands::head_stream_command::HeadStreamCommand::new(
-                    store.clone(),
-                    ZERO_CONTEXT,
-                ),
-            ),
+            Box::new(xs::nu::commands::last_stream_command::LastStreamCommand::new(store.clone())),
             Box::new(xs::nu::commands::get_command::GetCommand::new(
                 store.clone(),
             )),

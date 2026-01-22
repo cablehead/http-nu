@@ -107,7 +107,7 @@ pub fn spawn_eval_thread(
             }
             PipelineData::Value(Value::Error { error, .. }, _) => {
                 let working_set = StateWorkingSet::new(&engine.state);
-                Err(format_cli_error(&working_set, error.as_ref(), None).into())
+                Err(format_cli_error(None, &working_set, error.as_ref(), None).into())
             }
             PipelineData::Value(value, meta) => {
                 let http_meta = extract_http_response_meta(meta.as_ref());
@@ -155,7 +155,7 @@ pub fn spawn_eval_thread(
                 if let Some(value) = first {
                     if let Value::Error { error, .. } = &value {
                         let working_set = StateWorkingSet::new(&engine.state);
-                        log_error(&format_cli_error(&working_set, error.as_ref(), None));
+                        log_error(&format_cli_error(None, &working_set, error.as_ref(), None));
                         return Ok(());
                     }
                     if !send_value(&stream_tx, value) {
@@ -167,7 +167,7 @@ pub fn spawn_eval_thread(
                 for value in iter {
                     if let Value::Error { error, .. } = &value {
                         let working_set = StateWorkingSet::new(&engine.state);
-                        log_error(&format_cli_error(&working_set, error.as_ref(), None));
+                        log_error(&format_cli_error(None, &working_set, error.as_ref(), None));
                         break;
                     }
                     if !send_value(&stream_tx, value) {
@@ -208,7 +208,7 @@ pub fn spawn_eval_thread(
                                 .and_then(|e| e.downcast_ref::<ShellErrorBridge>())
                             {
                                 let working_set = StateWorkingSet::new(&engine.state);
-                                log_error(&format_cli_error(&working_set, &bridge.0, None));
+                                log_error(&format_cli_error(None, &working_set, &bridge.0, None));
                                 break; // Error already logged, just stop streaming
                             }
                             return Err(err.into());
