@@ -71,11 +71,11 @@ gh run watch <run-id> --exit-status
 - Download macOS tarball, verify integrity, and calculate SHA256:
   ```bash
   cd /tmp
-  rm -f http-nu-v$ARGUMENTS-macos.tar.gz
-  curl -sL https://github.com/cablehead/http-nu/releases/download/v$ARGUMENTS/http-nu-darwin-arm64.tar.gz -o http-nu-v$ARGUMENTS-macos.tar.gz
+  rm -f http-nu-v$ARGUMENTS-darwin-arm64.tar.gz
+  curl -sL https://github.com/cablehead/http-nu/releases/download/v$ARGUMENTS/http-nu-v$ARGUMENTS-darwin-arm64.tar.gz -o http-nu-v$ARGUMENTS-darwin-arm64.tar.gz
   # Verify download by extracting and checking binary
-  tar -tzf http-nu-v$ARGUMENTS-macos.tar.gz  # should list: http-nu
-  sha256sum http-nu-v$ARGUMENTS-macos.tar.gz
+  tar -tzf http-nu-v$ARGUMENTS-darwin-arm64.tar.gz  # should list: http-nu-v$ARGUMENTS/http-nu
+  sha256sum http-nu-v$ARGUMENTS-darwin-arm64.tar.gz
   ```
 - Update `../homebrew-tap/Formula/http-nu.rb` with new version, URL, and SHA256
   checksum
