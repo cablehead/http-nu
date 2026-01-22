@@ -526,7 +526,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // Server mode (default)
-    let addr = args.addr.expect("addr required for server mode");
+    let Some(addr) = args.addr else {
+        eprintln!("Usage: http-nu <ADDR> [OPTIONS]");
+        eprintln!("       http-nu eval [OPTIONS]");
+        eprintln!("\nRun `http-nu --help` for more information.");
+        std::process::exit(1);
+    };
 
     // Create cross.stream store if --store is specified
     #[cfg(feature = "cross-stream")]
