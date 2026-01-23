@@ -160,46 +160,47 @@ fn spawn_file_watcher(script_path: PathBuf, tx: mpsc::Sender<String>) {
             .watch(&watch_dir, RecursiveMode::Recursive)
             .expect("Failed to watch directory");
 
-        // Keep watcher alive
-        let _watcher = watcher;
-
-        // Set to past time so first event isn't debounced
-        let mut last_reload = std::time::Instant::now() - Duration::from_secs(1);
         let debounce = Duration::from_millis(100);
+        let mut pending_reload = false;
 
-        for result in raw_rx {
-            match result {
-                Ok(event) => {
-                    // Only react to modifications, not access/open events
+        loop {
+            let timeout = if pending_reload {
+                debounce
+            } else {
+                Duration::from_secs(86400)
+            };
+
+            match raw_rx.recv_timeout(timeout) {
+                Ok(Ok(event)) => {
                     use notify::EventKind;
-                    let is_modification = matches!(
+                    let dominated_by = matches!(
                         event.kind,
                         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
                     );
-                    if !is_modification {
-                        continue;
+                    if dominated_by {
+                        pending_reload = true;
                     }
-
-                    // Debounce rapid events
-                    if last_reload.elapsed() < debounce {
-                        continue;
-                    }
-                    last_reload = std::time::Instant::now();
-
-                    // Re-read and send the script file
-                    match std::fs::read_to_string(&script_path) {
-                        Ok(content) => {
-                            if tx.blocking_send(content).is_err() {
-                                break;
+                }
+                Ok(Err(e)) => {
+                    eprintln!("Watch error: {e:?}");
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if pending_reload {
+                        pending_reload = false;
+                        match std::fs::read_to_string(&script_path) {
+                            Ok(content) => {
+                                if tx.blocking_send(content).is_err() {
+                                    break;
+                                }
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("Error reading script file: {e}");
+                            Err(e) => {
+                                eprintln!("Error reading script file: {e}");
+                            }
                         }
                     }
                 }
-                Err(e) => {
-                    eprintln!("Watch error: {e:?}");
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    break;
                 }
             }
         }

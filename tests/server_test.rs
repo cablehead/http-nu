@@ -1435,10 +1435,15 @@ async fn test_watch_file_reload_on_change() {
         .expect("curl failed");
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "version1");
 
-    // Modify the script file
+    // Trigger a spurious event, then write the actual change.
+    // This tests trailing-edge debounce: the reload should wait for events to
+    // settle and read the final content, not the content at the first event.
+    let dummy_path = tmp.path().join("trigger.txt");
+    std::fs::write(&dummy_path, "trigger").unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     std::fs::write(&script_path, r#"{|req| "version2"}"#).unwrap();
 
-    // Wait for file watcher to detect change and reload
+    // Wait for debounced reload to complete
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Verify updated response

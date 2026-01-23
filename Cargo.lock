@@ -2478,7 +2478,6 @@ dependencies = [
  "minijinja",
  "nix 0.30.1",
  "notify 8.2.0",
- "notify-debouncer-mini",
  "nu-cli",
  "nu-cmd-extra",
  "nu-cmd-lang",
@@ -2506,7 +2505,6 @@ dependencies = [
  "tower",
  "tower-http",
  "typetag",
- "ureq 2.12.1",
  "url",
  "win_uds",
  "xxhash-rust",
@@ -4017,18 +4015,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "notify-debouncer-mini"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a689eb4262184d9a1727f9087cd03883ea716682ab03ed24efec57d7716dccb8"
-dependencies = [
- "log",
- "notify 8.2.0",
- "notify-types",
- "tempfile",
-]
-
-[[package]]
 name = "notify-types"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4262,7 +4248,7 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "update-informer",
- "ureq 3.0.12",
+ "ureq",
  "url",
  "uu_cp",
  "uu_mkdir",
@@ -7406,22 +7392,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "ureq 3.0.12",
-]
-
-[[package]]
-name = "ureq"
-version = "2.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
-dependencies = [
- "base64 0.22.1",
- "log",
- "once_cell",
- "rustls",
- "rustls-pki-types",
- "url",
- "webpki-roots 0.26.11",
+ "ureq",
 ]
 
 [[package]]
