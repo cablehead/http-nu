@@ -9,9 +9,9 @@ use ../src/stdlib/datastar/mod.nu *
 def "to sse" []: record -> string {
   let rec = $in
   mut out = ""
+  if ($rec.event? | is-not-empty) { $out = $out + $"event: ($rec.event)\n" }
   if ($rec.id? | is-not-empty) { $out = $out + $"id: ($rec.id)\n" }
   if ($rec.retry? | is-not-empty) { $out = $out + $"retry: ($rec.retry)\n" }
-  if ($rec.event? | is-not-empty) { $out = $out + $"event: ($rec.event)\n" }
   if ($rec.data? | is-not-empty) {
     let data = $rec.data
     let lines = if ($data | describe | str starts-with "list") {
@@ -24,19 +24,19 @@ def "to sse" []: record -> string {
   $out + "\n"
 }
 
-# Test patch-element returns correct record structure
-def test_patch_element_record [] {
-  let result = "<div>test</div>" | to dstar-patch-element --selector "#target"
+# Test patch-elements returns correct record structure
+def test_patch_elements_record [] {
+  let result = "<div>test</div>" | to datastar-patch-elements --selector "#target"
 
   assert equal $result.event "datastar-patch-elements"
   assert ("selector #target" in $result.data)
   assert ("elements <div>test</div>" in $result.data)
 }
 
-# Test patch-element with element by ID (no selector)
-def test_patch_element_by_id [] {
+# Test patch-elements with element by ID (no selector)
+def test_patch_elements_by_id [] {
   let html = r#'<div id="main">Updated content</div>'#
-  let result = $html | to dstar-patch-element
+  let result = $html | to datastar-patch-elements
 
   assert equal $result.event "datastar-patch-elements"
   assert (r#'elements <div id="main">Updated content</div>'# in $result.data)
@@ -44,47 +44,47 @@ def test_patch_element_by_id [] {
   assert (not ($result.data | any { $in | str starts-with "mode" }))
 }
 
-# Test patch-element with different merge modes
-def test_patch_element_modes [] {
-  let prepend = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode prepend
+# Test patch-elements with different merge modes
+def test_patch_elements_modes [] {
+  let prepend = "<div>content</div>" | to datastar-patch-elements --selector "#target" --mode prepend
   assert ("mode prepend" in $prepend.data)
 
-  let append = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode append
+  let append = "<div>content</div>" | to datastar-patch-elements --selector "#target" --mode append
   assert ("mode append" in $append.data)
 
-  let before = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode before
+  let before = "<div>content</div>" | to datastar-patch-elements --selector "#target" --mode before
   assert ("mode before" in $before.data)
 
-  let after = "<div>content</div>" | to dstar-patch-element --selector "#target" --mode after
+  let after = "<div>content</div>" | to datastar-patch-elements --selector "#target" --mode after
   assert ("mode after" in $after.data)
 
-  let remove = "" | to dstar-patch-element --selector "#target" --mode remove
+  let remove = "" | to datastar-patch-elements --selector "#target" --mode remove
   assert ("mode remove" in $remove.data)
   assert ("selector #target" in $remove.data)
 }
 
-# Test patch-element with view transition
-def test_patch_element_transition [] {
-  let result = "<div>content</div>" | to dstar-patch-element --selector "#target" --use_view_transition
+# Test patch-elements with view transition
+def test_patch_elements_transition [] {
+  let result = "<div>content</div>" | to datastar-patch-elements --selector "#target" --use-view-transition
 
   assert ("useViewTransition true" in $result.data)
 }
 
-# Test patch-element namespace option
-def test_patch_element_namespace [] {
+# Test patch-elements namespace option
+def test_patch_elements_namespace [] {
   # Default namespace (html) should not appear in data
-  let html = "<div>content</div>" | to dstar-patch-element --selector "#target"
+  let html = "<div>content</div>" | to datastar-patch-elements --selector "#target"
   assert (not ($html.data | any { $in | str starts-with "namespace" }))
 
   # SVG namespace should appear
-  let svg = "<circle cx=\"50\" cy=\"50\" r=\"40\"/>" | to dstar-patch-element --selector "#target" --namespace svg
+  let svg = "<circle cx=\"50\" cy=\"50\" r=\"40\"/>" | to datastar-patch-elements --selector "#target" --namespace svg
   assert ("namespace svg" in $svg.data)
 }
 
-# Test patch-signal with record input
-def test_patch_signal_record [] {
+# Test patch-signals with record input
+def test_patch_signals_record [] {
   let signals = {count: 42 name: "Alice"}
-  let result = $signals | to dstar-patch-signal
+  let result = $signals | to datastar-patch-signals
 
   assert equal $result.event "datastar-patch-signals"
   assert ($result.data | any { str starts-with "signals" })
@@ -92,17 +92,17 @@ def test_patch_signal_record [] {
   assert ($result.data | any { str contains '"name":"Alice"' })
 }
 
-# Test patch-signal with only-if-missing flag
-def test_patch_signal_only_if_missing [] {
-  let result = {count: 5} | to dstar-patch-signal --only_if_missing
+# Test patch-signals with only-if-missing flag
+def test_patch_signals_only_if_missing [] {
+  let result = {count: 5} | to datastar-patch-signals --only-if-missing
 
   assert ("onlyIfMissing true" in $result.data)
 }
 
-# Test patch-signal with raw string input (multiline)
-def test_patch_signal_raw_string [] {
+# Test patch-signals with raw string input (multiline)
+def test_patch_signals_raw_string [] {
   let raw = "{\n\"one\": 1,\n\"two\": 2}"
-  let result = $raw | to dstar-patch-signal
+  let result = $raw | to datastar-patch-signals
 
   assert equal $result.event "datastar-patch-signals"
   assert equal ($result.data | length) 3
@@ -114,7 +114,7 @@ def test_patch_signal_raw_string [] {
 # Test execute-script
 def test_execute_script [] {
   let script = "console.log('Hello from Datastar')"
-  let result = $script | to dstar-execute-script
+  let result = $script | to datastar-execute-script
 
   # ExecuteScript uses patch-elements event
   assert equal $result.event "datastar-patch-elements"
@@ -122,13 +122,13 @@ def test_execute_script [] {
   assert ("mode append" in $result.data)
   assert ($result.data | any { str contains "<script" })
   assert ($result.data | any { str contains "console.log" })
-  # Default auto_remove is true
+  # Default auto-remove is true
   assert ($result.data | any { str contains r#'data-effect="el.remove()"'# })
 }
 
 # Test execute-script without auto-remove
 def test_execute_script_no_auto_remove [] {
-  let result = "alert('test')" | to dstar-execute-script --auto_remove false
+  let result = "alert('test')" | to datastar-execute-script --auto-remove false
 
   assert ($result.data | any { str contains "<script>alert('test')</script>" })
   assert (not ($result.data | any { str contains "data-effect" }))
@@ -136,7 +136,7 @@ def test_execute_script_no_auto_remove [] {
 
 # Test execute-script with attributes
 def test_execute_script_attributes [] {
-  let result = "doThing()" | to dstar-execute-script --attributes {type: "module"}
+  let result = "doThing()" | to datastar-execute-script --attributes {type: "module"}
 
   assert ($result.data | any { str contains r#'type="module"'# })
   assert ($result.data | any { str contains "doThing()" })
@@ -144,63 +144,63 @@ def test_execute_script_attributes [] {
 
 # Test SSE id field
 def test_id_field [] {
-  let result = "<div>content</div>" | to dstar-patch-element --selector "#target" --id "msg-123"
+  let result = "<div>content</div>" | to datastar-patch-elements --selector "#target" --id "msg-123"
 
   assert equal $result.id "msg-123"
 }
 
-# Test SSE retry field
-def test_retry_field [] {
-  let result = {count: 1} | to dstar-patch-signal --retry 5000
+# Test SSE retry-duration field
+def test_retry_duration_field [] {
+  let result = {count: 1} | to datastar-patch-signals --retry-duration 5000
 
   assert equal $result.retry 5000
 }
 
-# Test from datastar-request with query string
-def test_from_datastar_request_query [] {
+# Test from datastar-signals with query string
+def test_from_datastar_signals_query [] {
   let req = {
     method: "GET"
     query: {datastar: '{"count":42,"active":true}'}
   }
 
-  let signals = "" | from datastar-request $req
+  let signals = "" | from datastar-signals $req
   assert equal $signals.count 42
   assert equal $signals.active true
 }
 
-# Test from datastar-request with POST body
-def test_from_datastar_request_post [] {
+# Test from datastar-signals with POST body
+def test_from_datastar_signals_post [] {
   let req = {method: "POST"}
   let body = '{"username":"alice","score":100}'
 
-  let signals = $body | from datastar-request $req
+  let signals = $body | from datastar-signals $req
   assert equal $signals.username "alice"
   assert equal $signals.score 100
 }
 
-# Test from datastar-request with empty signals
-def test_from_datastar_request_empty [] {
+# Test from datastar-signals with empty signals
+def test_from_datastar_signals_empty [] {
   let req = {
     method: "GET"
     query: {}
   }
 
-  let signals = "" | from datastar-request $req
+  let signals = "" | from datastar-signals $req
   assert equal $signals {}
 }
 
 # Test piping to `to sse` produces valid SSE output
 def test_to_sse_integration [] {
-  let result = "<div>test</div>" | to dstar-patch-element --selector "#target" | to sse
+  let result = "<div>test</div>" | to datastar-patch-elements --selector "#target" | to sse
 
   assert ($result | str contains "event: datastar-patch-elements")
   assert ($result | str contains "data: selector #target")
   assert ($result | str contains "data: elements <div>test</div>")
 }
 
-# Test `to sse` with id and retry fields
-def test_to_sse_with_id_retry [] {
-  let result = {count: 1} | to dstar-patch-signal --id "evt-1" --retry 3000 | to sse
+# Test `to sse` with id and retry-duration fields
+def test_to_sse_with_id_retry_duration [] {
+  let result = {count: 1} | to datastar-patch-signals --id "evt-1" --retry-duration 3000 | to sse
 
   assert ($result | str contains "id: evt-1")
   assert ($result | str contains "retry: 3000")
@@ -209,7 +209,7 @@ def test_to_sse_with_id_retry [] {
 
 # Test redirect helper
 def test_redirect [] {
-  let result = "/dashboard" | to dstar-redirect
+  let result = "/dashboard" | to datastar-redirect
 
   assert equal $result.event "datastar-patch-elements"
   assert ("selector body" in $result.data)
@@ -220,23 +220,23 @@ def test_redirect [] {
 
 # Run all tests
 def main [] {
-  test_patch_element_record
-  test_patch_element_by_id
-  test_patch_element_modes
-  test_patch_element_transition
-  test_patch_element_namespace
-  test_patch_signal_record
-  test_patch_signal_only_if_missing
-  test_patch_signal_raw_string
+  test_patch_elements_record
+  test_patch_elements_by_id
+  test_patch_elements_modes
+  test_patch_elements_transition
+  test_patch_elements_namespace
+  test_patch_signals_record
+  test_patch_signals_only_if_missing
+  test_patch_signals_raw_string
   test_execute_script
   test_execute_script_no_auto_remove
   test_execute_script_attributes
   test_id_field
-  test_retry_field
-  test_from_datastar_request_query
-  test_from_datastar_request_post
-  test_from_datastar_request_empty
+  test_retry_duration_field
+  test_from_datastar_signals_query
+  test_from_datastar_signals_post
+  test_from_datastar_signals_empty
   test_to_sse_integration
-  test_to_sse_with_id_retry
+  test_to_sse_with_id_retry_duration
   test_redirect
 }

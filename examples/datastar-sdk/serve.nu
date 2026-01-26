@@ -22,18 +22,18 @@ use http-nu/html *
               DIV {style: {display: flex gap: 2em}}
               (
                 DIV
-                (H3 "to dstar-patch-signal")
+                (H3 "to datastar-patch-signals")
                 (P "Count: " (SPAN {"data-text": "$count"} "0"))
                 (BUTTON {"data-on:click": "@post('/increment')"} "Increment")
               )
               (
                 DIV
-                (H3 "to dstar-execute-script")
+                (H3 "to datastar-execute-script")
                 (BUTTON {"data-on:click": "@post('/hello')"} "Say Hello")
               )
               (
                 DIV
-                (H3 "to dstar-patch-element")
+                (H3 "to datastar-patch-elements")
                 (DIV {id: "time"} "--:--:--.---")
                 (BUTTON {"data-on:click": "@post('/time')"} "Get Time")
               )
@@ -46,16 +46,16 @@ use http-nu/html *
     # Increment counter signal
     (
       route {method: POST path: "/increment"} {|req ctx|
-        let signals = from datastar-request $req
+        let signals = from datastar-signals $req
         let count = ($signals.count? | default 0) + 1
-        {count: $count} | to dstar-patch-signal | to sse
+        {count: $count} | to datastar-patch-signals | to sse
       }
     )
 
     # Execute script on client
     (
       route {method: POST path: "/hello"} {|req ctx|
-        "alert('Hello from the server!')" | to dstar-execute-script | to sse
+        "alert('Hello from the server!')" | to datastar-execute-script | to sse
       }
     )
 
@@ -63,7 +63,7 @@ use http-nu/html *
     (
       route {method: POST path: "/time"} {|req ctx|
         let time = date now | format date "%H:%M:%S%.3f"
-        DIV {id: "time"} $time | to dstar-patch-element | to sse
+        DIV {id: "time"} $time | to datastar-patch-elements | to sse
       }
     )
   ]

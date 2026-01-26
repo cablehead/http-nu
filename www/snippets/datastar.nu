@@ -1,5 +1,5 @@
 {|req ctx|
-  let signals = from datastar-request $req
+  let signals = from datastar-signals $req
   let interval = $signals.interval? | default 100 | into int
 
   "Hello from Datastar 🚀"
@@ -15,8 +15,8 @@
     }
   }
   # instruct datastar to patch our new HTML into place
-  | each { to dstar-patch-element }
+  | each { to datastar-patch-elements }
   # re-enable the button by setting running back to false
-  | append ({running: false} | to dstar-patch-signal)
+  | append ({running: false} | to datastar-patch-signals)
   | to sse
 }

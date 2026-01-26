@@ -313,6 +313,13 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
         }
     };
     let mut out = String::new();
+    if let Some(event) = rec.get("event") {
+        if !matches!(event, Value::Nothing { .. }) {
+            out.push_str("event: ");
+            out.push_str(&event.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
+    }
     if let Some(id) = rec.get("id") {
         if !matches!(id, Value::Nothing { .. }) {
             out.push_str("id: ");
@@ -324,13 +331,6 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
         if !matches!(retry, Value::Nothing { .. }) {
             out.push_str("retry: ");
             out.push_str(&retry.to_expanded_string("", config));
-            out.push_str(LINE_ENDING);
-        }
-    }
-    if let Some(event) = rec.get("event") {
-        if !matches!(event, Value::Nothing { .. }) {
-            out.push_str("event: ");
-            out.push_str(&event.to_expanded_string("", config));
             out.push_str(LINE_ENDING);
         }
     }

@@ -15,9 +15,9 @@ def handle-event [event: record] {
       let id = $event.eventId?
       let retry = $event.retryDuration?
       if $vt {
-        $elements | to dstar-patch-element --selector $selector --mode $mode --use_view_transition --id $id --retry $retry
+        $elements | to datastar-patch-elements --selector $selector --mode $mode --use-view-transition --id $id --retry-duration $retry
       } else {
-        $elements | to dstar-patch-element --selector $selector --mode $mode --id $id --retry $retry
+        $elements | to datastar-patch-elements --selector $selector --mode $mode --id $id --retry-duration $retry
       }
     }
     "patchSignals" => {
@@ -26,9 +26,9 @@ def handle-event [event: record] {
       let id = $event.eventId?
       let retry = $event.retryDuration?
       if $oim {
-        $signals | to dstar-patch-signal --only_if_missing --id $id --retry $retry
+        $signals | to datastar-patch-signals --only-if-missing --id $id --retry-duration $retry
       } else {
-        $signals | to dstar-patch-signal --id $id --retry $retry
+        $signals | to datastar-patch-signals --id $id --retry-duration $retry
       }
     }
     "executeScript" => {
@@ -37,7 +37,7 @@ def handle-event [event: record] {
       let attributes = $event.attributes?
       let id = $event.eventId?
       let retry = $event.retryDuration?
-      $script | to dstar-execute-script --auto_remove $auto_remove --attributes $attributes --id $id --retry $retry
+      $script | to datastar-execute-script --auto-remove $auto_remove --attributes $attributes --id $id --retry-duration $retry
     }
     _ => { error make {msg: $"unknown event type: ($event.type)"} }
   }
@@ -47,7 +47,7 @@ def handle-event [event: record] {
   dispatch $req [
     (
       route {path: "/test"} {|req ctx|
-        let input = $in | from datastar-request $req
+        let input = $in | from datastar-signals $req
         let events = $input.events? | default []
         $events | each {|event| handle-event $event } | to sse
       }

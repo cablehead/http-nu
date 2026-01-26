@@ -513,7 +513,7 @@ $ http-nu :3001 --store ./store ./serve.nu
 ```nushell
 {|req|
   .last quotes --follow
-  | each {|frame| $frame.meta | to dstar-patch-element }
+  | each {|frame| $frame.meta | to datastar-patch-elements }
   | to sse
 }
 ```
@@ -875,22 +875,22 @@ use http-nu/html *
 
 {|req|
   # Parse signals from request (GET query param or POST body)
-  let signals = from datastar-request $req
+  let signals = from datastar-signals $req
 
   [
     # Update DOM
     (DIV {id: "notifications" class: "alert"} "Profile updated!"
-    | to dstar-patch-element)
+    | to datastar-patch-elements)
 
     # Or target by selector
     (DIV {class: "alert"} "Profile updated!"
-    | to dstar-patch-element --selector "#notifications")
+    | to datastar-patch-elements --selector "#notifications")
 
     # Update signals
-    ({count: ($signals.count + 1)} | to dstar-patch-signal)
+    ({count: ($signals.count + 1)} | to datastar-patch-signals)
 
     # Execute script
-    ("console.log('updated')" | to dstar-execute-script)
+    ("console.log('updated')" | to datastar-execute-script)
   ]
   | to sse
 }
@@ -899,31 +899,31 @@ use http-nu/html *
 **Commands:**
 
 ```nushell
-to dstar-patch-element [
+to datastar-patch-elements [
   --selector: string           # CSS selector (omit if element has ID)
   --mode: string               # outer, inner, replace, prepend, append, before, after, remove (default: outer)
   --namespace: string          # Content namespace: html (default) or svg
-  --use_view_transition        # Enable CSS View Transitions API
+  --use-view-transition        # Enable CSS View Transitions API
   --id: string                 # SSE event ID for replay
-  --retry: int                 # Reconnection delay in ms
+  --retry-duration: int        # Reconnection delay in ms
 ]: string -> record
 
-to dstar-patch-signal [
-  --only_if_missing            # Only set signals not present on client
+to datastar-patch-signals [
+  --only-if-missing            # Only set signals not present on client
   --id: string
-  --retry: int
+  --retry-duration: int
 ]: record -> record
 
-to dstar-execute-script [
-  --auto_remove: bool          # Remove <script> after execution (default: true)
+to datastar-execute-script [
+  --auto-remove: bool          # Remove <script> after execution (default: true)
   --attributes: record         # HTML attributes for <script> tag
   --id: string
-  --retry: int
+  --retry-duration: int
 ]: string -> record
 
-to dstar-redirect []: string -> record  # "/url" | to dstar-redirect
+to datastar-redirect []: string -> record  # "/url" | to datastar-redirect
 
-from datastar-request [req: record]: string -> record  # $in | from datastar-request $req
+from datastar-signals [req: record]: string -> record  # $in | from datastar-signals $req
 ```
 
 ## Eval Subcommand

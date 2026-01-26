@@ -10,13 +10,13 @@ export const DATASTAR_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/data
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
 # Modes: outer (default), inner, replace, prepend, append, before, after, remove
-export def "to dstar-patch-element" [
+export def "to datastar-patch-elements" [
   --selector: string # CSS selector. If omitted, elements must have IDs
   --mode: string = "outer" # outer, inner, replace, prepend, append, before, after, remove
   --namespace: string # Content namespace: html (default), svg, or mathml
-  --use_view_transition # Enable View Transitions API
+  --use-view-transition # Enable View Transitions API
   --id: string # SSE event ID
-  --retry: int # Retry interval in milliseconds
+  --retry-duration: int # Retry interval in milliseconds
 ]: any -> record {
   let input = $in
   let type = $input | describe -d | get type
@@ -33,17 +33,17 @@ export def "to dstar-patch-element" [
     ...($html | lines | each { $"elements ($in)" })
   ] | compact
 
-  {event: "datastar-patch-elements" data: $data id: $id retry: $retry}
+  {event: "datastar-patch-elements" data: $data id: $id retry: $retry_duration}
 }
 
 # Patch signals via SSE (JSON Merge Patch RFC 7386)
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
 # Accepts a record (serialized to JSON) or a string (passed through as-is).
-export def "to dstar-patch-signal" [
-  --only_if_missing # Only set signals missing on client
+export def "to datastar-patch-signals" [
+  --only-if-missing # Only set signals missing on client
   --id: string # SSE event ID
-  --retry: int # Retry interval in milliseconds
+  --retry-duration: int # Retry interval in milliseconds
 ]: any -> record {
   let input = $in
   let json_str = match ($input | describe -d | get type) {
@@ -55,17 +55,17 @@ export def "to dstar-patch-signal" [
     ...($json_str | lines | each { $"signals ($in)" })
   ] | compact
 
-  {event: "datastar-patch-signals" data: $data id: $id retry: $retry}
+  {event: "datastar-patch-signals" data: $data id: $id retry: $retry_duration}
 }
 
 # Execute JavaScript via SSE (appends <script> to body)
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
-export def "to dstar-execute-script" [
-  --auto_remove = true # Remove script after execution
+export def "to datastar-execute-script" [
+  --auto-remove = true # Remove script after execution
   --attributes: record # HTML attributes for script tag
   --id: string # SSE event ID
-  --retry: int # Retry interval in milliseconds
+  --retry-duration: int # Retry interval in milliseconds
 ]: string -> record {
   let script = $in
 
@@ -83,19 +83,19 @@ export def "to dstar-execute-script" [
     ...($script_tag | lines | each { $"elements ($in)" })
   ]
 
-  {event: "datastar-patch-elements" data: $data id: $id retry: $retry}
+  {event: "datastar-patch-elements" data: $data id: $id retry: $retry_duration}
 }
 
 # Redirect via SSE (executes JavaScript to change window.location.href)
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
-export def "to dstar-redirect" []: string -> record {
-  $"setTimeout\(\(\) => window.location.href = '($in)'\);" | to dstar-execute-script
+export def "to datastar-redirect" []: string -> record {
+  $"setTimeout\(\(\) => window.location.href = '($in)'\);" | to datastar-execute-script
 }
 
 # Parse signals from request (GET query `datastar` param or POST body JSON)
-# Usage: $in | from datastar-request $req
-export def "from datastar-request" [req: record]: string -> record {
+# Usage: $in | from datastar-signals $req
+export def "from datastar-signals" [req: record]: string -> record {
   match $req.method {
     "POST" => (try { $in | from json } catch { {} })
     _ => (try { $req.query.datastar? | default "{}" | from json } catch { {} })

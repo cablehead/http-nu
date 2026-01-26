@@ -47,7 +47,7 @@ def quote-html []: record -> record {
       route {method: GET path: "/" has-header: {accept: "text/event-stream"}} {|req ctx|
         .head quotes --follow
         | each {|frame|
-          $frame.meta | quote-html | to dstar-patch-element
+          $frame.meta | quote-html | to datastar-patch-elements
         }
         | to sse
       }
