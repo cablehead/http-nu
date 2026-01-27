@@ -325,7 +325,11 @@ async fn build_normal_response(
 ) -> HTTPResult {
     let request_id = guard.request_id();
     let (inferred_content_type, http_meta, body) = pipeline_result;
-    let status = http_meta.status.unwrap_or(200);
+    let status = match (http_meta.status, &body) {
+        (Some(s), _) => s,
+        (None, ResponseTransport::Empty) => 204,
+        (None, _) => 200,
+    };
     let mut builder = hyper::Response::builder().status(status);
     let mut header_map = hyper::header::HeaderMap::new();
 

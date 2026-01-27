@@ -238,6 +238,17 @@ async fn test_content_type_precedence() {
         resp5.headers().get("content-type").is_none(),
         "Empty body should not have Content-Type header"
     );
+
+    // 6. Empty body defaults to 204 No Content
+    let req6 = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(r#"{|req| null}"#)));
+    let resp6 = handle(engine.clone(), None, no_trusted_proxies(), req6)
+        .await
+        .unwrap();
+    assert_eq!(resp6.status(), 204, "Empty body should default to 204");
 }
 
 #[tokio::test]

@@ -218,7 +218,7 @@ Set HTTP response status and headers using nushell's pipeline metadata:
 
 ```nushell
 "body" | metadata set --merge {'http.response': {
-  status: <number>  # Optional, HTTP status code (default: 200)
+  status: <number>  # Optional, defaults to 204 if body is empty, 200 otherwise
   headers: {        # Optional, HTTP headers
     <key>: <value>  # Single value: "text/plain"
     <key>: [<value>, <value>]  # Multiple values: ["cookie1=a", "cookie2=b"]
