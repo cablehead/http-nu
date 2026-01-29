@@ -537,8 +537,10 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                     zone.redraw(&active_ids, &requests);
                 }
                 Event::Stopped => {
+                    let timestamp = Local::now().format("%H:%M:%S%.3f");
+                    zone.print_permanent(&format!("{timestamp} cu l8r"));
                     zone.clear();
-                    println!("cu l8r </http-nu>");
+                    println!("</http-nu>");
                 }
                 Event::StopTimedOut => {
                     zone.print_permanent("stop timed out, forcing exit");
