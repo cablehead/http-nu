@@ -70,6 +70,11 @@ struct Args {
     #[clap(long, requires = "store")]
     services: bool,
 
+    /// Expose the xs API on an additional address. Requires --store.
+    /// Can be [HOST]:PORT for TCP or iroh:// for peer-to-peer QUIC.
+    #[clap(long, requires = "store", value_name = "LISTEN_ADDR")]
+    expose: Option<String>,
+
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
     #[clap(long = "trust-proxy", value_name = "CIDR")]
     trust_proxies: Vec<ipnet::IpNet>,
@@ -545,9 +550,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(feature = "cross-stream")]
     if let Some(ref store) = store {
         let store_for_api = store.clone();
+        let expose = args.expose.clone();
         tokio::spawn(async move {
             let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-            if let Err(e) = xs::api::serve(store_for_api, engine, None).await {
+            if let Err(e) = xs::api::serve(store_for_api, engine, expose).await {
                 eprintln!("Store API server error: {e}");
             }
         });
