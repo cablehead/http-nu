@@ -157,6 +157,12 @@ contexts:
         1: punctuation.separator.decimal.nu
         2: punctuation.separator.decimal.nu
       push: maybe-transpose
+    # Nushell duration literals
+    - match: \b(\d+)(ns|us|ms|sec|min|hr|day|wk)\b
+      scope: meta.number.duration.nu
+      captures:
+        1: constant.numeric.value.nu
+        2: constant.numeric.suffix.nu
 
   strings:
     - match: \'
