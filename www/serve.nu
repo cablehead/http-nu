@@ -98,12 +98,18 @@ def taglines [] {
     (svg-top)
     (IMG {class: [block mx-auto] style: "max-width: 90%;" src: "/ellie.png"})
     (
-      DIV {class: [flex justify-center items-center]} [
+      DIV {class: [flex flex-wrap justify-center items-center]} [
         (badge {class: "rotate-ccw-5"} (A {href: "https://www.nushell.sh"} "Nushell") "-scriptable!")
-        (badge {bg: "red" class: "rotate-cw-4"} (A {href: "https://data-star.dev"} "Datastar") "-ready")
+        (
+          badge {bg: "purple-dark" class: "rotate-cw-2"} [
+            (A {href: "https://cross.stream"} "cross." (SPAN {class: "text-stream"} "stream"))
+            "-powered"
+          ]
+        )
+        (badge {bg: "red" class: "rotate-ccw-3"} (A {href: "https://data-star.dev"} "Datastar") "-ready")
       ]
     )
-    (badge {bg: "green" size: "xl" class: "uppercase tracking-wide mx-auto"} "HTTP Server")
+    (badge {bg: "green" size: "2xl" class: "uppercase tracking-wide mx-auto"} "HTTP Server")
     (DIV {class: "mt-4"} (svg-bottom))
   ]
 }
@@ -360,7 +366,7 @@ def install-section [] {
               (META {name: "viewport" content: "width=device-width, initial-scale=1.0"})
               (TITLE "http-nu")
               (META {property: "og:title" content: "http-nu"})
-              (META {property: "og:description" content: "The surprisingly performant, Datastar-ready, Nushell-scriptable HTTP server that fits in your back pocket"})
+              (META {property: "og:description" content: "The surprisingly performant, Nushell-scriptable, cross.stream-powered, Datastar-ready HTTP server that fits in your back pocket"})
               (META {property: "og:image" content: "https://http-nu.cross.stream/og.png"})
               (META {property: "og:type" content: "website"})
               (META {name: "twitter:card" content: "summary_large_image"})

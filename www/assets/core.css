@@ -21,6 +21,8 @@
   --color-accent-orange: #e86f3a;
   --color-accent-green: #2a9d4a;
   --color-accent-purple: #8b7ab8;
+  --color-accent-purple-dark: #4c1d95;
+  --color-accent-blue-stream: #00d4ff;
   --color-accent-red: #e05252;
 }
 
@@ -434,6 +436,12 @@ code {
 }
 .bg-purple {
   background-color: var(--color-accent-purple);
+}
+.bg-purple-dark {
+  background-color: var(--color-accent-purple-dark);
+}
+.text-stream {
+  color: var(--color-accent-blue-stream);
 }
 .bg-red {
   background-color: var(--color-accent-red);

@@ -8,7 +8,7 @@
   http-nu
 </h1>
   <p align="center">
-    The surprisingly performant, <a href="https://data-star.dev">Datastar</a>-ready, <a href="https://www.nushell.sh">Nushell</a>-scriptable HTTP server that fits in your back pocket.
+    The surprisingly performant, <a href="https://www.nushell.sh">Nushell</a>-scriptable, <a href="https://cross.stream">cross.stream</a>-powered, <a href="https://data-star.dev">Datastar</a>-ready HTTP server that fits in your back pocket.
     <br />
     <a href="#install">Install</a>
     ·
