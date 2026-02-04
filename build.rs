@@ -24,4 +24,19 @@ fn main() {
     dump_to_file(&syntax_set, &dest_path).expect("Failed to save SyntaxSet");
 
     println!("cargo:rerun-if-changed=syntaxes/");
+
+    // Extract dependency versions for runtime display
+    if let Ok(metadata) = cargo_metadata::MetadataCommand::new().exec() {
+        for pkg in &metadata.packages {
+            match pkg.name.as_str() {
+                "nu-protocol" => {
+                    println!("cargo:rustc-env=NU_VERSION={}", pkg.version);
+                }
+                "cross-stream" => {
+                    println!("cargo:rustc-env=XS_VERSION={}", pkg.version);
+                }
+                _ => {}
+            }
+        }
+    }
 }

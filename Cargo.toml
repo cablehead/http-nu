@@ -81,6 +81,7 @@ win_uds = "=0.2.1"
 
 [build-dependencies]
 syntect = "5.3.0"
+cargo_metadata = "0.18"
 
 
 [profile.release]

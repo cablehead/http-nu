@@ -14,7 +14,7 @@ use http_nu::{
     listener::TlsConfig,
     logging::{
         init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
-        run_human_handler, run_jsonl_handler, shutdown,
+        run_human_handler, run_jsonl_handler, shutdown, StartupOptions,
     },
     Engine, Listener,
 };
@@ -62,17 +62,21 @@ struct Args {
     #[clap(long, default_value = "human")]
     log_format: LogFormat,
 
-    /// Path to cross.stream store directory (enables .cat, .append, .cas commands)
-    #[clap(long)]
+    /// Path to store directory (enables .cat, .append, .cas commands)
+    #[clap(long, help_heading = "cross.stream")]
     store: Option<PathBuf>,
 
-    /// Enable xs services (handlers, generators, commands). Requires --store.
-    #[clap(long, requires = "store")]
+    /// Enable handlers, generators, and commands
+    #[clap(long, requires = "store", help_heading = "cross.stream")]
     services: bool,
 
-    /// Expose the xs API on an additional address. Requires --store.
-    /// Can be [HOST]:PORT for TCP or iroh:// for peer-to-peer QUIC.
-    #[clap(long, requires = "store", value_name = "LISTEN_ADDR")]
+    /// Expose API on additional address ([HOST]:PORT or iroh://)
+    #[clap(
+        long,
+        requires = "store",
+        value_name = "ADDR",
+        help_heading = "cross.stream"
+    )]
     expose: Option<String>,
 
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
@@ -253,6 +257,7 @@ fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn serve(
     addr: String,
     tls: Option<PathBuf>,
@@ -261,6 +266,7 @@ async fn serve(
     interrupt: Arc<AtomicBool>,
     trusted_proxies: Vec<ipnet::IpNet>,
     start_time: std::time::Instant,
+    startup_options: StartupOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Wait for a valid first script (loop to handle parse errors)
     let first_engine = loop {
@@ -316,7 +322,7 @@ async fn serve(
             }
         }
     };
-    log_started(&addr_display, startup_ms);
+    log_started(&addr_display, startup_ms, startup_options);
 
     // HTTP/1 + HTTP/2 auto-detection builder
     let http_builder = HttpConnectionBuilder::new(TokioExecutor::new());
@@ -654,6 +660,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         (None, Some(_), true) => unreachable!(),
     }
 
+    let startup_options = StartupOptions {
+        watch: args.watch,
+        tls: args.tls.as_ref().map(|p| p.display().to_string()),
+        store: args.store.as_ref().map(|p| p.display().to_string()),
+        expose: args.expose.clone(),
+        services: args.services,
+    };
+
     serve(
         addr,
         args.tls,
@@ -662,6 +676,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         interrupt,
         args.trust_proxies,
         std::time::Instant::now(),
+        startup_options,
     )
     .await?;
 

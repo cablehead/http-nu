@@ -16,6 +16,19 @@ use crate::request::Request;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+/// Datastar SDK version (matches CDN URL in stdlib)
+pub const DATASTAR_VERSION: &str = "1.0-RC.7";
+
+/// Startup options to display in preamble
+#[derive(Clone, Default)]
+pub struct StartupOptions {
+    pub watch: bool,
+    pub tls: Option<String>,
+    pub store: Option<String>,
+    pub expose: Option<String>,
+    pub services: bool,
+}
+
 // --- Token bucket rate limiter ---
 
 struct TokenBucket {
@@ -107,6 +120,7 @@ pub enum Event {
     Started {
         address: String,
         startup_ms: u64,
+        options: StartupOptions,
     },
     Reloaded,
     Error {
@@ -179,10 +193,11 @@ pub fn log_complete(request_id: scru128::Scru128Id, bytes: u64, response_time: I
     });
 }
 
-pub fn log_started(address: &str, startup_ms: u128) {
+pub fn log_started(address: &str, startup_ms: u128, options: StartupOptions) {
     emit(Event::Started {
         address: address.to_string(),
         startup_ms: startup_ms as u64,
+        options,
     });
 }
 
@@ -308,12 +323,33 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                 Event::Started {
                     address,
                     startup_ms,
+                    options,
                 } => {
+                    let xs_version: Option<&str> = if options.store.is_some() {
+                        #[cfg(feature = "cross-stream")]
+                        {
+                            Some(env!("XS_VERSION"))
+                        }
+                        #[cfg(not(feature = "cross-stream"))]
+                        {
+                            None
+                        }
+                    } else {
+                        None
+                    };
                     serde_json::json!({
                         "stamp": stamp,
                         "message": "started",
                         "address": address,
                         "startup_ms": startup_ms,
+                        "watch": options.watch,
+                        "tls": options.tls,
+                        "store": options.store,
+                        "expose": options.expose,
+                        "services": options.services,
+                        "nu_version": env!("NU_VERSION"),
+                        "xs_version": xs_version,
+                        "datastar_version": DATASTAR_VERSION,
                     })
                 }
                 Event::Reloaded => {
@@ -504,6 +540,7 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                 Event::Started {
                     address,
                     startup_ms,
+                    options,
                 } => {
                     let version = env!("CARGO_PKG_VERSION");
                     let pid = std::process::id();
@@ -514,7 +551,56 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                         " .--()°'.'  pid {pid} · {address} · {startup_ms}ms 💜"
                     ));
                     zone.print_permanent(&format!("'|, . ,'    {now}"));
-                    zone.print_permanent(" !_-(_\\");
+
+                    // Build options line: [http-nu opts] │ xs [store] [expose] [services]
+                    let mut http_opts = Vec::new();
+                    if options.watch {
+                        http_opts.push("[watch]".to_string());
+                    }
+                    if let Some(ref tls) = options.tls {
+                        http_opts.push(format!("[tls:{tls}]"));
+                    }
+
+                    let mut xs_opts = Vec::new();
+                    if let Some(ref store) = options.store {
+                        xs_opts.push(format!("[{store}]"));
+                    }
+                    if let Some(ref expose) = options.expose {
+                        xs_opts.push(format!("[{expose}]"));
+                    }
+                    if options.services {
+                        xs_opts.push("[services]".to_string());
+                    }
+
+                    // Build versions string
+                    let mut versions = vec![
+                        format!("nu {}", env!("NU_VERSION")),
+                        format!("datastar {DATASTAR_VERSION}"),
+                    ];
+                    if options.store.is_some() {
+                        #[cfg(feature = "cross-stream")]
+                        versions.insert(1, format!("xs {}", env!("XS_VERSION")));
+                    }
+                    let versions_str = versions.join(" · ");
+
+                    let has_opts = !http_opts.is_empty() || !xs_opts.is_empty();
+                    if has_opts {
+                        // Options on duck line, versions on next line
+                        let opts_str = match (http_opts.is_empty(), xs_opts.is_empty()) {
+                            (false, true) => http_opts.join(" "),
+                            (true, false) => format!("xs {}", xs_opts.join(" ")),
+                            (false, false) => {
+                                format!("{} │ xs {}", http_opts.join(" "), xs_opts.join(" "))
+                            }
+                            _ => unreachable!(),
+                        };
+                        zone.print_permanent(&format!(" !_-(_\\     {opts_str}"));
+                        zone.print_permanent(&format!("            {versions_str}"));
+                    } else {
+                        // No options: versions on duck line
+                        zone.print_permanent(&format!(" !_-(_\\     {versions_str}"));
+                    }
+
                     zone.redraw(&active_ids, &requests);
                 }
                 Event::Reloaded => {
