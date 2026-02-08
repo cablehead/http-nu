@@ -25,6 +25,7 @@ pub struct StartupOptions {
     pub watch: bool,
     pub tls: Option<String>,
     pub store: Option<String>,
+    pub topic: Option<String>,
     pub expose: Option<String>,
     pub services: bool,
 }
@@ -345,6 +346,7 @@ pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                         "watch": options.watch,
                         "tls": options.tls,
                         "store": options.store,
+                        "topic": options.topic,
                         "expose": options.expose,
                         "services": options.services,
                         "nu_version": env!("NU_VERSION"),
@@ -555,21 +557,24 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                     // Build options line: [http-nu opts] │ xs [store] [expose] [services]
                     let mut http_opts = Vec::new();
                     if options.watch {
-                        http_opts.push("[watch]".to_string());
+                        http_opts.push("watch".to_string());
                     }
                     if let Some(ref tls) = options.tls {
-                        http_opts.push(format!("[tls:{tls}]"));
+                        http_opts.push(format!("tls:{tls}"));
                     }
 
                     let mut xs_opts = Vec::new();
                     if let Some(ref store) = options.store {
-                        xs_opts.push(format!("[{store}]"));
+                        xs_opts.push(store.to_string());
+                    }
+                    if let Some(ref topic) = options.topic {
+                        xs_opts.push(format!("topic:{topic}"));
                     }
                     if let Some(ref expose) = options.expose {
-                        xs_opts.push(format!("[{expose}]"));
+                        xs_opts.push(expose.to_string());
                     }
                     if options.services {
-                        xs_opts.push("[services]".to_string());
+                        xs_opts.push("services".to_string());
                     }
 
                     // Build versions string

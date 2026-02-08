@@ -49,7 +49,7 @@ struct Args {
     script: Option<String>,
 
     /// Run script from command line instead of file
-    #[clap(short = 'c', long = "commands", conflicts_with = "watch")]
+    #[clap(short = 'c', long = "commands", conflicts_with_all = ["watch", "script"])]
     commands: Option<String>,
 
     /// Watch for script changes and reload automatically.
@@ -69,6 +69,16 @@ struct Args {
     /// Enable handlers, generators, and commands
     #[clap(long, requires = "store", help_heading = "cross.stream")]
     services: bool,
+
+    /// Load handler closure from a store topic (use with -w to live-reload on changes)
+    #[clap(
+        long,
+        requires = "store",
+        conflicts_with_all = ["script", "commands"],
+        value_name = "TOPIC",
+        help_heading = "cross.stream"
+    )]
+    topic: Option<String>,
 
     /// Expose API on additional address ([HOST]:PORT or iroh://)
     #[clap(
@@ -251,6 +261,111 @@ fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
             let script = String::from_utf8_lossy(&buffer).into_owned();
 
             if tx.blocking_send(script).is_err() {
+                break;
+            }
+        }
+    });
+}
+
+/// Generates a placeholder closure that serves a static HTML page with startup info
+/// and instructions for how to populate the topic with a handler closure.
+#[cfg(feature = "cross-stream")]
+fn placeholder_closure(topic: &str, store_path: &str) -> String {
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>http-nu - waiting for topic</title>
+<style>
+body {{ font-family: monospace; max-width: 640px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #c8c8d0; }}
+h1 {{ color: #e0e0e0; font-size: 1.4em; }}
+code {{ background: #16213e; padding: 2px 6px; border-radius: 3px; }}
+pre {{ background: #16213e; padding: 16px; border-radius: 6px; overflow-x: auto; line-height: 1.5; }}
+.waiting {{ color: #a78bfa; }}
+</style>
+</head>
+<body>
+<h1>http-nu</h1>
+<p class="waiting">Waiting for topic <code>{topic}</code> ...</p>
+<p>Append a handler closure to start serving:</p>
+<pre>xs append {store_path}/sock {topic} &lt;&lt;'EOF'
+{{|req|
+  "hello, world"
+}}
+EOF</pre>
+<p>With <code>-w</code>, the server will automatically reload when the topic is updated.</p>
+</body>
+</html>"#
+    );
+
+    // Escape the HTML for embedding in a nushell closure string
+    let escaped = html.replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        "{{|req| \"{escaped}\" | metadata set --content-type text/html --merge {{'http.response': {{status: 503}}}} }}"
+    )
+}
+
+/// Reads the latest frame content for a topic from the store.
+/// Returns the content and the frame ID, or None if the topic has no frames or no content.
+#[cfg(feature = "cross-stream")]
+fn read_topic_content(
+    store: &xs::store::Store,
+    topic: &str,
+) -> Option<(String, scru128::Scru128Id)> {
+    let frame = store.last(topic)?;
+    let id = frame.id;
+    let hash = frame.hash?;
+    let bytes = store.cas_read_sync(&hash).ok()?;
+    let content = String::from_utf8(bytes).ok()?;
+    Some((content, id))
+}
+
+/// Spawns a task that watches a store topic for changes and sends updated scripts.
+/// Uses store.read() with follow to tail the stream for the given topic.
+/// If `after` is provided, only frames after that ID are observed.
+#[cfg(feature = "cross-stream")]
+fn spawn_topic_watcher(
+    store: xs::store::Store,
+    topic: String,
+    after: Option<scru128::Scru128Id>,
+    tx: mpsc::Sender<String>,
+) {
+    tokio::spawn(async move {
+        let options = xs::store::ReadOptions::builder()
+            .follow(xs::store::FollowOption::On)
+            .topic(topic.clone())
+            .maybe_after(after)
+            .build();
+
+        let mut receiver = store.read(options).await;
+
+        while let Some(frame) = receiver.recv().await {
+            if frame.topic != topic {
+                continue;
+            }
+
+            // Skip frames with no content (e.g. threshold markers)
+            let Some(hash) = frame.hash else {
+                continue;
+            };
+
+            let content = match store.cas_read(&hash).await {
+                Ok(bytes) => match String::from_utf8(bytes) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Error decoding topic content: {e}");
+                        continue;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error reading topic content: {e}");
+                    continue;
+                }
+            };
+
+            if tx.send(content).await.is_err() {
                 break;
             }
         }
@@ -608,62 +723,94 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (tx, rx) = mpsc::channel::<String>(1);
 
     // Determine script source and set up appropriate watcher/reader
-    match (&args.script, &args.commands, args.watch) {
-        (Some(_), Some(_), _) => {
-            eprintln!("Error: cannot specify both script file and --commands");
-            std::process::exit(1);
-        }
-        (None, None, _) => {
-            eprintln!("Error: provide a script file or use --commands");
-            std::process::exit(1);
-        }
-        // -c flag: use command content directly (conflicts_with prevents -w)
-        (None, Some(cmd), false) => {
-            tx.send(cmd.clone())
-                .await
-                .expect("channel closed unexpectedly");
+    //
+    // --topic: load handler closure from the store; with -w, tail for updates
+    // Otherwise: load from file, stdin, or -c as before
+    #[cfg(feature = "cross-stream")]
+    let tx = if let Some(ref topic) = args.topic {
+        let store = store
+            .as_ref()
+            .expect("--topic requires --store (enforced by clap)");
+        let store_path = args.store.as_ref().unwrap().display().to_string();
+
+        // Load current content or placeholder
+        let (initial, last_id) = match read_topic_content(store, topic) {
+            Some((content, id)) => (content, Some(id)),
+            None => (placeholder_closure(topic, &store_path), None),
+        };
+
+        tx.send(initial).await.expect("channel closed unexpectedly");
+
+        if args.watch {
+            spawn_topic_watcher(store.clone(), topic.clone(), last_id, tx);
+        } else {
             drop(tx);
         }
-        // stdin without -w: read once
-        (Some(path), None, false) if path == "-" => {
-            let mut content = String::new();
-            std::io::stdin()
-                .read_to_string(&mut content)
-                .expect("Failed to read from stdin");
-            tx.send(content).await.expect("channel closed unexpectedly");
-            drop(tx);
-        }
-        // stdin with -w: spawn stdin reader for null-terminated scripts
-        (Some(path), None, true) if path == "-" => {
-            spawn_stdin_reader(tx);
-        }
-        // file without -w: read once
-        (Some(path), None, false) => {
-            let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
-                eprintln!("Error reading {path}: {e}");
+        None
+    } else {
+        Some(tx)
+    };
+
+    #[cfg(not(feature = "cross-stream"))]
+    let tx = Some(tx);
+
+    if let Some(tx) = tx {
+        match (&args.script, &args.commands, args.watch) {
+            // -c conflicts_with script at clap level
+            (Some(_), Some(_), _) => unreachable!(),
+            (None, None, _) => {
+                eprintln!("Error: provide a script file, --commands, or --topic");
                 std::process::exit(1);
-            });
-            tx.send(content).await.expect("channel closed unexpectedly");
-            drop(tx);
+            }
+            // -c flag: use command content directly (conflicts_with prevents -w)
+            (None, Some(cmd), false) => {
+                tx.send(cmd.clone())
+                    .await
+                    .expect("channel closed unexpectedly");
+                drop(tx);
+            }
+            // stdin without -w: read once
+            (Some(path), None, false) if path == "-" => {
+                let mut content = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut content)
+                    .expect("Failed to read from stdin");
+                tx.send(content).await.expect("channel closed unexpectedly");
+                drop(tx);
+            }
+            // stdin with -w: spawn stdin reader for null-terminated scripts
+            (Some(path), None, true) if path == "-" => {
+                spawn_stdin_reader(tx);
+            }
+            // file without -w: read once
+            (Some(path), None, false) => {
+                let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                    eprintln!("Error reading {path}: {e}");
+                    std::process::exit(1);
+                });
+                tx.send(content).await.expect("channel closed unexpectedly");
+                drop(tx);
+            }
+            // file with -w: read initial content and spawn file watcher
+            (Some(path), None, true) => {
+                let script_path = PathBuf::from(path);
+                let content = std::fs::read_to_string(&script_path).unwrap_or_else(|e| {
+                    eprintln!("Error reading {path}: {e}");
+                    std::process::exit(1);
+                });
+                tx.send(content).await.expect("channel closed unexpectedly");
+                spawn_file_watcher(script_path, tx);
+            }
+            // -c with -w is prevented by clap conflicts_with
+            (None, Some(_), true) => unreachable!(),
         }
-        // file with -w: read initial content and spawn file watcher
-        (Some(path), None, true) => {
-            let script_path = PathBuf::from(path);
-            let content = std::fs::read_to_string(&script_path).unwrap_or_else(|e| {
-                eprintln!("Error reading {path}: {e}");
-                std::process::exit(1);
-            });
-            tx.send(content).await.expect("channel closed unexpectedly");
-            spawn_file_watcher(script_path, tx);
-        }
-        // -c with -w is prevented by clap conflicts_with
-        (None, Some(_), true) => unreachable!(),
     }
 
     let startup_options = StartupOptions {
         watch: args.watch,
         tls: args.tls.as_ref().map(|p| p.display().to_string()),
         store: args.store.as_ref().map(|p| p.display().to_string()),
+        topic: args.topic.clone(),
         expose: args.expose.clone(),
         services: args.services,
     };
