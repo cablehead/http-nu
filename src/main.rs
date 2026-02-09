@@ -148,106 +148,124 @@ fn create_base_engine(
     Ok(engine)
 }
 
-/// Spawns a file watcher that watches the script's directory for any changes.
-/// When a change is detected, re-reads the script file and sends it.
-fn spawn_file_watcher(script_path: PathBuf, tx: mpsc::Sender<String>) {
-    std::thread::spawn(move || {
-        let watch_dir = script_path.parent().unwrap_or(&script_path).to_path_buf();
+/// Read script from file, send through `tx`. If `watch` is true, spawn a watcher
+/// that re-reads and sends the script when the file's directory changes.
+async fn file_source(path: &str, watch: bool, tx: mpsc::Sender<String>) {
+    let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("Error reading {path}: {e}");
+        std::process::exit(1);
+    });
+    tx.send(content).await.expect("channel closed unexpectedly");
 
-        let (raw_tx, raw_rx) = std::sync::mpsc::channel();
+    if watch {
+        let script_path = PathBuf::from(path);
+        std::thread::spawn(move || {
+            let watch_dir = script_path.parent().unwrap_or(&script_path).to_path_buf();
 
-        let mut watcher = notify::recommended_watcher(raw_tx).expect("Failed to create watcher");
+            let (raw_tx, raw_rx) = std::sync::mpsc::channel();
 
-        watcher
-            .watch(&watch_dir, RecursiveMode::Recursive)
-            .expect("Failed to watch directory");
+            let mut watcher =
+                notify::recommended_watcher(raw_tx).expect("Failed to create watcher");
 
-        let debounce = Duration::from_millis(100);
-        let mut pending_reload = false;
+            watcher
+                .watch(&watch_dir, RecursiveMode::Recursive)
+                .expect("Failed to watch directory");
 
-        loop {
-            let timeout = if pending_reload {
-                debounce
-            } else {
-                Duration::from_secs(86400)
-            };
+            let debounce = Duration::from_millis(100);
+            let mut pending_reload = false;
 
-            match raw_rx.recv_timeout(timeout) {
-                Ok(Ok(event)) => {
-                    use notify::EventKind;
-                    let dominated_by = matches!(
-                        event.kind,
-                        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-                    );
-                    if dominated_by {
-                        pending_reload = true;
+            loop {
+                let timeout = if pending_reload {
+                    debounce
+                } else {
+                    Duration::from_secs(86400)
+                };
+
+                match raw_rx.recv_timeout(timeout) {
+                    Ok(Ok(event)) => {
+                        use notify::EventKind;
+                        let dominated_by = matches!(
+                            event.kind,
+                            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+                        );
+                        if dominated_by {
+                            pending_reload = true;
+                        }
                     }
-                }
-                Ok(Err(e)) => {
-                    eprintln!("Watch error: {e:?}");
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if pending_reload {
-                        pending_reload = false;
-                        match std::fs::read_to_string(&script_path) {
-                            Ok(content) => {
-                                if tx.blocking_send(content).is_err() {
-                                    break;
+                    Ok(Err(e)) => {
+                        eprintln!("Watch error: {e:?}");
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if pending_reload {
+                            pending_reload = false;
+                            match std::fs::read_to_string(&script_path) {
+                                Ok(content) => {
+                                    if tx.blocking_send(content).is_err() {
+                                        break;
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                eprintln!("Error reading script file: {e}");
+                                Err(e) => {
+                                    eprintln!("Error reading script file: {e}");
+                                }
                             }
                         }
                     }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break;
+                    }
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            }
+        });
+    }
+}
+
+/// Read script from stdin, send through `tx`. If `watch` is true, spawn a reader
+/// that reads null-terminated scripts from stdin for hot reload.
+async fn stdin_source(watch: bool, tx: mpsc::Sender<String>) {
+    if watch {
+        std::thread::spawn(move || {
+            let mut stdin = std::io::stdin().lock();
+            let mut buffer = Vec::new();
+            let mut byte = [0u8; 1];
+
+            loop {
+                buffer.clear();
+
+                // Read until null terminator or EOF
+                loop {
+                    match stdin.read(&mut byte) {
+                        Ok(0) => break, // EOF
+                        Ok(_) => {
+                            if byte[0] == b'\0' {
+                                break;
+                            }
+                            buffer.push(byte[0]);
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading stdin: {e}");
+                            return;
+                        }
+                    }
+                }
+
+                if buffer.is_empty() {
+                    break;
+                }
+
+                let script = String::from_utf8_lossy(&buffer).into_owned();
+
+                if tx.blocking_send(script).is_err() {
                     break;
                 }
             }
-        }
-    });
-}
-
-/// Spawns a dedicated OS thread that reads null-terminated scripts from stdin and sends them.
-/// Uses blocking I/O to avoid async stdin issues with piped input.
-fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
-    std::thread::spawn(move || {
-        let mut stdin = std::io::stdin().lock();
-        let mut buffer = Vec::new();
-        let mut byte = [0u8; 1];
-
-        loop {
-            buffer.clear();
-
-            // Read until null terminator or EOF
-            loop {
-                match stdin.read(&mut byte) {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
-                        if byte[0] == b'\0' {
-                            break;
-                        }
-                        buffer.push(byte[0]);
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading stdin: {e}");
-                        return;
-                    }
-                }
-            }
-
-            if buffer.is_empty() {
-                break;
-            }
-
-            let script = String::from_utf8_lossy(&buffer).into_owned();
-
-            if tx.blocking_send(script).is_err() {
-                break;
-            }
-        }
-    });
+        });
+    } else {
+        let mut content = String::new();
+        std::io::stdin()
+            .read_to_string(&mut content)
+            .expect("Failed to read from stdin");
+        tx.send(content).await.expect("channel closed unexpectedly");
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -558,10 +576,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);
 
-    // Determine script source and set up appropriate watcher/reader
-    //
-    // --topic: load handler closure from the store; with -w, tail for updates
-    // Otherwise: load from file, stdin, or -c as before
+    // Determine script source and set up appropriate watcher/reader.
+    // Each source sends the initial script through tx, then either drops it
+    // (one-shot) or hands it to a background task (watch mode).
     #[cfg(feature = "cross-stream")]
     let tx = if let (Some(ref topic), Some(ref store)) = (&args.topic, &store) {
         store.topic_source(topic, args.watch, tx).await;
@@ -573,54 +590,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tx = Some(tx);
 
     if let Some(tx) = tx {
-        match (&args.script, &args.commands, args.watch) {
-            // -c conflicts_with script at clap level
-            (Some(_), Some(_), _) => unreachable!(),
-            (None, None, _) => {
+        match (&args.script, &args.commands) {
+            (Some(_), Some(_)) => unreachable!(), // clap conflicts_with
+            (None, Some(_)) if args.watch => unreachable!(), // clap conflicts_with
+            (None, None) => {
                 eprintln!("Error: provide a script file, --commands, or --topic");
                 std::process::exit(1);
             }
-            // -c flag: use command content directly (conflicts_with prevents -w)
-            (None, Some(cmd), false) => {
+            (None, Some(cmd)) => {
                 tx.send(cmd.clone())
                     .await
                     .expect("channel closed unexpectedly");
-                drop(tx);
             }
-            // stdin without -w: read once
-            (Some(path), None, false) if path == "-" => {
-                let mut content = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut content)
-                    .expect("Failed to read from stdin");
-                tx.send(content).await.expect("channel closed unexpectedly");
-                drop(tx);
+            (Some(path), None) if path == "-" => {
+                stdin_source(args.watch, tx).await;
             }
-            // stdin with -w: spawn stdin reader for null-terminated scripts
-            (Some(path), None, true) if path == "-" => {
-                spawn_stdin_reader(tx);
+            (Some(path), None) => {
+                file_source(path, args.watch, tx).await;
             }
-            // file without -w: read once
-            (Some(path), None, false) => {
-                let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
-                    eprintln!("Error reading {path}: {e}");
-                    std::process::exit(1);
-                });
-                tx.send(content).await.expect("channel closed unexpectedly");
-                drop(tx);
-            }
-            // file with -w: read initial content and spawn file watcher
-            (Some(path), None, true) => {
-                let script_path = PathBuf::from(path);
-                let content = std::fs::read_to_string(&script_path).unwrap_or_else(|e| {
-                    eprintln!("Error reading {path}: {e}");
-                    std::process::exit(1);
-                });
-                tx.send(content).await.expect("channel closed unexpectedly");
-                spawn_file_watcher(script_path, tx);
-            }
-            // -c with -w is prevented by clap conflicts_with
-            (None, Some(_), true) => unreachable!(),
         }
     }
 
