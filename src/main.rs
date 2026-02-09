@@ -16,6 +16,7 @@ use http_nu::{
         init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
         run_human_handler, run_jsonl_handler, shutdown, StartupOptions,
     },
+    store::Store,
     Engine, Listener,
 };
 use hyper::service::service_fn;
@@ -63,14 +64,17 @@ struct Args {
     log_format: LogFormat,
 
     /// Path to store directory (enables .cat, .append, .cas commands)
+    #[cfg(feature = "cross-stream")]
     #[clap(long, help_heading = "cross.stream")]
     store: Option<PathBuf>,
 
     /// Enable handlers, generators, and commands
+    #[cfg(feature = "cross-stream")]
     #[clap(long, requires = "store", help_heading = "cross.stream")]
     services: bool,
 
     /// Load handler closure from a store topic (use with -w to live-reload on changes)
+    #[cfg(feature = "cross-stream")]
     #[clap(
         long,
         requires = "store",
@@ -81,6 +85,7 @@ struct Args {
     topic: Option<String>,
 
     /// Expose API on additional address ([HOST]:PORT or iroh://)
+    #[cfg(feature = "cross-stream")]
     #[clap(
         long,
         requires = "store",
@@ -120,44 +125,22 @@ enum Command {
 }
 
 /// Creates and configures the base engine with all commands, signals, and ctrlc handler.
-#[cfg(feature = "cross-stream")]
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
     plugins: &[PathBuf],
     include_paths: &[PathBuf],
-    store: Option<&xs::store::Store>,
+    store: Option<&Store>,
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
     engine.set_lib_dirs(include_paths)?;
 
-    // Load plugins
     for plugin_path in plugins {
         engine.load_plugin(plugin_path)?;
     }
 
-    // Add cross.stream commands if store is enabled
     if let Some(store) = store {
-        engine.add_store_commands(store)?;
-    }
-
-    engine.set_signals(interrupt.clone());
-    setup_ctrlc_handler(&engine, interrupt)?;
-    Ok(engine)
-}
-
-#[cfg(not(feature = "cross-stream"))]
-fn create_base_engine(
-    interrupt: Arc<AtomicBool>,
-    plugins: &[PathBuf],
-    include_paths: &[PathBuf],
-) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
-    let mut engine = Engine::new()?;
-    engine.add_custom_commands()?;
-    engine.set_lib_dirs(include_paths)?;
-
-    for plugin_path in plugins {
-        engine.load_plugin(plugin_path)?;
+        store.configure_engine(&mut engine)?;
     }
 
     engine.set_signals(interrupt.clone());
@@ -261,111 +244,6 @@ fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
             let script = String::from_utf8_lossy(&buffer).into_owned();
 
             if tx.blocking_send(script).is_err() {
-                break;
-            }
-        }
-    });
-}
-
-/// Generates a placeholder closure that serves a static HTML page with startup info
-/// and instructions for how to populate the topic with a handler closure.
-#[cfg(feature = "cross-stream")]
-fn placeholder_closure(topic: &str, store_path: &str) -> String {
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>http-nu - waiting for topic</title>
-<style>
-body {{ font-family: monospace; max-width: 640px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #c8c8d0; }}
-h1 {{ color: #e0e0e0; font-size: 1.4em; }}
-code {{ background: #16213e; padding: 2px 6px; border-radius: 3px; }}
-pre {{ background: #16213e; padding: 16px; border-radius: 6px; overflow-x: auto; line-height: 1.5; }}
-.waiting {{ color: #a78bfa; }}
-</style>
-</head>
-<body>
-<h1>http-nu</h1>
-<p class="waiting">Waiting for topic <code>{topic}</code> ...</p>
-<p>Append a handler closure to start serving:</p>
-<pre>xs append {store_path}/sock {topic} &lt;&lt;'EOF'
-{{|req|
-  "hello, world"
-}}
-EOF</pre>
-<p>With <code>-w</code>, the server will automatically reload when the topic is updated.</p>
-</body>
-</html>"#
-    );
-
-    // Escape the HTML for embedding in a nushell closure string
-    let escaped = html.replace('\\', "\\\\").replace('"', "\\\"");
-    format!(
-        "{{|req| \"{escaped}\" | metadata set --content-type text/html --merge {{'http.response': {{status: 503}}}} }}"
-    )
-}
-
-/// Reads the latest frame content for a topic from the store.
-/// Returns the content and the frame ID, or None if the topic has no frames or no content.
-#[cfg(feature = "cross-stream")]
-fn read_topic_content(
-    store: &xs::store::Store,
-    topic: &str,
-) -> Option<(String, scru128::Scru128Id)> {
-    let frame = store.last(topic)?;
-    let id = frame.id;
-    let hash = frame.hash?;
-    let bytes = store.cas_read_sync(&hash).ok()?;
-    let content = String::from_utf8(bytes).ok()?;
-    Some((content, id))
-}
-
-/// Spawns a task that watches a store topic for changes and sends updated scripts.
-/// Uses store.read() with follow to tail the stream for the given topic.
-/// If `after` is provided, only frames after that ID are observed.
-#[cfg(feature = "cross-stream")]
-fn spawn_topic_watcher(
-    store: xs::store::Store,
-    topic: String,
-    after: Option<scru128::Scru128Id>,
-    tx: mpsc::Sender<String>,
-) {
-    tokio::spawn(async move {
-        let options = xs::store::ReadOptions::builder()
-            .follow(xs::store::FollowOption::On)
-            .topic(topic.clone())
-            .maybe_after(after)
-            .build();
-
-        let mut receiver = store.read(options).await;
-
-        while let Some(frame) = receiver.recv().await {
-            if frame.topic != topic {
-                continue;
-            }
-
-            // Skip frames with no content (e.g. threshold markers)
-            let Some(hash) = frame.hash else {
-                continue;
-            };
-
-            let content = match store.cas_read(&hash).await {
-                Ok(bytes) => match String::from_utf8(bytes) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Error decoding topic content: {e}");
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Error reading topic content: {e}");
-                    continue;
-                }
-            };
-
-            if tx.send(content).await.is_err() {
                 break;
             }
         }
@@ -662,62 +540,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create cross.stream store if --store is specified
     #[cfg(feature = "cross-stream")]
-    let store = args
-        .store
-        .as_ref()
-        .map(|p| xs::store::Store::new(p.clone()));
-
-    // Spawn xs API server if store is enabled
-    #[cfg(feature = "cross-stream")]
-    if let Some(ref store) = store {
-        let store_for_api = store.clone();
-        let expose = args.expose.clone();
-        tokio::spawn(async move {
-            let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-            if let Err(e) = xs::api::serve(store_for_api, engine, expose).await {
-                eprintln!("Store API server error: {e}");
-            }
-        });
-
-        // Spawn xs services (handlers, generators, commands) if --services is set
-        if args.services {
-            let store_for_handlers = store.clone();
-            tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::handlers::serve(store_for_handlers, engine).await {
-                    eprintln!("Handlers serve error: {e}");
-                }
-            });
-
-            let store_for_generators = store.clone();
-            tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::generators::serve(store_for_generators, engine).await {
-                    eprintln!("Generators serve error: {e}");
-                }
-            });
-
-            let store_for_commands = store.clone();
-            tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::commands::serve(store_for_commands, engine).await {
-                    eprintln!("Commands serve error: {e}");
-                }
-            });
-        }
-    }
+    let store: Option<Store> = match args.store {
+        Some(ref path) => Some(Store::init(path.clone(), args.services, args.expose.clone()).await),
+        None => None,
+    };
+    #[cfg(not(feature = "cross-stream"))]
+    let store: Option<Store> = None;
 
     // Create base engine with commands, signals, and plugins
-    #[cfg(feature = "cross-stream")]
     let base_engine = create_base_engine(
         interrupt.clone(),
         &args.plugins,
         &args.include_paths,
         store.as_ref(),
     )?;
-
-    #[cfg(not(feature = "cross-stream"))]
-    let base_engine = create_base_engine(interrupt.clone(), &args.plugins, &args.include_paths)?;
 
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);
@@ -727,30 +563,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // --topic: load handler closure from the store; with -w, tail for updates
     // Otherwise: load from file, stdin, or -c as before
     #[cfg(feature = "cross-stream")]
-    let tx = if let Some(ref topic) = args.topic {
-        let store = store
-            .as_ref()
-            .expect("--topic requires --store (enforced by clap)");
-        let store_path = args.store.as_ref().unwrap().display().to_string();
-
-        // Load current content or placeholder
-        let (initial, last_id) = match read_topic_content(store, topic) {
-            Some((content, id)) => (content, Some(id)),
-            None => (placeholder_closure(topic, &store_path), None),
-        };
-
-        tx.send(initial).await.expect("channel closed unexpectedly");
-
-        if args.watch {
-            spawn_topic_watcher(store.clone(), topic.clone(), last_id, tx);
-        } else {
-            drop(tx);
-        }
+    let tx = if let (Some(ref topic), Some(ref store)) = (&args.topic, &store) {
+        store.topic_source(topic, args.watch, tx).await;
         None
     } else {
         Some(tx)
     };
-
     #[cfg(not(feature = "cross-stream"))]
     let tx = Some(tx);
 
@@ -809,10 +627,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let startup_options = StartupOptions {
         watch: args.watch,
         tls: args.tls.as_ref().map(|p| p.display().to_string()),
+        #[cfg(feature = "cross-stream")]
         store: args.store.as_ref().map(|p| p.display().to_string()),
+        #[cfg(not(feature = "cross-stream"))]
+        store: None,
+        #[cfg(feature = "cross-stream")]
         topic: args.topic.clone(),
+        #[cfg(not(feature = "cross-stream"))]
+        topic: None,
+        #[cfg(feature = "cross-stream")]
         expose: args.expose.clone(),
+        #[cfg(not(feature = "cross-stream"))]
+        expose: None,
+        #[cfg(feature = "cross-stream")]
         services: args.services,
+        #[cfg(not(feature = "cross-stream"))]
+        services: false,
     };
 
     serve(

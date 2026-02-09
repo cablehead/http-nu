@@ -1682,6 +1682,7 @@ async fn test_watch_stdin_dynamic_reload() {
 // ============================================================================
 
 /// Tests that .cat -f streams frames appended via .append
+#[cfg(feature = "cross-stream")]
 #[tokio::test]
 async fn test_store_cat_follow_receives_appended_frames() {
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -1762,6 +1763,7 @@ async fn test_store_cat_follow_receives_appended_frames() {
 }
 
 /// Tests that --services enables xs handlers
+#[cfg(feature = "cross-stream")]
 #[tokio::test]
 async fn test_services_flag_enables_handlers() {
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -2110,6 +2112,7 @@ async fn test_sse_cancelled_on_hot_reload() {
 /// Tests that --topic with -w loads a handler from the store, serves a placeholder
 /// when the topic is empty, reloads when the topic is appended, and reloads again
 /// when the topic is updated.
+#[cfg(feature = "cross-stream")]
 #[tokio::test]
 async fn test_watch_topic_reload_on_append() {
     let tmp = tempfile::tempdir().unwrap();

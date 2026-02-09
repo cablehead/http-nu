@@ -578,14 +578,12 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                     }
 
                     // Build versions string
-                    let mut versions = vec![
-                        format!("nu {}", env!("NU_VERSION")),
-                        format!("datastar {DATASTAR_VERSION}"),
-                    ];
+                    let mut versions = vec![format!("nu {}", env!("NU_VERSION"))];
+                    #[cfg(feature = "cross-stream")]
                     if options.store.is_some() {
-                        #[cfg(feature = "cross-stream")]
-                        versions.insert(1, format!("xs {}", env!("XS_VERSION")));
+                        versions.push(format!("xs {}", env!("XS_VERSION")));
                     }
+                    versions.push(format!("datastar {DATASTAR_VERSION}"));
                     let versions_str = versions.join(" · ");
 
                     let has_opts = !http_opts.is_empty() || !xs_opts.is_empty();
