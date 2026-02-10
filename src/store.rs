@@ -99,39 +99,9 @@ impl Store {
 
 #[cfg(feature = "cross-stream")]
 fn placeholder_closure(topic: &str, store_path: &str) -> String {
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>http-nu - waiting for topic</title>
-<style>
-body {{ font-family: monospace; max-width: 640px; margin: 40px auto; padding: 0 20px; background: #1a1a2e; color: #c8c8d0; }}
-h1 {{ color: #e0e0e0; font-size: 1.4em; }}
-code {{ background: #16213e; padding: 2px 6px; border-radius: 3px; }}
-pre {{ background: #16213e; padding: 16px; border-radius: 6px; overflow-x: auto; line-height: 1.5; }}
-.waiting {{ color: #a78bfa; }}
-</style>
-</head>
-<body>
-<h1>http-nu</h1>
-<p class="waiting">Waiting for topic <code>{topic}</code> ...</p>
-<p>Append a handler closure to start serving:</p>
-<pre>xs append {store_path}/sock {topic} &lt;&lt;'EOF'
-{{|req|
-  "hello, world"
-}}
-EOF</pre>
-<p>With <code>-w</code>, the server will automatically reload when the topic is updated.</p>
-</body>
-</html>"#
-    );
-
-    let escaped = html.replace('\\', "\\\\").replace('"', "\\\"");
-    format!(
-        "{{|req| \"{escaped}\" | metadata set --content-type text/html --merge {{'http.response': {{status: 503}}}} }}"
-    )
+    include_str!("../examples/topic-placeholder.nu")
+        .replace("__TOPIC__", topic)
+        .replace("__STORE_PATH__", store_path)
 }
 
 #[cfg(feature = "cross-stream")]
