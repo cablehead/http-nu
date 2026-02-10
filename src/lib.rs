@@ -7,6 +7,7 @@ pub mod logging;
 pub mod request;
 pub mod response;
 pub mod stdlib;
+pub mod store;
 pub mod worker;
 
 #[cfg(test)]

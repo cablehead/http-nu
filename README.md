@@ -496,6 +496,18 @@ store's API (e.g., `xs append ./store echo.register ...`).
 $ http-nu :3001 --store ./store ./serve.nu
 ```
 
+Use `--topic <name>` to load the handler closure from a store topic instead of a
+script file. With `-w`, the server live-reloads whenever the topic is updated:
+
+```nushell
+$ http-nu :3001 --store ./store --topic serve -w
+# In another terminal:
+$ '{|req| "hello, world"}' | xs append ./store/sock serve
+```
+
+If the topic doesn't exist yet, the server shows a placeholder page with
+instructions until a handler is appended.
+
 **Commands available in handlers:**
 
 | Command   | Description                                     |

@@ -16,6 +16,7 @@ use http_nu::{
         init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
         run_human_handler, run_jsonl_handler, shutdown, StartupOptions,
     },
+    store::Store,
     Engine, Listener,
 };
 use hyper::service::service_fn;
@@ -49,7 +50,7 @@ struct Args {
     script: Option<String>,
 
     /// Run script from command line instead of file
-    #[clap(short = 'c', long = "commands", conflicts_with = "watch")]
+    #[clap(short = 'c', long = "commands", conflicts_with_all = ["watch", "script"])]
     commands: Option<String>,
 
     /// Watch for script changes and reload automatically.
@@ -63,14 +64,28 @@ struct Args {
     log_format: LogFormat,
 
     /// Path to store directory (enables .cat, .append, .cas commands)
+    #[cfg(feature = "cross-stream")]
     #[clap(long, help_heading = "cross.stream")]
     store: Option<PathBuf>,
 
     /// Enable handlers, generators, and commands
+    #[cfg(feature = "cross-stream")]
     #[clap(long, requires = "store", help_heading = "cross.stream")]
     services: bool,
 
+    /// Load handler closure from a store topic (use with -w to live-reload on changes)
+    #[cfg(feature = "cross-stream")]
+    #[clap(
+        long,
+        requires = "store",
+        conflicts_with_all = ["script", "commands"],
+        value_name = "TOPIC",
+        help_heading = "cross.stream"
+    )]
+    topic: Option<String>,
+
     /// Expose API on additional address ([HOST]:PORT or iroh://)
+    #[cfg(feature = "cross-stream")]
     #[clap(
         long,
         requires = "store",
@@ -110,25 +125,22 @@ enum Command {
 }
 
 /// Creates and configures the base engine with all commands, signals, and ctrlc handler.
-#[cfg(feature = "cross-stream")]
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
     plugins: &[PathBuf],
     include_paths: &[PathBuf],
-    store: Option<&xs::store::Store>,
+    store: Option<&Store>,
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
     engine.set_lib_dirs(include_paths)?;
 
-    // Load plugins
     for plugin_path in plugins {
         engine.load_plugin(plugin_path)?;
     }
 
-    // Add cross.stream commands if store is enabled
     if let Some(store) = store {
-        engine.add_store_commands(store)?;
+        store.configure_engine(&mut engine)?;
     }
 
     engine.set_signals(interrupt.clone());
@@ -136,125 +148,124 @@ fn create_base_engine(
     Ok(engine)
 }
 
-#[cfg(not(feature = "cross-stream"))]
-fn create_base_engine(
-    interrupt: Arc<AtomicBool>,
-    plugins: &[PathBuf],
-    include_paths: &[PathBuf],
-) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
-    let mut engine = Engine::new()?;
-    engine.add_custom_commands()?;
-    engine.set_lib_dirs(include_paths)?;
+/// Read script from file, send through `tx`. If `watch` is true, spawn a watcher
+/// that re-reads and sends the script when the file's directory changes.
+async fn file_source(path: &str, watch: bool, tx: mpsc::Sender<String>) {
+    let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("Error reading {path}: {e}");
+        std::process::exit(1);
+    });
+    tx.send(content).await.expect("channel closed unexpectedly");
 
-    for plugin_path in plugins {
-        engine.load_plugin(plugin_path)?;
-    }
+    if watch {
+        let script_path = PathBuf::from(path);
+        std::thread::spawn(move || {
+            let watch_dir = script_path.parent().unwrap_or(&script_path).to_path_buf();
 
-    engine.set_signals(interrupt.clone());
-    setup_ctrlc_handler(&engine, interrupt)?;
-    Ok(engine)
-}
+            let (raw_tx, raw_rx) = std::sync::mpsc::channel();
 
-/// Spawns a file watcher that watches the script's directory for any changes.
-/// When a change is detected, re-reads the script file and sends it.
-fn spawn_file_watcher(script_path: PathBuf, tx: mpsc::Sender<String>) {
-    std::thread::spawn(move || {
-        let watch_dir = script_path.parent().unwrap_or(&script_path).to_path_buf();
+            let mut watcher =
+                notify::recommended_watcher(raw_tx).expect("Failed to create watcher");
 
-        let (raw_tx, raw_rx) = std::sync::mpsc::channel();
+            watcher
+                .watch(&watch_dir, RecursiveMode::Recursive)
+                .expect("Failed to watch directory");
 
-        let mut watcher = notify::recommended_watcher(raw_tx).expect("Failed to create watcher");
+            let debounce = Duration::from_millis(100);
+            let mut pending_reload = false;
 
-        watcher
-            .watch(&watch_dir, RecursiveMode::Recursive)
-            .expect("Failed to watch directory");
+            loop {
+                let timeout = if pending_reload {
+                    debounce
+                } else {
+                    Duration::from_secs(86400)
+                };
 
-        let debounce = Duration::from_millis(100);
-        let mut pending_reload = false;
-
-        loop {
-            let timeout = if pending_reload {
-                debounce
-            } else {
-                Duration::from_secs(86400)
-            };
-
-            match raw_rx.recv_timeout(timeout) {
-                Ok(Ok(event)) => {
-                    use notify::EventKind;
-                    let dominated_by = matches!(
-                        event.kind,
-                        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-                    );
-                    if dominated_by {
-                        pending_reload = true;
+                match raw_rx.recv_timeout(timeout) {
+                    Ok(Ok(event)) => {
+                        use notify::EventKind;
+                        let dominated_by = matches!(
+                            event.kind,
+                            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+                        );
+                        if dominated_by {
+                            pending_reload = true;
+                        }
                     }
-                }
-                Ok(Err(e)) => {
-                    eprintln!("Watch error: {e:?}");
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if pending_reload {
-                        pending_reload = false;
-                        match std::fs::read_to_string(&script_path) {
-                            Ok(content) => {
-                                if tx.blocking_send(content).is_err() {
-                                    break;
+                    Ok(Err(e)) => {
+                        eprintln!("Watch error: {e:?}");
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if pending_reload {
+                            pending_reload = false;
+                            match std::fs::read_to_string(&script_path) {
+                                Ok(content) => {
+                                    if tx.blocking_send(content).is_err() {
+                                        break;
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                eprintln!("Error reading script file: {e}");
+                                Err(e) => {
+                                    eprintln!("Error reading script file: {e}");
+                                }
                             }
                         }
                     }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        break;
+                    }
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            }
+        });
+    }
+}
+
+/// Read script from stdin, send through `tx`. If `watch` is true, spawn a reader
+/// that reads null-terminated scripts from stdin for hot reload.
+async fn stdin_source(watch: bool, tx: mpsc::Sender<String>) {
+    if watch {
+        std::thread::spawn(move || {
+            let mut stdin = std::io::stdin().lock();
+            let mut buffer = Vec::new();
+            let mut byte = [0u8; 1];
+
+            loop {
+                buffer.clear();
+
+                // Read until null terminator or EOF
+                loop {
+                    match stdin.read(&mut byte) {
+                        Ok(0) => break, // EOF
+                        Ok(_) => {
+                            if byte[0] == b'\0' {
+                                break;
+                            }
+                            buffer.push(byte[0]);
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading stdin: {e}");
+                            return;
+                        }
+                    }
+                }
+
+                if buffer.is_empty() {
+                    break;
+                }
+
+                let script = String::from_utf8_lossy(&buffer).into_owned();
+
+                if tx.blocking_send(script).is_err() {
                     break;
                 }
             }
-        }
-    });
-}
-
-/// Spawns a dedicated OS thread that reads null-terminated scripts from stdin and sends them.
-/// Uses blocking I/O to avoid async stdin issues with piped input.
-fn spawn_stdin_reader(tx: mpsc::Sender<String>) {
-    std::thread::spawn(move || {
-        let mut stdin = std::io::stdin().lock();
-        let mut buffer = Vec::new();
-        let mut byte = [0u8; 1];
-
-        loop {
-            buffer.clear();
-
-            // Read until null terminator or EOF
-            loop {
-                match stdin.read(&mut byte) {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
-                        if byte[0] == b'\0' {
-                            break;
-                        }
-                        buffer.push(byte[0]);
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading stdin: {e}");
-                        return;
-                    }
-                }
-            }
-
-            if buffer.is_empty() {
-                break;
-            }
-
-            let script = String::from_utf8_lossy(&buffer).into_owned();
-
-            if tx.blocking_send(script).is_err() {
-                break;
-            }
-        }
-    });
+        });
+    } else {
+        let mut content = String::new();
+        std::io::stdin()
+            .read_to_string(&mut content)
+            .expect("Failed to read from stdin");
+        tx.send(content).await.expect("channel closed unexpectedly");
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -547,53 +558,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create cross.stream store if --store is specified
     #[cfg(feature = "cross-stream")]
-    let store = args
-        .store
-        .as_ref()
-        .map(|p| xs::store::Store::new(p.clone()));
-
-    // Spawn xs API server if store is enabled
-    #[cfg(feature = "cross-stream")]
-    if let Some(ref store) = store {
-        let store_for_api = store.clone();
-        let expose = args.expose.clone();
-        tokio::spawn(async move {
-            let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-            if let Err(e) = xs::api::serve(store_for_api, engine, expose).await {
-                eprintln!("Store API server error: {e}");
-            }
-        });
-
-        // Spawn xs services (handlers, generators, commands) if --services is set
-        if args.services {
-            let store_for_handlers = store.clone();
-            tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::handlers::serve(store_for_handlers, engine).await {
-                    eprintln!("Handlers serve error: {e}");
-                }
-            });
-
-            let store_for_generators = store.clone();
-            tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::generators::serve(store_for_generators, engine).await {
-                    eprintln!("Generators serve error: {e}");
-                }
-            });
-
-            let store_for_commands = store.clone();
-            tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::commands::serve(store_for_commands, engine).await {
-                    eprintln!("Commands serve error: {e}");
-                }
-            });
-        }
-    }
+    let store: Option<Store> = match args.store {
+        Some(ref path) => Some(Store::init(path.clone(), args.services, args.expose.clone()).await),
+        None => None,
+    };
+    #[cfg(not(feature = "cross-stream"))]
+    let store: Option<Store> = None;
 
     // Create base engine with commands, signals, and plugins
-    #[cfg(feature = "cross-stream")]
     let base_engine = create_base_engine(
         interrupt.clone(),
         &args.plugins,
@@ -601,71 +573,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         store.as_ref(),
     )?;
 
-    #[cfg(not(feature = "cross-stream"))]
-    let base_engine = create_base_engine(interrupt.clone(), &args.plugins, &args.include_paths)?;
-
     // Create channel for scripts
     let (tx, rx) = mpsc::channel::<String>(1);
 
-    // Determine script source and set up appropriate watcher/reader
-    match (&args.script, &args.commands, args.watch) {
-        (Some(_), Some(_), _) => {
-            eprintln!("Error: cannot specify both script file and --commands");
-            std::process::exit(1);
-        }
-        (None, None, _) => {
-            eprintln!("Error: provide a script file or use --commands");
-            std::process::exit(1);
-        }
-        // -c flag: use command content directly (conflicts_with prevents -w)
-        (None, Some(cmd), false) => {
-            tx.send(cmd.clone())
-                .await
-                .expect("channel closed unexpectedly");
-            drop(tx);
-        }
-        // stdin without -w: read once
-        (Some(path), None, false) if path == "-" => {
-            let mut content = String::new();
-            std::io::stdin()
-                .read_to_string(&mut content)
-                .expect("Failed to read from stdin");
-            tx.send(content).await.expect("channel closed unexpectedly");
-            drop(tx);
-        }
-        // stdin with -w: spawn stdin reader for null-terminated scripts
-        (Some(path), None, true) if path == "-" => {
-            spawn_stdin_reader(tx);
-        }
-        // file without -w: read once
-        (Some(path), None, false) => {
-            let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
-                eprintln!("Error reading {path}: {e}");
+    // Determine script source and set up appropriate watcher/reader.
+    // Each source sends the initial script through tx, then either drops it
+    // (one-shot) or hands it to a background task (watch mode).
+    #[cfg(feature = "cross-stream")]
+    let tx = if let (Some(ref topic), Some(ref store)) = (&args.topic, &store) {
+        store.topic_source(topic, args.watch, tx).await;
+        None
+    } else {
+        Some(tx)
+    };
+    #[cfg(not(feature = "cross-stream"))]
+    let tx = Some(tx);
+
+    if let Some(tx) = tx {
+        match (&args.script, &args.commands) {
+            (Some(_), Some(_)) => unreachable!(), // clap conflicts_with
+            (None, Some(_)) if args.watch => unreachable!(), // clap conflicts_with
+            (None, None) => {
+                eprintln!("Error: provide a script file, --commands, or --topic");
                 std::process::exit(1);
-            });
-            tx.send(content).await.expect("channel closed unexpectedly");
-            drop(tx);
+            }
+            (None, Some(cmd)) => {
+                tx.send(cmd.clone())
+                    .await
+                    .expect("channel closed unexpectedly");
+            }
+            (Some(path), None) if path == "-" => {
+                stdin_source(args.watch, tx).await;
+            }
+            (Some(path), None) => {
+                file_source(path, args.watch, tx).await;
+            }
         }
-        // file with -w: read initial content and spawn file watcher
-        (Some(path), None, true) => {
-            let script_path = PathBuf::from(path);
-            let content = std::fs::read_to_string(&script_path).unwrap_or_else(|e| {
-                eprintln!("Error reading {path}: {e}");
-                std::process::exit(1);
-            });
-            tx.send(content).await.expect("channel closed unexpectedly");
-            spawn_file_watcher(script_path, tx);
-        }
-        // -c with -w is prevented by clap conflicts_with
-        (None, Some(_), true) => unreachable!(),
     }
 
     let startup_options = StartupOptions {
         watch: args.watch,
         tls: args.tls.as_ref().map(|p| p.display().to_string()),
+        #[cfg(feature = "cross-stream")]
         store: args.store.as_ref().map(|p| p.display().to_string()),
+        #[cfg(not(feature = "cross-stream"))]
+        store: None,
+        #[cfg(feature = "cross-stream")]
+        topic: args.topic.clone(),
+        #[cfg(not(feature = "cross-stream"))]
+        topic: None,
+        #[cfg(feature = "cross-stream")]
         expose: args.expose.clone(),
+        #[cfg(not(feature = "cross-stream"))]
+        expose: None,
+        #[cfg(feature = "cross-stream")]
         services: args.services,
+        #[cfg(not(feature = "cross-stream"))]
+        services: false,
     };
 
     serve(

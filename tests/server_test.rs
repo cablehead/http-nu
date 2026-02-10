@@ -1682,6 +1682,7 @@ async fn test_watch_stdin_dynamic_reload() {
 // ============================================================================
 
 /// Tests that .cat -f streams frames appended via .append
+#[cfg(feature = "cross-stream")]
 #[tokio::test]
 async fn test_store_cat_follow_receives_appended_frames() {
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -1762,6 +1763,7 @@ async fn test_store_cat_follow_receives_appended_frames() {
 }
 
 /// Tests that --services enables xs handlers
+#[cfg(feature = "cross-stream")]
 #[tokio::test]
 async fn test_services_flag_enables_handlers() {
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -2105,4 +2107,151 @@ async fn test_sse_cancelled_on_hot_reload() {
 
     // Cleanup - kill the server
     child.kill().await.ok();
+}
+
+/// Tests that --topic with -w loads a handler from the store, serves a placeholder
+/// when the topic is empty, reloads when the topic is appended, and reloads again
+/// when the topic is updated.
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_watch_topic_reload_on_append() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    // Start server with --store, --topic, and -w (no script file)
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
+    cmd.arg("--log-format")
+        .arg("jsonl")
+        .arg("--store")
+        .arg(&store_path)
+        .arg("--topic")
+        .arg("serve.nu")
+        .arg("-w")
+        .arg("127.0.0.1:0");
+
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start http-nu server");
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+
+    let mut addr_tx = Some(addr_tx);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDOUT] {line}");
+            if addr_tx.is_some() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                        if let Some(tx) = addr_tx.take() {
+                            let _ = tx.send(addr_str.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDERR] {line}");
+        }
+    });
+
+    let address = timeout(std::time::Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Failed to get address")
+        .expect("Channel closed");
+
+    // Verify placeholder response (503) when topic is empty
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-o")
+        .arg("/dev/null")
+        .arg("-w")
+        .arg("%{http_code}")
+        .arg(format!("{address}/"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "503",
+        "Empty topic should serve placeholder with 503"
+    );
+
+    // Append a handler closure via the xs API socket
+    let sock_path = store_path.join("sock");
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg(r#"{|req| "version1"}"#)
+        .arg("http://localhost/append/serve.nu")
+        .output()
+        .await
+        .expect("curl append failed");
+    assert!(
+        output.status.success(),
+        "append should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Wait for reload
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Verify updated response
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("{address}/"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "version1",
+        "Should serve handler from topic"
+    );
+
+    // Update the topic with a new closure
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg(r#"{|req| "version2"}"#)
+        .arg("http://localhost/append/serve.nu")
+        .output()
+        .await
+        .expect("curl append failed");
+    assert!(output.status.success(), "second append should succeed");
+
+    // Wait for reload
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Verify re-reloaded response
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("{address}/"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "version2",
+        "Should serve updated handler after topic update"
+    );
+
+    let _ = child.kill().await;
 }
