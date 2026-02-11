@@ -488,9 +488,9 @@ data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
 
 Embed [cross.stream](https://www.cross.stream) for real-time state and event
 streaming. Append-only frames, automatic indexing, content-addressed storage.
-Enable with `--store <path>`. Add `--services` to enable xs handlers,
-generators, and commands - external clients can register automation via the
-store's API (e.g., `xs append ./store echo.register ...`).
+Enable with `--store <path>`. Add `--services` to enable xs actors, services,
+and actions - external clients can register automation via the store's API
+(e.g., `xs append ./store echo.register ...`).
 
 ```bash
 $ http-nu :3001 --store ./store ./serve.nu

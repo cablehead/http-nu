@@ -68,7 +68,7 @@ struct Args {
     #[clap(long, help_heading = "cross.stream")]
     store: Option<PathBuf>,
 
-    /// Enable handlers, generators, and commands
+    /// Enable actors, services, and actions
     #[cfg(feature = "cross-stream")]
     #[clap(long, requires = "store", help_heading = "cross.stream")]
     services: bool,

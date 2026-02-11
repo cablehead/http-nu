@@ -36,26 +36,26 @@ impl Store {
             }
         });
 
-        // Services (handlers, generators, commands) -- each gets its own subscription
+        // Processors (actor, service, action) -- each gets its own subscription
         if services {
             let s = inner.clone();
             tokio::spawn(async move {
-                if let Err(e) = xs::handlers::run(s).await {
-                    eprintln!("Handler processor error: {e}");
+                if let Err(e) = xs::processor::actor::run(s).await {
+                    eprintln!("Actor processor error: {e}");
                 }
             });
 
             let s = inner.clone();
             tokio::spawn(async move {
-                if let Err(e) = xs::generators::run(s).await {
-                    eprintln!("Generator processor error: {e}");
+                if let Err(e) = xs::processor::service::run(s).await {
+                    eprintln!("Service processor error: {e}");
                 }
             });
 
             let s = inner.clone();
             tokio::spawn(async move {
-                if let Err(e) = xs::commands::run(s).await {
-                    eprintln!("Command processor error: {e}");
+                if let Err(e) = xs::processor::action::run(s).await {
+                    eprintln!("Action processor error: {e}");
                 }
             });
         }
