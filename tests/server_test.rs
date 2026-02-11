@@ -2255,3 +2255,168 @@ async fn test_watch_topic_reload_on_append() {
 
     let _ = child.kill().await;
 }
+
+/// Tests that --topic hot reload picks up VFS module changes from the stream.
+///
+/// Registers a module, serves a topic that uses it, then updates the module
+/// and re-appends the topic. After hot reload the endpoint should reflect the
+/// updated module.
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_watch_topic_reload_picks_up_module_changes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    // Start server with --store, --topic, and -w
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
+    cmd.arg("--log-format")
+        .arg("jsonl")
+        .arg("--store")
+        .arg(&store_path)
+        .arg("--topic")
+        .arg("serve.nu")
+        .arg("-w")
+        .arg("127.0.0.1:0");
+
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start http-nu server");
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+
+    let mut addr_tx = Some(addr_tx);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDOUT] {line}");
+            if addr_tx.is_some() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                        if let Some(tx) = addr_tx.take() {
+                            let _ = tx.send(addr_str.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDERR] {line}");
+        }
+    });
+
+    let address = timeout(std::time::Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Failed to get address")
+        .expect("Channel closed");
+
+    let sock_path = store_path.join("sock");
+
+    // Append a VFS module `greeter.nu` that returns "foo"
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg(r#"export def hello [] { "foo" }"#)
+        .arg("http://localhost/append/greeter.nu")
+        .output()
+        .await
+        .expect("curl append module failed");
+    assert!(output.status.success(), "append module should succeed");
+
+    // Append serve topic that uses the module
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("{|req| use xs/greeter; greeter hello}")
+        .arg("http://localhost/append/serve.nu")
+        .output()
+        .await
+        .expect("curl append topic failed");
+    assert!(output.status.success(), "append topic should succeed");
+
+    // Wait for reload
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Verify endpoint returns "foo"
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("{address}/"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "foo",
+        "Should return foo from greeter module"
+    );
+
+    // Append updated module that returns "bar"
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg(r#"export def hello [] { "bar" }"#)
+        .arg("http://localhost/append/greeter.nu")
+        .output()
+        .await
+        .expect("curl append updated module failed");
+    assert!(
+        output.status.success(),
+        "append updated module should succeed"
+    );
+
+    // Append new serve topic to trigger hot reload
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("{|req| use xs/greeter; greeter hello}")
+        .arg("http://localhost/append/serve.nu")
+        .output()
+        .await
+        .expect("curl append updated topic failed");
+    assert!(
+        output.status.success(),
+        "append updated topic should succeed"
+    );
+
+    // Wait for reload
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Verify endpoint returns "bar" (picks up updated module)
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("{address}/"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "bar",
+        "Should return bar from updated greeter module after hot reload"
+    );
+
+    let _ = child.kill().await;
+}

@@ -20,8 +20,12 @@ pub struct Store {
 #[cfg(feature = "cross-stream")]
 impl Store {
     /// Create the store and spawn the API server and optional services.
-    pub async fn init(path: std::path::PathBuf, services: bool, expose: Option<String>) -> Self {
-        let inner = xs::store::Store::new(path.clone());
+    pub async fn init(
+        path: std::path::PathBuf,
+        services: bool,
+        expose: Option<String>,
+    ) -> Result<Self, xs::store::StoreError> {
+        let inner = xs::store::Store::new(path.clone())?;
 
         // API server
         let store_for_api = inner.clone();
@@ -32,34 +36,31 @@ impl Store {
             }
         });
 
-        // Services (handlers, generators, commands)
+        // Services (handlers, generators, commands) -- each gets its own subscription
         if services {
-            let store_for_handlers = inner.clone();
+            let s = inner.clone();
             tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::handlers::serve(store_for_handlers, engine).await {
-                    eprintln!("Handlers serve error: {e}");
+                if let Err(e) = xs::handlers::run(s).await {
+                    eprintln!("Handler processor error: {e}");
                 }
             });
 
-            let store_for_generators = inner.clone();
+            let s = inner.clone();
             tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::generators::serve(store_for_generators, engine).await {
-                    eprintln!("Generators serve error: {e}");
+                if let Err(e) = xs::generators::run(s).await {
+                    eprintln!("Generator processor error: {e}");
                 }
             });
 
-            let store_for_commands = inner.clone();
+            let s = inner.clone();
             tokio::spawn(async move {
-                let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
-                if let Err(e) = xs::commands::serve(store_for_commands, engine).await {
-                    eprintln!("Commands serve error: {e}");
+                if let Err(e) = xs::commands::run(s).await {
+                    eprintln!("Command processor error: {e}");
                 }
             });
         }
 
-        Self { inner, path }
+        Ok(Self { inner, path })
     }
 
     /// Add store commands (.cat, .append, .cas, .last, etc.) to the engine.
@@ -67,34 +68,70 @@ impl Store {
         engine.add_store_commands(&self.inner)
     }
 
-    /// Load initial script from a topic, send it through `tx`, and optionally watch for updates.
+    /// Load a handler closure from a store topic, enrich with VFS modules from
+    /// the stream, and send the resulting engine through `tx`.
     ///
-    /// Sends the initial script (or a placeholder if the topic is empty) through `tx`.
-    /// If `watch` is true, spawns a background task that sends updated scripts through `tx`.
-    /// If `watch` is false, `tx` is dropped after the initial send.
-    pub async fn topic_source(&self, topic: &str, watch: bool, tx: mpsc::Sender<String>) {
+    /// If `watch` is true, spawns a background task that reloads on topic updates.
+    pub async fn topic_source(
+        &self,
+        topic: &str,
+        watch: bool,
+        base_engine: crate::Engine,
+        tx: mpsc::Sender<crate::Engine>,
+    ) {
         let store_path = self.path.display().to_string();
 
-        let (initial, last_id) = match self.read_topic_content(topic) {
+        let (initial_script, last_id) = match self.read_topic_content(topic) {
             Some((content, id)) => (content, Some(id)),
             None => (placeholder_closure(topic, &store_path), None),
         };
 
-        tx.send(initial).await.expect("channel closed unexpectedly");
+        let enriched = enrich_engine(&base_engine, &self.inner, last_id.as_ref());
+        if let Some(engine) = crate::engine::script_to_engine(&enriched, &initial_script) {
+            tx.send(engine).await.expect("channel closed unexpectedly");
+        }
 
         if watch {
-            spawn_topic_watcher(self.inner.clone(), topic.to_string(), last_id, tx);
+            spawn_topic_watcher(
+                self.inner.clone(),
+                topic.to_string(),
+                last_id,
+                base_engine,
+                tx,
+            );
         }
     }
 
     fn read_topic_content(&self, topic: &str) -> Option<(String, scru128::Scru128Id)> {
-        let frame = self.inner.last(topic)?;
+        let options = xs::store::ReadOptions::builder()
+            .follow(xs::store::FollowOption::Off)
+            .topic(topic.to_string())
+            .last(1_usize)
+            .build();
+        let frame = self.inner.read_sync(options).last()?;
         let id = frame.id;
         let hash = frame.hash?;
         let bytes = self.inner.cas_read_sync(&hash).ok()?;
         let content = String::from_utf8(bytes).ok()?;
         Some((content, id))
     }
+}
+
+/// Clone the base engine and load VFS modules from the stream.
+#[cfg(feature = "cross-stream")]
+fn enrich_engine(
+    base: &crate::Engine,
+    store: &xs::store::Store,
+    as_of: Option<&scru128::Scru128Id>,
+) -> crate::Engine {
+    let mut engine = base.clone();
+    if let Some(id) = as_of {
+        let modules = store.nu_modules_at(id);
+        if let Err(e) = xs::nu::load_modules(&mut engine.state, store, &modules) {
+            eprintln!("Error loading stream modules: {e}");
+        }
+    }
+    engine
 }
 
 #[cfg(feature = "cross-stream")]
@@ -109,7 +146,8 @@ fn spawn_topic_watcher(
     store: xs::store::Store,
     topic: String,
     after: Option<scru128::Scru128Id>,
-    tx: mpsc::Sender<String>,
+    base_engine: crate::Engine,
+    tx: mpsc::Sender<crate::Engine>,
 ) {
     tokio::spawn(async move {
         let options = xs::store::ReadOptions::builder()
@@ -129,7 +167,7 @@ fn spawn_topic_watcher(
                 continue;
             };
 
-            let content = match store.cas_read(&hash).await {
+            let script = match store.cas_read(&hash).await {
                 Ok(bytes) => match String::from_utf8(bytes) {
                     Ok(s) => s,
                     Err(e) => {
@@ -143,8 +181,11 @@ fn spawn_topic_watcher(
                 }
             };
 
-            if tx.send(content).await.is_err() {
-                break;
+            let enriched = enrich_engine(&base_engine, &store, Some(&frame.id));
+            if let Some(engine) = crate::engine::script_to_engine(&enriched, &script) {
+                if tx.send(engine).await.is_err() {
+                    break;
+                }
             }
         }
     });
@@ -158,7 +199,13 @@ impl Store {
         unreachable!("Store is never constructed without cross-stream feature")
     }
 
-    pub async fn topic_source(&self, _topic: &str, _watch: bool, _tx: mpsc::Sender<String>) {
+    pub async fn topic_source(
+        &self,
+        _topic: &str,
+        _watch: bool,
+        _base_engine: crate::Engine,
+        _tx: mpsc::Sender<crate::Engine>,
+    ) {
         unreachable!("Store is never constructed without cross-stream feature")
     }
 }

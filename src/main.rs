@@ -148,14 +148,17 @@ fn create_base_engine(
     Ok(engine)
 }
 
-/// Read script from file, send through `tx`. If `watch` is true, spawn a watcher
-/// that re-reads and sends the script when the file's directory changes.
-async fn file_source(path: &str, watch: bool, tx: mpsc::Sender<String>) {
+/// Read script from file, convert to engine, send through `tx`. If `watch` is true,
+/// spawn a watcher that re-reads, converts, and sends on changes.
+async fn file_source(path: &str, watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>) {
     let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
         eprintln!("Error reading {path}: {e}");
         std::process::exit(1);
     });
-    tx.send(content).await.expect("channel closed unexpectedly");
+
+    if let Some(engine) = script_to_engine(&base_engine, &content) {
+        tx.send(engine).await.expect("channel closed unexpectedly");
+    }
 
     if watch {
         let script_path = PathBuf::from(path);
@@ -200,8 +203,10 @@ async fn file_source(path: &str, watch: bool, tx: mpsc::Sender<String>) {
                             pending_reload = false;
                             match std::fs::read_to_string(&script_path) {
                                 Ok(content) => {
-                                    if tx.blocking_send(content).is_err() {
-                                        break;
+                                    if let Some(engine) = script_to_engine(&base_engine, &content) {
+                                        if tx.blocking_send(engine).is_err() {
+                                            break;
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -219,9 +224,9 @@ async fn file_source(path: &str, watch: bool, tx: mpsc::Sender<String>) {
     }
 }
 
-/// Read script from stdin, send through `tx`. If `watch` is true, spawn a reader
-/// that reads null-terminated scripts from stdin for hot reload.
-async fn stdin_source(watch: bool, tx: mpsc::Sender<String>) {
+/// Read script from stdin, convert to engine, send through `tx`. If `watch` is true,
+/// spawn a reader that reads null-terminated scripts for hot reload.
+async fn stdin_source(watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>) {
     if watch {
         std::thread::spawn(move || {
             let mut stdin = std::io::stdin().lock();
@@ -254,8 +259,10 @@ async fn stdin_source(watch: bool, tx: mpsc::Sender<String>) {
 
                 let script = String::from_utf8_lossy(&buffer).into_owned();
 
-                if tx.blocking_send(script).is_err() {
-                    break;
+                if let Some(engine) = script_to_engine(&base_engine, &script) {
+                    if tx.blocking_send(engine).is_err() {
+                        break;
+                    }
                 }
             }
         });
@@ -264,7 +271,9 @@ async fn stdin_source(watch: bool, tx: mpsc::Sender<String>) {
         std::io::stdin()
             .read_to_string(&mut content)
             .expect("Failed to read from stdin");
-        tx.send(content).await.expect("channel closed unexpectedly");
+        if let Some(engine) = script_to_engine(&base_engine, &content) {
+            tx.send(engine).await.expect("channel closed unexpectedly");
+        }
     }
 }
 
@@ -272,39 +281,28 @@ async fn stdin_source(watch: bool, tx: mpsc::Sender<String>) {
 async fn serve(
     addr: String,
     tls: Option<PathBuf>,
-    base_engine: Engine,
-    mut rx: mpsc::Receiver<String>,
+    mut rx: mpsc::Receiver<Engine>,
     interrupt: Arc<AtomicBool>,
     trusted_proxies: Vec<ipnet::IpNet>,
     start_time: std::time::Instant,
     startup_options: StartupOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Wait for a valid first script (loop to handle parse errors)
-    let first_engine = loop {
-        let script = rx
-            .recv()
-            .await
-            .expect("no script received - stdin closed without providing a valid script");
-
-        if let Some(engine) = script_to_engine(&base_engine, &script) {
-            break engine;
-        }
-        // script_to_engine already logged the error, continue waiting
-    };
+    // Wait for first valid engine from source
+    let first_engine = rx
+        .recv()
+        .await
+        .expect("no engine received - source closed without providing a valid engine");
 
     let engine = Arc::new(ArcSwap::from_pointee(first_engine));
 
-    // Spawn task to receive scripts and swap in new engines
+    // Spawn task to receive engines and swap in new ones
     let engine_updater = engine.clone();
-    let base_for_updates = base_engine;
     tokio::spawn(async move {
-        while let Some(script) = rx.recv().await {
-            if let Some(new_engine) = script_to_engine(&base_for_updates, &script) {
-                // Signal reload to cancel SSE streams on old engine
-                engine_updater.load().reload_token.cancel();
-                engine_updater.store(Arc::new(new_engine));
-                log_reloaded();
-            }
+        while let Some(new_engine) = rx.recv().await {
+            // Signal reload to cancel SSE streams on old engine
+            engine_updater.load().reload_token.cancel();
+            engine_updater.store(Arc::new(new_engine));
+            log_reloaded();
         }
     });
 
@@ -556,10 +554,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         std::process::exit(1);
     };
 
+    // Create channel for engines
+    let (tx, rx) = mpsc::channel::<Engine>(1);
+
     // Create cross.stream store if --store is specified
     #[cfg(feature = "cross-stream")]
-    let store: Option<Store> = match args.store {
-        Some(ref path) => Some(Store::init(path.clone(), args.services, args.expose.clone()).await),
+    let store = match args.store {
+        Some(ref path) => {
+            match Store::init(path.clone(), args.services, args.expose.clone()).await {
+                Ok(store) => Some(store),
+                Err(e) => {
+                    eprintln!("Failed to open store at {}: {e}", path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
         None => None,
     };
     #[cfg(not(feature = "cross-stream"))]
@@ -573,15 +582,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         store.as_ref(),
     )?;
 
-    // Create channel for scripts
-    let (tx, rx) = mpsc::channel::<String>(1);
-
-    // Determine script source and set up appropriate watcher/reader.
-    // Each source sends the initial script through tx, then either drops it
-    // (one-shot) or hands it to a background task (watch mode).
+    // Source: --topic (direct store read, with optional watch for live-reload)
     #[cfg(feature = "cross-stream")]
     let tx = if let (Some(ref topic), Some(ref store)) = (&args.topic, &store) {
-        store.topic_source(topic, args.watch, tx).await;
+        store
+            .topic_source(topic, args.watch, base_engine.clone(), tx)
+            .await;
         None
     } else {
         Some(tx)
@@ -589,6 +595,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(not(feature = "cross-stream"))]
     let tx = Some(tx);
 
+    // Source: file, stdin, or --commands
     if let Some(tx) = tx {
         match (&args.script, &args.commands) {
             (Some(_), Some(_)) => unreachable!(), // clap conflicts_with
@@ -598,15 +605,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 std::process::exit(1);
             }
             (None, Some(cmd)) => {
-                tx.send(cmd.clone())
-                    .await
-                    .expect("channel closed unexpectedly");
+                if let Some(engine) = script_to_engine(&base_engine, cmd) {
+                    tx.send(engine).await.expect("channel closed unexpectedly");
+                }
             }
             (Some(path), None) if path == "-" => {
-                stdin_source(args.watch, tx).await;
+                stdin_source(args.watch, base_engine.clone(), tx).await;
             }
             (Some(path), None) => {
-                file_source(path, args.watch, tx).await;
+                file_source(path, args.watch, base_engine.clone(), tx).await;
             }
         }
     }
@@ -635,7 +642,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     serve(
         addr,
         args.tls,
-        base_engine,
         rx,
         interrupt,
         args.trust_proxies,
