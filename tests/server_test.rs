@@ -1815,7 +1815,7 @@ async fn test_services_flag_enables_handlers() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Register a simple echo handler via the xs API socket
-    let handler_script = r#"{run: {|frame| $frame.topic | .append echo.out}}"#;
+    let handler_script = r#"{run: {|frame, state| $frame.topic | .append echo.out}}"#;
     let register_output = tokio::process::Command::new("curl")
         .arg("-s")
         .arg("-X")
