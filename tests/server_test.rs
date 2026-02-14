@@ -2343,7 +2343,7 @@ async fn test_watch_topic_reload_picks_up_module_changes() {
         .arg("-X")
         .arg("POST")
         .arg("-d")
-        .arg("{|req| use xs/greeter; greeter hello}")
+        .arg("{|req| use greeter; greeter hello}")
         .arg("http://localhost/append/serve.nu")
         .output()
         .await
@@ -2392,7 +2392,7 @@ async fn test_watch_topic_reload_picks_up_module_changes() {
         .arg("-X")
         .arg("POST")
         .arg("-d")
-        .arg("{|req| use xs/greeter; greeter hello}")
+        .arg("{|req| use greeter; greeter hello}")
         .arg("http://localhost/append/serve.nu")
         .output()
         .await

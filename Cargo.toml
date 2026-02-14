@@ -70,7 +70,7 @@ pulldown-cmark = "0.12.2"
 notify = "8"
 
 [dependencies.cross-stream]
-version = "0.9.3"
+version = "0.10.0"
 optional = true
 
 [features]
