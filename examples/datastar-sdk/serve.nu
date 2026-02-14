@@ -13,7 +13,7 @@ use http-nu/html *
             HEAD
             (META {charset: "UTF-8"})
             (TITLE "Datastar SDK Demo")
-            (SCRIPT {type: "module" src: $DATASTAR_CDN_URL})
+            (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
           )
           (
             BODY {"data-signals": "{count: 0}"}

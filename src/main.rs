@@ -94,6 +94,10 @@ struct Args {
     )]
     expose: Option<String>,
 
+    /// Serve the embedded Datastar JS bundle at /datastar@<version>.js
+    #[clap(long)]
+    datastar: bool,
+
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
     #[clap(long = "trust-proxy", value_name = "CIDR")]
     trust_proxies: Vec<ipnet::IpNet>,
@@ -284,6 +288,7 @@ async fn serve(
     mut rx: mpsc::Receiver<Engine>,
     interrupt: Arc<AtomicBool>,
     trusted_proxies: Vec<ipnet::IpNet>,
+    datastar: bool,
     start_time: std::time::Instant,
     startup_options: StartupOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -339,8 +344,9 @@ async fn serve(
     // Graceful shutdown tracker for all connections
     let graceful = GracefulShutdown::new();
 
-    // Wrap trusted_proxies in Arc for sharing across connections
+    // Wrap shared state in Arc for sharing across connections
     let trusted_proxies = Arc::new(trusted_proxies);
+    let datastar = Arc::new(datastar);
 
     let shutdown = shutdown_signal(interrupt.clone());
     tokio::pin!(shutdown);
@@ -353,9 +359,10 @@ async fn serve(
                         let io = TokioIo::new(stream);
                         let engine = engine.clone();
                         let trusted_proxies = trusted_proxies.clone();
+                        let datastar = datastar.clone();
 
                         let service = service_fn(move |req| {
-                            handle(engine.clone(), remote_addr, trusted_proxies.clone(), req)
+                            handle(engine.clone(), remote_addr, trusted_proxies.clone(), datastar.clone(), req)
                         });
 
                         // serve_connection_with_upgrades supports HTTP/1 and HTTP/2
@@ -645,6 +652,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         rx,
         interrupt,
         args.trust_proxies,
+        args.datastar,
         std::time::Instant::now(),
         startup_options,
     )

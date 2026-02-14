@@ -376,7 +376,7 @@ def install-section [] {
               (LINK {rel: "stylesheet" href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap"})
               (LINK {rel: "stylesheet" href: "/core.css"})
               (LINK {rel: "stylesheet" href: "/syntax.css"})
-              (SCRIPT {type: "module" src: $DATASTAR_CDN_URL})
+              (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
               (SCRIPT {src: "https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"})
             ]
           )
