@@ -344,7 +344,7 @@ async fn serve(
     // Graceful shutdown tracker for all connections
     let graceful = GracefulShutdown::new();
 
-    // Wrap shared state in Arc for sharing across connections
+    // Wrap trusted_proxies in Arc for sharing across connections
     let trusted_proxies = Arc::new(trusted_proxies);
     let datastar = Arc::new(datastar);
 
