@@ -1,4 +1,5 @@
 /target
+.cargo/
 store
 www/assets/_/
 __pycache__/
