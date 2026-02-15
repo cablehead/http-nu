@@ -20,10 +20,15 @@ use crate::worker::{spawn_eval_thread, PipelineResult};
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
+const DATASTAR_JS_PATH: &str = "/datastar@1.0.0-RC.7.js";
+const DATASTAR_JS: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.7.js");
+const DATASTAR_JS_BROTLI: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.7.js.br");
+
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
     addr: Option<SocketAddr>,
     trusted_proxies: Arc<Vec<ipnet::IpNet>>,
+    datastar: Arc<bool>,
     req: hyper::Request<B>,
 ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
@@ -33,7 +38,7 @@ where
 {
     // Load current engine snapshot - lock-free atomic operation
     let engine = engine.load_full();
-    match handle_inner(engine, addr, trusted_proxies, req).await {
+    match handle_inner(engine, addr, trusted_proxies, datastar, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {err}");
@@ -51,6 +56,7 @@ async fn handle_inner<B>(
     engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
     trusted_proxies: Arc<Vec<ipnet::IpNet>>,
+    datastar: Arc<bool>,
     req: hyper::Request<B>,
 ) -> HTTPResult
 where
@@ -135,6 +141,44 @@ where
 
     // Phase 1: Log request
     log_request(request_id, &request);
+
+    // Built-in route: serve embedded Datastar JS bundle (requires --datastar flag)
+    if *datastar && request.path == DATASTAR_JS_PATH {
+        let use_brotli = compression::accepts_brotli(&parts.headers);
+        let mut header_map = hyper::header::HeaderMap::new();
+        header_map.insert(
+            hyper::header::CONTENT_TYPE,
+            hyper::header::HeaderValue::from_static("application/javascript"),
+        );
+        header_map.insert(
+            hyper::header::CACHE_CONTROL,
+            hyper::header::HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+        let body = if use_brotli {
+            header_map.insert(
+                hyper::header::CONTENT_ENCODING,
+                hyper::header::HeaderValue::from_static("br"),
+            );
+            header_map.insert(
+                hyper::header::VARY,
+                hyper::header::HeaderValue::from_static("accept-encoding"),
+            );
+            Full::new(Bytes::from_static(DATASTAR_JS_BROTLI))
+                .map_err(|never| match never {})
+                .boxed()
+        } else {
+            Full::new(Bytes::from_static(DATASTAR_JS))
+                .map_err(|never| match never {})
+                .boxed()
+        };
+        log_response(request_id, 200, &header_map, start_time);
+        let logging_body = LoggingBody::new(body, guard);
+        let mut response = hyper::Response::builder()
+            .status(200)
+            .body(logging_body.boxed())?;
+        *response.headers_mut() = header_map;
+        return Ok(response);
+    }
 
     let reload_token = engine.reload_token.clone();
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);

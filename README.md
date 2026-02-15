@@ -879,6 +879,34 @@ Generate [Datastar](https://data-star.dev) SSE events for hypermedia
 interactions. Follows the
 [SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md).
 
+Use `--datastar` to serve the embedded JS bundle at `$DATASTAR_JS_PATH`
+(`/datastar@1.0.0-RC.7.js`) with immutable cache headers:
+
+```bash
+$ http-nu --datastar :3001 ./serve.nu
+```
+
+```nushell
+use http-nu/datastar *
+use http-nu/html *
+
+{|req|
+  HTML (
+    HEAD (
+      SCRIPT {type: "module" src: $DATASTAR_JS_PATH}
+    )
+  ) (
+    BODY (
+      DIV {"data-signals": "{count: 0}"} (
+        SPAN {"data-text": "$count"} "0"
+      ) (
+        BUTTON {"data-on:click": "$count++"} "+1"
+      )
+    )
+  )
+}
+```
+
 Commands return records that pipe to `to sse` for streaming output.
 
 ```nushell

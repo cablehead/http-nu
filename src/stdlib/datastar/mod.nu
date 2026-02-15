@@ -5,6 +5,7 @@
 # Follows https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 
 export const DATASTAR_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"
+export const DATASTAR_JS_PATH = "/datastar@1.0.0-RC.7.js"
 
 # Patch HTML elements via SSE
 #

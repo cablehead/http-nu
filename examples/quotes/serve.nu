@@ -69,7 +69,7 @@ def quote-html []: record -> record {
             (META {charset: "utf-8"})
             (TITLE "Live Quotes")
             (STYLE "* { box-sizing: border-box; margin: 0; }")
-            (SCRIPT {type: "module" src: $DATASTAR_CDN_URL})
+            (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
           )
           (
             BODY {data-init: "@get('/')"}
