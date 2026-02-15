@@ -24,11 +24,15 @@ const DATASTAR_JS_PATH: &str = "/datastar@1.0.0-RC.7.js";
 const DATASTAR_JS: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.7.js");
 const DATASTAR_JS_BROTLI: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.7.js.br");
 
+pub struct AppConfig {
+    pub trusted_proxies: Vec<ipnet::IpNet>,
+    pub datastar: bool,
+}
+
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
     addr: Option<SocketAddr>,
-    trusted_proxies: Arc<Vec<ipnet::IpNet>>,
-    datastar: Arc<bool>,
+    config: Arc<AppConfig>,
     req: hyper::Request<B>,
 ) -> Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>
 where
@@ -38,7 +42,7 @@ where
 {
     // Load current engine snapshot - lock-free atomic operation
     let engine = engine.load_full();
-    match handle_inner(engine, addr, trusted_proxies, datastar, req).await {
+    match handle_inner(engine, addr, config, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
             eprintln!("Error handling request: {err}");
@@ -55,8 +59,7 @@ where
 async fn handle_inner<B>(
     engine: Arc<crate::Engine>,
     addr: Option<SocketAddr>,
-    trusted_proxies: Arc<Vec<ipnet::IpNet>>,
-    datastar: Arc<bool>,
+    config: Arc<AppConfig>,
     req: hyper::Request<B>,
 ) -> HTTPResult
 where
@@ -116,7 +119,7 @@ where
     let guard = RequestGuard::new(request_id);
 
     let remote_ip = addr.as_ref().map(|a| a.ip());
-    let trusted_ip = resolve_trusted_ip(&parts.headers, remote_ip, &trusted_proxies);
+    let trusted_ip = resolve_trusted_ip(&parts.headers, remote_ip, &config.trusted_proxies);
 
     let request = Request {
         proto: format!("{:?}", parts.version),
@@ -143,7 +146,7 @@ where
     log_request(request_id, &request);
 
     // Built-in route: serve embedded Datastar JS bundle (requires --datastar flag)
-    if *datastar && request.path == DATASTAR_JS_PATH {
+    if config.datastar && request.path == DATASTAR_JS_PATH {
         let use_brotli = compression::accepts_brotli(&parts.headers);
         let mut header_map = hyper::header::HeaderMap::new();
         header_map.insert(

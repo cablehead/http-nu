@@ -10,7 +10,7 @@ use arc_swap::ArcSwap;
 use clap::Parser;
 use http_nu::{
     engine::script_to_engine,
-    handler::handle,
+    handler::{handle, AppConfig},
     listener::TlsConfig,
     logging::{
         init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
@@ -281,14 +281,12 @@ async fn stdin_source(watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn serve(
     addr: String,
     tls: Option<PathBuf>,
     mut rx: mpsc::Receiver<Engine>,
     interrupt: Arc<AtomicBool>,
-    trusted_proxies: Vec<ipnet::IpNet>,
-    datastar: bool,
+    config: AppConfig,
     start_time: std::time::Instant,
     startup_options: StartupOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -344,9 +342,8 @@ async fn serve(
     // Graceful shutdown tracker for all connections
     let graceful = GracefulShutdown::new();
 
-    // Wrap trusted_proxies in Arc for sharing across connections
-    let trusted_proxies = Arc::new(trusted_proxies);
-    let datastar = Arc::new(datastar);
+    // Wrap config in Arc for sharing across connections
+    let config = Arc::new(config);
 
     let shutdown = shutdown_signal(interrupt.clone());
     tokio::pin!(shutdown);
@@ -358,11 +355,10 @@ async fn serve(
                     Ok((stream, remote_addr)) => {
                         let io = TokioIo::new(stream);
                         let engine = engine.clone();
-                        let trusted_proxies = trusted_proxies.clone();
-                        let datastar = datastar.clone();
+                        let config = config.clone();
 
                         let service = service_fn(move |req| {
-                            handle(engine.clone(), remote_addr, trusted_proxies.clone(), datastar.clone(), req)
+                            handle(engine.clone(), remote_addr, config.clone(), req)
                         });
 
                         // serve_connection_with_upgrades supports HTTP/1 and HTTP/2
@@ -651,8 +647,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         args.tls,
         rx,
         interrupt,
-        args.trust_proxies,
-        args.datastar,
+        AppConfig {
+            trusted_proxies: args.trust_proxies,
+            datastar: args.datastar,
+        },
         std::time::Instant::now(),
         startup_options,
     )
