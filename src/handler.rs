@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
@@ -22,12 +22,7 @@ type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
 const DATASTAR_JS_PATH: &str = "/datastar@1.0.0-RC.7.js";
 const DATASTAR_JS: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.7.js");
-
-static DATASTAR_JS_BROTLI: OnceLock<Vec<u8>> = OnceLock::new();
-
-fn get_datastar_js_brotli() -> &'static [u8] {
-    DATASTAR_JS_BROTLI.get_or_init(|| compression::compress_full(DATASTAR_JS).unwrap())
-}
+const DATASTAR_JS_BROTLI: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.7.js.br");
 
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
@@ -168,7 +163,7 @@ where
                 hyper::header::VARY,
                 hyper::header::HeaderValue::from_static("accept-encoding"),
             );
-            Full::new(Bytes::from(get_datastar_js_brotli().to_vec()))
+            Full::new(Bytes::from_static(DATASTAR_JS_BROTLI))
                 .map_err(|never| match never {})
                 .boxed()
         } else {
