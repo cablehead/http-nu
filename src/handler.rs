@@ -27,6 +27,7 @@ const DATASTAR_JS_BROTLI: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0
 pub struct AppConfig {
     pub trusted_proxies: Vec<ipnet::IpNet>,
     pub datastar: bool,
+    pub dev: bool,
 }
 
 pub async fn handle<B>(

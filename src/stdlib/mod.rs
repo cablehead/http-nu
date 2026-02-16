@@ -9,6 +9,7 @@ const STDLIB_MOD: &str = include_str!("mod.nu");
 const ROUTER_MOD: &str = include_str!("router/mod.nu");
 const HTML_MOD: &str = include_str!("html/mod.nu");
 const DATASTAR_MOD: &str = include_str!("datastar/mod.nu");
+const HTTP_MOD: &str = include_str!("http/mod.nu");
 
 fn create_virt_file(working_set: &mut StateWorkingSet, name: &str, content: &str) -> VirtualPathId {
     let sanitized_name = PathBuf::from(name).to_string_lossy().to_string();
@@ -33,6 +34,7 @@ pub fn load_http_nu_stdlib(engine_state: &mut EngineState) -> Result<(), miette:
         ("mod.nu", "http-nu/router", ROUTER_MOD),
         ("mod.nu", "http-nu/html", HTML_MOD),
         ("mod.nu", "http-nu/datastar", DATASTAR_MOD),
+        ("mod.nu", "http-nu/http", HTTP_MOD),
     ];
 
     for (filename, std_subdir_name, content) in std_submodules {

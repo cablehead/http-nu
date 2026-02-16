@@ -13,6 +13,7 @@ fn default_config() -> Arc<AppConfig> {
     Arc::new(AppConfig {
         trusted_proxies: vec![],
         datastar: false,
+        dev: false,
     })
 }
 
@@ -332,6 +333,10 @@ async fn test_handle_static() {
 }
 
 fn test_engine(script: &str) -> crate::Engine {
+    test_engine_with_dev(script, false)
+}
+
+fn test_engine_with_dev(script: &str, dev: bool) -> crate::Engine {
     let mut engine = crate::Engine::new().unwrap();
     engine
         .add_commands(vec![
@@ -341,6 +346,7 @@ fn test_engine(script: &str) -> crate::Engine {
             Box::new(PrintCommand::new()),
         ])
         .unwrap();
+    engine.set_http_nu_env(dev).unwrap();
     engine.parse_closure(script).unwrap();
     engine
 }
@@ -562,4 +568,123 @@ async fn test_handle_html_record() {
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     let body = String::from_utf8(body.to_vec()).unwrap();
     assert_eq!(body, "<div>hello</div>");
+}
+
+#[tokio::test]
+async fn test_cookie_set_secure_defaults() {
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
+        r#"{|req|
+            use http-nu/http *
+            "OK" | cookie set "session" "abc123"
+        }"#,
+    )));
+
+    let req = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, default_config(), req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let set_cookie: Vec<_> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(set_cookie.len(), 1);
+    let cookie = &set_cookie[0];
+    assert!(cookie.contains("session=abc123"));
+    assert!(cookie.contains("Path=/"));
+    assert!(cookie.contains("HttpOnly"));
+    assert!(cookie.contains("Secure"));
+    assert!(cookie.contains("SameSite=Lax"));
+}
+
+#[tokio::test]
+async fn test_cookie_set_dev_mode_omits_secure() {
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine_with_dev(
+        r#"{|req|
+            use http-nu/http *
+            "OK" | cookie set "session" "abc123"
+        }"#,
+        true,
+    )));
+
+    let req = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, default_config(), req).await.unwrap();
+    let cookie = resp.headers().get("set-cookie").unwrap().to_str().unwrap();
+
+    assert!(cookie.contains("session=abc123"));
+    assert!(cookie.contains("HttpOnly"));
+    assert!(!cookie.contains("Secure"));
+}
+
+#[tokio::test]
+async fn test_cookie_set_accumulates() {
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
+        r#"{|req|
+            use http-nu/http *
+            "OK" | cookie set "session" "abc123" | cookie set "theme" "dark" --no-httponly
+        }"#,
+    )));
+
+    let req = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, default_config(), req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let set_cookie: Vec<_> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(set_cookie.len(), 2);
+    assert!(set_cookie
+        .iter()
+        .any(|c| c.contains("session=abc123") && c.contains("HttpOnly")));
+    assert!(set_cookie
+        .iter()
+        .any(|c| c.contains("theme=dark") && !c.contains("HttpOnly")));
+}
+
+#[tokio::test]
+async fn test_cookie_delete() {
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(
+        r#"{|req|
+            use http-nu/http *
+            "OK" | cookie set "session" "abc123" | cookie delete "old_token"
+        }"#,
+    )));
+
+    let req = Request::builder()
+        .uri("/")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(engine, None, default_config(), req).await.unwrap();
+
+    let set_cookie: Vec<_> = resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(set_cookie.len(), 2);
+    assert!(set_cookie.iter().any(|c| c.contains("session=abc123")));
+    assert!(set_cookie
+        .iter()
+        .any(|c| c.contains("old_token=") && c.contains("Max-Age=0")));
 }

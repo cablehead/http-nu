@@ -54,6 +54,21 @@ impl Engine {
         })
     }
 
+    /// Sets `$env.HTTP_NU` with server configuration for stdlib modules
+    pub fn set_http_nu_env(&mut self, dev: bool) -> Result<(), Error> {
+        let mut stack = Stack::new();
+        let span = Span::unknown();
+        let record = Value::record(
+            nu_protocol::record! {
+                "dev" => Value::bool(dev, span),
+            },
+            span,
+        );
+        stack.add_env_var("HTTP_NU".to_string(), record);
+        self.state.merge_env(&mut stack)?;
+        Ok(())
+    }
+
     pub fn add_commands(&mut self, commands: Vec<Box<dyn Command>>) -> Result<(), Error> {
         let mut working_set = StateWorkingSet::new(&self.state);
         for command in commands {

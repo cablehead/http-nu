@@ -94,6 +94,10 @@ struct Args {
     )]
     expose: Option<String>,
 
+    /// Development mode: relaxes security defaults (e.g. omits Secure flag on cookies)
+    #[clap(long, global = true)]
+    dev: bool,
+
     /// Serve the embedded Datastar JS bundle at /datastar@<version>.js
     #[clap(long)]
     datastar: bool,
@@ -134,10 +138,12 @@ fn create_base_engine(
     plugins: &[PathBuf],
     include_paths: &[PathBuf],
     store: Option<&Store>,
+    dev: bool,
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
     engine.set_lib_dirs(include_paths)?;
+    engine.set_http_nu_env(dev)?;
 
     for plugin_path in plugins {
         engine.load_plugin(plugin_path)?;
@@ -524,6 +530,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut engine = Engine::new()?;
         engine.add_custom_commands()?;
         engine.set_lib_dirs(&args.include_paths)?;
+        engine.set_http_nu_env(args.dev)?;
 
         for plugin_path in &args.plugins {
             engine.load_plugin(plugin_path)?;
@@ -583,6 +590,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         &args.plugins,
         &args.include_paths,
         store.as_ref(),
+        args.dev,
     )?;
 
     // Source: --topic (direct store read, with optional watch for live-reload)
@@ -650,6 +658,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         AppConfig {
             trusted_proxies: args.trust_proxies,
             datastar: args.datastar,
+            dev: args.dev,
         },
         std::time::Instant::now(),
         startup_options,

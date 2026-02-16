@@ -68,6 +68,7 @@
     - [Routing](#routing)
     - [HTML DSL](#html-dsl)
     - [Datastar SDK](#datastar-sdk)
+    - [Cookies](#cookies)
 - [Eval Subcommand](#eval-subcommand)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
@@ -964,6 +965,65 @@ to datastar-execute-script [
 to datastar-redirect []: string -> record  # "/url" | to datastar-redirect
 
 from datastar-signals [req: record]: string -> record  # $in | from datastar-signals $req
+```
+
+#### Cookies
+
+Set and parse HTTP cookies with secure defaults.
+
+```nushell
+use http-nu/http *
+
+{|req|
+  # Parse cookies from request
+  let cookies = $req | cookie parse
+  # {session: "abc123", theme: "dark"}
+
+  # Set cookies on response (chainable, accumulates Set-Cookie headers)
+  "OK" | cookie set "session" $id --max-age 86400
+       | cookie set "theme" "dark" --no-httponly
+       | cookie delete "old_token"
+}
+```
+
+**Defaults (secure by default, opt out explicitly):**
+
+| Attribute  | Default | Override               |
+| ---------- | ------- | ---------------------- |
+| `Path`     | `/`     | `--path`               |
+| `HttpOnly` | yes     | `--no-httponly`        |
+| `SameSite` | `Lax`   | `--same-site Strict`   |
+| `Secure`   | yes     | `--no-secure`, `--dev` |
+| `Max-Age`  | session | `--max-age <seconds>`  |
+| `Domain`   | none    | `--domain`             |
+
+Use `--dev` to omit the `Secure` flag for local HTTP development:
+
+```bash
+$ http-nu --dev :3001 ./serve.nu
+```
+
+**Commands:**
+
+```nushell
+cookie parse []: record -> record  # $req | cookie parse
+
+cookie set [
+  name: string
+  value: string
+  --max-age: int              # Cookie lifetime in seconds
+  --path: string              # Default: "/"
+  --domain: string
+  --no-httponly               # Allow JavaScript access
+  --no-secure                 # Omit Secure flag even in prod
+  --same-site: string         # Lax (default), Strict, or None
+]: any -> any
+
+cookie delete [
+  name: string
+  --path: string              # Must match original (default: "/")
+  --domain: string            # Must match original
+]: any -> any
 ```
 
 ## Eval Subcommand
