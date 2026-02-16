@@ -35,6 +35,7 @@ Create `changes/v$ARGUMENTS.md` with:
 - `# v$ARGUMENTS` header
 - `## Highlights` section with notable user-facing changes
 - `## Raw commits` section with commit list
+- **No soft line breaks** -- paragraphs should be single long lines, not wrapped at 80 columns. GitHub renders markdown with soft wraps, so hard breaks mid-paragraph show up as unwanted newlines in the release notes.
 
 ### 3. Review
 
