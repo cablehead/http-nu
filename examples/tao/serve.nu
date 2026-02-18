@@ -3,70 +3,89 @@
 #
 # Run: http-nu --datastar --dev -w :3001 examples/tao/serve.nu
 
+# Breath
+
 use http-nu/router *
 use http-nu/datastar *
 use http-nu/http *
+use http-nu/html *
 
-let db = (open examples/tao/data.json)
-let page = (.mj compile "examples/tao/page.html")
+# Nushell is a better `jq` than `jq`
+let slides = open examples/tao/data.json
 
-def make-ctx [state: record, reps: int] {
-  let light = ($reps / 100)
+# We pre-compile our template on server start up
+let page = .mj compile "examples/tao/page.html"
 
-  let nav_js = if $reps == 100 {
+# Generate keyboard navigation, depending on which slide we are on
+def nav-js [slide: record reps: int] {
+  if $reps == 100 {
     "null"
   } else {
-    match [($state | get -i previous) ($state | get -i next)] {
-      [null, null] => "null"
-      [null, _] => $"evt.key === 'ArrowRight' ? window.location = '($state.next)' : null"
-      [_, null] => $"evt.key === 'ArrowLeft' ? window.location = '($state.previous)' : null"
-      _ => $"evt.key === 'ArrowLeft' ? window.location = '($state.previous)' : evt.key === 'ArrowRight' ? window.location = '($state.next)' : null"
+    match [($slide.previous?) ($slide.next?)] {
+      [null null] => "null"
+      [null _] => $"evt.key === 'ArrowRight' ? window.location = '($slide.next)' : null"
+      [_ null] => $"evt.key === 'ArrowLeft' ? window.location = '($slide.previous)' : null"
+      _ => $"evt.key === 'ArrowLeft' ? window.location = '($slide.previous)' : evt.key === 'ArrowRight' ? window.location = '($slide.next)' : null"
     }
   }
+}
+
+def render-slide [req: record name: string] {
+  let slide = $slides | get $name
+  let cookies = $req | cookie parse
+  let reps = $cookies | get -i reps | default "0" | into int
+
+  # increment reps each time we loop back to the first slide.
+  let reps = $reps | if ($name == "state") { [($in + 10) 100] | math min } else { $in }
+  # each time, everything is a little clearer, a little quicker.
+  let light = $reps / 100
 
   {
-    title: $state.title
-    content: $state.content
-    previous: ($state | get -i previous)
-    next: ($state | get -i next)
+    title: $slide.title
+    content: $slide.content
+    previous: ($slide.previous?)
+    next: ($slide.next?)
     light: $light
     vt_duration: (2 - 2 * $light)
-    nav_js: $nav_js
+    nav_js: (nav-js $slide $reps)
     datastar_js_path: $DATASTAR_JS_PATH
   }
+  # send your HTML into the world. send ....
+  | .mj render $page | cookie set reps $"($reps)"
 }
 
 {|req|
   dispatch $req [
-    (route {|req|
-      if ($req.path | str starts-with "/static/") {
-        {subpath: ($req.path | str replace "/static" "")}
+    # static assets
+    (
+      route {|req|
+        if ($req.path | str starts-with "/static/") {
+          {subpath: ($req.path | str replace "/static" "")}
+        }
+      } {|req ctx|
+        .static "examples/tao/static" $ctx.subpath
       }
-    } {|req ctx|
-      .static "examples/tao/static" $ctx.subpath
-    })
+    )
 
-    (route {path: "/"} {|req ctx|
-      let cookies = $req | cookie parse
-      let reps = ($cookies | get -i reps | default "0" | into int)
-      make-ctx ($db | get state) $reps | .mj render $page | cookie set reps $"($reps)"
-    })
-
-    (route {path: "/state"} {|req ctx|
-      let cookies = $req | cookie parse
-      let reps = ($cookies | get -i reps | default "0" | into int)
-      let new_reps = [($reps + 10) 100] | math min
-      make-ctx ($db | get state) $new_reps | .mj render $page | cookie set reps $"($new_reps)"
-    })
-
-    (route {path-matches: "/:key"} {|req ctx|
-      if ($ctx.key in $db) {
-        let cookies = $req | cookie parse
-        let reps = ($cookies | get -i reps | default "0" | into int)
-        make-ctx ($db | get $ctx.key) $reps | .mj render $page | cookie set reps $"($reps)"
-      } else {
-        "404 not found" | metadata set --merge {'http.response': {status: 404}}
+    # index :: show the first slide ("state")
+    (
+      route {path: "/"} {|req ctx|
+        render-slide $req "state"
       }
-    })
+    )
+
+    # direct link to a slide page
+    (
+      route {path-matches: "/:key"} {|req ctx|
+        if ($ctx.key in $slides) {
+          render-slide $req $ctx.key
+        } else {
+          P [
+            "You have strayed from the path. Breath. Find your way back, "
+            (A {href: "/"} "to the tao")
+          ] | metadata set { merge {'http.response': {status: 404}} }
+        }
+      }
+    )
   ]
 }
