@@ -19,8 +19,8 @@
 </head>
 <body class="gc" data-on:keydown__window__throttle.1s="{{ nav_js }}">
   <div id="container">
-    <h1>{{ title }}</h1>
-    <p>{{ content }}</p>
+    <h1>{{ title|e }}</h1>
+    <p>{{ content|e }}</p>
     <div id="arrow-container">
       {% if previous %}
         <a href="{{ previous }}">&#x2B05;&#xFE0F;</a>

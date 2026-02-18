@@ -55,7 +55,7 @@ def make-ctx [state: record, reps: int] {
     (route {path: "/state"} {|req ctx|
       let cookies = $req | cookie parse
       let reps = ($cookies | get -i reps | default "0" | into int)
-      let new_reps = if $reps > 0 { [($reps + 10) 100] | math min } else { $reps }
+      let new_reps = [($reps + 10) 100] | math min
       make-ctx ($db | get state) $new_reps | .mj render $page | cookie set reps $"($new_reps)"
     })
 
