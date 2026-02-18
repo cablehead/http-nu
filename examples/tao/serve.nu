@@ -5,16 +5,14 @@
 
 use http-nu/router *
 use http-nu/datastar *
-use http-nu/html *
 use http-nu/http *
 
 let db = (open examples/tao/data.json)
+let page = (.mj compile "examples/tao/page.html")
 
-def make-page [state: record, reps: int] {
+def make-ctx [state: record, reps: int] {
   let light = ($reps / 100)
-  let vt_duration = (2 - 2 * $light)
 
-  # keyboard navigation js
   let nav_js = if $reps == 100 {
     "null"
   } else {
@@ -26,49 +24,16 @@ def make-page [state: record, reps: int] {
     }
   }
 
-  let custom_css = $":root {
-    --light: ($light);
-}
-::view-transition-group\(*\) {
-    animation-duration: ($vt_duration)s;
-}"
-
-  let prev_link = if ($state | get -i previous) != null {
-    A {href: $state.previous} {__html: "&#x2B05;&#xFE0F;"}
-  } else {
-    P ""
+  {
+    title: $state.title
+    content: $state.content
+    previous: ($state | get -i previous)
+    next: ($state | get -i next)
+    light: $light
+    vt_duration: (2 - 2 * $light)
+    nav_js: $nav_js
+    datastar_js_path: $DATASTAR_JS_PATH
   }
-
-  let next_link = if ($state | get -i next) != null {
-    A {href: $state.next} {__html: "&#x27A1;&#xFE0F;"}
-  } else {
-    ""
-  }
-
-  (HTML
-    {lang: "en"}
-    (HEAD
-      (META {charset: "UTF-8"})
-      (META {name: "viewport" content: "width=device-width, initial-scale=1"})
-      (TITLE "The Tao")
-      (LINK {rel: "icon" href: "/static/img/favicon.ico"})
-      (LINK {rel: "stylesheet" href: "/static/css/site.css"})
-      (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
-      (STYLE $custom_css)
-    )
-    (BODY
-      {class: "gc" "data-on:keydown.window.throttle_1000ms": $nav_js}
-      (DIV {id: "container"}
-        (H1 $state.title)
-        (P $state.content)
-        (DIV {id: "arrow-container"}
-          $prev_link
-          $next_link
-        )
-      )
-    )
-  )
-  | cookie set reps $"($reps)"
 }
 
 {|req|
@@ -84,21 +49,21 @@ def make-page [state: record, reps: int] {
     (route {path: "/"} {|req ctx|
       let cookies = $req | cookie parse
       let reps = ($cookies | get -i reps | default "0" | into int)
-      make-page ($db | get state) $reps
+      make-ctx ($db | get state) $reps | .mj render $page | cookie set reps $"($reps)"
     })
 
     (route {path: "/state"} {|req ctx|
       let cookies = $req | cookie parse
       let reps = ($cookies | get -i reps | default "0" | into int)
       let new_reps = if $reps > 0 { [($reps + 10) 100] | math min } else { $reps }
-      make-page ($db | get state) $new_reps
+      make-ctx ($db | get state) $new_reps | .mj render $page | cookie set reps $"($new_reps)"
     })
 
     (route {path-matches: "/:key"} {|req ctx|
       if ($ctx.key in $db) {
         let cookies = $req | cookie parse
         let reps = ($cookies | get -i reps | default "0" | into int)
-        make-page ($db | get $ctx.key) $reps
+        make-ctx ($db | get $ctx.key) $reps | .mj render $page | cookie set reps $"($reps)"
       } else {
         "404 not found" | metadata set --merge {'http.response': {status: 404}}
       }
