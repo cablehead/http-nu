@@ -165,7 +165,7 @@ fn test_mj_file_with_external_refs() {
         .args([
             "eval",
             "-c",
-            r#"{name: "World"} | .mj "examples/template-inheritance/page.html""#,
+            r#"{name: "World"} | .mj "examples/templates/page.html""#,
         ])
         .assert()
         .success()
@@ -178,7 +178,7 @@ fn test_mj_file_with_external_refs() {
 fn test_mj_inline_is_self_contained() {
     // Inline mode has no loader -- {% include %} references fail
     Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
-        .current_dir("examples/template-inheritance")
+        .current_dir("examples/templates")
         .args([
             "eval",
             "-c",
@@ -196,7 +196,7 @@ fn test_mj_compile_file_with_external_refs() {
         .args([
             "eval",
             "-c",
-            r#"let t = .mj compile "examples/template-inheritance/page.html"; {name: "World"} | .mj render $t"#,
+            r#"let t = .mj compile "examples/templates/page.html"; {name: "World"} | .mj render $t"#,
         ])
         .assert()
         .success()
@@ -209,7 +209,7 @@ fn test_mj_compile_file_with_external_refs() {
 fn test_mj_compile_inline_is_self_contained() {
     // Compile + render in inline mode has no loader -- {% include %} fails
     Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
-        .current_dir("examples/template-inheritance")
+        .current_dir("examples/templates")
         .args([
             "eval",
             "-c",

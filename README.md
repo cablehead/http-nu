@@ -657,8 +657,8 @@ Hello world!
 ```
 
 **Topic** (requires `--store`) - renders a template stored in a cross.stream
-topic. `{% extends %}` and `{% include %}` resolve template names as topic
-names from the same store.
+topic. `{% extends %}` and `{% include %}` resolve template names as topic names
+from the same store.
 
 ```nushell
 {|req| $req.query | .mj --topic "page.html"}
