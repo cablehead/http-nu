@@ -65,7 +65,8 @@ impl Store {
 
     /// Add store commands (.cat, .append, .cas, .last, etc.) to the engine.
     pub fn configure_engine(&self, engine: &mut crate::Engine) -> Result<(), crate::Error> {
-        engine.add_store_commands(&self.inner)
+        engine.add_store_commands(&self.inner)?;
+        engine.add_store_mj_commands(&self.inner)
     }
 
     /// Load a handler closure from a store topic, enrich with VFS modules from

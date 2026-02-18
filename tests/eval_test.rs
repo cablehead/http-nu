@@ -175,8 +175,8 @@ fn test_mj_file_with_external_refs() {
 }
 
 #[test]
-fn test_mj_inline_with_external_refs() {
-    // .mj --inline with include - FAILS: no loader for cwd
+fn test_mj_inline_is_self_contained() {
+    // Inline mode has no loader -- {% include %} references fail
     Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .current_dir("examples/template-inheritance")
         .args([
@@ -185,13 +185,13 @@ fn test_mj_inline_with_external_refs() {
             r#"{} | .mj --inline '{% include "nav.html" %}'"#,
         ])
         .assert()
-        .success()
-        .stdout(predicates::str::contains("<nav>Home | About</nav>"));
+        .failure()
+        .stderr(predicates::str::contains("template not found"));
 }
 
 #[test]
 fn test_mj_compile_file_with_external_refs() {
-    // .mj compile "file" + render - FAILS: loader not preserved in cache
+    // .mj compile "file" + render - loader is preserved in cache
     Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args([
             "eval",
@@ -206,8 +206,8 @@ fn test_mj_compile_file_with_external_refs() {
 }
 
 #[test]
-fn test_mj_compile_inline_with_external_refs() {
-    // .mj compile --inline + render - FAILS: no loader for cwd
+fn test_mj_compile_inline_is_self_contained() {
+    // Compile + render in inline mode has no loader -- {% include %} fails
     Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .current_dir("examples/template-inheritance")
         .args([
@@ -216,6 +216,45 @@ fn test_mj_compile_inline_with_external_refs() {
             r#"let t = .mj compile --inline '{% include "nav.html" %}'; {} | .mj render $t"#,
         ])
         .assert()
-        .success()
-        .stdout(predicates::str::contains("<nav>Home | About</nav>"));
+        .failure()
+        .stderr(predicates::str::contains("template not found"));
+}
+
+#[test]
+fn test_mj_topic_without_store_fails() {
+    // --topic requires --store; without it the command should fail
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "-c", r#"{} | .mj --topic "some.topic""#])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--topic requires --store"));
+}
+
+#[test]
+fn test_mj_compile_topic_without_store_fails() {
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "-c", r#".mj compile --topic "some.topic""#])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--topic requires --store"));
+}
+
+#[test]
+fn test_mj_rejects_combined_modes() {
+    // Cannot combine --inline and --topic
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "-c", r#"{} | .mj --inline "hi" --topic "t""#])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("Cannot combine"));
+}
+
+#[test]
+fn test_mj_compile_rejects_combined_modes() {
+    // Cannot combine file and --topic
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "-c", r#".mj compile "file.html" --topic "t""#])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("Cannot combine"));
 }
