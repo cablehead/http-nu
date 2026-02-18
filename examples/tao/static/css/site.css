@@ -1,0 +1,124 @@
+@import url('gold.css');
+
+/* the trick of it */
+
+:root {
+    --light: 0; /* 0 = black bg, 1 = white bg */
+    /* we curve it a little to avoid gray on gray at 50% */
+    --lightness: pow(var(--light), 2.5) * 100%
+}
+
+/* for the body, a nice modern font with good reading space */
+/* remember: 2 and 3 are values that go well together */
+
+body {
+    font-family: Avenir, Montserrat, Corbel, 'URW Gothic', source-sans-pro, sans-serif;
+    font-weight: normal;
+    font-size: 2rem;
+    line-height: 3rem;
+    text-align: center;
+    /* the color trick */
+    color: hsl(0, 0%, calc(100% - var(--lightness)));
+    background: hsl(0, 0%, calc(var(--lightness)));
+    /* and we cover the screen */
+    min-height: 100dvb;
+}
+
+/* our first element of structure for the h1 and the text */
+/* always start with a nice grid */
+
+#container {
+    max-width: 1000px;
+    display: grid;
+    gap: 2rem;
+    /* some margin for our mobile friends */
+    margin: 10px;
+}
+
+/* another one for the arrows */
+
+#arrow-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+	/* design on mobile first! */
+    margin-bottom: 3rem;
+    /* in 2026, links are emojis */
+    /* no decoration, mind empty */
+    a {
+        text-decoration: none;
+    }
+    /* let's remove the ugly emoji colors though */
+    a {
+        filter: grayscale(1);
+        /* and remove it for hover indication */
+        &:hover {
+            filter: grayscale(0);
+        }
+    }
+}
+
+/* bigger! */
+
+h1 {
+    font-size: min(5rem, 15vw);
+    line-height: min(5rem, 15vw);
+    font-weight: bold;
+}
+
+/* smaller! */
+
+.view-text {
+    font-size: .8rem;
+    line-height: .8rem;
+}
+
+/* and now the blur trick */
+/* navigation auto will trigger a VT on every click */
+
+@view-transition {
+    navigation: auto;
+}
+
+/* going in by unblurring */
+
+@keyframes going-in {
+	from {
+        filter: blur(50px);
+        opacity: 0;
+	}
+	to {
+        filter: blur(0);
+        opacity: 1;
+	}
+}
+
+/* going out by blurring */
+
+@keyframes going-out {
+    from {
+        filter: blur(0);
+        opacity: 1;
+    }
+    to {
+        filter: blur(50px);
+        opacity: 0;
+	}
+}
+
+/* assign them to old content and new content */
+
+::view-transition-old(root) {
+    animation-name: going-out;
+}
+::view-transition-new(root) {
+    animation-name: going-in;
+}
+
+/* and some timing functions */
+
+::view-transition-group(*) {
+	animation-duration: 2s;
+	animation-timing-function: cubic-bezier(0,.5,1,.5);
+}
+
+/* and that's it, nice and clean */
