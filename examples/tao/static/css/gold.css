@@ -1,0 +1,161 @@
+@layer reset, config, screens, layouts, grids, utilities;
+
+@layer reset {
+	* {
+		box-sizing: border-box;
+		margin: 0;
+		padding: 0;
+		text-wrap: pretty;
+	}
+	h1, h2, h3, h4, h5, h6 {
+		font-size: inherit;
+		font-weight: inherit;
+	}
+	a {
+		color: inherit;
+	}
+    button, input[type="submit"], input[type="reset"] {
+        cursor: pointer;
+    }
+	button, input, select, textarea {
+		font: inherit;
+		color: inherit;
+		letter-spacing: inherit;
+        background: unset;
+	}
+	input, progress, meter {
+		accent-color: currentColor;
+	}
+	select {
+		field-sizing: content;
+	}
+	menu, ol, ul {
+		list-style: none;
+	}
+	hr {
+		border: none;
+		border-top: 1px solid currentColor;
+		width: 100%;
+	}
+	table {
+		text-indent: 0;
+		border-color: inherit;
+		border-collapse: collapse;
+	}
+	svg {
+		paint-order: stroke fill;
+	}
+	audio, canvas, embed, iframe, img, object, svg, video {
+		display: block;
+	}
+}
+
+@layer config {
+	:root {
+		--phi: calc((1 + sqrt(5)) / 2);
+		--m: 1rem;
+		--xxs: calc(var(--m) * pow(var(--phi), -3));
+		--xs: calc(var(--m) * pow(var(--phi), -2));
+		--s: calc(var(--m) * pow(var(--phi), -1));
+		--l: calc(var(--m) * pow(var(--phi), 1));
+		--xl: calc(var(--m) * pow(var(--phi), 2));
+		--xxl: calc(var(--m) * pow(var(--phi), 3));
+	}
+	html {
+        font-size: var(--m);
+		line-height: var(--m);
+	}
+}
+
+@layer screens {
+    .gf {
+		min-width: 100dvi;
+		min-height: 100dvb;
+	}
+
+    .gw {
+        padding-inline: 19.1dvw;
+    }
+
+    .go {
+        position: absolute;
+        z-index: 1618;
+        inset: 50%;
+    }
+}
+
+@layer layouts {
+	.gc {
+		display: grid;
+		> * {
+			place-self: center;
+		}
+    }
+
+    .gz {
+		display: grid;
+		> * {
+			grid-area: 1/1;
+		}
+    }
+
+	.gs {
+		display: grid;
+		> * {
+			justify-self: stretch;
+		}
+	}
+}
+
+@layer grids {
+	.gg01, .gg01d {
+        display: grid;
+        grid-template-columns: 1fr 1.618fr;
+        grid-template-rows: 1fr;
+    }
+	@media (width < 576px) {
+        .gg01d {
+            display: grid;
+			grid-template-rows: 1fr 1.618fr;
+			grid-template-columns: 1fr;
+		}
+	}
+    .gg10, .gg10d {
+        display: grid;
+        grid-template-columns: 1.618fr 1fr;
+        grid-template-rows: 1fr;
+    }
+	@media (max-width: 575px) {
+        .gg10d {
+            display: grid;
+			grid-template-rows: 1.618fr 1fr;
+			grid-template-columns: 1fr;
+		}
+	}
+}
+
+@layer utilities {
+	.gp-xxs { padding: var(--xxs); }
+	.gp-xs { padding: var(--xs); }
+	.gp-s  { padding: var(--s); }
+	.gp-m  { padding: var(--m); }
+	.gp-l  { padding: var(--l); }
+	.gp-xl { padding: var(--xl); }
+	.gp-xxl { padding: var(--xxl); }
+
+	.gm-xxs { margin: var(--xxs); }
+	.gm-xs { margin: var(--xs); }
+	.gm-s  { margin: var(--s); }
+	.gm-m  { margin: var(--m); }
+	.gm-l  { margin: var(--l); }
+	.gm-xl { margin: var(--xl); }
+	.gm-xxl { margin: var(--xxl); }
+
+	.gt-xxs { font-size: var(--xxs); line-height: var(--xxs); }
+	.gt-xs  { font-size: var(--xs);  line-height: var(--xs); }
+	.gt-s   { font-size: var(--s);   line-height: var(--s); }
+	.gt-m   { font-size: var(--m);   line-height: var(--m); }
+	.gt-l   { font-size: var(--l);   line-height: var(--l); }
+	.gt-xl  { font-size: var(--xl);  line-height: var(--xl); }
+	.gt-xxl { font-size: var(--xxl); line-height: var(--xxl); }
+}

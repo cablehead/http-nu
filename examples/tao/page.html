@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Tao</title>
+  <link rel="icon" href="/static/img/favicon.ico">
+  <link rel="stylesheet" href="/static/css/site.css">
+  <script type="module" src="{{ datastar_js_path }}"></script>
+  <style>
+
+    :root {
+        --light: {{ light }};
+    }
+    ::view-transition-group(*) {
+        animation-duration: {{ vt_duration }}s;
+    }
+  </style>
+</head>
+<body class="gc" data-on:keydown__window__throttle.1s="{{ nav_js }}">
+  <div id="container">
+    <h1>{{ title|e }}</h1>
+    <p>{{ content|e }}</p>
+    <div id="arrow-container">
+      {% if previous %}
+        <a href="{{ previous }}">&#x2B05;&#xFE0F;</a>
+      {% else %}
+        <p></p>
+      {% endif %}
+      {% if next %}
+        <a href="{{ next }}">&#x27A1;&#xFE0F;</a>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

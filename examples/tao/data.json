@@ -1,0 +1,113 @@
+{
+    "state": {
+        "title": "State in the Right Place",
+        "content": "Most state should live in the backend. Since the frontend is exposed to the user, the backend should be the source of truth for your application state.",
+        "all_views": 4,
+        "current_views": 2,
+        "next": "/defaults"
+    },
+    "defaults": {
+        "title": "Start with the Defaults",
+        "content": "The default configuration options are the recommended settings for the majority of applications. Start with the defaults, and before you ever get tempted to change them, stop and ask yourself, well... how did I get here?",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/state",
+        "next": "/patch"
+    },
+    "patch": {
+        "title": "Patch Elements & Signals",
+        "content": "Since the backend is the source of truth, it should drive the frontend by patching (adding, updating and removing) HTML elements and signals.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/defaults",
+        "next": "/signals"
+    },
+    "signals": {
+        "title": "Use Signals Sparingly",
+        "content": "Overusing signals typically indicates trying to manage state on the frontend. Favor fetching current state from the backend rather than pre-loading and assuming frontend state is current. A good rule of thumb is to only use signals for user interactions (e.g. toggling element visibility) and for sending new state to the backend (e.g. by binding signals to form input elements).",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/patch",
+        "next": "/morph"
+    },
+    "morph": {
+        "title": "In Morph We Trust",
+        "content": "Morphing ensures that only modified parts of the DOM are updated, preserving state and improving performance. This allows you to send down large chunks of the DOM tree (all the way up to the html tag), sometimes known as 'fat morph', rather than trying to manage fine-grained updates yourself. If you want to explicitly ignore morphing an element, place the data-ignore-morph attribute on it.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/signals",
+        "next": "/sse"
+    },
+    "sse": {
+        "title": "SSE Responses",
+        "content": "SSE responses allow you to send 0 to n events, in which you can patch elements, patch signals, and execute scripts. Since event streams are just HTTP responses with some special formatting that SDKs can handle for you, there's no real benefit to using a content type other than text/event-stream.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/morph",
+        "next": "/compression"
+    },
+    "compression": {
+        "title": "Compression",
+        "content": "Since SSE responses stream events from the backend and morphing allows sending large chunks of DOM, compressing the response is a natural choice. Compression ratios of 200:1 are not uncommon when compressing streams using Brotli.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/sse",
+        "next": "/template"
+    },
+    "template": {
+        "title": "Backend Templating",
+        "content": "Since your backend generates your HTML, you can and should use your templating language to keep things DRY (Don't Repeat Yourself).",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/compression",
+        "next": "/navigation"
+    },
+    "navigation": {
+        "title": "Page Navigation",
+        "content": "Page navigation hasn't changed in 30 years. Use the anchor element (<a>) to navigate to a new page, or a redirect if redirecting from the backend. For smooth page transitions, use the View Transition API.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/template",
+        "next": "/history"
+    },
+    "history": {
+        "title": "Browser History",
+        "content": "Browsers automatically keep a history of pages visited. As soon as you start trying to manage browser history yourself, you are adding complexity. Each page is a resource. Use anchor tags and let the browser do what it is good at.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/navigation",
+        "next": "/cqrs"
+    },
+    "cqrs": {
+        "title": "CQRS",
+        "content": "CQRS, in which commands (writes) and requests (reads) are segregated, makes it possible to have a single long-lived request to receive updates from the backend (reads), while making multiple short-lived requests to the backend (writes). It is a powerful pattern that makes real-time collaboration simple using Datastar.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/history",
+        "next": "/loading"
+    },
+    "loading": {
+        "title": "Loading Indicators",
+        "content": "Loading indicators inform the user that an action is in progress. Use the data-indicator attribute to show loading indicators on elements that trigger backend requests. When using CQRS, it is generally better to manually show a loading indicator when backend requests are made, and allow it to be hidden when the DOM is updated from the backend.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/cqrs",
+        "next": "/optimistic"
+    },
+    "optimistic": {
+        "title": "Optimistic Updates",
+        "content": "Optimistic updates (also known as optimistic UI) are when the UI updates immediately as if an operation succeeded, before the backend actually confirms it. It is a strategy used to makes web apps feel snappier, when it in fact deceives the user. Imagine seeing a confirmation message that an action succeeded, only to be shown a second later that it actually failed. Rather than deceive the user, use loading indicators to show the user that the action is in progress, and only confirm success from the backend.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/loading",
+        "next": "/accessibility"
+    },
+    "accessibility": {
+        "title": "Accessibility",
+        "content": "The web should be accessible to everyone. Datastar stays out of your way and leaves accessibility to you. Use semantic HTML, apply ARIA where it makes sense, and ensure your app works well with keyboards and screen readers.",
+        "all_views": 6,
+        "current_views": 7,
+        "previous": "/optimistic",
+        "next": "/state"
+    }
+}
