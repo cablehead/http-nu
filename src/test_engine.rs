@@ -12,7 +12,7 @@ fn eval_engine() -> Engine {
 fn test_engine_eval() {
     let mut engine = Engine::new().unwrap();
     engine
-        .parse_closure(r#"{|request| "hello world" }"#)
+        .parse_closure(r#"{|request| "hello world" }"#, None)
         .unwrap();
 
     let test_value = Value::test_string("hello world");
@@ -33,7 +33,7 @@ fn test_closure_no_args() {
     let mut engine = Engine::new().unwrap();
 
     // Try to parse a closure with no arguments
-    let result = engine.parse_closure(r#"{|| "hello world" }"#);
+    let result = engine.parse_closure(r#"{|| "hello world" }"#, None);
 
     // Assert the error contains the expected message
     assert!(result.is_err());
@@ -45,34 +45,37 @@ fn test_closure_no_args() {
 
 #[test]
 fn test_mj_compile_inline() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#".mj compile --inline "Hello, {{ name }}""#)
+        .eval(r#".mj compile --inline "Hello, {{ name }}""#, None)
         .unwrap();
     assert_eq!(result.get_type().to_string(), "CompiledTemplate");
 }
 
 #[test]
 fn test_mj_compile_inline_html_record() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#".mj compile --inline {__html: "Hello, {{ name }}"}"#)
+        .eval(
+            r#".mj compile --inline {__html: "Hello, {{ name }}"}"#,
+            None,
+        )
         .unwrap();
     assert_eq!(result.get_type().to_string(), "CompiledTemplate");
 }
 
 #[test]
 fn test_mj_compile_syntax_error() {
-    let engine = eval_engine();
-    let result = engine.eval(r#".mj compile --inline "Hello, {{ name""#);
+    let mut engine = eval_engine();
+    let result = engine.eval(r#".mj compile --inline "Hello, {{ name""#, None);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("compile error"));
 }
 
 #[test]
 fn test_mj_compile_no_template() {
-    let engine = eval_engine();
-    let result = engine.eval(r#".mj compile"#);
+    let mut engine = eval_engine();
+    let result = engine.eval(r#".mj compile"#, None);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -82,10 +85,11 @@ fn test_mj_compile_no_template() {
 
 #[test]
 fn test_mj_render() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
         .eval(
             r#"let tpl = (.mj compile --inline "Hello, {{ name }}"); {name: "World"} | .mj render $tpl"#,
+            None,
         )
         .unwrap();
     assert_eq!(result.as_str().unwrap(), "Hello, World");
@@ -93,10 +97,11 @@ fn test_mj_render() {
 
 #[test]
 fn test_mj_render_loop() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
         .eval(
             r#"let tpl = (.mj compile --inline "{% for i in items %}{{ i }}{% endfor %}"); {items: [1, 2, 3]} | .mj render $tpl"#,
+            None,
         )
         .unwrap();
     assert_eq!(result.as_str().unwrap(), "123");
@@ -104,19 +109,22 @@ fn test_mj_render_loop() {
 
 #[test]
 fn test_mj_render_missing_var() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     // MiniJinja renders missing variables as empty by default
     let result = engine
-        .eval(r#"let tpl = (.mj compile --inline "Hello, {{ name }}"); {} | .mj render $tpl"#)
+        .eval(
+            r#"let tpl = (.mj compile --inline "Hello, {{ name }}"); {} | .mj render $tpl"#,
+            None,
+        )
         .unwrap();
     assert_eq!(result.as_str().unwrap(), "Hello, ");
 }
 
 #[test]
 fn test_mj_compile_describe() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#".mj compile --inline "test template" | describe"#)
+        .eval(r#".mj compile --inline "test template" | describe"#, None)
         .unwrap();
     assert_eq!(result.as_str().unwrap(), "CompiledTemplate");
 }
@@ -125,7 +133,7 @@ fn test_mj_compile_describe() {
 fn test_closure_captures_outer_variables() {
     let mut engine = Engine::new().unwrap();
     engine
-        .parse_closure(r#"let x = "captured"; {|req| $x}"#)
+        .parse_closure(r#"let x = "captured"; {|req| $x}"#, None)
         .unwrap();
 
     let result = engine
@@ -144,9 +152,9 @@ fn test_closure_captures_outer_variables() {
 
 #[test]
 fn test_highlight_rust() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#""fn main() {}" | .highlight rust | get __html"#)
+        .eval(r#""fn main() {}" | .highlight rust | get __html"#, None)
         .unwrap();
     let html = result.as_str().unwrap();
     assert!(html.contains("span"));
@@ -155,9 +163,9 @@ fn test_highlight_rust() {
 
 #[test]
 fn test_highlight_nushell() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#""{|req| $req.path}" | .highlight nu | get __html"#)
+        .eval(r#""{|req| $req.path}" | .highlight nu | get __html"#, None)
         .unwrap();
     let html = result.as_str().unwrap();
     assert!(html.contains("span"));
@@ -166,8 +174,8 @@ fn test_highlight_nushell() {
 
 #[test]
 fn test_highlight_theme_list() {
-    let engine = eval_engine();
-    let result = engine.eval(r#".highlight theme"#).unwrap();
+    let mut engine = eval_engine();
+    let result = engine.eval(r#".highlight theme"#, None).unwrap();
     let themes = result.as_list().unwrap();
     assert!(!themes.is_empty());
     // Check for some known themes
@@ -178,8 +186,8 @@ fn test_highlight_theme_list() {
 
 #[test]
 fn test_highlight_theme_css() {
-    let engine = eval_engine();
-    let result = engine.eval(r#".highlight theme Dracula"#).unwrap();
+    let mut engine = eval_engine();
+    let result = engine.eval(r#".highlight theme Dracula"#, None).unwrap();
     let css = result.as_str().unwrap();
     assert!(css.contains("color:"));
     assert!(css.contains("background-color:"));
@@ -187,8 +195,8 @@ fn test_highlight_theme_css() {
 
 #[test]
 fn test_highlight_lang_list() {
-    let engine = eval_engine();
-    let result = engine.eval(r#".highlight lang"#).unwrap();
+    let mut engine = eval_engine();
+    let result = engine.eval(r#".highlight lang"#, None).unwrap();
     let langs = result.as_list().unwrap();
     assert!(!langs.is_empty());
     // Check structure: each item should have name and extensions
@@ -205,17 +213,22 @@ fn test_highlight_lang_list() {
 
 #[test]
 fn test_md_basic() {
-    let engine = eval_engine();
-    let result = engine.eval(r##""# Hello" | .md | get __html"##).unwrap();
+    let mut engine = eval_engine();
+    let result = engine
+        .eval(r##""# Hello" | .md | get __html"##, None)
+        .unwrap();
     let html = result.as_str().unwrap();
     assert_eq!(html, "<h1>Hello</h1>\n");
 }
 
 #[test]
 fn test_md_formatting() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#""Some **bold** and *italic* text." | .md | get __html"#)
+        .eval(
+            r#""Some **bold** and *italic* text." | .md | get __html"#,
+            None,
+        )
         .unwrap();
     let html = result.as_str().unwrap();
     assert!(html.contains("<strong>bold</strong>"));
@@ -224,12 +237,13 @@ fn test_md_formatting() {
 
 #[test]
 fn test_md_code_block_highlighted() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
         .eval(
             r#""```rust
 fn main() {}
 ```" | .md | get __html"#,
+            None,
         )
         .unwrap();
     let html = result.as_str().unwrap();
@@ -240,12 +254,13 @@ fn main() {}
 
 #[test]
 fn test_md_code_block_no_lang() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
         .eval(
             r#""```
 plain code
 ```" | .md | get __html"#,
+            None,
         )
         .unwrap();
     let html = result.as_str().unwrap();
@@ -255,9 +270,9 @@ plain code
 
 #[test]
 fn test_md_escapes_html_in_untrusted_string() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#""<script>evil()</script>" | .md | get __html"#)
+        .eval(r#""<script>evil()</script>" | .md | get __html"#, None)
         .unwrap();
     let html = result.as_str().unwrap();
     // Should be escaped, not raw
@@ -267,9 +282,12 @@ fn test_md_escapes_html_in_untrusted_string() {
 
 #[test]
 fn test_md_passes_html_in_trusted_record() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#"{__html: "<strong>bold</strong>"} | .md | get __html"#)
+        .eval(
+            r#"{__html: "<strong>bold</strong>"} | .md | get __html"#,
+            None,
+        )
         .unwrap();
     let html = result.as_str().unwrap();
     // Should pass through raw
@@ -278,9 +296,9 @@ fn test_md_passes_html_in_trusted_record() {
 
 #[test]
 fn test_md_autolink_still_works() {
-    let engine = eval_engine();
+    let mut engine = eval_engine();
     let result = engine
-        .eval(r#""<http://example.com>" | .md | get __html"#)
+        .eval(r#""<http://example.com>" | .md | get __html"#, None)
         .unwrap();
     let html = result.as_str().unwrap();
     // Autolink should become a proper link, not escaped
@@ -289,7 +307,7 @@ fn test_md_autolink_still_works() {
 
 #[test]
 fn test_md_record_without_html_errors() {
-    let engine = eval_engine();
-    let result = engine.eval(r#"{foo: "bar"} | .md"#);
+    let mut engine = eval_engine();
+    let result = engine.eval(r#"{foo: "bar"} | .md"#, None);
     assert!(result.is_err());
 }

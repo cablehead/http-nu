@@ -117,9 +117,11 @@ impl Engine {
         Ok(())
     }
 
-    pub fn parse_closure(&mut self, script: &str) -> Result<(), Error> {
+    pub fn parse_closure(&mut self, script: &str, file: Option<&Path>) -> Result<(), Error> {
+        self.state.file = file.map(|p| p.to_path_buf());
+        let fname = file.map(|p| p.to_string_lossy().into_owned());
         let mut working_set = StateWorkingSet::new(&self.state);
-        let block = parse(&mut working_set, None, script.as_bytes(), false);
+        let block = parse(&mut working_set, fname.as_deref(), script.as_bytes(), false);
 
         // Handle parse errors
         if let Some(err) = working_set.parse_errors.first() {
@@ -227,9 +229,11 @@ impl Engine {
     }
 
     /// Evaluate a script string and return the result value
-    pub fn eval(&self, script: &str) -> Result<Value, Error> {
+    pub fn eval(&mut self, script: &str, file: Option<&Path>) -> Result<Value, Error> {
+        self.state.file = file.map(|p| p.to_path_buf());
+        let fname = file.map(|p| p.to_string_lossy().into_owned());
         let mut working_set = StateWorkingSet::new(&self.state);
-        let block = parse(&mut working_set, None, script.as_bytes(), false);
+        let block = parse(&mut working_set, fname.as_deref(), script.as_bytes(), false);
 
         if let Some(err) = working_set.parse_errors.first() {
             let shell_error = ShellError::GenericError {
@@ -365,12 +369,12 @@ impl Engine {
 
 /// Creates an engine from a script by cloning a base engine and parsing the closure.
 /// On error, prints to stderr and emits JSON to stdout, returning None.
-pub fn script_to_engine(base: &Engine, script: &str) -> Option<Engine> {
+pub fn script_to_engine(base: &Engine, script: &str, file: Option<&Path>) -> Option<Engine> {
     let mut engine = base.clone();
     // Fresh cancellation token for this engine instance
     engine.reload_token = CancellationToken::new();
 
-    if let Err(e) = engine.parse_closure(script) {
+    if let Err(e) = engine.parse_closure(script, file) {
         log_error(&nu_utils::strip_ansi_string_likely(e.to_string()));
         return None;
     }
