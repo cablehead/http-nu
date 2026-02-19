@@ -57,7 +57,7 @@
   - [Embedded Store](#embedded-store)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
-    - [`.mj` - Render inline](#mj---render-inline)
+    - [`.mj` - Render templates](#mj---render-templates)
     - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
   - [Syntax Highlighting](#syntax-highlighting)
   - [Markdown](#markdown)
