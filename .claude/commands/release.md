@@ -68,6 +68,7 @@ gh run watch <run-id> --exit-status
 
 - Clone `../homebrew-tap` if not present:
   `git clone https://github.com/cablehead/homebrew-tap.git`
+- **Pull latest** before making changes: `cd ../homebrew-tap && git pull`
 - **Wait 10+ seconds** after build completes for GitHub CDN propagation
 - Download macOS tarball, verify integrity, and calculate SHA256:
   ```bash
@@ -105,6 +106,16 @@ cargo publish
 ```
 
 **Warning**: This step cannot be undone - you cannot unpublish from crates.io
+
+### 10. Bump to Dev Version
+
+After publishing, bump `Cargo.toml` to the next patch dev version (e.g., `0.12.0` -> `0.12.1-dev`), run `cargo check` to update `Cargo.lock`, and commit:
+
+```bash
+git add Cargo.toml Cargo.lock
+git commit -m "chore: bump to v<next>-dev"
+git push
+```
 
 ## Release Complete
 

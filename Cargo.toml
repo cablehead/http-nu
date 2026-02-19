@@ -3,7 +3,7 @@ members = [".", "tests/test_plugin"]
 
 [package]
 name = "http-nu"
-version = "0.12.0"
+version = "0.12.1-dev"
 edition = "2021"
 rust-version = "1.88.0"
 description = "The surprisingly performant, Nushell-scriptable, cross.stream-powered, Datastar-ready HTTP server that fits in your back pocket."
