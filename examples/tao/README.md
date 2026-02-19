@@ -17,3 +17,9 @@ Then visit [http://localhost:3001](http://localhost:3001).
 Navigate between lessons with the arrow links or keyboard arrow keys. Each
 full cycle through the lessons lightens the background from black toward
 white, tracked via a cookie.
+
+## Test
+
+```bash
+http-nu eval examples/tao/test.nu
+```

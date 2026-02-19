@@ -70,6 +70,7 @@
     - [Datastar SDK](#datastar-sdk)
     - [Cookies](#cookies)
 - [Eval Subcommand](#eval-subcommand)
+  - [Unit Testing Endpoints](#unit-testing-endpoints)
 - [Building and Releases](#building-and-releases)
   - [Available Build Targets](#available-build-targets)
   - [Examples](#examples)
@@ -1062,6 +1063,28 @@ $ echo '1 + 2' | http-nu eval -
 $ http-nu eval -c '.mj compile --inline "Hello, {{ name }}" | describe'
 CompiledTemplate
 ```
+
+### Unit Testing Endpoints
+
+`source` loads a handler script and returns the closure. `do` invokes it with a
+request record. `assert` checks the response.
+
+```nushell
+# test.nu
+use std/assert
+
+const script_dir = path self | path dirname
+
+let handler = source ($script_dir | path join serve.nu)
+let response = do $handler {method: GET, path: "/", headers: {}}
+assert ($response | str contains "<h1>State in the Right Place</h1>")
+```
+
+```bash
+$ http-nu eval test.nu
+```
+
+See [`examples/tao/test.nu`](examples/tao/test.nu).
 
 ## Building and Releases
 
