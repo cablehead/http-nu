@@ -166,12 +166,16 @@ async fn file_source(path: &str, watch: bool, base_engine: Engine, tx: mpsc::Sen
         std::process::exit(1);
     });
 
-    if let Some(engine) = script_to_engine(&base_engine, &content) {
+    let script_path = PathBuf::from(path).canonicalize().unwrap_or_else(|e| {
+        eprintln!("Error resolving {path}: {e}");
+        std::process::exit(1);
+    });
+
+    if let Some(engine) = script_to_engine(&base_engine, &content, Some(&script_path)) {
         tx.send(engine).await.expect("channel closed unexpectedly");
     }
 
     if watch {
-        let script_path = PathBuf::from(path);
         std::thread::spawn(move || {
             let watch_dir = script_path.parent().unwrap_or(&script_path).to_path_buf();
 
@@ -213,7 +217,9 @@ async fn file_source(path: &str, watch: bool, base_engine: Engine, tx: mpsc::Sen
                             pending_reload = false;
                             match std::fs::read_to_string(&script_path) {
                                 Ok(content) => {
-                                    if let Some(engine) = script_to_engine(&base_engine, &content) {
+                                    if let Some(engine) =
+                                        script_to_engine(&base_engine, &content, Some(&script_path))
+                                    {
                                         if tx.blocking_send(engine).is_err() {
                                             break;
                                         }
@@ -269,7 +275,7 @@ async fn stdin_source(watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>
 
                 let script = String::from_utf8_lossy(&buffer).into_owned();
 
-                if let Some(engine) = script_to_engine(&base_engine, &script) {
+                if let Some(engine) = script_to_engine(&base_engine, &script, None) {
                     if tx.blocking_send(engine).is_err() {
                         break;
                     }
@@ -281,7 +287,7 @@ async fn stdin_source(watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>
         std::io::stdin()
             .read_to_string(&mut content)
             .expect("Failed to read from stdin");
-        if let Some(engine) = script_to_engine(&base_engine, &content) {
+        if let Some(engine) = script_to_engine(&base_engine, &content, None) {
             tx.send(engine).await.expect("channel closed unexpectedly");
         }
     }
@@ -509,7 +515,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Handle subcommands
     if let Some(Command::Eval { file, commands }) = args.command {
-        let script = match (&file, &commands) {
+        let (script, script_path) = match (&file, &commands) {
             (Some(_), Some(_)) => {
                 eprintln!("Error: cannot specify both file and --commands");
                 std::process::exit(1);
@@ -521,10 +527,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             (Some(path), None) if path == "-" => {
                 let mut buf = String::new();
                 std::io::stdin().read_to_string(&mut buf)?;
-                buf
+                (buf, None)
             }
-            (Some(path), None) => std::fs::read_to_string(path)?,
-            (None, Some(cmd)) => cmd.clone(),
+            (Some(path), None) => {
+                let p = PathBuf::from(path).canonicalize()?;
+                (std::fs::read_to_string(&p)?, Some(p))
+            }
+            (None, Some(cmd)) => (cmd.clone(), None),
         };
 
         let mut engine = Engine::new()?;
@@ -538,7 +547,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         engine.set_signals(interrupt.clone());
 
-        let exit_code = match engine.eval(&script) {
+        let exit_code = match engine.eval(&script, script_path.as_deref()) {
             Ok(value) => {
                 let output = value.to_expanded_string(" ", &engine.state.config);
                 if !output.is_empty() {
@@ -616,7 +625,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 std::process::exit(1);
             }
             (None, Some(cmd)) => {
-                if let Some(engine) = script_to_engine(&base_engine, cmd) {
+                if let Some(engine) = script_to_engine(&base_engine, cmd, None) {
                     tx.send(engine).await.expect("channel closed unexpectedly");
                 }
             }

@@ -88,7 +88,7 @@ impl Store {
         };
 
         let enriched = enrich_engine(&base_engine, &self.inner, last_id.as_ref());
-        if let Some(engine) = crate::engine::script_to_engine(&enriched, &initial_script) {
+        if let Some(engine) = crate::engine::script_to_engine(&enriched, &initial_script, None) {
             tx.send(engine).await.expect("channel closed unexpectedly");
         }
 
@@ -183,7 +183,7 @@ fn spawn_topic_watcher(
             };
 
             let enriched = enrich_engine(&base_engine, &store, Some(&frame.id));
-            if let Some(engine) = crate::engine::script_to_engine(&enriched, &script) {
+            if let Some(engine) = crate::engine::script_to_engine(&enriched, &script, None) {
                 if tx.send(engine).await.is_err() {
                     break;
                 }

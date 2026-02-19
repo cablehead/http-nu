@@ -347,7 +347,7 @@ fn test_engine_with_dev(script: &str, dev: bool) -> crate::Engine {
         ])
         .unwrap();
     engine.set_http_nu_env(dev).unwrap();
-    engine.parse_closure(script).unwrap();
+    engine.parse_closure(script, None).unwrap();
     engine
 }
 

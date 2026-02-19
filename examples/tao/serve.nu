@@ -7,6 +7,8 @@
 # state in the right place.
 # data flows in, HTML flows out. that is all.
 
+const script_dir = path self | path dirname
+
 use http-nu/router *
 use http-nu/datastar *
 use http-nu/http *
@@ -14,10 +16,10 @@ use http-nu/html *
 
 # in Nushell, `open` understands JSON, YAML, TOML, CSV, SQLite...
 # no libraries, no boilerplate. just open.
-let slides = open examples/tao/data.json
+let slides = open ($script_dir | path join data.json)
 
 # a template is compiled once, rendered many times.
-let page = .mj compile "examples/tao/page.html"
+let page = .mj compile ($script_dir | path join page.html)
 
 # keyboard navigation adapts to where we are.
 # pattern matching on the shape of the data -
@@ -71,7 +73,7 @@ def render-slide [req: record name: string] {
           {subpath: ($req.path | str replace "/static" "")}
         }
       } {|req ctx|
-        .static "examples/tao/static" $ctx.subpath
+        .static ($script_dir | path join static) $ctx.subpath
       }
     )
 
