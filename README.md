@@ -57,7 +57,7 @@
   - [Embedded Store](#embedded-store)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
-    - [`.mj` - Render inline](#mj---render-inline)
+    - [`.mj` - Render templates](#mj---render-templates)
     - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
   - [Syntax Highlighting](#syntax-highlighting)
   - [Markdown](#markdown)
@@ -509,6 +509,9 @@ $ '{|req| "hello, world"}' | xs append ./store/sock serve
 If the topic doesn't exist yet, the server shows a placeholder page with
 instructions until a handler is appended.
 
+Templates can also load from the store using `.mj --topic` and
+`.mj compile --topic` - see [Templates](#templates).
+
 **Commands available in handlers:**
 
 | Command   | Description                                     |
@@ -632,7 +635,20 @@ $ http-nu :3001 -c '{|req|
 Render [minijinja](https://github.com/mitsuhiko/minijinja) (Jinja2-compatible)
 templates. Pipe a record as context.
 
-#### `.mj` - Render inline
+#### `.mj` - Render templates
+
+Three modes: file, inline, and topic (mutually exclusive).
+
+**File** - renders a template from disk. `{% extends %}`, `{% include %}`, and
+`{% import %}` resolve from the template's directory and subdirectories only -
+no parent traversal (`../`) or absolute paths.
+
+```bash
+$ http-nu :3001 -c '{|req| $req.query | .mj "templates/page.html"}'
+```
+
+**Inline** - renders the given snippet. Self-contained: no `{% extends %}`,
+`{% include %}`, or `{% import %}` resolution.
 
 ```bash
 $ http-nu :3001 -c '{|req| {name: "world"} | .mj --inline "Hello {{ name }}!"}'
@@ -640,25 +656,25 @@ $ curl -s localhost:3001
 Hello world!
 ```
 
-From a file:
+**Topic** (requires `--store`) - renders a template stored in a cross.stream
+topic. `{% extends %}` and `{% include %}` resolve template names as topic names
+from the same store.
 
-```bash
-$ http-nu :3001 -c '{|req| $req.query | .mj "templates/page.html"}'
+```nushell
+{|req| $req.query | .mj --topic "page.html"}
 ```
-
-File-based templates support `{% extends %}`, `{% include %}`, and
-`{% import %}`. Referenced templates resolve from the template's directory and
-subdirectories only - no parent traversal (`../`) or absolute paths.
 
 #### `.mj compile` / `.mj render` - Precompiled templates
 
-Compile once, render many. Syntax errors caught at compile time.
+Compile once, render many. Syntax errors caught at compile time. Same three
+modes as `.mj`: file, `--inline`, and `--topic`.
 
 ```nushell
-let tpl = (.mj compile --inline "{{ name }} is {{ age }}")
-
-# Or from file
 let tpl = (.mj compile "templates/user.html")
+# or
+let tpl = (.mj compile --inline "{{ name }} is {{ age }}")
+# or (requires --store)
+let tpl = (.mj compile --topic "user.html")
 
 # Render with data
 {name: "Alice", age: 30} | .mj render $tpl

@@ -352,6 +352,15 @@ impl Engine {
             Box::new(xs::nu::commands::scru128_command::Scru128Command::new()),
         ])
     }
+
+    /// Re-registers .mj commands with store access for stream-backed template loading
+    #[cfg(feature = "cross-stream")]
+    pub fn add_store_mj_commands(&mut self, store: &xs::store::Store) -> Result<(), Error> {
+        self.add_commands(vec![
+            Box::new(MjCommand::with_store(store.clone())),
+            Box::new(MjCompileCommand::with_store(store.clone())),
+        ])
+    }
 }
 
 /// Creates an engine from a script by cloning a base engine and parsing the closure.

@@ -37,6 +37,18 @@ fn hash_source_and_path(source: &str, base_dir: &std::path::Path) -> u128 {
 
 /// Compile template and insert into cache. Returns hash.
 fn compile_template(source: &str, base_dir: &std::path::Path) -> Result<u128, minijinja::Error> {
+    compile_template_with_loader(source, base_dir, path_loader(base_dir))
+}
+
+/// Compile template with a custom loader and insert into cache. Returns hash.
+fn compile_template_with_loader<F>(
+    source: &str,
+    base_dir: &std::path::Path,
+    loader: F,
+) -> Result<u128, minijinja::Error>
+where
+    F: Fn(&str) -> Result<Option<String>, minijinja::Error> + Send + Sync + 'static,
+{
     let hash = hash_source_and_path(source, base_dir);
 
     let mut cache = get_cache().write().unwrap();
@@ -45,7 +57,7 @@ fn compile_template(source: &str, base_dir: &std::path::Path) -> Result<u128, mi
     }
 
     let mut env = Environment::new();
-    env.set_loader(path_loader(base_dir));
+    env.set_loader(loader);
     env.add_template_owned("template".to_string(), source.to_string())?;
     cache.insert(hash, Arc::new(env));
     Ok(hash)
@@ -54,6 +66,20 @@ fn compile_template(source: &str, base_dir: &std::path::Path) -> Result<u128, mi
 /// Get compiled template from cache by hash.
 fn get_compiled(hash: u128) -> Option<Arc<Environment<'static>>> {
     get_cache().read().unwrap().get(&hash).map(Arc::clone)
+}
+
+/// Load the latest content for a store topic.
+#[cfg(feature = "cross-stream")]
+fn load_topic_content(store: &xs::store::Store, topic: &str) -> Option<String> {
+    let options = xs::store::ReadOptions::builder()
+        .follow(xs::store::FollowOption::Off)
+        .topic(topic.to_string())
+        .last(1_usize)
+        .build();
+    let frame = store.read_sync(options).last()?;
+    let hash = frame.hash?;
+    let bytes = store.cas_read_sync(&hash).ok()?;
+    String::from_utf8(bytes).ok()
 }
 
 // === CompiledTemplate CustomValue ===
@@ -560,7 +586,10 @@ impl Command for ReverseProxyCommand {
 }
 
 #[derive(Clone)]
-pub struct MjCommand;
+pub struct MjCommand {
+    #[cfg(feature = "cross-stream")]
+    store: Option<xs::store::Store>,
+}
 
 impl Default for MjCommand {
     fn default() -> Self {
@@ -570,7 +599,15 @@ impl Default for MjCommand {
 
 impl MjCommand {
     pub fn new() -> Self {
-        Self
+        Self {
+            #[cfg(feature = "cross-stream")]
+            store: None,
+        }
+    }
+
+    #[cfg(feature = "cross-stream")]
+    pub fn with_store(store: xs::store::Store) -> Self {
+        Self { store: Some(store) }
     }
 }
 
@@ -592,6 +629,12 @@ impl Command for MjCommand {
                 "inline template string",
                 Some('i'),
             )
+            .named(
+                "topic",
+                SyntaxShape::String,
+                "load template from a store topic",
+                Some('t'),
+            )
             .input_output_types(vec![(Type::Record(vec![].into()), Type::String)])
             .category(Category::Custom("http".into()))
     }
@@ -606,21 +649,22 @@ impl Command for MjCommand {
         let head = call.head;
         let file: Option<String> = call.opt(engine_state, stack, 0)?;
         let inline: Option<String> = call.get_flag(engine_state, stack, "inline")?;
+        let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
 
-        // Validate arguments
-        if file.is_some() && inline.is_some() {
+        let mode_count = file.is_some() as u8 + inline.is_some() as u8 + topic.is_some() as u8;
+        if mode_count > 1 {
             return Err(ShellError::GenericError {
-                error: "Cannot specify both file and --inline".into(),
-                msg: "use either a file path or --inline, not both".into(),
+                error: "Cannot combine file, --inline, and --topic".into(),
+                msg: "use exactly one of: file path, --inline, or --topic".into(),
                 span: Some(head),
                 help: None,
                 inner: vec![],
             });
         }
-        if file.is_none() && inline.is_none() {
+        if mode_count == 0 {
             return Err(ShellError::GenericError {
                 error: "No template specified".into(),
-                msg: "provide a file path or use --inline".into(),
+                msg: "provide a file path, --inline, or --topic".into(),
                 span: Some(head),
                 help: None,
                 inner: vec![],
@@ -642,6 +686,7 @@ impl Command for MjCommand {
         // Set up environment and get template
         let mut env = Environment::new();
         let tmpl = if let Some(ref path) = file {
+            // File mode: resolve from filesystem only
             let path = std::path::Path::new(path);
             let abs_path = if path.is_absolute() {
                 path.to_path_buf()
@@ -663,13 +708,63 @@ impl Command for MjCommand {
                     help: None,
                     inner: vec![],
                 })?
-        } else {
-            let source = inline.as_ref().unwrap();
-            // Use cwd as loader base for inline templates
-            if let Ok(cwd) = std::env::current_dir() {
-                env.set_loader(path_loader(cwd));
+        } else if let Some(ref topic_name) = topic {
+            // Topic mode: resolve from store only
+            #[cfg(feature = "cross-stream")]
+            {
+                let store = self
+                    .store
+                    .as_ref()
+                    .ok_or_else(|| ShellError::GenericError {
+                        error: "--topic requires --store".into(),
+                        msg: "server must be started with --store to use --topic".into(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    })?;
+                let source = load_topic_content(store, topic_name).ok_or_else(|| {
+                    ShellError::GenericError {
+                        error: format!("Topic not found: {topic_name}"),
+                        msg: "no content in store for this topic".into(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    }
+                })?;
+                let topic_store = store.clone();
+                env.set_loader(move |name: &str| Ok(load_topic_content(&topic_store, name)));
+                env.add_template_owned(topic_name.clone(), source)
+                    .map_err(|e| ShellError::GenericError {
+                        error: format!("Template parse error: {e}"),
+                        msg: e.to_string(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    })?;
+                env.get_template(topic_name)
+                    .map_err(|e| ShellError::GenericError {
+                        error: format!("Template error: {e}"),
+                        msg: e.to_string(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    })?
             }
-            env.add_template("template", source)
+            #[cfg(not(feature = "cross-stream"))]
+            {
+                let _ = topic_name;
+                return Err(ShellError::GenericError {
+                    error: "--topic requires cross-stream feature".into(),
+                    msg: "built without store support".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+        } else {
+            // Inline mode: self-contained, no loader
+            let source = inline.unwrap();
+            env.add_template_owned("template".to_string(), source)
                 .map_err(|e| ShellError::GenericError {
                     error: format!("Template parse error: {e}"),
                     msg: e.to_string(),
@@ -710,7 +805,10 @@ fn nu_value_to_minijinja(val: &Value) -> minijinja::Value {
 // === .mj compile ===
 
 #[derive(Clone)]
-pub struct MjCompileCommand;
+pub struct MjCompileCommand {
+    #[cfg(feature = "cross-stream")]
+    store: Option<xs::store::Store>,
+}
 
 impl Default for MjCompileCommand {
     fn default() -> Self {
@@ -720,7 +818,15 @@ impl Default for MjCompileCommand {
 
 impl MjCompileCommand {
     pub fn new() -> Self {
-        Self
+        Self {
+            #[cfg(feature = "cross-stream")]
+            store: None,
+        }
+    }
+
+    #[cfg(feature = "cross-stream")]
+    pub fn with_store(store: xs::store::Store) -> Self {
+        Self { store: Some(store) }
     }
 }
 
@@ -742,6 +848,12 @@ impl Command for MjCompileCommand {
                 "inline template (string or {__html: string})",
                 Some('i'),
             )
+            .named(
+                "topic",
+                SyntaxShape::String,
+                "load template from a store topic",
+                Some('t'),
+            )
             .input_output_types(vec![(
                 Type::Nothing,
                 Type::Custom("CompiledTemplate".into()),
@@ -759,6 +871,7 @@ impl Command for MjCompileCommand {
         let head = call.head;
         let file: Option<String> = call.opt(engine_state, stack, 0)?;
         let inline: Option<Value> = call.get_flag(engine_state, stack, "inline")?;
+        let topic: Option<String> = call.get_flag(engine_state, stack, "topic")?;
 
         // Extract template string from --inline value (string or {__html: string})
         let inline_str: Option<String> = match &inline {
@@ -801,59 +914,98 @@ impl Command for MjCompileCommand {
             },
         };
 
-        // Get template source and base directory
-        let (template_source, base_dir) = match (&file, &inline_str) {
-            (Some(_), Some(_)) => {
-                return Err(ShellError::GenericError {
-                    error: "Cannot specify both file and --inline".into(),
-                    msg: "use either a file path or --inline, not both".into(),
+        let mode_count = file.is_some() as u8 + inline_str.is_some() as u8 + topic.is_some() as u8;
+        if mode_count > 1 {
+            return Err(ShellError::GenericError {
+                error: "Cannot combine file, --inline, and --topic".into(),
+                msg: "use exactly one of: file path, --inline, or --topic".into(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            });
+        }
+        if mode_count == 0 {
+            return Err(ShellError::GenericError {
+                error: "No template specified".into(),
+                msg: "provide a file path, --inline, or --topic".into(),
+                span: Some(head),
+                help: None,
+                inner: vec![],
+            });
+        }
+
+        let hash = if let Some(ref path) = file {
+            // File mode: filesystem only
+            let path = std::path::Path::new(path);
+            let abs_path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir().unwrap_or_default().join(path)
+            };
+            let base_dir = abs_path.parent().unwrap_or(&abs_path).to_path_buf();
+            let source =
+                std::fs::read_to_string(&abs_path).map_err(|e| ShellError::GenericError {
+                    error: format!("Failed to read template file: {e}"),
+                    msg: "could not read file".into(),
                     span: Some(head),
                     help: None,
                     inner: vec![],
-                });
-            }
-            (None, None) => {
-                return Err(ShellError::GenericError {
-                    error: "No template specified".into(),
-                    msg: "provide a file path or use --inline".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                });
-            }
-            (Some(path), None) => {
-                let path = std::path::Path::new(path);
-                let abs_path = if path.is_absolute() {
-                    path.to_path_buf()
-                } else {
-                    std::env::current_dir().unwrap_or_default().join(path)
-                };
-                let base_dir = abs_path.parent().unwrap_or(&abs_path).to_path_buf();
-                let source =
-                    std::fs::read_to_string(&abs_path).map_err(|e| ShellError::GenericError {
-                        error: format!("Failed to read template file: {e}"),
-                        msg: "could not read file".into(),
+                })?;
+            compile_template(&source, &base_dir)
+        } else if let Some(ref topic_name) = topic {
+            // Topic mode: store only
+            #[cfg(feature = "cross-stream")]
+            {
+                let store = self
+                    .store
+                    .as_ref()
+                    .ok_or_else(|| ShellError::GenericError {
+                        error: "--topic requires --store".into(),
+                        msg: "server must be started with --store to use --topic".into(),
                         span: Some(head),
                         help: None,
                         inner: vec![],
                     })?;
-                (source, base_dir)
+                let source = load_topic_content(store, topic_name).ok_or_else(|| {
+                    ShellError::GenericError {
+                        error: format!("Topic not found: {topic_name}"),
+                        msg: "no content in store for this topic".into(),
+                        span: Some(head),
+                        help: None,
+                        inner: vec![],
+                    }
+                })?;
+                let topic_store = store.clone();
+                // Use a synthetic base_dir for cache key uniqueness
+                let base_dir = std::path::PathBuf::from(format!("__topic__/{topic_name}"));
+                compile_template_with_loader(&source, &base_dir, move |name: &str| {
+                    Ok(load_topic_content(&topic_store, name))
+                })
             }
-            (None, Some(tmpl)) => {
-                let base_dir = std::env::current_dir().unwrap_or_default();
-                (tmpl.clone(), base_dir)
+            #[cfg(not(feature = "cross-stream"))]
+            {
+                let _ = topic_name;
+                return Err(ShellError::GenericError {
+                    error: "--topic requires cross-stream feature".into(),
+                    msg: "built without store support".into(),
+                    span: Some(head),
+                    help: None,
+                    inner: vec![],
+                });
             }
+        } else {
+            // Inline mode: self-contained, no loader
+            let source = inline_str.unwrap();
+            let base_dir = std::path::PathBuf::from("__inline__");
+            compile_template_with_loader(&source, &base_dir, |_| Ok(None))
         };
 
-        // Compile and cache the template
-        let hash = compile_template(&template_source, &base_dir).map_err(|e| {
-            ShellError::GenericError {
-                error: format!("Template compile error: {e}"),
-                msg: e.to_string(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            }
+        let hash = hash.map_err(|e| ShellError::GenericError {
+            error: format!("Template compile error: {e}"),
+            msg: e.to_string(),
+            span: Some(head),
+            help: None,
+            inner: vec![],
         })?;
 
         Ok(Value::custom(Box::new(CompiledTemplate { hash }), head).into_pipeline_data())

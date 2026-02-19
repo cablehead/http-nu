@@ -2420,3 +2420,180 @@ async fn test_watch_topic_reload_picks_up_module_changes() {
 
     let _ = child.kill().await;
 }
+
+/// Tests that .mj --topic resolves templates from store topics, including
+/// {% include %} and {% extends %} references to other topics.
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_mj_topic_resolves_templates_from_store() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    // The handler uses --topic to load the main template from the store.
+    // The "page" topic will {% include "header" %} and {% extends "layout" %}.
+    let server = TestServer::new_with_store(
+        "127.0.0.1:0",
+        r#"{|req|
+            if $req.path == "/include" {
+                {name: "world"} | .mj --topic page.include
+            } else if $req.path == "/extends" {
+                {title: "Home"} | .mj --topic page.extends
+            } else {
+                "not found"
+            }
+        }"#,
+        &store_path,
+    )
+    .await;
+
+    // Wait for store API socket
+    let sock_path = store_path.join("sock");
+    for _ in 0..20 {
+        if sock_path.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    // Append supporting templates to store
+    let append = |topic: &str, content: &str| {
+        let sock = sock_path.clone();
+        let topic = topic.to_string();
+        let content = content.to_string();
+        async move {
+            let output = tokio::process::Command::new("curl")
+                .arg("-s")
+                .arg("--unix-socket")
+                .arg(&sock)
+                .arg("-X")
+                .arg("POST")
+                .arg("-d")
+                .arg(&content)
+                .arg(format!("http://localhost/append/{topic}"))
+                .output()
+                .await
+                .expect("curl append failed");
+            assert!(
+                output.status.success(),
+                "append {topic} should succeed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    };
+
+    append("header", "<h1>Header</h1>\n").await;
+    append("layout", "LAYOUT[{% block body %}{% endblock %}]LAYOUT").await;
+    append(
+        "page.include",
+        r#"{% include "header" %}Hello, {{ name }}!"#,
+    )
+    .await;
+    append(
+        "page.extends",
+        r#"{% extends "layout" %}{% block body %}page content{% endblock %}"#,
+    )
+    .await;
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Test {% include %} resolves from store
+    let output = server.curl("/include").await;
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        body.contains("<h1>Header</h1>"),
+        "should include header from store, got: {body}"
+    );
+    assert!(
+        body.contains("Hello, world!"),
+        "should render template content, got: {body}"
+    );
+
+    // Test {% extends %} resolves from store
+    let output = server.curl("/extends").await;
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        body.contains("LAYOUT[page content]LAYOUT"),
+        "should extend layout from store, got: {body}"
+    );
+}
+
+/// Tests that .mj compile --topic + .mj render works end-to-end.
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_mj_compile_topic_and_render() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    let server = TestServer::new_with_store(
+        "127.0.0.1:0",
+        r#"{|req|
+            let t = .mj compile --topic page
+            {name: "world"} | .mj render $t
+        }"#,
+        &store_path,
+    )
+    .await;
+
+    let sock_path = store_path.join("sock");
+    for _ in 0..20 {
+        if sock_path.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    // Append template to store
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("Hello, {{ name }}!")
+        .arg("http://localhost/append/page")
+        .output()
+        .await
+        .expect("curl append failed");
+    assert!(output.status.success());
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let output = server.curl("/").await;
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(body.trim(), "Hello, world!");
+}
+
+/// Tests that .mj --topic with a missing topic returns an error, not a crash.
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_mj_topic_missing_returns_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    let server = TestServer::new_with_store(
+        "127.0.0.1:0",
+        r#"{|req|
+            {} | .mj --topic nonexistent
+        }"#,
+        &store_path,
+    )
+    .await;
+
+    // Wait for store API socket
+    let sock_path = store_path.join("sock");
+    for _ in 0..20 {
+        if sock_path.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let output = server.curl("/").await;
+    let body = String::from_utf8_lossy(&output.stdout);
+    // Server should return 500 with error, not crash
+    assert!(
+        body.contains("Topic not found") || body.contains("error"),
+        "should report topic not found, got: {body}"
+    );
+}
