@@ -169,8 +169,8 @@ fn test_mj_file_with_external_refs() {
         ])
         .assert()
         .success()
-        .stdout(predicates::str::contains("<nav>Home | About</nav>"))
-        .stdout(predicates::str::contains("<title>My Page</title>"))
+        .stdout(predicates::str::contains("Page (from disk)</nav>"))
+        .stdout(predicates::str::contains("<title>My Page (disk)</title>"))
         .stdout(predicates::str::contains("Hello World"));
 }
 
@@ -200,8 +200,8 @@ fn test_mj_compile_file_with_external_refs() {
         ])
         .assert()
         .success()
-        .stdout(predicates::str::contains("<nav>Home | About</nav>"))
-        .stdout(predicates::str::contains("<title>My Page</title>"))
+        .stdout(predicates::str::contains("Page (from disk)</nav>"))
+        .stdout(predicates::str::contains("<title>My Page (disk)</title>"))
         .stdout(predicates::str::contains("Hello World"));
 }
 
