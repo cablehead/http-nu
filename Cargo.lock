@@ -2519,6 +2519,7 @@ dependencies = [
  "nu-parser",
  "nu-plugin-engine",
  "nu-protocol",
+ "nu-std",
  "nu-utils",
  "predicates",
  "pulldown-cmark",
@@ -4498,6 +4499,19 @@ dependencies = [
  "web-time",
  "windows 0.62.2",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nu-std"
+version = "0.110.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b42b37293fe8a56401dcbce09caaabde6f2c46f1014a0caaee6285ae3bb21ec1"
+dependencies = [
+ "log",
+ "miette 7.6.0",
+ "nu-engine",
+ "nu-parser",
+ "nu-protocol",
 ]
 
 [[package]]

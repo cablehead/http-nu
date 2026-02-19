@@ -61,6 +61,7 @@ brotli = "8"
 http_encoding_headers = "0.2.0"
 headers = "0.4.1"
 minijinja = { version = "2", features = ["json", "urlencode", "loop_controls", "loader"] }
+nu-std = "0.110.0"
 nu-utils = "0.110.0"
 typetag = "0.2"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }

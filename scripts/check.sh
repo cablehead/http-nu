@@ -10,3 +10,4 @@ cargo fmt --check --all
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -W clippy::uninlined_format_args
 cargo build -p nu_plugin_test
 cargo test
+cargo run -- eval examples/tao/test.nu

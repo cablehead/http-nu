@@ -43,6 +43,7 @@ impl Engine {
         engine_state = nu_cmd_extra::extra::add_extra_command_context(engine_state);
 
         load_http_nu_stdlib(&mut engine_state)?;
+        nu_std::load_standard_library(&mut engine_state)?;
 
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
