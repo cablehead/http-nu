@@ -39,6 +39,7 @@ li { margin: 0.5rem 0; }
       ) (
         BODY
         (H1 "http-nu examples")
+        (P (A {href: "https://github.com/cablehead/http-nu/tree/main/examples"} "source on GitHub"))
         (UL
           (example-link "./basic/" "basic" "minimal routes, JSON, streaming")
           (example-link "./datastar-counter/" "datastar-counter" "reactive counter")
