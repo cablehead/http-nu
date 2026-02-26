@@ -1,5 +1,7 @@
 # Examples
 
+Try them live at [http-nu.cross.stream/examples/](https://http-nu.cross.stream/examples/).
+
 ## Running all examples
 
 The examples hub mounts individual examples under one server:
