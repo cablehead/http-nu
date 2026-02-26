@@ -9,11 +9,11 @@
       "<html><body>
         <h1>http-nu demo</h1>
         <ul>
-          <li><a href='/hello'>Hello World</a></li>
-          <li><a href='/json'>JSON Example</a></li>
-          <li><a href='/echo'>POST Echo</a></li>
-          <li><a href='/time'>Current Time</a></li>
-          <li><a href='/info'>Request Info</a></li>
+          <li><a href='./hello'>Hello World</a></li>
+          <li><a href='./json'>JSON Example</a></li>
+          <li><a href='./echo'>POST Echo</a></li>
+          <li><a href='./time'>Current Time</a></li>
+          <li><a href='./info'>Request Info</a></li>
         </ul>
       </body></html>"
     }
@@ -52,6 +52,7 @@
 
     # Time stream example
     "/time" => {
+      let _ = $in
       generate {|_|
         sleep 1sec
         {out: $"Current time: (date now | format date '%Y-%m-%d %H:%M:%S')\n" next: true}

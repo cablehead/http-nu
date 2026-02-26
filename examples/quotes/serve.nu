@@ -2,6 +2,21 @@ use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
 
+# Filter for `.last --follow` / `.cat --follow` streams.
+# Buffers frames until xs.threshold is seen, then emits the last
+# buffered frame (or null if none) followed by all subsequent frames.
+def threshold-gate [] {
+  generate {|frame, state = {}|
+    if $frame.topic == "xs.threshold" {
+      return {out: $state.last?, next: {reached: true}}
+    }
+    if ("reached" in $state) {
+      return {out: $frame, next: $state}
+    }
+    {next: ($state | upsert last $frame)}
+  }
+}
+
 def quote-html []: record -> record {
   let q = $in
   (
@@ -45,7 +60,9 @@ def quote-html []: record -> record {
   dispatch $req [
     (
       route {method: GET path: "/" has-header: {accept: "text/event-stream"}} {|req ctx|
-        .head quotes --follow
+        .last quotes --follow
+        | threshold-gate
+        | default {meta: {quote: "Waiting for quotes..."}}
         | each {|frame|
           $frame.meta | quote-html | to datastar-patch-elements
         }
@@ -72,7 +89,7 @@ def quote-html []: record -> record {
             (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
           )
           (
-            BODY {data-init: "@get('/')"}
+            BODY {data-init: "@get('./')"}
             ({quote: "Waiting for quotes..."} | quote-html)
           )
         )

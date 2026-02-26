@@ -346,7 +346,12 @@ fn test_engine_with_dev(script: &str, dev: bool) -> crate::Engine {
             Box::new(PrintCommand::new()),
         ])
         .unwrap();
-    engine.set_http_nu_env(dev).unwrap();
+    engine
+        .set_http_nu_const(&crate::engine::HttpNuOptions {
+            dev,
+            ..Default::default()
+        })
+        .unwrap();
     engine.parse_closure(script, None).unwrap();
     engine
 }

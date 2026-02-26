@@ -24,18 +24,18 @@ use http-nu/html *
                 DIV
                 (H3 "to datastar-patch-signals")
                 (P "Count: " (SPAN {"data-text": "$count"} "0"))
-                (BUTTON {"data-on:click": "@post('/increment')"} "Increment")
+                (BUTTON {"data-on:click": "@post('./increment')"} "Increment")
               )
               (
                 DIV
                 (H3 "to datastar-execute-script")
-                (BUTTON {"data-on:click": "@post('/hello')"} "Say Hello")
+                (BUTTON {"data-on:click": "@post('./hello')"} "Say Hello")
               )
               (
                 DIV
                 (H3 "to datastar-patch-elements")
                 (DIV {id: "time"} "--:--:--.---")
-                (BUTTON {"data-on:click": "@post('/time')"} "Get Time")
+                (BUTTON {"data-on:click": "@post('./time')"} "Get Time")
               )
             )
           )

@@ -26,6 +26,19 @@ use crate::logging::log_error;
 use crate::stdlib::load_http_nu_stdlib;
 use crate::Error;
 
+/// CLI options exposed to scripts as the `$HTTP_NU` const
+#[derive(Clone, Default)]
+pub struct HttpNuOptions {
+    pub dev: bool,
+    pub datastar: bool,
+    pub watch: bool,
+    pub store: Option<String>,
+    pub topic: Option<String>,
+    pub expose: Option<String>,
+    pub tls: Option<String>,
+    pub services: bool,
+}
+
 #[derive(Clone)]
 pub struct Engine {
     pub state: EngineState,
@@ -55,18 +68,30 @@ impl Engine {
         })
     }
 
-    /// Sets `$env.HTTP_NU` with server configuration for stdlib modules
-    pub fn set_http_nu_env(&mut self, dev: bool) -> Result<(), Error> {
-        let mut stack = Stack::new();
+    /// Sets `$HTTP_NU` const with server configuration for stdlib modules
+    pub fn set_http_nu_const(&mut self, options: &HttpNuOptions) -> Result<(), Error> {
         let span = Span::unknown();
+        let opt_str = |v: &Option<String>| match v {
+            Some(s) => Value::string(s, span),
+            None => Value::nothing(span),
+        };
         let record = Value::record(
             nu_protocol::record! {
-                "dev" => Value::bool(dev, span),
+                "dev" => Value::bool(options.dev, span),
+                "datastar" => Value::bool(options.datastar, span),
+                "watch" => Value::bool(options.watch, span),
+                "store" => opt_str(&options.store),
+                "topic" => opt_str(&options.topic),
+                "expose" => opt_str(&options.expose),
+                "tls" => opt_str(&options.tls),
+                "services" => Value::bool(options.services, span),
             },
             span,
         );
-        stack.add_env_var("HTTP_NU".to_string(), record);
-        self.state.merge_env(&mut stack)?;
+        let mut working_set = StateWorkingSet::new(&self.state);
+        let var_id = working_set.add_variable(b"$HTTP_NU".into(), span, Type::record(), false);
+        working_set.set_variable_const_val(var_id, record);
+        self.state.merge_delta(working_set.render())?;
         Ok(())
     }
 

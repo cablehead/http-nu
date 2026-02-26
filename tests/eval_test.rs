@@ -74,6 +74,32 @@ fn test_eval_print() {
 }
 
 #[test]
+fn test_http_nu_const_defaults() {
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "-c", "$HTTP_NU.dev"])
+        .assert()
+        .success()
+        .stdout("false\n");
+}
+
+#[test]
+fn test_http_nu_const_dev_flag() {
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["--dev", "eval", "-c", "$HTTP_NU.dev"])
+        .assert()
+        .success()
+        .stdout("true\n");
+}
+
+#[test]
+fn test_http_nu_const_is_immutable() {
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "-c", "$HTTP_NU = {}"])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn test_eval_syntax_error() {
     Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
         .args(["eval", "-c", "1 +"])
