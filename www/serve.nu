@@ -76,6 +76,7 @@ def header-bar [] {
     (DIV {class: [font-mono text-header text-fluid-xl font-bold]} "http-nu")
     (
       NAV {class: [flex gap-4]} [
+        (A {href: "/examples/"} "Examples")
         (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
         (A {href: "https://discord.gg/sGgYVKnk73"} "Discord")
       ]
@@ -349,8 +350,12 @@ def install-section [] {
   ]
 }
 
+let examples = source ../examples/serve.nu
+
 {|req|
   dispatch $req [
+    (mount "/examples" $examples)
+
     (
       route {method: GET path: "/syntax.css"} {|req ctx|
         .highlight theme Dracula | metadata set --content-type "text/css"

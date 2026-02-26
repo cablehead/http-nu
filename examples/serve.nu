@@ -15,28 +15,11 @@ let quotes = source quotes/serve.nu
 
 let has_store = $HTTP_NU.store != null
 
-def mount [prefix: string handler: closure] {
-  route {|req|
-    if ($req.path == $prefix) or ($req.path | str starts-with $"($prefix)/") {
-      {prefix: $prefix}
-    }
-  } {|req ctx|
-    let body = $in
-    if $req.path == $ctx.prefix {
-      # Redirect to trailing slash for correct relative URL resolution
-      "" | metadata set { merge {'http.response': {status: 302 headers: {location: $"($ctx.prefix)/"}}} }
-    } else {
-      let path = $req.path | str replace $ctx.prefix ""
-      $body | do $handler ($req | upsert path $path)
-    }
-  }
-}
-
 def example-link [href: string label: string desc: string --disabled] {
   if $disabled {
-    LI (SPAN {style: {color: "#9ca3af"}} $label) $" — ($desc) " (SPAN {style: {color: "#9ca3af" font-size: "0.85em"}} "(requires --store)")
+    LI (SPAN {style: {color: "#9ca3af"}} $label) $" --($desc) " (SPAN {style: {color: "#9ca3af" font-size: "0.85em"}} "(requires --store)")
   } else {
-    LI (A {href: $href} $label) $" — ($desc)"
+    LI (A {href: $href} $label) $" --($desc)"
   }
 }
 

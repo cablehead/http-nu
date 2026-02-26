@@ -225,6 +225,34 @@ def dispatch-execute [
 #
 # Routes are tested in order until one matches (returns non-null context).
 # The matched route's handler receives the request, context, and body as $in.
+# Mount a sub-handler under a path prefix
+#
+# Requests matching the prefix are forwarded to the handler with the prefix
+# stripped from $req.path. Bare prefix requests (without trailing slash) get
+# a 302 redirect so relative URLs resolve correctly.
+#
+# The handler receives $req with:
+# - path: prefix stripped (e.g. "/examples/basic/" becomes "/basic/")
+# - mount_prefix: the full prefix chain (composes for nested mounts)
+#
+# The request body ($in) streams through to the handler.
+export def mount [prefix: string handler: closure] {
+  route {|req|
+    if ($req.path == $prefix) or ($req.path | str starts-with $"($prefix)/") {
+      {prefix: $prefix}
+    }
+  } {|req ctx|
+    let body = $in
+    if $req.path == $ctx.prefix {
+      "" | metadata set { merge {'http.response': {status: 302 headers: {location: $"($ctx.prefix)/"}}} }
+    } else {
+      let path = $req.path | str substring ($ctx.prefix | str length)..
+      let base = $req.mount_prefix? | default ""
+      $body | do $handler ($req | upsert path $path | upsert mount_prefix $"($base)($ctx.prefix)")
+    }
+  }
+}
+
 @example "dispatch to matching route" {
   let routes = [
     (route {path: "/health"} {|req ctx| "OK" })
