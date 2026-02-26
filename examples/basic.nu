@@ -6,13 +6,16 @@
   match $req.path {
     # Home page
     "/" => {
-      "<html><body>
+      let proto = if ($req.proto | str starts-with "HTTP") { "http" } else { "https" }
+      let base = $"($proto)://($req.headers.host)($req.mount_prefix? | default '')"
+      $"<html><body>
         <h1>http-nu demo</h1>
         <ul>
           <li><a href='./hello'>Hello World</a></li>
           <li><a href='./json'>JSON Example</a></li>
           <li><a href='./echo'>POST Echo</a></li>
-          <li><a href='./time'>Current Time</a></li>
+          <li><a href='./time'>Current Time</a> -- streams text/plain; browsers buffer this.
+            <br>Try: <code>curl -s ($base)/time</code></li>
           <li><a href='./info'>Request Info</a></li>
         </ul>
       </body></html>"
