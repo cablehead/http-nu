@@ -133,9 +133,12 @@ Or from a file:
 $ http-nu :3001 ./serve.nu
 ```
 
-Check out the [`examples/basic.nu`](examples/basic.nu) file in the repository
-for a complete example that implements a mini web server with multiple routes,
-form handling, and streaming responses.
+Run all examples under one server with the [examples hub](examples/README.md):
+
+```bash
+$ http-nu --datastar :3001 examples/serve.nu
+$ http-nu --datastar --store ./store :3001 examples/serve.nu  # enables store-dependent examples
+```
 
 ### UNIX domain sockets
 
@@ -847,6 +850,28 @@ use http-nu/router *
 Routes match in order. First match wins. Closure tests return a record (match,
 context passed to handler) or null (no match). If no routes match, returns
 `501 Not Implemented`.
+
+**Mounting sub-handlers:**
+
+`mount` serves a handler under a path prefix. Requests to `/prefix` redirect to
+`/prefix/`, then the prefix is stripped before dispatching to the handler.
+Sub-handlers see `$req.mount_prefix` for absolute URL reconstruction.
+
+```nushell
+let api = source api/serve.nu
+let docs = source docs/serve.nu
+
+{|req|
+  dispatch $req [
+    (mount "/api" $api)
+    (mount "/docs" $docs)
+    (route true {|req ctx| "Not Found"})
+  ]
+}
+```
+
+Mounts compose -- a mounted handler can mount further sub-handlers, and
+`$req.mount_prefix` accumulates the full prefix chain.
 
 #### HTML DSL
 
