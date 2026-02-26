@@ -1,9 +1,10 @@
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
 use tokio_stream::wrappers::ReceiverStream;
@@ -475,30 +476,31 @@ async fn build_normal_response(
             }
         }
         ResponseTransport::Stream(rx) => {
-            if use_brotli {
-                compression::compress_stream(rx)
-            } else if is_sse {
+            // Layer 1: base byte stream, with reload-abort for SSE
+            let byte_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send + Sync>> = if is_sse {
                 // SSE streams abort on reload (error triggers client retry)
-                let stream = futures_util::stream::try_unfold(
+                Box::pin(futures_util::stream::unfold(
                     (ReceiverStream::new(rx), reload_token),
                     |(mut data_rx, token)| async move {
                         tokio::select! {
                             biased;
-                            _ = token.cancelled() => {
-                                Err(std::io::Error::other("reload").into())
-                            }
+                            _ = token.cancelled() => None,
                             item = StreamExt::next(&mut data_rx) => {
-                                match item {
-                                    Some(data) => Ok(Some((Frame::data(Bytes::from(data)), (data_rx, token)))),
-                                    None => Ok(None),
-                                }
+                                item.map(|data| (data, (data_rx, token)))
                             }
                         }
                     },
-                );
-                BodyExt::boxed(StreamBody::new(stream))
+                ))
             } else {
-                let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
+                Box::pin(ReceiverStream::new(rx))
+            };
+
+            // Layer 2: optionally compress, then frame
+            if use_brotli {
+                let brotli = compression::BrotliStream::new(byte_stream);
+                BodyExt::boxed(StreamBody::new(brotli))
+            } else {
+                let stream = byte_stream.map(|data| Ok(Frame::data(Bytes::from(data))));
                 BodyExt::boxed(StreamBody::new(stream))
             }
         }

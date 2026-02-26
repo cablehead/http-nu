@@ -2109,6 +2109,96 @@ async fn test_sse_cancelled_on_hot_reload() {
     child.kill().await.ok();
 }
 
+#[tokio::test]
+async fn test_sse_cancelled_on_hot_reload_with_brotli() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    // Spawn server with an SSE endpoint that streams indefinitely
+    let (mut child, mut stdin, addr_rx) = TestServerWithStdin::spawn("127.0.0.1:0", false);
+
+    // Send initial SSE script
+    let sse_script = r#"{|req|
+        1..100 | each {|i|
+            sleep 100ms
+            {data: $"event-($i)"}
+        } | to sse
+    }"#;
+    stdin.write_all(sse_script.as_bytes()).await.unwrap();
+    stdin.write_all(b"\0").await.unwrap();
+    stdin.flush().await.unwrap();
+
+    let address = tokio::time::timeout(std::time::Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Server didn't start")
+        .expect("Channel closed");
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Start curl with brotli compression
+    let mut sse_child = tokio::process::Command::new("curl")
+        .arg("-sN")
+        .arg("-H")
+        .arg("Accept-Encoding: br")
+        .arg(&address)
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start curl");
+
+    let stdout = sse_child.stdout.take().expect("Failed to get stdout");
+    let mut reader = stdout;
+
+    // Read some data to confirm SSE is streaming
+    let mut buf = vec![0u8; 256];
+    let n = tokio::time::timeout(std::time::Duration::from_secs(2), reader.read(&mut buf))
+        .await
+        .expect("Timeout reading initial SSE data")
+        .expect("Read error");
+    assert!(n > 0, "Should have received SSE data");
+
+    // Trigger hot reload
+    let new_script = r#"{|req| "reloaded"}"#;
+    stdin.write_all(new_script.as_bytes()).await.unwrap();
+    stdin.write_all(b"\0").await.unwrap();
+    stdin.flush().await.unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // After reload, the compressed SSE stream should end.
+    // Drain remaining data (brotli FINISH frame) and check for EOF.
+    let stream_ended = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => return true,  // EOF - stream ended
+                Ok(_) => continue,     // Drain remaining data (e.g. brotli FINISH frame)
+                Err(_) => return true, // Read error
+            }
+        }
+    })
+    .await;
+
+    assert!(
+        matches!(stream_ended, Ok(true)),
+        "Compressed SSE stream should stop after reload"
+    );
+
+    sse_child.kill().await.ok();
+
+    // Verify the new handler works
+    let output = std::process::Command::new("curl")
+        .arg("-s")
+        .arg(&address)
+        .output()
+        .expect("curl failed");
+
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "reloaded",
+        "New handler should be active after reload"
+    );
+
+    child.kill().await.ok();
+}
+
 /// Tests that --topic with -w loads a handler from the store, serves a placeholder
 /// when the topic is empty, reloads when the topic is appended, and reloads again
 /// when the topic is updated.
