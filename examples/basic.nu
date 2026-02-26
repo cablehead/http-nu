@@ -6,7 +6,7 @@
   match $req.path {
     # Home page
     "/" => {
-      let proto = if ($req.proto | str starts-with "HTTP") { "http" } else { "https" }
+      let proto = $req.headers.x-forwarded-proto? | default (if ($req.proto | str starts-with "HTTP") { "http" } else { "https" })
       let base = $"($proto)://($req.headers.host)($req.mount_prefix? | default '')"
       $"<html><body>
         <h1>http-nu demo</h1>
