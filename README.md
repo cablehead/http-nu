@@ -133,7 +133,7 @@ Or from a file:
 $ http-nu :3001 ./serve.nu
 ```
 
-Run all examples under one server with the [examples hub](examples/README.md):
+Try the [live examples](https://http-nu.cross.stream/examples/) or run them locally with the [examples hub](examples/README.md):
 
 ```bash
 $ http-nu --datastar :3001 examples/serve.nu
