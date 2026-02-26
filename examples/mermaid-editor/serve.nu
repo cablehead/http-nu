@@ -38,7 +38,7 @@ def mermaid-el []: string -> record {
             (META {name: "viewport" content: "width=device-width, initial-scale=1"})
             (TITLE "dia2")
             (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
-            (SCRIPT {type: "module" src: "/mermaid-diagram.js"})
+            (SCRIPT {type: "module" src: "./mermaid-diagram.js"})
             (STYLE "
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { height: 100dvh; display: flex; font-family: system-ui, sans-serif; }
@@ -61,7 +61,7 @@ mermaid-diagram {
             (DIV {class: "pane"}
               (TEXTAREA {
                 "data-bind:source": true
-                "data-on:input__debounce.500ms": "@post('/')"
+                "data-on:input__debounce.500ms": "@post('./')"
               } $default_source)
             )
             (DIV {class: "pane"}
