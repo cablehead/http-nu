@@ -9,7 +9,7 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use clap::Parser;
 use http_nu::{
-    engine::script_to_engine,
+    engine::{script_to_engine, HttpNuOptions},
     handler::{handle, AppConfig},
     listener::TlsConfig,
     logging::{
@@ -138,12 +138,12 @@ fn create_base_engine(
     plugins: &[PathBuf],
     include_paths: &[PathBuf],
     store: Option<&Store>,
-    dev: bool,
+    options: &HttpNuOptions,
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
     let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
     engine.set_lib_dirs(include_paths)?;
-    engine.set_http_nu_env(dev)?;
+    engine.set_http_nu_const(options)?;
 
     for plugin_path in plugins {
         engine.load_plugin(plugin_path)?;
@@ -539,7 +539,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut engine = Engine::new()?;
         engine.add_custom_commands()?;
         engine.set_lib_dirs(&args.include_paths)?;
-        engine.set_http_nu_env(args.dev)?;
+        engine.set_http_nu_const(&HttpNuOptions {
+            dev: args.dev,
+            ..Default::default()
+        })?;
 
         for plugin_path in &args.plugins {
             engine.load_plugin(plugin_path)?;
@@ -593,13 +596,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(not(feature = "cross-stream"))]
     let store: Option<Store> = None;
 
+    // Build $HTTP_NU options from CLI args
+    let http_nu_options = HttpNuOptions {
+        dev: args.dev,
+        datastar: args.datastar,
+        watch: args.watch,
+        tls: args.tls.as_ref().map(|p| p.display().to_string()),
+        #[cfg(feature = "cross-stream")]
+        store: args.store.as_ref().map(|p| p.display().to_string()),
+        #[cfg(not(feature = "cross-stream"))]
+        store: None,
+        #[cfg(feature = "cross-stream")]
+        topic: args.topic.clone(),
+        #[cfg(not(feature = "cross-stream"))]
+        topic: None,
+        #[cfg(feature = "cross-stream")]
+        expose: args.expose.clone(),
+        #[cfg(not(feature = "cross-stream"))]
+        expose: None,
+        #[cfg(feature = "cross-stream")]
+        services: args.services,
+        #[cfg(not(feature = "cross-stream"))]
+        services: false,
+    };
+
     // Create base engine with commands, signals, and plugins
     let base_engine = create_base_engine(
         interrupt.clone(),
         &args.plugins,
         &args.include_paths,
         store.as_ref(),
-        args.dev,
+        &http_nu_options,
     )?;
 
     // Source: --topic (direct store read, with optional watch for live-reload)

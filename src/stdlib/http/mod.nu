@@ -42,7 +42,7 @@ export def "cookie set" [
       $"($name)=($value)"
       $"Path=($path)"
       (if not $no_httponly { "HttpOnly" })
-      (if (not $env.HTTP_NU.dev) and (not $no_secure) { "Secure" })
+      (if (not $HTTP_NU.dev) and (not $no_secure) { "Secure" })
       $"SameSite=($same_site)"
       (if $max_age != null { $"Max-Age=($max_age)" })
       (if $domain != null { $"Domain=($domain)" })

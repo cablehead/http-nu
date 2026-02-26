@@ -793,6 +793,19 @@ Make module paths available with `-I` / `--include-path`:
 $ http-nu -I ./lib -I ./vendor :3001 '{|req| use mymod.nu; ...}'
 ```
 
+### Runtime Constants
+
+The `$HTTP_NU` const is available in all scripts and reflects the CLI options
+the server was started with:
+
+```nushell
+$HTTP_NU
+# => {dev: false, datastar: true, watch: false, store: "./store", topic: null, expose: null, tls: null, services: false}
+
+$HTTP_NU.store != null  # check if store is available
+$HTTP_NU.dev            # true when --dev was passed
+```
+
 ### Embedded Modules
 
 #### Routing
