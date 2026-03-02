@@ -1,3 +1,5 @@
+const script_dir = path self | path dirname
+
 use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
@@ -73,9 +75,10 @@ def section-header [title: string ...children] {
 
 def header-bar [] {
   HEADER {class: [flex items-baseline justify-between mt-10 mb-2 text-primary]} [
-    (DIV {class: [font-mono text-header text-fluid-xl font-bold]} "http-nu")
+    (DIV {class: [font-mono text-header text-fluid-xl font-bold]} (A {href: "/"} "http-nu"))
     (
       NAV {class: [flex gap-4]} [
+        (A {href: "/docs/getting-started"} "Tutorial")
         (A {href: "/examples/"} "Examples")
         (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
         (A {href: "https://discord.gg/sGgYVKnk73"} "Discord")
@@ -127,23 +130,53 @@ def window-dots [] {
   ]
 }
 
+def copy-btn [--copy: string] {
+  const svg = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+  if $copy != null {
+    let escaped = $copy
+      | str replace -a '&' '&amp;'
+      | str replace -a '"' '&quot;'
+      | str replace -a '<' '&lt;'
+      | str replace -a '>' '&gt;'
+      | str replace -a "\n" '&#10;'
+    {__html: $'<button class="copy-btn" title="Copy" data-copy="($escaped)">($svg)</button>'}
+  } else {
+    {__html: $'<button class="copy-btn" title="Copy">($svg)</button>'}
+  }
+}
+
+def copy-script [] {
+  {__html: r#'<script>
+(function() {
+  var copyIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  var checkIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.copy-btn');
+    if (!btn) return;
+    var text = btn.dataset.copy
+      || (btn.closest('pre') && btn.closest('pre').querySelector('code') && btn.closest('pre').querySelector('code').textContent)
+      || '';
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    btn.innerHTML = checkIcon;
+    setTimeout(function() { btn.innerHTML = copyIcon; }, 1500);
+  });
+})();
+</script>'#}
+}
+
+def inject-copy-btns []: record -> record {
+  let btn = (copy-btn).__html
+  {__html: ($in.__html | str replace -a '<pre>' $'<pre>($btn)')}
+}
+
 def code-block [] {
-  let code = open snippets/splash.nu
+  let code = open ($script_dir | path join snippets/splash.nu)
   let highlighted = $code | .highlight nu
   let copyable = $"r#'\n($code)'# | http-nu :3001 -"
   DIV {class: [code rounded-lg overflow-hidden relative shadow-float basis-3/5]} [
-    (SCRIPT {type: "text/plain" class: "copy-content"} $copyable)
     (DIV {class: [flex items-center h-titlebar px-4 gap-2 bg-purple]} (window-dots))
-    (
-      BUTTON {
-        class: [absolute top-2 right-3 bg-none border-none text-primary cursor-pointer text-lg p-1 transition-colors hover:text-white]
-        "data-signals:copied": "false"
-        "data-on:click": "$copied = true; navigator.clipboard.writeText(evt.currentTarget.closest('div').querySelector('.copy-content').textContent); setTimeout(() => $copied = false, 250)"
-      } [
-        (SPAN {data-show: "!$copied"} (icon "mdi:content-copy"))
-        (SPAN {data-show: "$copied" style: "display:none"} (icon "mdi:check"))
-      ]
-    )
+    (copy-btn --copy $copyable)
     (
       PRE {class: [px-5 pb-5 font-mono text-code leading-relaxed overflow-x-auto text-left]} [
         (SPAN {class: "comment"} "$ r#'\n")
@@ -155,7 +188,7 @@ def code-block [] {
 }
 
 def snippet-preview [] {
-  let snippet = source snippets/splash.nu
+  let snippet = source ($script_dir | path join snippets/splash.nu)
   let html = do $snippet {path: "/"}
   DIV {class: [rounded-lg overflow-hidden shadow-float basis-2/5]} [
     (
@@ -181,9 +214,9 @@ def hero [] {
 }
 
 def datastar-demo-section [] {
-  let code = open snippets/datastar.nu
+  let code = open ($script_dir | path join snippets/datastar.nu)
   let highlighted = $code | .highlight nu
-  let prose = open content/datastar-demo.md | .md
+  let prose = open ($script_dir | path join content/datastar-demo.md) | .md
   DIV {class: [mt-8]} [
     (section-header "Built-in Datastar SDK")
     (DIV {class: [max-w-3xl leading-relaxed]} $prose)
@@ -350,6 +383,30 @@ def install-section [] {
   ]
 }
 
+def docs-page [title: string content] {
+  HTML [
+    (
+      HEAD [
+        (META {charset: "UTF-8"})
+        (META {name: "viewport" content: "width=device-width, initial-scale=1.0"})
+        (TITLE $"($title) - http-nu")
+        (LINK {rel: "preconnect" href: "https://fonts.googleapis.com"})
+        (LINK {rel: "preconnect" href: "https://fonts.gstatic.com" crossorigin: true})
+        (LINK {rel: "stylesheet" href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap"})
+        (LINK {rel: "stylesheet" href: "/core.css"})
+        (LINK {rel: "stylesheet" href: "/syntax.css"})
+      ]
+    )
+    (
+      BODY {class: [p-2 md:p-8]} [
+        (header-bar)
+        (ARTICLE {class: [max-w-3xl mt-8]} $content)
+        (copy-script)
+      ]
+    )
+  ]
+}
+
 let examples = source ../examples/serve.nu
 
 {|req|
@@ -393,6 +450,7 @@ let examples = source ../examples/serve.nu
               (install-section)
               (hero)
               (datastar-demo-section)
+              (copy-script)
             ]
           )
         ]
@@ -401,7 +459,7 @@ let examples = source ../examples/serve.nu
 
     (
       route {method: GET path: "/screenshots"} {|req ctx|
-        let files = glob "assets/_/*.png" | sort -r
+        let files = glob ($script_dir | path join "assets/_/*.png") | sort -r
         HTML [
           (
             HEAD [
@@ -442,12 +500,19 @@ let examples = source ../examples/serve.nu
       }
     )
 
+    (
+      route {method: GET path: "/docs/getting-started"} {|req ctx|
+        let content = open ($script_dir | path join content/getting-started.md) | .md | inject-copy-btns
+        docs-page "Getting Started" $content
+      }
+    )
+
     # Datastar sse endpoint
-    (route {method: GET path: "/datastar-sse"} ( source snippets/datastar.nu))
+    (route {method: GET path: "/datastar-sse"} ( source ($script_dir | path join snippets/datastar.nu)))
 
     (
       route true {|req ctx|
-        .static "assets" $req.path
+        .static ($script_dir | path join "assets") $req.path
       }
     )
   ]
