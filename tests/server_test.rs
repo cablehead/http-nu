@@ -2687,3 +2687,85 @@ async fn test_mj_topic_missing_returns_error() {
         "should report topic not found, got: {body}"
     );
 }
+
+/// When the initial script fails (e.g. .mj compile with a missing file) in watch mode,
+/// the server should still respond to Ctrl+C (SIGINT) and exit.
+#[tokio::test]
+async fn test_watch_script_error_ctrl_c_exits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let script_path = tmp.path().join("handler.nu");
+
+    // Script that fails: .mj compile references a nonexistent file
+    std::fs::write(
+        &script_path,
+        r#"let page = .mj compile "nonexistent/template.html"
+{|req| "hello"}"#,
+    )
+    .unwrap();
+
+    let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .arg("--log-format")
+        .arg("jsonl")
+        .arg("127.0.0.1:0")
+        .arg(&script_path)
+        .arg("-w")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start http-nu server");
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    // Wait for the error to appear on stdout (jsonl log format)
+    let (err_tx, err_rx) = tokio::sync::oneshot::channel();
+    let mut err_tx = Some(err_tx);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDOUT] {line}");
+            if err_tx.is_some() && line.contains("Failed to read template file") {
+                if let Some(tx) = err_tx.take() {
+                    let _ = tx.send(());
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDERR] {line}");
+        }
+    });
+
+    // Wait for the error message (the script should fail quickly)
+    timeout(std::time::Duration::from_secs(5), err_rx)
+        .await
+        .expect("Timed out waiting for script error")
+        .expect("Channel closed");
+
+    // Send SIGINT
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::{kill, Signal};
+        use nix::unistd::Pid;
+        let pid = Pid::from_raw(child.id().expect("child id") as i32);
+        kill(pid, Signal::SIGINT).expect("failed to send SIGINT");
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.start_kill();
+    }
+
+    // The server should exit within a reasonable time
+    let status = timeout(std::time::Duration::from_secs(3), child.wait())
+        .await
+        .expect(
+            "server did not exit after SIGINT - Ctrl+C is broken when script fails in watch mode",
+        )
+        .expect("failed waiting for child");
+
+    // We don't care about the exact exit code, just that it exited
+    eprintln!("Server exited with status: {status}");
+}

@@ -302,11 +302,19 @@ async fn serve(
     start_time: std::time::Instant,
     startup_options: StartupOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Wait for first valid engine from source
-    let first_engine = rx
-        .recv()
-        .await
-        .expect("no engine received - source closed without providing a valid engine");
+    let shutdown = shutdown_signal(interrupt.clone());
+    tokio::pin!(shutdown);
+
+    // Wait for first valid engine from source, but allow shutdown to interrupt
+    let first_engine = tokio::select! {
+        engine = rx.recv() => {
+            engine.expect("no engine received - source closed without providing a valid engine")
+        }
+        _ = &mut shutdown => {
+            log_stopped();
+            return Ok(());
+        }
+    };
 
     let engine = Arc::new(ArcSwap::from_pointee(first_engine));
 
@@ -356,9 +364,6 @@ async fn serve(
 
     // Wrap config in Arc for sharing across connections
     let config = Arc::new(config);
-
-    let shutdown = shutdown_signal(interrupt.clone());
-    tokio::pin!(shutdown);
 
     loop {
         tokio::select! {
