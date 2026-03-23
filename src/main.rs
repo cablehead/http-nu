@@ -518,6 +518,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Set up interrupt signal
     let interrupt = Arc::new(AtomicBool::new(false));
 
+    // Hold a persistent connection to the in-memory sqlite database so that
+    // `stor` commands work. The shared-cache in-memory database is destroyed
+    // when the last connection closes, so we keep one alive for the lifetime
+    // of the process.
+    let _stor_db = nu_command::open_connection_in_memory_custom()?;
+
     // Handle subcommands
     if let Some(Command::Eval { file, commands }) = args.command {
         let (script, script_path) = match (&file, &commands) {

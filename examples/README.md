@@ -25,6 +25,7 @@ Each example can also be run standalone.
 | Example | Command | Description |
 |---------|---------|-------------|
 | basic | `http-nu :3001 examples/basic.nu` | Minimal routes, JSON, streaming, POST echo |
+| stor | `http-nu :3001 examples/stor.nu` | In-memory SQLite with `stor` commands |
 | datastar-counter | `http-nu --datastar :3001 examples/datastar-counter/serve.nu` | Client-side reactive counter |
 | datastar-sdk | `http-nu --datastar :3001 examples/datastar-sdk/serve.nu` | Datastar SDK feature demo |
 | mermaid-editor | `http-nu --datastar :3001 examples/mermaid-editor/serve.nu` | Live Mermaid diagram editor |

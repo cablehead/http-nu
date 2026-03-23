@@ -7,6 +7,7 @@ use http-nu/router *
 use http-nu/html *
 
 let basic = source basic.nu
+let stor_example = source stor.nu
 let counter = source datastar-counter/serve.nu
 let sdk = source datastar-sdk/serve.nu
 let mermaid = source mermaid-editor/serve.nu
@@ -42,6 +43,7 @@ li { margin: 0.5rem 0; }
         (P (A {href: "https://github.com/cablehead/http-nu/tree/main/examples"} "source on GitHub"))
         (UL
           (example-link "./basic/" "basic" "minimal routes, JSON, streaming")
+          (example-link "./stor/" "stor" "in-memory SQLite with stor")
           (example-link "./datastar-counter/" "datastar-counter" "reactive counter")
           (example-link "./datastar-sdk/" "datastar-sdk" "SDK feature demo")
           (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
@@ -53,6 +55,7 @@ li { margin: 0.5rem 0; }
   )
 
   (mount "/basic" $basic)
+  (mount "/stor" $stor_example)
   (mount "/datastar-counter" $counter)
   (mount "/datastar-sdk" $sdk)
   (mount "/mermaid-editor" $mermaid)

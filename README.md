@@ -54,6 +54,7 @@
   - [Serving Static Files](#serving-static-files)
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
+  - [In-memory SQLite](#in-memory-sqlite)
   - [Embedded Store](#embedded-store)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
@@ -489,6 +490,44 @@ data: {"date":"2025-01-31 04:01:27.387723 -05:00"}
 data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
 ...
 ```
+
+### In-memory SQLite
+
+Nushell's [`stor`](https://www.nushell.sh/commands/docs/stor.html) commands
+provide an in-memory SQLite database that persists across requests. Create
+tables, insert rows, and query data -- all without external dependencies.
+
+```bash
+$ http-nu :3001 -c '{|req|
+  let path = $req.path
+
+  if $path == "/setup" {
+    stor create -t visits -c {path: str, ts: str} | ignore
+    "table created"
+  } else {
+    stor insert -t visits -d {
+      path: $path
+      ts: (date now | format date "%Y-%m-%d %H:%M:%S")
+    } | ignore
+    let count = stor open | query db "select count(*) as n from visits"
+    $"Visit #($count.0.n) recorded"
+  }
+}'
+
+$ curl localhost:3001/setup
+table created
+$ curl localhost:3001/hello
+Visit #1 recorded
+$ curl localhost:3001/world
+Visit #2 recorded
+$ curl localhost:3001/hello
+Visit #3 recorded
+```
+
+The database is concurrent-safe across requests. Note that `stor` is in-memory
+only -- data does not survive server restarts. It is also not available between
+separate calls to `http-nu eval`, though it works within a single eval
+invocation. For durable persistence, use [Embedded Store](#embedded-store).
 
 ### Embedded Store
 
