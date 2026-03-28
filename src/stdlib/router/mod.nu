@@ -225,6 +225,26 @@ def dispatch-execute [
 #
 # Routes are tested in order until one matches (returns non-null context).
 # The matched route's handler receives the request, context, and body as $in.
+# Resolve a path against the request's mount prefix
+#
+# When a handler is mounted under a prefix (e.g. "/blog"), internal links
+# need that prefix prepended. This helper reads mount_prefix from the request
+# and prepends it to the given path. When running standalone (no mount),
+# mount_prefix is absent and the path is returned unchanged.
+@example "with mount prefix" {
+  {mount_prefix: "/blog"} | href "/about"
+} --result "/blog/about"
+@example "without mount prefix" {
+  {} | href "/about"
+} --result "/about"
+@example "nested mount prefix" {
+  {mount_prefix: "/examples/blog"} | href "/posts/foo"
+} --result "/examples/blog/posts/foo"
+export def href [path: string]: record -> string {
+  let prefix = $in.mount_prefix? | default ""
+  $"($prefix)($path)"
+}
+
 # Mount a sub-handler under a path prefix
 #
 # Requests matching the prefix are forwarded to the handler with the prefix

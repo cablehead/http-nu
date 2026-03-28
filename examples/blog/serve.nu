@@ -14,17 +14,17 @@ let posts = [
 ]
 
 # Render post card for listing
-def post-card [post] {
+def post-card [req post] {
   LI (
     ARTICLE {class: "post-card"}
-      (H3 (A {href: $"/posts/($post.slug)"} $post.title))
+      (H3 (A {href: ($req | href $"/posts/($post.slug)")} $post.title))
       (P {class: "meta"} $post.date)
       (P $post.excerpt)
   )
 }
 
 # Layout wrapper
-def page-layout [title content] {
+def page-layout [req title: string content] {
   HTML
     (HEAD
       (META {charset: "utf-8"})
@@ -47,8 +47,8 @@ def page-layout [title content] {
       (HEADER
         (H1 "My Blog")
         (NAV
-          (A {href: "/"} "Home")
-          (A {href: "/about"} "About")
+          (A {href: ($req | href "/")} "Home")
+          (A {href: ($req | href "/about")} "About")
         )
       )
       $content
@@ -61,41 +61,41 @@ def page-layout [title content] {
 }
 
 # Home page - list all posts
-def home [] {
-  page-layout "Blog" (
+def home [req] {
+  page-layout $req "Blog" (
     MAIN
       (H2 "Latest Posts")
-      (UL { $posts | each {|p| post-card $p } })
+      (UL { $posts | each {|p| post-card $req $p } })
   )
 }
 
 # Single post page
-def post-detail [slug] {
+def post-detail [req slug: string] {
   let post = ($posts | where slug == $slug | first)
 
   if ($post == null) {
     return ("Not Found" | metadata set --merge {'http.response': {status: 404}})
   }
 
-  page-layout $post.title (
+  page-layout $req $post.title (
     MAIN {class: "post-content"}
       (ARTICLE
         (H2 $post.title)
         (P {class: "meta"} $post.date)
         (P "This is a placeholder for the full post content. In a real blog, this would be loaded from markdown files.")
-        (P (A {href: "/"} "← Back to home"))
+        (P (A {href: ($req | href "/")} "<- Back to home"))
       )
   )
 }
 
 # About page
-def about [] {
-  page-layout "About" (
+def about [req] {
+  page-layout $req "About" (
     MAIN
       (H2 "About This Blog")
       (P "This is a simple blog server built with http-nu and Nushell.")
       (P "It demonstrates basic routing, HTML generation, and layout composition.")
-      (P (A {href: "/"} "← Back to home"))
+      (P (A {href: ($req | href "/")} "<- Back to home"))
   )
 }
 
@@ -104,26 +104,26 @@ def about [] {
   dispatch $req [
     # Home page
     (route {path: "/"} {|req ctx|
-      home
+      home $req
     })
 
     # About page
     (route {path: "/about"} {|req ctx|
-      about
+      about $req
     })
 
     # Single post
     (route {path-matches: "/posts/:slug"} {|req ctx|
-      post-detail $ctx.slug
+      post-detail $req $ctx.slug
     })
 
     # 404 fallback
     (route true {|req ctx|
-      page-layout "Not Found" (
+      page-layout $req "Not Found" (
         MAIN
           (H2 "Page Not Found")
           (P "The page you're looking for doesn't exist.")
-          (P (A {href: "/"} "← Back to home"))
+          (P (A {href: ($req | href "/")} "<- Back to home"))
       ) | metadata set --merge {'http.response': {status: 404}}
     })
   ]
