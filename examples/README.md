@@ -32,6 +32,7 @@ Each example can also be run standalone.
 | templates | `http-nu --datastar --store ./store :3001 examples/templates/serve.nu` | `.mj` file, inline, and topic modes |
 | quotes | `http-nu --datastar --store ./store :3001 examples/quotes/serve.nu` | Live quotes board with SSE |
 | tao | `http-nu --datastar --dev -w :3001 examples/tao/serve.nu` | The Tao of Datastar |
+| blog | `http-nu :3001 examples/blog/serve.nu` | Routing, layouts, HTML composition |
 
 ## Store-dependent examples
 

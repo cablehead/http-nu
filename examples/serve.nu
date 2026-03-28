@@ -13,6 +13,7 @@ let sdk = source datastar-sdk/serve.nu
 let mermaid = source mermaid-editor/serve.nu
 let templates = source templates/serve.nu
 let quotes = source quotes/serve.nu
+let blog = source blog/serve.nu
 
 let has_store = $HTTP_NU.store != null
 
@@ -49,6 +50,7 @@ li { margin: 0.5rem 0; }
           (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
           (example-link "./templates/" "templates" ".mj template modes")
           (example-link "./quotes/" "quotes" "live quotes board" --disabled=(not $has_store))
+          (example-link "./blog/" "blog" "routing, layouts, HTML composition")
         )
       )
     }
@@ -60,6 +62,7 @@ li { margin: 0.5rem 0; }
   (mount "/datastar-sdk" $sdk)
   (mount "/mermaid-editor" $mermaid)
   (mount "/templates" $templates)
+  (mount "/blog" $blog)
   ...(if $has_store {
     [(mount "/quotes" $quotes)]
   } else {
