@@ -224,20 +224,20 @@ hello: /yello
 Set HTTP response status and headers using nushell's pipeline metadata:
 
 ```nushell
-"body" | metadata set --merge {'http.response': {
+"body" | metadata set { merge {'http.response': {
   status: <number>  # Optional, defaults to 204 if body is empty, 200 otherwise
   headers: {        # Optional, HTTP headers
     <key>: <value>  # Single value: "text/plain"
     <key>: [<value>, <value>]  # Multiple values: ["cookie1=a", "cookie2=b"]
   }
-}}
+}} }
 ```
 
 Header values can be strings or lists of strings. Multiple values (e.g.,
 Set-Cookie) are sent as separate HTTP headers per RFC 6265.
 
 ```
-$ http-nu :3001 -c '{|req| "sorry, eh" | metadata set --merge {"http.response": {status: 404}}}'
+$ http-nu :3001 -c '{|req| "sorry, eh" | metadata set { merge {"http.response": {status: 404}} }}'
 $ curl -si localhost:3001
 HTTP/1.1 404 Not Found
 transfer-encoding: chunked
@@ -249,11 +249,11 @@ sorry, eh
 Multi-value headers:
 
 ```nushell
-"cookies set" | metadata set --merge {'http.response': {
+"cookies set" | metadata set { merge {'http.response': {
   headers: {
     "Set-Cookie": ["session=abc; Path=/", "token=xyz; Secure"]
   }
-}}
+}} }
 ```
 
 ### Content-Type Inference
@@ -262,9 +262,9 @@ Content-type is determined in the following order of precedence:
 
 1. Headers set via `http.response` metadata:
    ```nushell
-   "body" | metadata set --merge {'http.response': {
+   "body" | metadata set { merge {'http.response': {
      headers: {"Content-Type": "text/plain"}
-   }}
+   }} }
    ```
 
 2. Pipeline metadata content-type (e.g., from `to yaml` or
@@ -283,7 +283,7 @@ Examples:
 
 ```nushell
 # 1. Explicit header takes precedence
-{|req| {foo: "bar"} | metadata set --merge {'http.response': {headers: {"Content-Type": "text/plain"}}} }
+{|req| {foo: "bar"} | metadata set { merge {'http.response': {headers: {"Content-Type": "text/plain"}}} } }
 
 # 2. Pipeline metadata
 {|req| ls | to yaml }  # Returns as application/x-yaml
@@ -866,7 +866,7 @@ use http-nu/router *
 
     # Method + path
     (route {method: "POST", path: "/users"} {|req ctx|
-      "Created" | metadata set --merge {'http.response': {status: 201}}
+      "Created" | metadata set { merge {'http.response': {status: 201}} }
     })
 
     # Path parameters
@@ -881,7 +881,7 @@ use http-nu/router *
 
     # Fallback (always matches)
     (route true {|req ctx|
-      "Not Found" | metadata set --merge {'http.response': {status: 404}}
+      "Not Found" | metadata set { merge {'http.response': {status: 404}} }
     })
   ]
 }

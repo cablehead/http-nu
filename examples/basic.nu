@@ -69,7 +69,7 @@
 
     # 404 for everything else
     _ => {
-      "404 - Page not found" | metadata set --merge {'http.response': {status: 404}}
+      "404 - Page not found" | metadata set { merge {'http.response': {status: 404}} }
     }
   }
 }

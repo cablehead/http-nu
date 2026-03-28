@@ -97,7 +97,7 @@ use http-nu/router *
     })
 
     (route true {|req ctx|
-      "Not found" | metadata set --merge {'http.response': {status: 404}}
+      "Not found" | metadata set { merge {'http.response': {status: 404}} }
     })
   ]
 }
@@ -159,7 +159,7 @@ def page [messages: list] {
 
     (route {method: "POST" path: "/sign"} {|req ctx|
       from json | .append messages --meta $in
-      "" | metadata set --merge {'http.response': {status: 204}}
+      "" | metadata set { merge {'http.response': {status: 204}} }
     })
   ]
 }

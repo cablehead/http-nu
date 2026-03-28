@@ -72,7 +72,7 @@ def post-detail [req slug: string] {
   let post = ($posts | where slug == $slug | first)
 
   if ($post == null) {
-    return ("Not Found" | metadata set --merge {'http.response': {status: 404}})
+    return ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
   }
 
   page-layout $req $post.title (
@@ -122,7 +122,7 @@ def about [req] {
           (H2 "Page Not Found")
           (P "The page you're looking for doesn't exist.")
           (P (A {href: ($req | href "/")} "<- Back to home"))
-      ) | metadata set --merge {'http.response': {status: 404}}
+      ) | metadata set { merge {'http.response': {status: 404}} }
     })
   ]
 }

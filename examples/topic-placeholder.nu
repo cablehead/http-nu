@@ -35,7 +35,7 @@ let store_path = "__STORE_PATH__"
           (P "With " (CODE "-w") ", the server will automatically reload when the topic is updated.")
           (HR)
           (P (A {href: "/request"} "request info"))
-      ) | metadata set --merge {'http.response': {status: 503}}
+      ) | metadata set { merge {'http.response': {status: 503}} }
     }
   }
 }
