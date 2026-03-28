@@ -13,7 +13,17 @@
 {|req|
   let path = $req.path
 
-  if $path == "/setup" {
+  if $path == "/" {
+    "<html><body>
+      <h1>stor example</h1>
+      <ul>
+        <li><a href='./setup'>POST /setup</a> -- create visits table</li>
+        <li><a href='./visits'>GET /visits</a> -- list all visits</li>
+        <li><a href='./count'>GET /count</a> -- visit counts by path</li>
+        <li><a href='./visit/hello'>POST /visit/:name</a> -- record a visit</li>
+      </ul>
+    </body></html>"
+  } else if $path == "/setup" {
     stor create -t visits -c {path: str, ts: str, method: str} | ignore
     "table created"
   } else if ($path | str starts-with "/visit/") {
