@@ -25,39 +25,37 @@ def post-card [req post] {
 
 # Layout wrapper
 def page-layout [req title: string content] {
-  HTML
-    (HEAD
-      (META {charset: "utf-8"})
-      (META {name: "viewport" content: "width=device-width, initial-scale=1"})
-      (TITLE $title)
-      (STYLE {__html: $"
-        body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
-        header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
-        nav a { margin-right: 20px; text-decoration: none; color: #0066cc; }
-        nav a:hover { text-decoration: underline; }
-        .post-card { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; }
-        .post-card h3 { margin: 0 0 10px 0; }
-        .post-card a { color: #0066cc; text-decoration: none; }
-        .post-card a:hover { text-decoration: underline; }
-        .meta { color: #666; font-size: 0.9em; margin: 5px 0; }
-        .post-content { margin: 40px 0; }
-      "})
-    )
-    (BODY
-      (HEADER
-        (H1 "My Blog")
-        (NAV
-          (A {href: ($req | href "/")} "Home")
-          (A {href: ($req | href "/about")} "About")
-        )
-      )
-      $content
-      (FOOTER
-        (P {style: {color: "#999" "font-size": "0.9em" "margin-top": "40px" "border-top": "1px solid #ddd" "padding-top": "20px"}}
-          "Built with http-nu and Nushell"
-        )
+  HTML (HEAD
+    (META {charset: "utf-8"})
+    (META {name: "viewport" content: "width=device-width, initial-scale=1"})
+    (TITLE $title)
+    (STYLE {__html: $"
+      body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+      header { border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 30px; }
+      nav a { margin-right: 20px; text-decoration: none; color: #0066cc; }
+      nav a:hover { text-decoration: underline; }
+      .post-card { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 4px; }
+      .post-card h3 { margin: 0 0 10px 0; }
+      .post-card a { color: #0066cc; text-decoration: none; }
+      .post-card a:hover { text-decoration: underline; }
+      .meta { color: #666; font-size: 0.9em; margin: 5px 0; }
+      .post-content { margin: 40px 0; }
+    "})
+  ) (BODY
+    (HEADER
+      (H1 "My Blog")
+      (NAV
+        (A {href: ($req | href "/")} "Home")
+        (A {href: ($req | href "/about")} "About")
       )
     )
+    $content
+    (FOOTER
+      (P {style: {color: "#999" "font-size": "0.9em" "margin-top": "40px" "border-top": "1px solid #ddd" "padding-top": "20px"}}
+        "Built with http-nu and Nushell"
+      )
+    )
+  )
 }
 
 # Home page - list all posts
