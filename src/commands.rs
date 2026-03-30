@@ -1428,7 +1428,15 @@ impl Command for MdCommand {
         let mut current_code = String::new();
         let mut current_lang: Option<String> = None;
 
-        let parser = MarkdownParser::new(&markdown).map(|event| match event {
+        let mut options = pulldown_cmark::Options::empty();
+        options.insert(pulldown_cmark::Options::ENABLE_TABLES);
+        options.insert(pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
+        options.insert(pulldown_cmark::Options::ENABLE_TASKLISTS);
+        options.insert(pulldown_cmark::Options::ENABLE_FOOTNOTES);
+        options.insert(pulldown_cmark::Options::ENABLE_HEADING_ATTRIBUTES);
+        options.insert(pulldown_cmark::Options::ENABLE_GFM);
+        options.insert(pulldown_cmark::Options::ENABLE_DEFINITION_LIST);
+        let parser = MarkdownParser::new_ext(&markdown, options).map(|event| match event {
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
                 current_code.clear();
