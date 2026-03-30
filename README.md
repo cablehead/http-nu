@@ -932,8 +932,8 @@ use http-nu/html *
 }
 ```
 
-**Important:** Wrap multi-line DSL calls in `(...)`. In Nushell, arguments on
-a new line are parsed as separate commands, so `HTML` (and other tags) must be
+**Important:** Wrap multi-line DSL calls in `(...)`. In Nushell, arguments on a
+new line are parsed as separate commands, so `HTML` (and other tags) must be
 wrapped in parentheses when their arguments span multiple lines.
 
 `HTML` automatically prepends
