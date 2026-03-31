@@ -956,6 +956,20 @@ INPUT {type: "checkbox" checked: true disabled: false}
 # <input type="checkbox" checked>
 ```
 
+**Web Components:**
+
+`ICONIFY` renders [Iconify](https://iconify.design) icon web components.
+`SCRIPT-ICONIFY` loads the Iconify runtime:
+
+```nushell
+HEAD (SCRIPT-ICONIFY)
+BODY (ICONIFY "lucide:sun")
+# <iconify-icon icon="lucide:sun"></iconify-icon>
+
+ICONIFY "lucide:copy" {width: "16" height: "16"}
+# <iconify-icon icon="lucide:copy" width="16" height="16"></iconify-icon>
+```
+
 **Jinja2 Template DSL**
 
 For hot paths, `_var`, `_for`, and `_if` generate Jinja2 syntax that can be
@@ -993,7 +1007,9 @@ use http-nu/html *
 {|req|
   HTML (
     HEAD (
+      # these are equivalent:
       SCRIPT {type: "module" src: $DATASTAR_JS_PATH}
+      SCRIPT-DATASTAR
     )
   ) (
     BODY (

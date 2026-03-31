@@ -270,3 +270,11 @@ export def RP [...args: any]: nothing -> record { render-tag rp ...$args }
 # Bidirectional text
 export def BDI [...args: any]: nothing -> record { render-tag bdi ...$args }
 export def BDO [...args: any]: nothing -> record { render-tag bdo ...$args }
+
+# Web components
+export def ICONIFY [name: string attrs?: record]: nothing -> record {
+  render-tag iconify-icon ({icon: $name} | merge ($attrs | default {}))
+}
+export def SCRIPT-ICONIFY []: nothing -> record {
+  SCRIPT {src: "https://cdn.jsdelivr.net/npm/iconify-icon@2/dist/iconify-icon.min.js"}
+}

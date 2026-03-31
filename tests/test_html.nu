@@ -222,3 +222,11 @@ assert equal (
 assert equal (HTML).__html '<!DOCTYPE html><html></html>'
 assert equal (HTML (HEAD) (BODY)).__html '<!DOCTYPE html><html><head></head><body></body></html>'
 assert equal (HTML {lang: "en"} (BODY "hi")).__html '<!DOCTYPE html><html lang="en"><body>hi</body></html>'
+
+# Test ICONIFY
+assert equal (ICONIFY "lucide:sun").__html '<iconify-icon icon="lucide:sun"></iconify-icon>'
+assert equal (ICONIFY "lucide:sun" {width: "18" height: "18"}).__html '<iconify-icon icon="lucide:sun" width="18" height="18"></iconify-icon>'
+assert equal (ICONIFY "mdi:home" {class: "icon"}).__html '<iconify-icon icon="mdi:home" class="icon"></iconify-icon>'
+
+# Test SCRIPT-ICONIFY
+assert equal (SCRIPT-ICONIFY).__html '<script src="https://cdn.jsdelivr.net/npm/iconify-icon@2/dist/iconify-icon.min.js"></script>'

@@ -7,6 +7,10 @@
 export const DATASTAR_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"
 export const DATASTAR_JS_PATH = "/datastar@1.0.0-RC.8.js"
 
+export def SCRIPT-DATASTAR []: nothing -> record {
+  {__html: $'<script type="module" src="($DATASTAR_JS_PATH)"></script>'}
+}
+
 # Patch HTML elements via SSE
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.
