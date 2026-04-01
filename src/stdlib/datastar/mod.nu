@@ -98,11 +98,11 @@ export def "to datastar-redirect" []: string -> record {
   $"setTimeout\(\(\) => window.location.href = '($in)'\);" | to datastar-execute-script
 }
 
-# Parse signals from request (GET query `datastar` param or POST body JSON)
+# Parse signals from request (POST/PUT/PATCH body JSON, or query param for GET/DELETE)
 # Usage: $in | from datastar-signals $req
 export def "from datastar-signals" [req: record]: string -> record {
   match $req.method {
-    "POST" => (try { $in | from json } catch { {} })
-    _ => (try { $req.query.datastar? | default "{}" | from json } catch { {} })
+    "GET" | "DELETE" => (try { $req.query.datastar? | default "{}" | from json } catch { {} })
+    _ => (try { $in | from json } catch { {} })
   }
 }
