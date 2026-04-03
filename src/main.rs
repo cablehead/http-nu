@@ -322,8 +322,8 @@ async fn serve(
     let engine_updater = engine.clone();
     tokio::spawn(async move {
         while let Some(new_engine) = rx.recv().await {
-            // Signal reload to cancel SSE streams on old engine
-            engine_updater.load().reload_token.cancel();
+            // Cancel SSE streams on old engine
+            engine_updater.load().sse_cancel_token.cancel();
             engine_updater.store(Arc::new(new_engine));
             log_reloaded();
         }
@@ -409,6 +409,11 @@ async fn serve(
             }
         }
     }
+
+    // Cancel SSE streams so they don't hold connections open.
+    // New connections are no longer accepted (broke out of accept loop above),
+    // so SSE clients won't reconnect.
+    engine.load().sse_cancel_token.cancel();
 
     // Graceful shutdown: wait for inflight connections to complete
     let inflight = graceful.count();

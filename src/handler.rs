@@ -185,7 +185,7 @@ where
         return Ok(response);
     }
 
-    let reload_token = engine.reload_token.clone();
+    let sse_cancel_token = engine.sse_cancel_token.clone();
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
 
     // Wait for both:
@@ -202,7 +202,14 @@ where
     match special_response.as_ref().map(|r| &r.body_type) {
         Some(ResponseBodyType::Normal) | None => {
             // Normal response - use metadata from pipeline
-            build_normal_response(body_result?, use_brotli, guard, start_time, reload_token).await
+            build_normal_response(
+                body_result?,
+                use_brotli,
+                guard,
+                start_time,
+                sse_cancel_token,
+            )
+            .await
         }
         Some(ResponseBodyType::Static {
             root,
@@ -370,7 +377,7 @@ async fn build_normal_response(
     use_brotli: bool,
     guard: RequestGuard,
     start_time: Instant,
-    reload_token: CancellationToken,
+    sse_cancel_token: CancellationToken,
 ) -> HTTPResult {
     let request_id = guard.request_id();
     let (inferred_content_type, http_meta, body) = pipeline_result;
@@ -478,9 +485,9 @@ async fn build_normal_response(
         ResponseTransport::Stream(rx) => {
             // Layer 1: base byte stream, with reload-abort for SSE
             let byte_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send + Sync>> = if is_sse {
-                // SSE streams abort on reload (error triggers client retry)
+                // SSE streams abort on cancellation (reload or shutdown)
                 Box::pin(futures_util::stream::unfold(
-                    (ReceiverStream::new(rx), reload_token),
+                    (ReceiverStream::new(rx), sse_cancel_token),
                     |(mut data_rx, token)| async move {
                         tokio::select! {
                             biased;

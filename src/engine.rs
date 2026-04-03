@@ -43,8 +43,8 @@ pub struct HttpNuOptions {
 pub struct Engine {
     pub state: EngineState,
     pub closure: Option<Closure>,
-    /// Cancellation token triggered on engine reload
-    pub reload_token: CancellationToken,
+    /// Cancellation token for SSE streams
+    pub sse_cancel_token: CancellationToken,
 }
 
 impl Engine {
@@ -64,7 +64,7 @@ impl Engine {
         Ok(Self {
             state: engine_state,
             closure: None,
-            reload_token: CancellationToken::new(),
+            sse_cancel_token: CancellationToken::new(),
         })
     }
 
@@ -398,7 +398,7 @@ impl Engine {
 pub fn script_to_engine(base: &Engine, script: &str, file: Option<&Path>) -> Option<Engine> {
     let mut engine = base.clone();
     // Fresh cancellation token for this engine instance
-    engine.reload_token = CancellationToken::new();
+    engine.sse_cancel_token = CancellationToken::new();
 
     if let Err(e) = engine.parse_closure(script, file) {
         log_error(&nu_utils::strip_ansi_string_likely(e.to_string()));
