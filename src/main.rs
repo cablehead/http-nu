@@ -129,6 +129,11 @@ enum Command {
         /// Evaluate script from command line
         #[clap(short = 'c', long = "commands")]
         commands: Option<String>,
+
+        /// Path to store directory (enables .cat, .append, .cas commands)
+        #[cfg(feature = "cross-stream")]
+        #[clap(long)]
+        store: Option<PathBuf>,
     },
 }
 
@@ -530,7 +535,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _stor_db = nu_command::open_connection_in_memory_custom()?;
 
     // Handle subcommands
-    if let Some(Command::Eval { file, commands }) = args.command {
+    if let Some(Command::Eval {
+        file,
+        commands,
+        #[cfg(feature = "cross-stream")]
+        store,
+    }) = args.command
+    {
         let (script, script_path) = match (&file, &commands) {
             (Some(_), Some(_)) => {
                 eprintln!("Error: cannot specify both file and --commands");
@@ -555,10 +566,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut engine = Engine::new()?;
         engine.add_custom_commands()?;
         engine.set_lib_dirs(&args.include_paths)?;
+
+        #[cfg(feature = "cross-stream")]
+        let store_path = store.as_ref().map(|p| p.display().to_string());
+        #[cfg(not(feature = "cross-stream"))]
+        let store_path: Option<String> = None;
+
         engine.set_http_nu_const(&HttpNuOptions {
             dev: args.dev,
+            store: store_path,
             ..Default::default()
         })?;
+
+        #[cfg(feature = "cross-stream")]
+        if let Some(ref path) = store {
+            let xs_store = xs::store::Store::new(path.clone())?;
+            let eval_store = Store::from_inner(xs_store, path.clone());
+            eval_store.configure_engine(&mut engine)?;
+        }
 
         for plugin_path in &args.plugins {
             engine.load_plugin(plugin_path)?;

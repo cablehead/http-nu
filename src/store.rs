@@ -19,6 +19,11 @@ pub struct Store {
 
 #[cfg(feature = "cross-stream")]
 impl Store {
+    /// Wrap an existing xs::store::Store (no API server or services).
+    pub fn from_inner(inner: xs::store::Store, path: std::path::PathBuf) -> Self {
+        Self { inner, path }
+    }
+
     /// Create the store and spawn the API server and optional services.
     pub async fn init(
         path: std::path::PathBuf,

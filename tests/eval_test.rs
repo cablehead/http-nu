@@ -284,3 +284,40 @@ fn test_mj_compile_rejects_combined_modes() {
         .failure()
         .stderr(predicates::str::contains("Cannot combine"));
 }
+
+#[test]
+fn test_eval_store_append_and_cat() {
+    let dir = TempDir::new().unwrap();
+    let store_path = dir.path().to_str().unwrap();
+
+    // Append a frame and read it back
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args([
+            "eval",
+            "--store",
+            store_path,
+            "-c",
+            r#""hello" | .append test-eval --meta {msg: "hi"}; .cat --topic test-eval | last | get meta.msg"#,
+        ])
+        .assert()
+        .success()
+        .stdout("hi\n");
+}
+
+#[test]
+fn test_eval_store_sets_http_nu_const() {
+    let dir = TempDir::new().unwrap();
+    let store_path = dir.path().to_str().unwrap();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args([
+            "eval",
+            "--store",
+            store_path,
+            "-c",
+            "$HTTP_NU.store != null",
+        ])
+        .assert()
+        .success()
+        .stdout("true\n");
+}
