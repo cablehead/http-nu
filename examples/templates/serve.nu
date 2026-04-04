@@ -1,13 +1,15 @@
+const script_dir = path self | path dirname
+
 # Seed store topics from disk files when --store is enabled
 if $HTTP_NU.store != null {
-  open examples/templates/topics/page.html | .append page.html
-  open examples/templates/topics/base.html | .append base.html
-  open examples/templates/topics/nav.html | .append nav.html
+  open ($script_dir | path join topics/page.html) | .append page.html
+  open ($script_dir | path join topics/base.html) | .append base.html
+  open ($script_dir | path join topics/nav.html) | .append nav.html
 }
 
 {|req|
   match $req.path {
-    "/file" => { {name: "World"} | .mj "examples/templates/page.html" }
+    "/file" => { {name: "World"} | .mj ($script_dir | path join page.html) }
     "/topic" => { {name: "World"} | .mj --topic "page.html" }
     _ => {
       {} | .mj --inline '<h1>Templates</h1>
