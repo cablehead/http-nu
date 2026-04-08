@@ -253,6 +253,23 @@ fn main() {}
 }
 
 #[test]
+fn test_md_code_block_lang_xss() {
+    let mut engine = eval_engine();
+    let result = engine
+        .eval(
+            r#""```x\"><svg/onload=alert(1)>
+code
+```" | .md | get __html"#,
+            None,
+        )
+        .unwrap();
+    let html = result.as_str().unwrap();
+    // The language must be escaped in the class attribute
+    assert!(!html.contains("<svg"));
+    assert!(html.contains("class=\"language-x&quot;&gt;&lt;svg/onload=alert(1)&gt;\""));
+}
+
+#[test]
 fn test_md_code_block_no_lang() {
     let mut engine = eval_engine();
     let result = engine

@@ -1461,6 +1461,11 @@ impl Command for MdCommand {
                 let mut html_out = String::new();
                 html_out.push_str("<pre><code");
                 if let Some(lang) = &current_lang {
+                    let lang = lang
+                        .replace('&', "&amp;")
+                        .replace('"', "&quot;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;");
                     html_out.push_str(&format!(" class=\"language-{lang}\""));
                 }
                 html_out.push('>');
