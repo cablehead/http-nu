@@ -12,7 +12,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use tokio::sync::oneshot;
 
-use minijinja::{path_loader, Environment};
+use minijinja::{path_loader, AutoEscape, Environment};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use syntect::html::{ClassStyle, ClassedHTMLGenerator};
@@ -57,6 +57,7 @@ where
     }
 
     let mut env = Environment::new();
+    env.set_auto_escape_callback(|_| AutoEscape::Html);
     env.set_loader(loader);
     env.add_template_owned("template".to_string(), source.to_string())?;
     cache.insert(hash, Arc::new(env));
@@ -685,6 +686,7 @@ impl Command for MjCommand {
 
         // Set up environment and get template
         let mut env = Environment::new();
+        env.set_auto_escape_callback(|_| AutoEscape::Html);
         let tmpl = if let Some(ref path) = file {
             // File mode: resolve from filesystem only
             let path = std::path::Path::new(path);
