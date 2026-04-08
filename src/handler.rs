@@ -266,6 +266,15 @@ where
                 parts.uri.path()
             };
 
+            // Ensure the path starts with '/' to prevent SSRF via URL
+            // authority confusion (e.g. path "@evil.com/" being concatenated
+            // to produce "http://backend@evil.com/")
+            let path = if path.starts_with('/') {
+                path.to_string()
+            } else {
+                format!("/{path}")
+            };
+
             // Build target URI
             let target_uri = {
                 let query_string = if let Some(custom_query) = query {

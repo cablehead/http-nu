@@ -428,6 +428,29 @@ async fn test_server_reverse_proxy_strip_prefix() {
 }
 
 #[tokio::test]
+async fn test_server_reverse_proxy_strip_prefix_ssrf() {
+    // Start a backend server that returns the request path.
+    let backend = TestServer::new("127.0.0.1:0", r#"{|req| $"Path: ($req.path)"}"#, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start a proxy server with prefix stripping.
+    let proxy_closure = format!(
+        r#"{{|req| .reverse-proxy "{}" {{ strip_prefix: "/api" }} }}"#,
+        backend.address
+    );
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // A path like /api@evil.com/ after stripping "/api" becomes "@evil.com/".
+    // Without sanitization, this produces "http://backend@evil.com/" which
+    // sends the request to evil.com instead of the backend.
+    let output = proxy.curl("/api@evil.com/").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "Path: /@evil.com/");
+}
+
+#[tokio::test]
 async fn test_server_reverse_proxy_body_handling() {
     // Start a backend server that echoes the request body.
     let backend = TestServer::new("127.0.0.1:0", r#"{|req| $in}"#, false).await;
