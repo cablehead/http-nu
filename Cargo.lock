@@ -2597,6 +2597,7 @@ dependencies = [
  "tower-http",
  "typetag",
  "url",
+ "v_htmlescape",
  "win_uds",
  "xxhash-rust",
 ]

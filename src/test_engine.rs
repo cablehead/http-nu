@@ -266,7 +266,7 @@ code
     let html = result.as_str().unwrap();
     // The language must be escaped in the class attribute
     assert!(!html.contains("<svg"));
-    assert!(html.contains("class=\"language-x&quot;&gt;&lt;svg/onload=alert(1)&gt;\""));
+    assert!(html.contains("class=\"language-x&quot;&gt;&lt;svg&#x2f;onload=alert(1)&gt;\""));
 }
 
 #[test]
