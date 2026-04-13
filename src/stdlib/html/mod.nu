@@ -1,12 +1,7 @@
 # HTML DSL for nushell
 
-# Escape HTML special characters for text content
+# Escape HTML special characters
 def escape-html []: string -> string {
-  $in | str replace -a '&' '&amp;' | str replace -a '<' '&lt;' | str replace -a '>' '&gt;'
-}
-
-# Escape HTML special characters for attribute values
-def escape-html-attr []: string -> string {
   $in
   | str replace -a '&' '&amp;'
   | str replace -a '"' '&quot;'
@@ -47,7 +42,7 @@ export def attrs-to-string []: record -> string {
     } else {
       $attr.value
     }
-    $'($attr.key)="($value | escape-html-attr)"'
+    $'($attr.key)="($value | escape-html)"'
   }
   | where $it != ""
   | str join ' '
