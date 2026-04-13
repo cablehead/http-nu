@@ -14,6 +14,7 @@ use nu_protocol::format_cli_error;
 use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Redirection, Stack, StateWorkingSet},
+    shell_error::generic::GenericError,
     OutDest, PipelineData, PluginIdentity, RegisteredPlugin, ShellError, Signals, Span, Type,
     Value,
 };
@@ -151,13 +152,11 @@ impl Engine {
 
         // Handle parse errors
         if let Some(err) = working_set.parse_errors.first() {
-            let shell_error = ShellError::GenericError {
-                error: "Parse error".into(),
-                msg: format!("{err:?}"),
-                span: Some(err.span()),
-                help: None,
-                inner: vec![],
-            };
+            let shell_error = ShellError::Generic(GenericError::new(
+                "Parse error",
+                format!("{err:?}"),
+                err.span(),
+            ));
             return Err(Error::from(format_cli_error(
                 None,
                 &working_set,
@@ -168,13 +167,10 @@ impl Engine {
 
         // Handle compile errors
         if let Some(err) = working_set.compile_errors.first() {
-            let shell_error = ShellError::GenericError {
-                error: format!("Compile error {err}"),
-                msg: "".into(),
-                span: None,
-                help: None,
-                inner: vec![],
-            };
+            let shell_error = ShellError::Generic(GenericError::new_internal(
+                format!("Compile error {err}"),
+                "",
+            ));
             return Err(Error::from(format_cli_error(
                 None,
                 &working_set,
@@ -262,13 +258,11 @@ impl Engine {
         let block = parse(&mut working_set, fname.as_deref(), script.as_bytes(), false);
 
         if let Some(err) = working_set.parse_errors.first() {
-            let shell_error = ShellError::GenericError {
-                error: "Parse error".into(),
-                msg: format!("{err:?}"),
-                span: Some(err.span()),
-                help: None,
-                inner: vec![],
-            };
+            let shell_error = ShellError::Generic(GenericError::new(
+                "Parse error",
+                format!("{err:?}"),
+                err.span(),
+            ));
             return Err(Error::from(format_cli_error(
                 None,
                 &working_set,
@@ -278,13 +272,10 @@ impl Engine {
         }
 
         if let Some(err) = working_set.compile_errors.first() {
-            let shell_error = ShellError::GenericError {
-                error: format!("Compile error {err}"),
-                msg: "".into(),
-                span: None,
-                help: None,
-                inner: vec![],
-            };
+            let shell_error = ShellError::Generic(GenericError::new_internal(
+                format!("Compile error {err}"),
+                "",
+            ));
             return Err(Error::from(format_cli_error(
                 None,
                 &working_set,

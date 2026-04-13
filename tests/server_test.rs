@@ -1725,7 +1725,7 @@ async fn test_store_cat_follow_receives_appended_frames() {
                 $in | .append ping --meta {source: "test"}
                 "ok"
             } else {
-                "not found" | metadata set --merge {'http.response': {status: 404}}
+                "not found" | metadata set { merge {'http.response': {status: 404}}}
             }
         }"#,
         &store_path,

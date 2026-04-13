@@ -2,8 +2,8 @@ use crate::logging::log_print;
 use crate::response::{Response, ResponseBodyType};
 use nu_engine::command_prelude::*;
 use nu_protocol::{
-    ByteStream, ByteStreamType, Category, Config, CustomValue, PipelineData, PipelineMetadata,
-    ShellError, Signature, Span, SyntaxShape, Type, Value,
+    shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, Config, CustomValue,
+    PipelineData, PipelineMetadata, ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -188,12 +188,12 @@ impl Command for StaticCommand {
 
         RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
             if let Some(tx) = tx.borrow_mut().take() {
-                tx.send(response).map_err(|_| ShellError::GenericError {
-                    error: "Failed to send response".into(),
-                    msg: "Channel closed".into(),
-                    span: Some(call.head),
-                    help: None,
-                    inner: vec![],
+                tx.send(response).map_err(|_| {
+                    ShellError::Generic(GenericError::new(
+                        "Failed to send response",
+                        "Channel closed",
+                        call.head,
+                    ))
                 })?;
             }
             Ok(())
@@ -306,20 +306,19 @@ fn value_to_data_string(val: &Value, config: &Config) -> Result<String, ShellErr
     match val {
         Value::String { val, .. } => Ok(val.clone()),
         _ => {
-            let json_value =
-                value_to_json(val, config).map_err(|err| ShellError::GenericError {
-                    error: err.to_string(),
-                    msg: "failed to serialize json".into(),
-                    span: Some(Span::unknown()),
-                    help: None,
-                    inner: vec![],
-                })?;
-            serde_json::to_string(&json_value).map_err(|err| ShellError::GenericError {
-                error: err.to_string(),
-                msg: "failed to serialize json".into(),
-                span: Some(Span::unknown()),
-                help: None,
-                inner: vec![],
+            let json_value = value_to_json(val, config).map_err(|err| {
+                ShellError::Generic(GenericError::new(
+                    err.to_string(),
+                    "failed to serialize json",
+                    Span::unknown(),
+                ))
+            })?;
+            serde_json::to_string(&json_value).map_err(|err| {
+                ShellError::Generic(GenericError::new(
+                    err.to_string(),
+                    "failed to serialize json",
+                    Span::unknown(),
+                ))
             })
         }
     }
@@ -571,12 +570,12 @@ impl Command for ReverseProxyCommand {
 
         RESPONSE_TX.with(|tx| -> Result<_, ShellError> {
             if let Some(tx) = tx.borrow_mut().take() {
-                tx.send(response).map_err(|_| ShellError::GenericError {
-                    error: "Failed to send response".into(),
-                    msg: "Channel closed".into(),
-                    span: Some(call.head),
-                    help: None,
-                    inner: vec![],
+                tx.send(response).map_err(|_| {
+                    ShellError::Generic(GenericError::new(
+                        "Failed to send response",
+                        "Channel closed",
+                        call.head,
+                    ))
                 })?;
             }
             Ok(())
@@ -654,22 +653,18 @@ impl Command for MjCommand {
 
         let mode_count = file.is_some() as u8 + inline.is_some() as u8 + topic.is_some() as u8;
         if mode_count > 1 {
-            return Err(ShellError::GenericError {
-                error: "Cannot combine file, --inline, and --topic".into(),
-                msg: "use exactly one of: file path, --inline, or --topic".into(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            });
+            return Err(ShellError::Generic(GenericError::new(
+                "Cannot combine file, --inline, and --topic",
+                "use exactly one of: file path, --inline, or --topic",
+                head,
+            )));
         }
         if mode_count == 0 {
-            return Err(ShellError::GenericError {
-                error: "No template specified".into(),
-                msg: "provide a file path, --inline, or --topic".into(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            });
+            return Err(ShellError::Generic(GenericError::new(
+                "No template specified",
+                "provide a file path, --inline, or --topic",
+                head,
+            )));
         }
 
         // Get context from input
@@ -702,97 +697,85 @@ impl Command for MjCommand {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("template");
-            env.get_template(name)
-                .map_err(|e| ShellError::GenericError {
-                    error: format!("Template error: {e}"),
-                    msg: e.to_string(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                })?
+            env.get_template(name).map_err(|e| {
+                ShellError::Generic(GenericError::new(
+                    format!("Template error: {e}"),
+                    e.to_string(),
+                    head,
+                ))
+            })?
         } else if let Some(ref topic_name) = topic {
             // Topic mode: resolve from store only
             #[cfg(feature = "cross-stream")]
             {
-                let store = self
-                    .store
-                    .as_ref()
-                    .ok_or_else(|| ShellError::GenericError {
-                        error: "--topic requires --store".into(),
-                        msg: "server must be started with --store to use --topic".into(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
-                    })?;
+                let store = self.store.as_ref().ok_or_else(|| {
+                    ShellError::Generic(GenericError::new(
+                        "--topic requires --store",
+                        "server must be started with --store to use --topic",
+                        head,
+                    ))
+                })?;
                 let source = load_topic_content(store, topic_name).ok_or_else(|| {
-                    ShellError::GenericError {
-                        error: format!("Topic not found: {topic_name}"),
-                        msg: "no content in store for this topic".into(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
-                    }
+                    ShellError::Generic(GenericError::new(
+                        format!("Topic not found: {topic_name}"),
+                        "no content in store for this topic",
+                        head,
+                    ))
                 })?;
                 let topic_store = store.clone();
                 env.set_loader(move |name: &str| Ok(load_topic_content(&topic_store, name)));
                 env.add_template_owned(topic_name.clone(), source)
-                    .map_err(|e| ShellError::GenericError {
-                        error: format!("Template parse error: {e}"),
-                        msg: e.to_string(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
+                    .map_err(|e| {
+                        ShellError::Generic(GenericError::new(
+                            format!("Template parse error: {e}"),
+                            e.to_string(),
+                            head,
+                        ))
                     })?;
-                env.get_template(topic_name)
-                    .map_err(|e| ShellError::GenericError {
-                        error: format!("Template error: {e}"),
-                        msg: e.to_string(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
-                    })?
+                env.get_template(topic_name).map_err(|e| {
+                    ShellError::Generic(GenericError::new(
+                        format!("Template error: {e}"),
+                        e.to_string(),
+                        head,
+                    ))
+                })?
             }
             #[cfg(not(feature = "cross-stream"))]
             {
                 let _ = topic_name;
-                return Err(ShellError::GenericError {
-                    error: "--topic requires cross-stream feature".into(),
-                    msg: "built without store support".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                });
+                return Err(ShellError::Generic(GenericError::new(
+                    "--topic requires cross-stream feature",
+                    "built without store support",
+                    head,
+                )));
             }
         } else {
             // Inline mode: self-contained, no loader
             let source = inline.unwrap();
             env.add_template_owned("template".to_string(), source)
-                .map_err(|e| ShellError::GenericError {
-                    error: format!("Template parse error: {e}"),
-                    msg: e.to_string(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
+                .map_err(|e| {
+                    ShellError::Generic(GenericError::new(
+                        format!("Template parse error: {e}"),
+                        e.to_string(),
+                        head,
+                    ))
                 })?;
-            env.get_template("template")
-                .map_err(|e| ShellError::GenericError {
-                    error: format!("Failed to get template: {e}"),
-                    msg: e.to_string(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                })?
+            env.get_template("template").map_err(|e| {
+                ShellError::Generic(GenericError::new(
+                    format!("Failed to get template: {e}"),
+                    e.to_string(),
+                    head,
+                ))
+            })?
         };
 
-        let rendered = tmpl
-            .render(&context)
-            .map_err(|e| ShellError::GenericError {
-                error: format!("Template render error: {e}"),
-                msg: e.to_string(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            })?;
+        let rendered = tmpl.render(&context).map_err(|e| {
+            ShellError::Generic(GenericError::new(
+                format!("Template render error: {e}"),
+                e.to_string(),
+                head,
+            ))
+        })?;
 
         Ok(Value::string(rendered, head).into_pipeline_data())
     }
@@ -885,55 +868,45 @@ impl Command for MjCompileCommand {
                         match html_val {
                             Value::String { val, .. } => Some(val.clone()),
                             _ => {
-                                return Err(ShellError::GenericError {
-                                    error: "__html must be a string".into(),
-                                    msg: "expected string value".into(),
-                                    span: Some(head),
-                                    help: None,
-                                    inner: vec![],
-                                });
+                                return Err(ShellError::Generic(GenericError::new(
+                                    "__html must be a string",
+                                    "expected string value",
+                                    head,
+                                )));
                             }
                         }
                     } else {
-                        return Err(ShellError::GenericError {
-                            error: "Record must have __html field".into(),
-                            msg: "expected {__html: string}".into(),
-                            span: Some(head),
-                            help: None,
-                            inner: vec![],
-                        });
+                        return Err(ShellError::Generic(GenericError::new(
+                            "Record must have __html field",
+                            "expected {__html: string}",
+                            head,
+                        )));
                     }
                 }
                 _ => {
-                    return Err(ShellError::GenericError {
-                        error: "--inline must be string or {__html: string}".into(),
-                        msg: "invalid type".into(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
-                    });
+                    return Err(ShellError::Generic(GenericError::new(
+                        "--inline must be string or {__html: string}",
+                        "invalid type",
+                        head,
+                    )));
                 }
             },
         };
 
         let mode_count = file.is_some() as u8 + inline_str.is_some() as u8 + topic.is_some() as u8;
         if mode_count > 1 {
-            return Err(ShellError::GenericError {
-                error: "Cannot combine file, --inline, and --topic".into(),
-                msg: "use exactly one of: file path, --inline, or --topic".into(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            });
+            return Err(ShellError::Generic(GenericError::new(
+                "Cannot combine file, --inline, and --topic",
+                "use exactly one of: file path, --inline, or --topic",
+                head,
+            )));
         }
         if mode_count == 0 {
-            return Err(ShellError::GenericError {
-                error: "No template specified".into(),
-                msg: "provide a file path, --inline, or --topic".into(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            });
+            return Err(ShellError::Generic(GenericError::new(
+                "No template specified",
+                "provide a file path, --inline, or --topic",
+                head,
+            )));
         }
 
         let hash = if let Some(ref path) = file {
@@ -945,37 +918,31 @@ impl Command for MjCompileCommand {
                 std::env::current_dir().unwrap_or_default().join(path)
             };
             let base_dir = abs_path.parent().unwrap_or(&abs_path).to_path_buf();
-            let source =
-                std::fs::read_to_string(&abs_path).map_err(|e| ShellError::GenericError {
-                    error: format!("Failed to read template file: {e}"),
-                    msg: "could not read file".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                })?;
+            let source = std::fs::read_to_string(&abs_path).map_err(|e| {
+                ShellError::Generic(GenericError::new(
+                    format!("Failed to read template file: {e}"),
+                    "could not read file",
+                    head,
+                ))
+            })?;
             compile_template(&source, &base_dir)
         } else if let Some(ref topic_name) = topic {
             // Topic mode: store only
             #[cfg(feature = "cross-stream")]
             {
-                let store = self
-                    .store
-                    .as_ref()
-                    .ok_or_else(|| ShellError::GenericError {
-                        error: "--topic requires --store".into(),
-                        msg: "server must be started with --store to use --topic".into(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
-                    })?;
+                let store = self.store.as_ref().ok_or_else(|| {
+                    ShellError::Generic(GenericError::new(
+                        "--topic requires --store",
+                        "server must be started with --store to use --topic",
+                        head,
+                    ))
+                })?;
                 let source = load_topic_content(store, topic_name).ok_or_else(|| {
-                    ShellError::GenericError {
-                        error: format!("Topic not found: {topic_name}"),
-                        msg: "no content in store for this topic".into(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
-                    }
+                    ShellError::Generic(GenericError::new(
+                        format!("Topic not found: {topic_name}"),
+                        "no content in store for this topic",
+                        head,
+                    ))
                 })?;
                 let topic_store = store.clone();
                 // Use a synthetic base_dir for cache key uniqueness
@@ -987,13 +954,11 @@ impl Command for MjCompileCommand {
             #[cfg(not(feature = "cross-stream"))]
             {
                 let _ = topic_name;
-                return Err(ShellError::GenericError {
-                    error: "--topic requires cross-stream feature".into(),
-                    msg: "built without store support".into(),
-                    span: Some(head),
-                    help: None,
-                    inner: vec![],
-                });
+                return Err(ShellError::Generic(GenericError::new(
+                    "--topic requires cross-stream feature",
+                    "built without store support",
+                    head,
+                )));
             }
         } else {
             // Inline mode: self-contained, no loader
@@ -1002,12 +967,12 @@ impl Command for MjCompileCommand {
             compile_template_with_loader(&source, &base_dir, |_| Ok(None))
         };
 
-        let hash = hash.map_err(|e| ShellError::GenericError {
-            error: format!("Template compile error: {e}"),
-            msg: e.to_string(),
-            span: Some(head),
-            help: None,
-            inner: vec![],
+        let hash = hash.map_err(|e| {
+            ShellError::Generic(GenericError::new(
+                format!("Template compile error: {e}"),
+                e.to_string(),
+                head,
+            ))
         })?;
 
         Ok(Value::custom(Box::new(CompiledTemplate { hash }), head).into_pipeline_data())
@@ -1092,15 +1057,13 @@ impl Command for MjRenderCommand {
         };
 
         // Render template
-        let rendered = compiled
-            .render(&context)
-            .map_err(|e| ShellError::GenericError {
-                error: format!("Template render error: {e}"),
-                msg: e.to_string(),
-                span: Some(head),
-                help: None,
-                inner: vec![],
-            })?;
+        let rendered = compiled.render(&context).map_err(|e| {
+            ShellError::Generic(GenericError::new(
+                format!("Template render error: {e}"),
+                e.to_string(),
+                head,
+            ))
+        })?;
 
         Ok(Value::string(rendered, head).into_pipeline_data())
     }
@@ -1280,12 +1243,12 @@ impl Command for HighlightThemeCommand {
             Some(theme_name) => {
                 let theme = assets.get_theme(&theme_name);
                 let css = syntect::html::css_for_theme_with_class_style(theme, ClassStyle::Spaced)
-                    .map_err(|e| ShellError::GenericError {
-                        error: format!("Failed to generate CSS: {e}"),
-                        msg: e.to_string(),
-                        span: Some(head),
-                        help: None,
-                        inner: vec![],
+                    .map_err(|e| {
+                        ShellError::Generic(GenericError::new(
+                            format!("Failed to generate CSS: {e}"),
+                            e.to_string(),
+                            head,
+                        ))
                     })?;
                 Ok(Value::string(css, head).into_pipeline_data())
             }

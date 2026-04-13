@@ -12,6 +12,8 @@ use tokio_util::sync::CancellationToken;
 use tower::Service;
 use tower_http::services::{ServeDir, ServeFile};
 
+use nu_protocol::shell_error::generic::GenericError;
+
 use crate::compression;
 use crate::logging::{log_request, log_response, LoggingBody, RequestGuard};
 use crate::request::{resolve_trusted_ip, Request};
@@ -104,13 +106,9 @@ where
                 buffer.extend_from_slice(&bytes);
                 Ok(true)
             }
-            Some(Err(err)) => Err(nu_protocol::ShellError::GenericError {
-                error: "Body read error".into(),
-                msg: err.to_string(),
-                span: None,
-                help: None,
-                inner: vec![],
-            }),
+            Some(Err(err)) => Err(nu_protocol::ShellError::Generic(
+                GenericError::new_internal("Body read error", err.to_string()),
+            )),
             None => Ok(false),
         },
     );
