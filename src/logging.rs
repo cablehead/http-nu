@@ -17,7 +17,7 @@ use crate::request::Request;
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Datastar SDK version (matches CDN URL in stdlib)
-pub const DATASTAR_VERSION: &str = "1.0-RC.8";
+pub const DATASTAR_VERSION: &str = "1.0.1";
 
 /// Startup options to display in preamble
 #[derive(Clone, Default)]

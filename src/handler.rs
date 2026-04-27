@@ -23,9 +23,9 @@ use crate::worker::{spawn_eval_thread, PipelineResult};
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 
-const DATASTAR_JS_PATH: &str = "/datastar@1.0.0-RC.8.js";
-const DATASTAR_JS: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.8.js");
-const DATASTAR_JS_BROTLI: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.0-RC.8.js.br");
+const DATASTAR_JS_PATH: &str = "/datastar@1.0.1.js";
+const DATASTAR_JS: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.1.js");
+const DATASTAR_JS_BROTLI: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.1.js.br");
 
 pub struct AppConfig {
     pub trusted_proxies: Vec<ipnet::IpNet>,
