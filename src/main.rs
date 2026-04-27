@@ -725,6 +725,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         services: args.services,
         #[cfg(not(feature = "cross-stream"))]
         services: false,
+        datastar: args.datastar,
     };
 
     serve(

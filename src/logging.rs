@@ -28,6 +28,7 @@ pub struct StartupOptions {
     pub topic: Option<String>,
     pub expose: Option<String>,
     pub services: bool,
+    pub datastar: bool,
 }
 
 // --- Token bucket rate limiter ---
@@ -583,7 +584,9 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                     if options.store.is_some() {
                         versions.push(format!("xs {}", env!("XS_VERSION")));
                     }
-                    versions.push(format!("datastar {DATASTAR_VERSION}"));
+                    if options.datastar {
+                        versions.push(format!("datastar {DATASTAR_VERSION}"));
+                    }
                     let versions_str = versions.join(" · ");
 
                     let has_opts = !http_opts.is_empty() || !xs_opts.is_empty();
