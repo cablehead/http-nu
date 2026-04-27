@@ -490,31 +490,46 @@ async fn build_normal_response(
             }
         }
         ResponseTransport::Stream(rx) => {
-            // Layer 1: base byte stream, with reload-abort for SSE
-            let byte_stream: Pin<Box<dyn Stream<Item = Vec<u8>> + Send + Sync>> = if is_sse {
-                // SSE streams abort on cancellation (reload or shutdown)
-                Box::pin(futures_util::stream::unfold(
-                    (ReceiverStream::new(rx), sse_cancel_token),
-                    |(mut data_rx, token)| async move {
-                        tokio::select! {
-                            biased;
-                            _ = token.cancelled() => None,
-                            item = StreamExt::next(&mut data_rx) => {
-                                item.map(|data| (data, (data_rx, token)))
+            if is_sse {
+                // SSE: cancellation (--watch reload, shutdown) propagates as a
+                // stream *error* rather than a clean end. Browsers and SSE
+                // clients (e.g. datastar's `@get`) only auto-retry on
+                // connection errors; a clean close is treated as a successful
+                // "finished" and the client goes silent.
+                //
+                // The same Stream<Item = Result<Vec<u8>, BoxError>> drives
+                // both the plain and brotli'd paths -- BrotliStream now
+                // propagates Err through, deliberately omitting the FINISH op
+                // so the client sees a truncated/decoder-error body and
+                // retries.
+                let inner: Pin<Box<dyn Stream<Item = Result<Vec<u8>, BoxError>> + Send + Sync>> =
+                    Box::pin(futures_util::stream::try_unfold(
+                        (ReceiverStream::new(rx), sse_cancel_token),
+                        |(mut data_rx, token)| async move {
+                            tokio::select! {
+                                biased;
+                                _ = token.cancelled() => {
+                                    Err(std::io::Error::other("sse cancelled").into())
+                                }
+                                item = StreamExt::next(&mut data_rx) => {
+                                    Ok(item.map(|data| (data, (data_rx, token))))
+                                }
                             }
-                        }
-                    },
-                ))
-            } else {
-                Box::pin(ReceiverStream::new(rx))
-            };
-
-            // Layer 2: optionally compress, then frame
-            if use_brotli {
+                        },
+                    ));
+                if use_brotli {
+                    let brotli = compression::BrotliStream::new(inner);
+                    BodyExt::boxed(StreamBody::new(brotli))
+                } else {
+                    let stream = inner.map(|res| res.map(|d| Frame::data(Bytes::from(d))));
+                    BodyExt::boxed(StreamBody::new(stream))
+                }
+            } else if use_brotli {
+                let byte_stream = ReceiverStream::new(rx).map(Ok::<Vec<u8>, BoxError>);
                 let brotli = compression::BrotliStream::new(byte_stream);
                 BodyExt::boxed(StreamBody::new(brotli))
             } else {
-                let stream = byte_stream.map(|data| Ok(Frame::data(Bytes::from(data))));
+                let stream = ReceiverStream::new(rx).map(|data| Ok(Frame::data(Bytes::from(data))));
                 BodyExt::boxed(StreamBody::new(stream))
             }
         }

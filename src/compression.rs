@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -111,7 +111,7 @@ impl<S> BrotliStream<S> {
 
 impl<S> Stream for BrotliStream<S>
 where
-    S: Stream<Item = Vec<u8>> + Unpin,
+    S: Stream<Item = Result<Vec<u8>, BoxError>> + Unpin,
 {
     type Item = Result<Frame<Bytes>, BoxError>;
 
@@ -121,7 +121,7 @@ where
         }
 
         match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(chunk)) => {
+            Poll::Ready(Some(Ok(chunk))) => {
                 match self.encode(&chunk, BrotliEncoderOperation::BROTLI_OPERATION_FLUSH) {
                     Ok(compressed) => {
                         if compressed.is_empty() {
@@ -135,6 +135,15 @@ where
                     }
                     Err(e) => Poll::Ready(Some(Err(e))),
                 }
+            }
+
+            // Inner errored (e.g. SSE cancel): propagate the error, mark
+            // ourselves finished so the next poll yields None. We do NOT run
+            // the brotli FINISH op -- the deliberately truncated body lets
+            // the client see this as a fetch error and auto-retry.
+            Poll::Ready(Some(Err(e))) => {
+                self.finished = true;
+                Poll::Ready(Some(Err(e)))
             }
 
             Poll::Ready(None) => {
@@ -158,7 +167,7 @@ where
 
 /// Wrap a streaming response body with brotli compression.
 pub fn compress_stream(rx: mpsc::Receiver<Vec<u8>>) -> BoxBody<Bytes, BoxError> {
-    let stream = ReceiverStream::new(rx);
+    let stream = ReceiverStream::new(rx).map(Ok::<Vec<u8>, BoxError>);
     let brotli_stream = BrotliStream::new(stream);
     StreamBody::new(brotli_stream).boxed()
 }

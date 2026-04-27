@@ -146,6 +146,120 @@ async fn test_handle_streaming() {
     assert_timing_sequence(&collected);
 }
 
+/// When the SSE cancel token fires (e.g. on `--watch` reload), the response
+/// body must terminate with a stream error -- not a clean end-of-stream.
+/// Browsers / datastar's `@get` only auto-retry on connection errors;
+/// a clean close is treated as a successful "finished" and the page goes silent.
+#[tokio::test]
+async fn test_sse_cancel_signals_error_to_client() {
+    let engine = test_engine(
+        r#"{|req|
+            1.. | each {|n| sleep 50ms; {data: $"tick=($n)"} } | to sse
+        }"#,
+    );
+    let cancel = engine.sse_cancel_token.clone();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/sse")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(
+        Arc::new(ArcSwap::from_pointee(engine)),
+        None,
+        default_config(),
+        req,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers()["content-type"], "text/event-stream");
+
+    let mut body = resp.into_body();
+
+    // Drain a couple of data frames so we know the stream is actually live.
+    for _ in 0..2 {
+        match body.frame().await {
+            Some(Ok(frame)) if frame.is_data() => {}
+            other => panic!("expected SSE data frame, got: {other:?}"),
+        }
+    }
+
+    // Simulate a `--watch` reload by cancelling the SSE token.
+    cancel.cancel();
+
+    // After cancellation the stream must yield an error, not a clean end.
+    // We tolerate any in-flight data already in the channel before the error
+    // arrives.
+    loop {
+        match body.frame().await {
+            Some(Ok(_)) => continue, // drain any inflight items
+            Some(Err(_)) => return,  // expected: error -> client retries
+            None => panic!(
+                "SSE stream ended cleanly on cancel; \
+                 client treats this as a successful 'finished' and will not retry"
+            ),
+        }
+    }
+}
+
+/// Same contract for brotli-encoded SSE: cancellation must surface as a
+/// stream error, not a clean end. BrotliStream propagates the inner Err
+/// through (skipping FINISH); the client sees a truncated/decoder-error
+/// body and retries.
+#[tokio::test]
+async fn test_sse_brotli_cancel_signals_error_to_client() {
+    let engine = test_engine(
+        r#"{|req|
+            1.. | each {|n| sleep 50ms; {data: $"tick=($n)"} } | to sse
+        }"#,
+    );
+    let cancel = engine.sse_cancel_token.clone();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/sse")
+        .header("Accept-Encoding", "br")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(
+        Arc::new(ArcSwap::from_pointee(engine)),
+        None,
+        default_config(),
+        req,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers()["content-type"], "text/event-stream");
+    assert_eq!(resp.headers()["content-encoding"], "br");
+
+    let mut body = resp.into_body();
+
+    // Drain a couple of (compressed) data frames to confirm the stream is live.
+    for _ in 0..2 {
+        match body.frame().await {
+            Some(Ok(frame)) if frame.is_data() => {}
+            other => panic!("expected brotli SSE data frame, got: {other:?}"),
+        }
+    }
+
+    cancel.cancel();
+
+    loop {
+        match body.frame().await {
+            Some(Ok(_)) => continue,
+            Some(Err(_)) => return,
+            None => panic!(
+                "brotli SSE stream ended cleanly on cancel; \
+                 client treats this as success and will not retry"
+            ),
+        }
+    }
+}
+
 fn assert_timing_sequence(timings: &[(String, Duration)]) {
     // Check values arrive in sequence
     for (i, (value, _)) in timings.iter().enumerate() {
