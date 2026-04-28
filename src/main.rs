@@ -134,6 +134,10 @@ enum Command {
         #[cfg(feature = "cross-stream")]
         #[clap(long)]
         store: Option<PathBuf>,
+
+        /// Define $DATASTAR_JS_PATH and related Datastar consts
+        #[clap(long)]
+        datastar: bool,
     },
 }
 
@@ -540,6 +544,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         commands,
         #[cfg(feature = "cross-stream")]
         store,
+        datastar,
     }) = args.command
     {
         let (script, script_path) = match (&file, &commands) {
@@ -574,6 +579,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         engine.set_http_nu_const(&HttpNuOptions {
             dev: args.dev,
+            datastar,
             store: store_path,
             ..Default::default()
         })?;
