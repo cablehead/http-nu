@@ -328,3 +328,40 @@ fn test_md_record_without_html_errors() {
     let result = engine.eval(r#"{foo: "bar"} | .md"#, None);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_run_happy_path() {
+    let mut engine = eval_engine();
+    let result = engine
+        .eval(r#""hello" | .run '$in | str upcase'"#, None)
+        .unwrap();
+    assert_eq!(result.as_str().unwrap(), "HELLO");
+}
+
+#[test]
+fn test_run_parse_error() {
+    let mut engine = eval_engine();
+    let result = engine.eval(r#""x" | .run 'let ='"#, None);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("Parse error"));
+}
+
+#[test]
+fn test_run_runtime_error_propagates() {
+    let mut engine = eval_engine();
+    let result = engine.eval(r#""x" | .run 'error make {msg: "boom"}'"#, None);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("boom"));
+}
+
+#[test]
+fn test_run_sandbox_drops_defs() {
+    let mut engine = eval_engine();
+    // First call defines `foo`; sandbox should drop after the call returns.
+    engine
+        .eval(r#""x" | .run 'def foo [] { 42 }; foo'"#, None)
+        .unwrap();
+    // Second call must not see `foo`.
+    let result = engine.eval(r#""x" | .run 'foo'"#, None);
+    assert!(result.is_err());
+}

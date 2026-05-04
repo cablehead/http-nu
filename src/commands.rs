@@ -1584,3 +1584,82 @@ Messages appear in both human-readable and JSONL output modes.
         ]
     }
 }
+
+// === .run: parse, compile, and evaluate a nushell pipeline string in a sandbox ===
+
+#[derive(Clone)]
+pub struct RunNuCommand;
+
+impl Default for RunNuCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RunNuCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for RunNuCommand {
+    fn name(&self) -> &str {
+        ".run"
+    }
+
+    fn description(&self) -> &str {
+        "Parse, compile, and evaluate a nushell pipeline string in a sandboxed engine state."
+    }
+
+    fn extra_description(&self) -> &str {
+        r#"The submitted script is parsed and compiled against a clone of the current engine state.
+Any defs, lets, or modules introduced by the script live only for the duration of the call --
+they do not leak back into the calling engine. Pipeline input is forwarded to the script as `$in`;
+the caller's local bindings and environment are not visible inside the sandbox."#
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".run")
+            .input_output_types(vec![(Type::Any, Type::Any)])
+            .required("script", SyntaxShape::String, "nushell source to evaluate")
+            .category(Category::Experimental)
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        use nu_engine::eval_block_with_early_return;
+        use nu_parser::parse;
+        use nu_protocol::{debugger::WithoutDebug, engine::StateWorkingSet};
+
+        let script: String = call.req(engine_state, stack, 0)?;
+
+        let mut ws = StateWorkingSet::new(engine_state);
+        let block = parse(&mut ws, Some("<.run>"), script.as_bytes(), false);
+
+        if let Some(err) = ws.parse_errors.first() {
+            return Err(ShellError::Generic(GenericError::new(
+                "Parse error",
+                format!("{err}"),
+                err.span(),
+            )));
+        }
+        if let Some(err) = ws.compile_errors.first() {
+            return Err(ShellError::Generic(GenericError::new_internal(
+                format!("Compile error {err}"),
+                "",
+            )));
+        }
+
+        let mut sandbox = engine_state.clone();
+        sandbox.merge_delta(ws.render())?;
+
+        let mut sub_stack = Stack::new();
+        eval_block_with_early_return::<WithoutDebug>(&sandbox, &mut sub_stack, &block, input)
+            .map(|exec| exec.body)
+    }
+}
