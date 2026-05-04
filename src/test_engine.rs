@@ -347,6 +347,28 @@ fn test_run_parse_error() {
 }
 
 #[test]
+fn test_run_parse_error_includes_source_excerpt() {
+    let mut engine = eval_engine();
+    let result = engine.eval(r#""foo" | .run 'str upcaes "x" "y"'"#, None);
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("Parse error"));
+    assert!(
+        err.contains("str upcaes"),
+        "missing source excerpt in: {err}"
+    );
+    assert!(err.contains("<.run>"), "missing file label in: {err}");
+}
+
+#[test]
+fn test_run_parse_error_multiple_surfaced() {
+    let mut engine = eval_engine();
+    let result = engine.eval(r#""x" | .run 'let = ; let = '"#, None);
+    let err = result.unwrap_err().to_string();
+    let count = err.matches("Missing argument to `=`").count();
+    assert!(count >= 2, "expected both parse errors in: {err}");
+}
+
+#[test]
 fn test_run_runtime_error_propagates() {
     let mut engine = eval_engine();
     let result = engine.eval(r#""x" | .run 'error make {msg: "boom"}'"#, None);

@@ -1634,25 +1634,39 @@ the caller's local bindings and environment are not visible inside the sandbox."
     ) -> Result<PipelineData, ShellError> {
         use nu_engine::eval_block_with_early_return;
         use nu_parser::parse;
-        use nu_protocol::{debugger::WithoutDebug, engine::StateWorkingSet};
+        use nu_protocol::{debugger::WithoutDebug, engine::StateWorkingSet, format_cli_error};
 
         let script: String = call.req(engine_state, stack, 0)?;
 
         let mut ws = StateWorkingSet::new(engine_state);
         let block = parse(&mut ws, Some("<.run>"), script.as_bytes(), false);
 
-        if let Some(err) = ws.parse_errors.first() {
-            return Err(ShellError::Generic(GenericError::new(
-                "Parse error",
-                format!("{err}"),
-                err.span(),
-            )));
+        if !ws.parse_errors.is_empty() {
+            let mut combined = String::new();
+            for err in &ws.parse_errors {
+                let se = ShellError::Generic(GenericError::new(
+                    "Parse error",
+                    format!("{err}"),
+                    err.span(),
+                ));
+                combined.push_str(&format_cli_error(None, &ws, &se, None));
+                combined.push('\n');
+            }
+            let plain = nu_utils::strip_ansi_string_likely(combined);
+            return Err(ShellError::Generic(GenericError::new_internal(plain, "")));
         }
-        if let Some(err) = ws.compile_errors.first() {
-            return Err(ShellError::Generic(GenericError::new_internal(
-                format!("Compile error {err}"),
-                "",
-            )));
+        if !ws.compile_errors.is_empty() {
+            let mut combined = String::new();
+            for err in &ws.compile_errors {
+                let se = ShellError::Generic(GenericError::new_internal(
+                    format!("Compile error {err}"),
+                    "",
+                ));
+                combined.push_str(&format_cli_error(None, &ws, &se, None));
+                combined.push('\n');
+            }
+            let plain = nu_utils::strip_ansi_string_likely(combined);
+            return Err(ShellError::Generic(GenericError::new_internal(plain, "")));
         }
 
         let mut sandbox = engine_state.clone();
