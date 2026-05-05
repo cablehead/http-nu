@@ -1,4 +1,5 @@
 #![allow(clippy::result_large_err)]
+pub mod bus;
 pub mod commands;
 pub mod compression;
 pub mod engine;

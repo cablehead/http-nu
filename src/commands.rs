@@ -1,3 +1,4 @@
+use crate::bus::Bus;
 use crate::logging::log_print;
 use crate::response::{Response, ResponseBodyType};
 use nu_engine::command_prelude::*;
@@ -1675,5 +1676,143 @@ the caller's local bindings and environment are not visible inside the sandbox."
         let mut sub_stack = Stack::new();
         eval_block_with_early_return::<WithoutDebug>(&sandbox, &mut sub_stack, &block, input)
             .map(|exec| exec.body)
+    }
+}
+
+// === .bus pub / .bus sub: ephemeral local pub/sub ===
+
+#[derive(Clone)]
+pub struct BusPubCommand {
+    bus: Arc<Bus>,
+}
+
+impl BusPubCommand {
+    pub fn new(bus: Arc<Bus>) -> Self {
+        Self { bus }
+    }
+}
+
+impl Command for BusPubCommand {
+    fn name(&self) -> &str {
+        ".bus pub"
+    }
+
+    fn description(&self) -> &str {
+        "Publish a value to an ephemeral in-process topic."
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".bus pub")
+            .input_output_types(vec![(Type::Any, Type::Nothing)])
+            .required("topic", SyntaxShape::String, "topic to publish to")
+            .category(Category::Experimental)
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let topic: String = call.req(engine_state, stack, 0)?;
+        let value = input.into_value(call.head)?;
+        self.bus.publish(topic, value);
+        Ok(PipelineData::empty())
+    }
+}
+
+#[derive(Clone)]
+pub struct BusSubCommand {
+    bus: Arc<Bus>,
+}
+
+impl BusSubCommand {
+    pub fn new(bus: Arc<Bus>) -> Self {
+        Self { bus }
+    }
+}
+
+impl Command for BusSubCommand {
+    fn name(&self) -> &str {
+        ".bus sub"
+    }
+
+    fn description(&self) -> &str {
+        "Subscribe to ephemeral in-process topics; yields {topic, value} records."
+    }
+
+    fn extra_description(&self) -> &str {
+        r#"With no argument, yields every published event. With a glob pattern (e.g. "tab-abc.*"),
+yields only events whose topic matches. `*` matches any run of characters including dots."#
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".bus sub")
+            .input_output_types(vec![(Type::Nothing, Type::Any)])
+            .optional(
+                "pattern",
+                SyntaxShape::String,
+                "glob pattern; omit for all topics",
+            )
+            .category(Category::Experimental)
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        use nu_protocol::{record, ListStream, Signals};
+
+        let pattern: Option<String> = call.opt(engine_state, stack, 0)?;
+        let span = call.head;
+        let signals = engine_state.signals().clone();
+
+        let mut sub = self.bus.subscribe(pattern);
+
+        let (tx, rx) = std::sync::mpsc::channel::<crate::bus::BusEvent>();
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(_) => return,
+            };
+            rt.block_on(async move {
+                while let Some(ev) = sub.recv().await {
+                    if tx.send(ev).is_err() {
+                        break;
+                    }
+                }
+            });
+        });
+
+        let stream = ListStream::new(
+            std::iter::from_fn(move || {
+                use std::sync::mpsc::RecvTimeoutError;
+                use std::time::Duration;
+                loop {
+                    if signals.interrupted() {
+                        return None;
+                    }
+                    match rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(ev) => {
+                            let rec = record! {
+                                "topic" => Value::string(ev.topic, span),
+                                "value" => ev.value,
+                            };
+                            return Some(Value::record(rec, span));
+                        }
+                        Err(RecvTimeoutError::Timeout) => continue,
+                        Err(RecvTimeoutError::Disconnected) => return None,
+                    }
+                }
+            }),
+            span,
+            Signals::empty(),
+        );
+
+        Ok(PipelineData::ListStream(stream, None))
     }
 }

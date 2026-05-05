@@ -55,7 +55,8 @@
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
   - [In-memory SQLite](#in-memory-sqlite)
-  - [Embedded Store](#embedded-store)
+  - [Local Bus](#local-bus)
+  - [Embedded cross.stream (full featured Persistent Event Stream)](#embedded-crossstream-full-featured-persistent-event-stream)
   - [Reverse Proxy](#reverse-proxy)
   - [Templates](#templates)
     - [`.mj` - Render templates](#mj---render-templates)
@@ -527,15 +528,49 @@ Visit #3 recorded
 The database is concurrent-safe across requests. Note that `stor` is in-memory
 only -- data does not survive server restarts. It is also not available between
 separate calls to `http-nu eval`, though it works within a single eval
-invocation. For durable persistence, use [Embedded Store](#embedded-store).
+invocation. For durable persistence, use
+[Embedded cross.stream](#embedded-crossstream-full-featured-persistent-event-stream).
+For ephemeral pings between requests rather than rows of state, see
+[Local Bus](#local-bus).
 
-### Embedded Store
+### Local Bus
+
+In-process pub/sub for ephemeral UI events: clicks, key presses, form input
+changes -- anything the browser fires at the backend that you don't need to
+remember. Always available; no flag required.
+
+For a persistent event stream as the source of truth, see
+[Embedded cross.stream](#embedded-crossstream-full-featured-persistent-event-stream).
+
+```nushell
+# Publish: pipeline value becomes the event payload
+$body | .bus pub "tab-abc.compose.close"
+
+# Subscribe: yields {topic, value} records
+.bus sub                 # all topics
+.bus sub "tab-abc.*"     # glob: * matches any run including dots
+```
+
+**Commands:**
+
+| Command    | Description                                               |
+| ---------- | --------------------------------------------------------- |
+| `.bus pub` | Publish a value to a topic (`.bus pub <topic>`)           |
+| `.bus sub` | Subscribe; optional glob pattern, yields `{topic, value}` |
+
+Slow subscribers are disconnected on overflow; the SSE stream ends and the
+client reconnects.
+
+### Embedded cross.stream (full featured Persistent Event Stream)
 
 Embed [cross.stream](https://www.cross.stream) for real-time state and event
 streaming. Append-only frames, automatic indexing, content-addressed storage.
-Enable with `--store <path>`. Add `--services` to enable xs actors, services,
-and actions - external clients can register automation via the store's API
-(e.g., `xs append ./store echo.register ...`).
+Enable with `--store <path>`. Add `--services` to enable xs
+[actors](https://cablehead.github.io/xs/reference/actors/),
+[services](https://cablehead.github.io/xs/reference/services/), and
+[actions](https://cablehead.github.io/xs/reference/actions/) - external clients
+can register automation via the store's API (e.g.,
+`xs append ./store echo.register ...`).
 
 ```bash
 $ http-nu :3001 --store ./store ./serve.nu
@@ -577,6 +612,34 @@ Templates can also load from the store using `.mj --topic` and
   | to sse
 }
 ```
+
+**Combining with the [Local Bus](#local-bus):**
+
+Bus events use `compose.close` or `editor.open` style UI signals; store events
+record `clip.add` style facts. A single subscriber can
+[`interleave`](https://www.nushell.sh/commands/docs/interleave.html) ephemeral
+bus events with durable `.cat --follow` frames to see both in one stream:
+
+```nushell
+{|req|
+  null | interleave
+    { .bus sub "tab-abc.*" | each {|e| {origin: bus, topic: $e.topic} } }
+    { .cat --follow --new  | each {|f| {origin: xs,  topic: $f.topic} } }
+  | each {|ev| ... morph UI ... }
+  | to sse
+}
+```
+
+The leading `null |` discards the request body so `interleave` (which accepts
+only `nothing` / `list<any>` input) sees what it expects. See
+[Streaming Input](#streaming-input).
+
+The bus differs from `.append` / `.cat`:
+
+- No persistence -- restart loses bus events.
+- No frame IDs, hashes, or metadata fields -- just `{topic, value}`.
+- Local to the http-nu process -- when `--store` points at a remote xs, bus
+  events stay local; only `.append` / `.cat` cross the wire.
 
 See the [xs documentation](https://www.cross.stream) to learn more.
 

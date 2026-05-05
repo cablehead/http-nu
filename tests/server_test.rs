@@ -2792,3 +2792,192 @@ async fn test_watch_script_error_ctrl_c_exits() {
     // We don't care about the exact exit code, just that it exited
     eprintln!("Server exited with status: {status}");
 }
+
+#[tokio::test]
+async fn test_bus_pub_sub_roundtrip() {
+    // Server: POST /pub publishes the body to topic "tab-abc.compose.close".
+    // GET /sub subscribes (with a glob), takes one event, returns its topic.
+    let closure = r#"{|req|
+        if $req.path == "/pub" {
+            $in | .bus pub "tab-abc.compose.close"
+            ""
+        } else if $req.path == "/sub" {
+            .bus sub "tab-abc.*" | take 1 | first | get topic
+        } else { "?" }
+    }"#;
+    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    // Spawn the subscriber first; it blocks until an event arrives.
+    let sub_url = format!("{}/sub", server.address);
+    let sub_handle = tokio::spawn(async move {
+        let out = tokio::process::Command::new("curl")
+            .arg("-s")
+            .arg(&sub_url)
+            .output()
+            .await
+            .expect("curl /sub");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    });
+
+    // Give the subscriber time to actually attach.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Publish an event.
+    let pub_url = format!("{}/pub", server.address);
+    let pub_out = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("hello")
+        .arg(&pub_url)
+        .output()
+        .await
+        .expect("curl /pub");
+    assert!(pub_out.status.success(), "publish failed");
+
+    // The subscriber should now receive and the response should be the topic.
+    let topic = tokio::time::timeout(std::time::Duration::from_secs(5), sub_handle)
+        .await
+        .expect("sub timed out")
+        .expect("sub task panicked");
+    assert_eq!(topic, "tab-abc.compose.close");
+}
+
+#[tokio::test]
+async fn test_bus_interleaves_with_xs_cat_follow() {
+    // Confirms a single subscriber pipeline can `interleave` ephemeral .bus
+    // events with durable .cat --follow events, so users can see one merged
+    // stream of UI pings + DB facts.
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path();
+
+    let closure = r#"{|req|
+        if $req.path == "/pub" {
+            $in | .bus pub "tab-abc.compose.close"
+            ""
+        } else if $req.path == "/append" {
+            $in | .append clip.add
+            ""
+        } else if $req.path == "/sub" {
+            null | interleave { .bus sub "tab-abc.*" | each {|e| {origin: "bus", topic: $e.topic} } } { .cat --follow --new | each {|f| {origin: "xs", topic: $f.topic} } } | take 2 | sort-by origin | to json -r
+        } else { "?" }
+    }"#;
+    let server = TestServer::new_with_store("127.0.0.1:0", closure, store_path).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    let sub_url = format!("{}/sub", server.address);
+    let sub_handle = tokio::spawn(async move {
+        let out = tokio::process::Command::new("curl")
+            .arg("-s")
+            .arg(&sub_url)
+            .output()
+            .await
+            .expect("curl /sub");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    });
+
+    // Give both subscribers time to attach.
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+
+    // Fire one of each.
+    let _ = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("ping")
+        .arg(format!("{}/pub", server.address))
+        .output()
+        .await
+        .expect("curl /pub");
+
+    let _ = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("clip body")
+        .arg(format!("{}/append", server.address))
+        .output()
+        .await
+        .expect("curl /append");
+
+    let body = tokio::time::timeout(std::time::Duration::from_secs(5), sub_handle)
+        .await
+        .expect("sub timed out")
+        .expect("sub task panicked");
+
+    // Two events, sorted by origin: bus first, xs second.
+    let parsed: serde_json::Value = serde_json::from_str(&body).expect("parse json");
+    let arr = parsed.as_array().expect("array");
+    assert_eq!(arr.len(), 2, "expected 2 events, got {body}");
+    assert_eq!(arr[0]["origin"], "bus");
+    assert_eq!(arr[0]["topic"], "tab-abc.compose.close");
+    assert_eq!(arr[1]["origin"], "xs");
+    assert_eq!(arr[1]["topic"], "clip.add");
+}
+
+#[tokio::test]
+async fn test_bus_sub_glob_filters_unmatching() {
+    // Subscriber asks for "tab-abc.*"; publisher emits one matching and one
+    // non-matching event. The subscriber should yield only the matching one.
+    let closure = r#"{|req|
+        if $req.path == "/pub-other" {
+            $in | .bus pub "tab-xyz.compose.close"
+            ""
+        } else if $req.path == "/pub-match" {
+            $in | .bus pub "tab-abc.compose.close"
+            ""
+        } else if $req.path == "/sub" {
+            .bus sub "tab-abc.*" | take 1 | first | get topic
+        } else { "?" }
+    }"#;
+    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    let sub_url = format!("{}/sub", server.address);
+    let sub_handle = tokio::spawn(async move {
+        let out = tokio::process::Command::new("curl")
+            .arg("-s")
+            .arg(&sub_url)
+            .output()
+            .await
+            .expect("curl /sub");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Non-matching publish first; subscriber should ignore it.
+    let _ = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("ignored")
+        .arg(format!("{}/pub-other", server.address))
+        .output()
+        .await
+        .expect("curl /pub-other");
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Matching publish.
+    let _ = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("-d")
+        .arg("matched")
+        .arg(format!("{}/pub-match", server.address))
+        .output()
+        .await
+        .expect("curl /pub-match");
+
+    let topic = tokio::time::timeout(std::time::Duration::from_secs(5), sub_handle)
+        .await
+        .expect("sub timed out")
+        .expect("sub task panicked");
+    assert_eq!(topic, "tab-abc.compose.close");
+}

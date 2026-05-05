@@ -19,10 +19,11 @@ use nu_protocol::{
     Value,
 };
 
+use crate::bus::Bus;
 use crate::commands::{
-    HighlightCommand, HighlightLangCommand, HighlightThemeCommand, MdCommand, MjCommand,
-    MjCompileCommand, MjRenderCommand, PrintCommand, ReverseProxyCommand, RunNuCommand,
-    StaticCommand, ToSse,
+    BusPubCommand, BusSubCommand, HighlightCommand, HighlightLangCommand, HighlightThemeCommand,
+    MdCommand, MjCommand, MjCompileCommand, MjRenderCommand, PrintCommand, ReverseProxyCommand,
+    RunNuCommand, StaticCommand, ToSse,
 };
 use crate::logging::log_error;
 use crate::stdlib::load_http_nu_stdlib;
@@ -45,6 +46,8 @@ pub struct HttpNuOptions {
 pub struct Engine {
     pub state: EngineState,
     pub closure: Option<Closure>,
+    /// Local in-process pub/sub bus for ephemeral UI events
+    pub bus: Arc<Bus>,
     /// Cancellation token for SSE streams
     pub sse_cancel_token: CancellationToken,
 }
@@ -66,6 +69,7 @@ impl Engine {
         Ok(Self {
             state: engine_state,
             closure: None,
+            bus: Arc::new(Bus::new(64)),
             sse_cancel_token: CancellationToken::new(),
         })
     }
@@ -348,6 +352,8 @@ impl Engine {
             Box::new(MdCommand::new()),
             Box::new(PrintCommand::new()),
             Box::new(RunNuCommand::new()),
+            Box::new(BusPubCommand::new(self.bus.clone())),
+            Box::new(BusSubCommand::new(self.bus.clone())),
         ])
     }
 
