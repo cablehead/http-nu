@@ -6,12 +6,12 @@ use http-nu/html *
 # Buffers frames until xs.threshold is seen, then emits the last
 # buffered frame (or null if none) followed by all subsequent frames.
 def threshold-gate [] {
-  generate {|frame, state = {}|
+  generate {|frame state = {}|
     if $frame.topic == "xs.threshold" {
-      return {out: $state.last?, next: {reached: true}}
+      return {out: $state.last? next: {reached: true}}
     }
     if ("reached" in $state) {
-      return {out: $frame, next: $state}
+      return {out: $frame next: $state}
     }
     {next: ($state | upsert last $frame)}
   }
@@ -19,81 +19,63 @@ def threshold-gate [] {
 
 def quote-html []: record -> record {
   let q = $in
-  (
-    DIV {
-      id: "quote"
-      style: {
-        background-color: "#e8e6e3"
-        color: "#4a4a4a"
-        height: 100dvh
-        padding: "5vh 10vw"
-        font-size: 6vmax
-        display: flex
-        flex-direction: column
-        justify-content: center
-        overflow: hidden
-      }
+  (DIV {
+    id: "quote"
+    style: {
+      background-color: "#e8e6e3"
+      color: "#4a4a4a"
+      height: 100dvh
+      padding: "5vh 10vw"
+      font-size: 6vmax
+      display: flex
+      flex-direction: column
+      justify-content: center
+      overflow: hidden
     }
-    (
-      P {
-        style: {
-          font-family: "Georgia, serif"
-          font-style: italic
-          text-align: center
-        }
-      } $"\"($q.quote)\""
-    )
-    (
-      P {
-        style: {
-          font-family: "'American Typewriter', Courier, monospace"
-          font-size: 4vmax
-          text-align: right
-          margin-top: 10vh
-        }
-      } $"— ($q.who? | default 'Anonymous')"
-    )
-  )
+  }
+  (P {
+    style: {
+      font-family: "Georgia, serif"
+      font-style: italic
+      text-align: center
+    }
+  } $"\"($q.quote)\"")
+  (P {
+    style: {
+      font-family: "'American Typewriter', Courier, monospace"
+      font-size: 4vmax
+      text-align: right
+      margin-top: 10vh
+    }
+  } $"— ($q.who? | default 'Anonymous')"))
 }
 
 {|req|
   dispatch $req [
-    (
-      route {method: GET path: "/" has-header: {accept: "text/event-stream"}} {|req ctx|
-        .last quotes --follow
-        | threshold-gate
-        | default {meta: {quote: "Waiting for quotes..."}}
-        | each {|frame|
-          $frame.meta | quote-html | to datastar-patch-elements
-        }
-        | to sse
+    (route {method: GET path: "/" has-header: {accept: "text/event-stream"}} {|req ctx|
+      .last quotes --follow
+      | threshold-gate
+      | default {meta: {quote: "Waiting for quotes..."}}
+      | each {|frame|
+        $frame.meta | quote-html | to datastar-patch-elements
       }
-    )
+      | to sse
+    })
 
-    (
-      route {method: POST path: "/"} {|req ctx|
-        $in | from json | .append quotes --meta $in
-        null | metadata set { merge {'http.response': {status: 204}} }
-      }
-    )
+    (route {method: POST path: "/"} {|req ctx|
+      $in | from json | .append quotes --meta $in
+      null | metadata set { merge {'http.response': {status: 204}} }
+    })
 
-    (
-      route {method: GET path: "/"} {|req ctx|
-        (
-          HTML
-          (
-            HEAD
-            (META {charset: "utf-8"})
-            (TITLE "Live Quotes")
-            (STYLE "* { box-sizing: border-box; margin: 0; }")
-            (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
-          )
-          (
-            BODY {data-init: "@get('./')"}
-            ({quote: "Waiting for quotes..."} | quote-html)
-          )
-        )
-      }
-    )
+    (route {method: GET path: "/"} {|req ctx|
+      (HTML
+      (HEAD
+      (META {charset: "utf-8"})
+      (TITLE "Live Quotes")
+      (STYLE "* { box-sizing: border-box; margin: 0; }")
+      (SCRIPT {type: "module" src: $DATASTAR_JS_PATH}))
+      (BODY {data-init: "@get('./')"}
+      ({quote: "Waiting for quotes..."} | quote-html)))
+    })
   ]
 }

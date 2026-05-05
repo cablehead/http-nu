@@ -20,18 +20,18 @@ def index-page [] {
     | sort
 
   HTML (HEAD
-    (META {charset: "utf-8"})
-    (TITLE "Docs")
-    (STYLE {__html: "
+  (META {charset: "utf-8"})
+  (TITLE "Docs")
+  (STYLE {
+    __html: "
       body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
       a { color: #2563eb; text-decoration: none; }
       a:hover { text-decoration: underline; }
       li { margin: 0.4rem 0; font-family: monospace; }
-    "})
-  ) (BODY
-    (H1 "Crates")
-    (UL { $crates | each {|c| LI (A {href: $"/($c)/"} $c) } })
-  )
+    "
+  })) (BODY
+  (H1 "Crates")
+  (UL { $crates | each {|c| LI (A {href: $"/($c)/"} $c) } }))
 }
 
 {|req|

@@ -28,7 +28,7 @@ export def "to datastar-patch-elements" [
   let html = match $type {
     "string" => $input
     "record" => (if "__html" in $input { $input.__html } else { error make {msg: "record must have __html field"} })
-    _ => ( error make {msg: $"expected string or {__html} record, got ($type)"})
+    _ => (error make {msg: $"expected string or {__html} record, got ($type)"})
   }
   let data = [
     (if $selector != null { $"selector ($selector)" })

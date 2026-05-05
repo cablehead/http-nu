@@ -67,35 +67,29 @@ def render-slide [req: record name: string] {
 # each route is a pattern. the first match wins.
 {|req|
   dispatch $req [
-    (
-      route {|req|
-        if ($req.path | str starts-with "/static/") {
-          {subpath: ($req.path | str replace "/static" "")}
-        }
-      } {|req ctx|
-        .static ($script_dir | path join static) $ctx.subpath
+    (route {|req|
+      if ($req.path | str starts-with "/static/") {
+        {subpath: ($req.path | str replace "/static" "")}
       }
-    )
+    } {|req ctx|
+      .static ($script_dir | path join static) $ctx.subpath
+    })
 
     # the journey begins here.
-    (
-      route {path: "/"} {|req ctx|
-        render-slide $req "state"
-      }
-    )
+    (route {path: "/"} {|req ctx|
+      render-slide $req "state"
+    })
 
     # or you may arrive at any point along the way.
-    (
-      route {path-matches: "/:key"} {|req ctx|
-        if ($ctx.key in $slides) {
-          render-slide $req $ctx.key
-        } else {
-          P [
-            "You have strayed from the path. Breathe. Find your way back, "
-            (A {href: "/"} "to the tao")
-          ] | metadata set { merge {'http.response': {status: 404}} }
-        }
+    (route {path-matches: "/:key"} {|req ctx|
+      if ($ctx.key in $slides) {
+        render-slide $req $ctx.key
+      } else {
+        P [
+          "You have strayed from the path. Breathe. Find your way back, "
+          (A {href: "/"} "to the tao")
+        ] | metadata set { merge {'http.response': {status: 404}} }
       }
-    )
+    })
   ]
 }

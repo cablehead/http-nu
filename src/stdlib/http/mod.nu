@@ -18,7 +18,7 @@ export def "cookie parse" []: record -> record {
       {}
     }
   }
-  | reduce --fold {} {|it, acc| $acc | merge $it}
+  | reduce --fold {} {|it acc| $acc | merge $it }
 }
 
 # Set a cookie on the response
@@ -30,11 +30,11 @@ export def "cookie parse" []: record -> record {
 export def "cookie set" [
   name: string
   value: string
-  --max-age: int              # Cookie lifetime in seconds
-  --path: string = "/"        # Cookie path
-  --domain: string            # Cookie domain
-  --no-httponly               # Allow JavaScript access
-  --no-secure                 # Omit Secure flag even in prod mode
+  --max-age: int # Cookie lifetime in seconds
+  --path: string = "/" # Cookie path
+  --domain: string # Cookie domain
+  --no-httponly # Allow JavaScript access
+  --no-secure # Omit Secure flag even in prod mode
   --same-site: string = "Lax" # SameSite policy: Lax, Strict, or None
 ]: any -> any {
   metadata set {|m|
@@ -62,8 +62,8 @@ export def "cookie set" [
 # Usage: "OK" | cookie delete "session"
 export def "cookie delete" [
   name: string
-  --path: string = "/"   # Must match the path used when setting the cookie
-  --domain: string       # Must match the domain used when setting the cookie
+  --path: string = "/" # Must match the path used when setting the cookie
+  --domain: string # Must match the domain used when setting the cookie
 ]: any -> any {
   metadata set {|m|
     let header = ([

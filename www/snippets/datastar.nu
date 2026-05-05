@@ -8,9 +8,7 @@
     sleep ($interval * 1ms)
     let acc = $acc + $c
     {
-      out: (
-        DIV {id: "message"} $acc
-      )
+      out: (DIV {id: "message"} $acc)
       next: $acc
     }
   }

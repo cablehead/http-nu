@@ -45,12 +45,10 @@ def handle-event [event: record] {
 
 {|req|
   dispatch $req [
-    (
-      route {path: "/test"} {|req ctx|
-        let input = $in | from datastar-signals $req
-        let events = $input.events? | default []
-        $events | each {|event| handle-event $event } | to sse
-      }
-    )
+    (route {path: "/test"} {|req ctx|
+      let input = $in | from datastar-signals $req
+      let events = $input.events? | default []
+      $events | each {|event| handle-event $event } | to sse
+    })
   ]
 }

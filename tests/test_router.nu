@@ -57,20 +57,16 @@ let r10 = route {
   path-matches: "/api/:version/data"
   has-header: {accept: "application/json"}
 } {|req ctx| $ctx }
-assert equal (
-  do $r10.test {
-    method: "POST"
-    path: "/api/v1/data"
-    headers: {accept: "application/json"}
-  }
-) {version: "v1"}
-assert equal (
-  do $r10.test {
-    method: "GET"
-    path: "/api/v1/data"
-    headers: {accept: "application/json"}
-  }
-) null
+assert equal (do $r10.test {
+  method: "POST"
+  path: "/api/v1/data"
+  headers: {accept: "application/json"}
+}) {version: "v1"}
+assert equal (do $r10.test {
+  method: "GET"
+  path: "/api/v1/data"
+  headers: {accept: "application/json"}
+}) null
 
 # Testing empty pattern (fallback)
 let r11 = route {} {|req ctx| "404" }
@@ -133,30 +129,24 @@ assert equal (dispatch {headers: {accept: "text/html"}} $routes3) "fallback"
 
 # Testing dispatch with combined conditions
 let routes4 = [
-  (
-    route {
-      method: "POST"
-      path-matches: "/api/:version/data"
-      has-header: {accept: "application/json"}
-    } {|req ctx| {version: $ctx.version status: "ok"} }
-  )
+  (route {
+    method: "POST"
+    path-matches: "/api/:version/data"
+    has-header: {accept: "application/json"}
+  } {|req ctx| {version: $ctx.version status: "ok"} })
   (route true {|req ctx| "fallback" })
 ]
 
-assert equal (
-  dispatch {
-    method: "POST"
-    path: "/api/v1/data"
-    headers: {accept: "application/json"}
-  } $routes4
-) {version: "v1" status: "ok"}
-assert equal (
-  dispatch {
-    method: "GET"
-    path: "/api/v1/data"
-    headers: {accept: "application/json"}
-  } $routes4
-) "fallback"
+assert equal (dispatch {
+  method: "POST"
+  path: "/api/v1/data"
+  headers: {accept: "application/json"}
+} $routes4) {version: "v1" status: "ok"}
+assert equal (dispatch {
+  method: "GET"
+  path: "/api/v1/data"
+  headers: {accept: "application/json"}
+} $routes4) "fallback"
 
 # Testing dispatch with no matching routes
 # Note: In standalone test we can't check http.response metadata,

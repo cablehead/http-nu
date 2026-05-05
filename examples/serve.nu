@@ -26,35 +26,28 @@ def example-link [href: string label: string desc: string --disabled] {
 }
 
 let routes = [
-  (
-    route {method: GET path: "/"} {|req ctx|
-      HTML (
-        HEAD
-        (META {charset: "UTF-8"})
-        (META {name: "viewport" content: "width=device-width, initial-scale=1"})
-        (TITLE "http-nu examples")
-        (STYLE "
+  (route {method: GET path: "/"} {|req ctx|
+    HTML (HEAD
+    (META {charset: "UTF-8"})
+    (META {name: "viewport" content: "width=device-width, initial-scale=1"})
+    (TITLE "http-nu examples")
+    (STYLE "
 body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
 a { color: #2563eb; }
 li { margin: 0.5rem 0; }
-")
-      ) (
-        BODY
-        (H1 "http-nu examples")
-        (P (A {href: "https://github.com/cablehead/http-nu/tree/main/examples"} "source on GitHub"))
-        (UL
-          (example-link "./basic/" "basic" "minimal routes, JSON, streaming")
-          (example-link "./stor/" "stor" "in-memory SQLite with stor")
-          (example-link "./datastar-counter/" "datastar-counter" "reactive counter")
-          (example-link "./datastar-sdk/" "datastar-sdk" "SDK feature demo")
-          (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
-          (example-link "./templates/" "templates" ".mj template modes")
-          (example-link "./quotes/" "quotes" "live quotes board" --disabled=(not $has_store))
-          (example-link "./blog/" "blog" "routing, layouts, HTML composition")
-        )
-      )
-    }
-  )
+")) (BODY
+    (H1 "http-nu examples")
+    (P (A {href: "https://github.com/cablehead/http-nu/tree/main/examples"} "source on GitHub"))
+    (UL
+    (example-link "./basic/" "basic" "minimal routes, JSON, streaming")
+    (example-link "./stor/" "stor" "in-memory SQLite with stor")
+    (example-link "./datastar-counter/" "datastar-counter" "reactive counter")
+    (example-link "./datastar-sdk/" "datastar-sdk" "SDK feature demo")
+    (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
+    (example-link "./templates/" "templates" ".mj template modes")
+    (example-link "./quotes/" "quotes" "live quotes board" --disabled=(not $has_store))
+    (example-link "./blog/" "blog" "routing, layouts, HTML composition")))
+  })
 
   (mount "/basic" $basic)
   (mount "/stor" $stor_example)
@@ -63,11 +56,13 @@ li { margin: 0.5rem 0; }
   (mount "/mermaid-editor" $mermaid)
   (mount "/templates" $templates)
   (mount "/blog" $blog)
-  ...(if $has_store {
-    [(mount "/quotes" $quotes)]
-  } else {
-    []
-  })
+  ...(
+    if $has_store {
+      [(mount "/quotes" $quotes)]
+    } else {
+      []
+    }
+  )
 ]
 
 {|req|
