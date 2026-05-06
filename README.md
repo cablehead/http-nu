@@ -63,6 +63,7 @@
     - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
   - [Syntax Highlighting](#syntax-highlighting)
   - [Markdown](#markdown)
+  - [Evaluating User-Submitted Scripts](#evaluating-user-submitted-scripts)
   - [Streaming Input](#streaming-input)
   - [Plugins](#plugins)
   - [Module Paths](#module-paths)
@@ -160,9 +161,8 @@ $ http-nu :3001 -w ./serve.nu
 ```
 
 This watches the script's directory for any changes (including included files)
-and hot-reloads the handler. Useful during development. Active
-[SSE connections](#server-sent-events) are aborted on reload to trigger client
-reconnection.
+and hot-reloads the handler. Active [SSE connections](#server-sent-events) are
+aborted on reload to trigger client reconnection.
 
 ### Reading from stdin
 
@@ -787,7 +787,7 @@ let tpl = (.mj compile --topic "user.html")
 {name: "Alice", age: 30} | .mj render $tpl
 ```
 
-Useful for repeated rendering:
+Compile once outside a hot loop, render many:
 
 ```nushell
 let tpl = (.mj compile --inline "{% for i in items %}{{ i }}{% endfor %}")
@@ -841,6 +841,27 @@ fn main() {}
 ```" | .md | get __html'
 <pre><code class="language-rust"><span class="source rust">...
 ````
+
+### Evaluating User-Submitted Scripts
+
+The `.run` command parses, compiles, and evaluates a nushell script string. Use
+it to build web UIs that let users submit and run arbitrary commands -- an
+in-browser REPL, for example. Pipeline input is forwarded to the script.
+
+```nushell
+"hello" | .run 'str upcase'              # => HELLO
+[1 2 3] | .run 'math sum'                # => 6
+```
+
+Parse, compile, and runtime errors surface as distinct error types with source
+excerpts pointing at the offending span. Each call runs against a clone of the
+engine state, so any `def`, `let`, or `use` lives only for the call's duration;
+the caller's bindings and environment are also hidden from the script.
+
+> [!WARNING]
+> The submitted script has full access to whatever the http-nu process can do --
+> files, network, the embedded store. Only expose `.run` on localhost or in
+> trusted environments.
 
 ### Streaming Input
 
