@@ -33,6 +33,7 @@ Each example can also be run standalone.
 | quotes | `http-nu --datastar --store ./store :3001 examples/quotes/serve.nu` | Live quotes board with SSE |
 | tao | `http-nu --datastar --dev -w :3001 examples/tao/serve.nu` | The Tao of Datastar |
 | blog | `http-nu :3001 examples/blog/serve.nu` | Routing, layouts, HTML composition |
+| 2048 | `http-nu --datastar :3001 examples/2048/serve.nu` | Solo game driven by `.bus pub` / `.bus sub` |
 
 ## Store-dependent examples
 

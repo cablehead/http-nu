@@ -14,6 +14,7 @@ let mermaid = source mermaid-editor/serve.nu
 let templates = source templates/serve.nu
 let quotes = source quotes/serve.nu
 let blog = source blog/serve.nu
+let game_2048 = source 2048/serve.nu
 
 let has_store = $HTTP_NU.store != null
 
@@ -46,7 +47,8 @@ li { margin: 0.5rem 0; }
     (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
     (example-link "./templates/" "templates" ".mj template modes")
     (example-link "./quotes/" "quotes" "live quotes board" --disabled=(not $has_store))
-    (example-link "./blog/" "blog" "routing, layouts, HTML composition")))
+    (example-link "./blog/" "blog" "routing, layouts, HTML composition")
+    (example-link "./2048/" "2048" "solo game over the local bus")))
   })
 
   (mount "/basic" $basic)
@@ -56,6 +58,7 @@ li { margin: 0.5rem 0; }
   (mount "/mermaid-editor" $mermaid)
   (mount "/templates" $templates)
   (mount "/blog" $blog)
+  (mount "/2048" $game_2048)
   ...(
     if $has_store {
       [(mount "/quotes" $quotes)]

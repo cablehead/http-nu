@@ -976,6 +976,14 @@ let docs = source docs/serve.nu
 Mounts compose -- a mounted handler can mount further sub-handlers, and
 `$req.mount_prefix` accumulates the full prefix chain.
 
+The `href` helper resolves an absolute path against the current mount, so the
+same handler renders correct links whether mounted or standalone:
+
+```nushell
+$req | href "/about"
+# "/blog/about" when mounted under /blog, "/about" otherwise
+```
+
 #### HTML DSL
 
 Build HTML with Nushell. Lisp-style nesting with uppercase tags.

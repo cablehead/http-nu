@@ -1,0 +1,9 @@
+{
+  "name": "tests-browser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end browser tests driving real chromium against an isolated http-nu instance.",
+  "dependencies": {
+    "playwright-core": "^1.59.1"
+  }
+}
