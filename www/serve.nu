@@ -216,7 +216,7 @@ def hero [] {
 def datastar-demo-section [] {
   let code = open ($script_dir | path join snippets/datastar.nu)
   let highlighted = $code | .highlight nu
-  let prose = open ($script_dir | path join content/datastar-demo.md) | .md
+  let prose = open --raw ($script_dir | path join content/datastar-demo.md) | decode utf-8 | .md
   DIV {class: [mt-8]} [
     (section-header "Built-in Datastar SDK")
     (DIV {class: [max-w-3xl leading-relaxed]} $prose)
@@ -502,7 +502,7 @@ let examples = source ../examples/serve.nu
 
     (
       route {method: GET path: "/docs/getting-started"} {|req ctx|
-        let content = open ($script_dir | path join content/getting-started.md) | .md | inject-copy-btns
+        let content = open --raw ($script_dir | path join content/getting-started.md) | decode utf-8 | .md | inject-copy-btns
         docs-page "Getting Started" $content
       }
     )
