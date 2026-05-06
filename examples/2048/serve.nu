@@ -2,6 +2,8 @@ use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
 
+const SCRIPT_DIR = path self | path dirname
+
 # 2048 over the Local Bus, with View Transition tile slides.
 #
 # State is a list of tiles `{id, r, c, value}` -- not a flat grid -- so each
@@ -256,12 +258,30 @@ def render-game []: record -> record {
       | to sse
     })
 
+    (route {method: GET path: "/og.png"} {|req ctx|
+      .static $SCRIPT_DIR "/og.png"
+    })
+
     (route {method: GET path: "/"} {|req ctx|
+      let scheme = $req.headers
+        | get x-forwarded-proto?
+        | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
+      let host = $req.headers | get host? | default "localhost"
+      let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
       (HTML
       (HEAD
       (META {charset: "utf-8"})
       (LINK {rel: "icon" href: "data:,"})
       (TITLE "2048 -- http-nu .bus demo")
+      (META {property: "og:type" content: "website"})
+      (META {property: "og:title" content: "2048 over the http-nu Local Bus"})
+      (META {
+        property: "og:description"
+        content: "Solo-tab 2048 driven by .bus pub/sub with view-transition tile slides."
+      })
+      (META {property: "og:image" content: $og_image})
+      (META {name: "twitter:card" content: "summary_large_image"})
+      (META {name: "twitter:image" content: $og_image})
       (STYLE "
             * { box-sizing: border-box; margin: 0; }
             body { display: flex; flex-direction: column; align-items: center;

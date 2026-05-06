@@ -65,10 +65,10 @@ function snapshot() {
   });
 }
 
-async function waitForTileCount(n, timeoutMs = 3000) {
+async function waitFor(predicate, timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
   let snap = await snapshot();
-  while (snap.tiles.length !== n && Date.now() < deadline) {
+  while (!predicate(snap) && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 100));
     snap = await snapshot();
   }
@@ -79,15 +79,27 @@ const initial = await snapshot();
 check("initial board has 16 background + 2 tiles", initial.children === 18, JSON.stringify(initial));
 check("initial board has 2 numeric tiles", initial.tiles.length === 2);
 
-await page.keyboard.press("l");
-const afterMove = await waitForTileCount(3);
-check("after one move, 3 tiles", afterMove.tiles.length === 3, JSON.stringify(afterMove));
+const initialKey = JSON.stringify(initial.tiles.sort());
+// Two random initial tiles can land in a configuration where some
+// direction is a no-op (both already at that edge, no merge possible).
+// Pressing each of the four directions guarantees at least one will
+// move or merge.
+for (const k of ["l", "j", "h", "k"]) {
+  await page.keyboard.press(k);
+  await page.waitForTimeout(150);
+}
+const afterMoves = await snapshot();
+check(
+  "board changed after pressing all four directions",
+  JSON.stringify(afterMoves.tiles.sort()) !== initialKey,
+  JSON.stringify(afterMoves),
+);
 
 const score = await page.evaluate(() => document.querySelector("#status")?.textContent ?? "");
 check("score shows", /Score:/.test(score), score);
 
 await page.keyboard.press("r");
-const afterReset = await waitForTileCount(2);
+const afterReset = await waitFor((s) => s.tiles.length === 2);
 check("reset back to 2 tiles", afterReset.tiles.length === 2, JSON.stringify(afterReset));
 
 await browser.close();
