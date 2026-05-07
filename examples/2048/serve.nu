@@ -209,8 +209,11 @@ def render-board []: record -> record {
 
 def render-status []: record -> record {
   let state = $in
+  let won = $state.tiles | any {|t| $t.value >= 2048 }
   let tail = if $state.game_over {
     [(SPAN {style: {color: "#c0392b" margin-left: "16px"}} "GAME OVER (press r)")]
+  } else if $won {
+    [(SPAN {style: {color: "#388e3c" margin-left: "16px"}} "YOU WIN! (keep going or press r)")]
   } else { [] }
   (DIV {
     id: "status"
