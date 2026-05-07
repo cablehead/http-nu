@@ -120,47 +120,69 @@ where
             return Poll::Ready(None);
         }
 
-        match Pin::new(&mut self.inner).poll_next(cx) {
-            Poll::Ready(Some(Ok(chunk))) => {
-                match self.encode(&chunk, BrotliEncoderOperation::BROTLI_OPERATION_FLUSH) {
-                    Ok(compressed) => {
-                        if compressed.is_empty() {
-                            // FLUSH on non-empty input should always produce output,
-                            // but handle defensively
-                            cx.waker().wake_by_ref();
-                            Poll::Pending
-                        } else {
-                            Poll::Ready(Some(Ok(Frame::data(compressed))))
-                        }
+        // Drain ready chunks with PROCESS (lets brotli batch for compression),
+        // then FLUSH once at the boundary -- when the source goes idle, ends,
+        // or the per-poll budget is hit. One brotli sync-point per burst
+        // instead of per chunk.
+        const DRAIN_BUDGET: usize = 32;
+        let mut accumulated: Vec<u8> = Vec::new();
+        let mut drained = 0usize;
+
+        loop {
+            match Pin::new(&mut self.inner).poll_next(cx) {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    match self.encode(&chunk, BrotliEncoderOperation::BROTLI_OPERATION_PROCESS) {
+                        Ok(out) => accumulated.extend_from_slice(&out),
+                        Err(e) => return Poll::Ready(Some(Err(e))),
                     }
-                    Err(e) => Poll::Ready(Some(Err(e))),
+                    drained += 1;
+                    if drained >= DRAIN_BUDGET {
+                        // Cap the loop so a chatty source can't starve other
+                        // tasks. Flush what we have and yield.
+                        match self.encode(&[], BrotliEncoderOperation::BROTLI_OPERATION_FLUSH) {
+                            Ok(out) => accumulated.extend_from_slice(&out),
+                            Err(e) => return Poll::Ready(Some(Err(e))),
+                        }
+                        cx.waker().wake_by_ref();
+                        return Poll::Ready(Some(Ok(Frame::data(Bytes::from(accumulated)))));
+                    }
+                }
+
+                // Source idle: flush accumulated data so the client gets it
+                // immediately. If nothing is buffered, we're truly Pending --
+                // the inner already registered our waker.
+                Poll::Pending => {
+                    match self.encode(&[], BrotliEncoderOperation::BROTLI_OPERATION_FLUSH) {
+                        Ok(out) => accumulated.extend_from_slice(&out),
+                        Err(e) => return Poll::Ready(Some(Err(e))),
+                    }
+                    if accumulated.is_empty() {
+                        return Poll::Pending;
+                    }
+                    return Poll::Ready(Some(Ok(Frame::data(Bytes::from(accumulated)))));
+                }
+
+                // Inner errored (e.g. SSE cancel): propagate the error, mark
+                // ourselves finished so the next poll yields None. We do NOT
+                // run the brotli FINISH op -- the deliberately truncated body
+                // lets the client see this as a fetch error and auto-retry.
+                Poll::Ready(Some(Err(e))) => {
+                    self.finished = true;
+                    return Poll::Ready(Some(Err(e)));
+                }
+
+                Poll::Ready(None) => {
+                    self.finished = true;
+                    match self.encode(&[], BrotliEncoderOperation::BROTLI_OPERATION_FINISH) {
+                        Ok(out) => accumulated.extend_from_slice(&out),
+                        Err(e) => return Poll::Ready(Some(Err(e))),
+                    }
+                    if accumulated.is_empty() {
+                        return Poll::Ready(None);
+                    }
+                    return Poll::Ready(Some(Ok(Frame::data(Bytes::from(accumulated)))));
                 }
             }
-
-            // Inner errored (e.g. SSE cancel): propagate the error, mark
-            // ourselves finished so the next poll yields None. We do NOT run
-            // the brotli FINISH op -- the deliberately truncated body lets
-            // the client see this as a fetch error and auto-retry.
-            Poll::Ready(Some(Err(e))) => {
-                self.finished = true;
-                Poll::Ready(Some(Err(e)))
-            }
-
-            Poll::Ready(None) => {
-                self.finished = true;
-                match self.encode(&[], BrotliEncoderOperation::BROTLI_OPERATION_FINISH) {
-                    Ok(final_data) => {
-                        if final_data.is_empty() {
-                            Poll::Ready(None)
-                        } else {
-                            Poll::Ready(Some(Ok(Frame::data(final_data))))
-                        }
-                    }
-                    Err(e) => Poll::Ready(Some(Err(e))),
-                }
-            }
-
-            Poll::Pending => Poll::Pending,
         }
     }
 }
