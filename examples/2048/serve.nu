@@ -145,11 +145,11 @@ def color-for [v: int]: nothing -> string {
   }
 }
 
-const CELL = 80
-const GAP = 8
-const PAD = 12
-# inner = 4*CELL + 3*GAP = 344, total = inner + 2*PAD = 368
-const TOTAL = 368
+const CELL = 100
+const GAP = 10
+const PAD = 15
+# inner = 4*CELL + 3*GAP = 430, total = inner + 2*PAD = 460
+const TOTAL = 460
 
 def cell-pos [n: int]: nothing -> int {
   $PAD + $n * ($CELL + $GAP)
@@ -229,8 +229,12 @@ def render-game []: record -> record {
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
       let signals = $in | from datastar-signals $req
+      let latency = $signals | get latency? | default 0
+      if $latency > 0 {
+        sleep ($latency * 1ms)
+      }
       let topic = $"game.($signals.tabId).move"
-      $signals | reject tabId | .bus pub $topic
+      {intent: ($signals.intent? | default "")} | .bus pub $topic
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
@@ -238,6 +242,17 @@ def render-game []: record -> record {
       let signals = "" | from datastar-signals $req
       let tab_id = $signals | get tabId? | default "anon"
       let pattern = $"game.($tab_id).*"
+
+      # Each SSE event carries the full game state, base64-encoded, in its
+      # `id` field. The browser sends the last seen id back as
+      # `Last-Event-ID` on reconnect, so we can resume mid-game without any
+      # server-side persistence. Falls back to a fresh game if the header is
+      # absent or unparseable.
+      let init = try {
+        $req.headers | get last-event-id | decode base64 | decode utf-8 | from json
+      } catch {
+        initial-state
+      }
 
       .bus sub $pattern
       | prepend {topic: "init" value: {init: true}}
@@ -253,8 +268,12 @@ def render-game []: record -> record {
         } else {
           $state
         }
-        {out: ($new_state | render-game | to datastar-patch-elements --use-view-transition) next: $new_state}
-      } (initial-state)
+        let id = $new_state | to json -r | encode base64
+        {
+          out: ($new_state | render-game | to datastar-patch-elements --use-view-transition --id $id)
+          next: $new_state
+        }
+      } $init
       | to sse
     })
 
@@ -282,32 +301,140 @@ def render-game []: record -> record {
       (META {property: "og:image" content: $og_image})
       (META {name: "twitter:card" content: "summary_large_image"})
       (META {name: "twitter:image" content: $og_image})
-      (STYLE "
+      (STYLE {
+        __html: "
+            /* --- animation dials. tweak live in devtools to taste --- */
+            :root {
+              --lead-scale: 0.94;       /* how much tiles contract on press   */
+              --lead-offset: 9px;       /* how far they drift in press dir    */
+              --lead-duration: 1000ms;  /* breath loop while waiting          */
+              --slide-duration: 280ms;  /* view-transition (tile slide) time  */
+              --spawn-duration: 360ms;  /* new-tile pop duration              */
+              --spawn-from: 0.2;        /* new-tile starting scale            */
+              --spawn-overshoot: 1.25;  /* new-tile peak scale before settle  */
+            }
             * { box-sizing: border-box; margin: 0; }
             body { display: flex; flex-direction: column; align-items: center;
-                   padding: 32px; background: #faf8ef; font-family: sans-serif; }
-            h1 { color: #776e65; margin-bottom: 12px; }
-            .hint { color: #776e65; margin-top: 16px; font-size: 14px; }
-            .hint code { background: #eee4da; padding: 1px 6px; border-radius: 3px; }
+                   padding: 32px; gap: 20px;
+                   background: #faf8ef; color: #776e65; font-family: sans-serif; }
+            aside { width: 460px; padding: 16px 20px;
+                    background: #eee4da; border-radius: 8px; font-size: 14px; }
+            aside hr { border: 0; border-top: 1px solid #d8cfc4; margin: 14px 0; }
+            aside dl { display: grid; grid-template-columns: auto 1fr;
+                       gap: 10px 14px; align-items: center; }
+            aside dd { display: flex; gap: 10px; align-items: center;
+                       font-variant-numeric: tabular-nums; }
+            aside dd input[type=range] { flex: 1; accent-color: #f59563; }
+            aside dt { font-weight: 600; }
+            article { width: 460px; font-size: 15px; line-height: 1.55; }
+            article p + p { margin-top: 0.8em; }
+            article strong { color: #5a4f43; }
+            kbd { background: #faf8ef; padding: 1px 6px; border-radius: 3px;
+                  font-family: inherit; font-size: 13px; }
+            #board > div:not(:empty) { transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1); }
+            #board.pending > div:not(:empty) { animation: pending-breathe var(--lead-duration) ease-in-out infinite; }
+            #board.pending.dir-h > div:not(:empty) { animation: lean-h var(--lead-duration) ease-in-out infinite; }
+            #board.pending.dir-l > div:not(:empty) { animation: lean-l var(--lead-duration) ease-in-out infinite; }
+            #board.pending.dir-k > div:not(:empty) { animation: lean-k var(--lead-duration) ease-in-out infinite; }
+            #board.pending.dir-j > div:not(:empty) { animation: lean-j var(--lead-duration) ease-in-out infinite; }
+            @keyframes pending-breathe {
+              0%, 100% { transform: scale(var(--lead-scale)); }
+              50%      { transform: scale(calc(var(--lead-scale) - 0.04)); }
+            }
+            @keyframes lean-h {
+              0%, 100% { transform: scale(var(--lead-scale)) translateX(0); }
+              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateX(calc(-1 * var(--lead-offset))); }
+            }
+            @keyframes lean-l {
+              0%, 100% { transform: scale(var(--lead-scale)) translateX(0); }
+              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateX(var(--lead-offset)); }
+            }
+            @keyframes lean-k {
+              0%, 100% { transform: scale(var(--lead-scale)) translateY(0); }
+              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateY(calc(-1 * var(--lead-offset))); }
+            }
+            @keyframes lean-j {
+              0%, 100% { transform: scale(var(--lead-scale)) translateY(0); }
+              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateY(var(--lead-offset)); }
+            }
             ::view-transition-group(*) {
-              animation-duration: 150ms;
+              animation-duration: var(--slide-duration);
               animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
             }
-          ")
+            /* Unpaired new pseudos -- truly new elements -- get a pop-in.
+               :only-child fires when no ::view-transition-old(name) sibling
+               exists, i.e. there's no old counterpart to slide from. */
+            ::view-transition-new(*):only-child {
+              animation: tile-spawn var(--spawn-duration) cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+            @keyframes tile-spawn {
+              0%   { transform: scale(var(--spawn-from)); opacity: 0; }
+              60%  { transform: scale(var(--spawn-overshoot)); opacity: 1; }
+              100% { transform: scale(1); opacity: 1; }
+            }
+          "
+      })
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH}))
       (BODY {
-        "data-signals": "{tabId: crypto.randomUUID(), intent: ''}"
+        "data-signals": "{tabId: crypto.randomUUID(), latency: 0, leadScale: 0.94, leadOffset: 9, leadDuration: 1000}"
+        "data-style:--lead-scale": "$leadScale"
+        "data-style:--lead-offset": "$leadOffset + 'px'"
+        "data-style:--lead-duration": "$leadDuration + 'ms'"
         "data-on:keydown__window": ("
             const m = {h:'h', ArrowLeft:'h', j:'j', ArrowDown:'j', k:'k', ArrowUp:'k', l:'l', ArrowRight:'l'};
-            $intent = m[evt.key] || (evt.key === 'r' ? 'reset' : '');
-            if ($intent) { @post('" + ($req | href "/move") + "'); evt.preventDefault(); }
+            const intent = m[evt.key] || (evt.key === 'r' ? 'reset' : '');
+            if (intent) {
+              const board = document.getElementById('board');
+              ['dir-h','dir-j','dir-k','dir-l'].forEach(c => board.classList.remove(c));
+              board.classList.add('pending');
+              if (m[evt.key]) board.classList.add('dir-' + intent);
+              const t0 = performance.now();
+              fetch('" + ($req | href "/move") + "', {
+                method: 'POST',
+                headers: {'content-type': 'application/json'},
+                body: JSON.stringify({tabId: $tabId, intent, latency: $latency}),
+              }).then(() => {
+                document.getElementById('rtt').textContent = Math.round(performance.now() - t0) + 'ms';
+              });
+              evt.preventDefault();
+            }
           ")
       }
       (H1 "2048")
       (DIV {id: "game" "data-init": ("@get('" + ($req | href "/sse") + "')")} "")
-      (DIV {class: "hint"}
-      "Move with " (CODE "h j k l") " or arrow keys. "
-      (CODE "r") " resets.")))
+      (ASIDE
+      (P "Move with " (KBD "h j k l") " or arrows. " (KBD "r") " resets.")
+      (HR)
+      (DL
+      (DT "Latency")
+      (DD
+      (INPUT {type: "range" min: "0" max: "1000" step: "10" value: "0" "data-bind:latency": true})
+      (OUTPUT {"data-text": "$latency + 'ms'"} "0ms"))
+      (DT "RTT")
+      (DD (OUTPUT {id: "rtt"} "0ms"))
+      (DT "Contract")
+      (DD
+      (INPUT {type: "range" min: "0.5" max: "1" step: "0.01" value: "0.94" "data-bind:lead-scale": true})
+      (OUTPUT {"data-text": "$leadScale"} "0.94"))
+      (DT "Drift")
+      (DD
+      (INPUT {type: "range" min: "0" max: "30" step: "1" value: "9" "data-bind:lead-offset": true})
+      (OUTPUT {"data-text": "$leadOffset + 'px'"} "9px"))
+      (DT "Breath")
+      (DD
+      (INPUT {type: "range" min: "200" max: "2000" step: "50" value: "1000" "data-bind:lead-duration": true})
+      (OUTPUT {"data-text": "$leadDuration + 'ms'"} "1000ms"))))
+      (ARTICLE
+      (P "Each keypress fires a fetch to http-nu, which publishes through "
+      "an in-process pub/sub bus; a long-lived SSE connection picks the "
+      "message up and patches the board.")
+      (P (STRONG "Latency") " adds server-side sleep; "
+      (STRONG "RTT") " is the round-trip you actually experienced.")
+      (P "While the wait runs, tiles squeeze and lean toward the press "
+      "direction. "
+      (STRONG "Contract") " sets the squeeze depth, "
+      (STRONG "Drift") " how far they lean, "
+      (STRONG "Breath") " the cycle period."))))
     })
   ]
 }
