@@ -5,42 +5,81 @@
 //!   mise run cf:dev         # wrangler dev
 //!   mise run cf:deploy      # wrangler deploy
 //!
-//! This module is gated to `cf(all(feature = "cloudflare",
-//! target_arch = "wasm32"))` and is the *only* CF-specific code in the
-//! tree. It is additive — never imported on desktop, never edits an
-//! upstream file. It calls `crate::Engine` directly so all custom
-//! commands (`.bus pub`, `.mj`, `.md`, `.highlight`, `to sse`, ...)
-//! come along automatically.
+//! Gated to `cfg(all(feature = "cloudflare", target_arch = "wasm32"))`,
+//! lives entirely under `src/cf/` (additive, never edits upstream files).
+//! Calls `crate::Engine` directly so all custom commands (`.bus pub`,
+//! `.mj`, `.md`, `.highlight`, `to sse`, ...) come along automatically.
 //!
-//! Today: each request rebuilds the engine, parses a hardcoded
-//! `examples/blog/serve.nu`, runs the closure synchronously, returns
-//! the value as a string. There is no body bridging, no response
-//! streaming, no Vfs. See CLOUDFLARE.md "Status" for the full punchlist.
+//! The default handler script is embedded at compile time via
+//! `include_str!(env!("CF_HANDLER_PATH"))`. It can be replaced at runtime
+//! by `PUT /admin/handler` with the new script as the request body. The
+//! engine is cached in a module-level `OnceLock<Mutex<State>>` so warm
+//! requests reuse it; the new script sticks for the lifetime of the
+//! isolate. See CLOUDFLARE.md "Handler script lifecycle".
+//!
+//! ⚠ The /admin/handler endpoint is unauthenticated. Gate it behind real
+//! auth (CF Access, signed token, etc.) before exposing publicly.
 
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
-use worker::{Context, Env, Request as WorkerRequest, Response, Result};
+use worker::{Context, Env, Method, Request as WorkerRequest, Response, Result};
 
 use crate::engine::Engine;
 use crate::request::{request_to_value, Request};
 use crate::response::{extract_http_response_meta, value_to_bytes, HeaderValue};
 
-// The handler script is embedded at compile time. The path is taken from
-// the CF_HANDLER_PATH env var (relative to this file) so `mise run ex:cf:*`
-// tasks can pick which example to run without editing source. Default is
-// set by mise's cf:build task; eventually this comes from R2 or
-// `@cloudflare/shell` at runtime instead of being baked in.
-const HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
+const DEFAULT_HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
+
+struct State {
+    script: String,
+    engine: Engine,
+}
+
+static STATE: OnceLock<Mutex<State>> = OnceLock::new();
+
+/// Lazily build the cached engine + parse the embedded default handler.
+/// Panics on first-use if engine init or default-handler parsing fails;
+/// console_error_panic_hook surfaces a readable error to wrangler logs.
+fn state() -> &'static Mutex<State> {
+    STATE.get_or_init(|| {
+        let mut engine = Engine::new().expect("Engine::new failed");
+        engine
+            .add_custom_commands()
+            .expect("add_custom_commands failed");
+        engine
+            .parse_closure(DEFAULT_HANDLER_SCRIPT, None)
+            .expect("default handler failed to parse");
+        Mutex::new(State {
+            script: DEFAULT_HANDLER_SCRIPT.to_string(),
+            engine,
+        })
+    })
+}
 
 #[worker::event(fetch)]
 async fn fetch(mut req: WorkerRequest, _env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
-    // Read the body upfront. Workers caps body size and we have to consume
-    // the request to drive the wasm Nu pipeline anyway. GET/HEAD requests
-    // skip this -- bytes() is fine to call but we save a copy.
+    // Admin endpoint -- view/replace the live handler script.
+    let path = req.url().map(|u| u.path().to_string()).unwrap_or_default();
+    if path == "/admin/handler" {
+        return match req.method() {
+            Method::Get => admin_get_handler(),
+            Method::Put | Method::Post => {
+                let body = req.bytes().await.unwrap_or_default();
+                let script = String::from_utf8(body)
+                    .map_err(|e| worker::Error::RustError(format!("body utf8: {e}")))?;
+                admin_put_handler(&script)
+            }
+            _ => Response::error("method not allowed", 405),
+        };
+    }
+
+    // Read body upfront for non-GET-shape methods so we can drive the Nu
+    // pipeline synchronously below.
     let body = match req.method() {
-        worker::Method::Get | worker::Method::Head | worker::Method::Options => Vec::new(),
+        Method::Get | Method::Head | Method::Options => Vec::new(),
         _ => req.bytes().await.unwrap_or_default(),
     };
 
@@ -50,21 +89,46 @@ async fn fetch(mut req: WorkerRequest, _env: Env, _ctx: Context) -> Result<Respo
     }
 }
 
+fn admin_get_handler() -> Result<Response> {
+    let state = state().lock().expect("state mutex poisoned");
+    let mut response = Response::ok(state.script.clone())?;
+    let _ = response
+        .headers_mut()
+        .set("Content-Type", "text/plain; charset=utf-8");
+    Ok(response)
+}
+
+fn admin_put_handler(script: &str) -> Result<Response> {
+    let mut new_engine = match Engine::new() {
+        Ok(e) => e,
+        Err(e) => return Response::error(format!("engine init: {e}"), 500),
+    };
+    if let Err(e) = new_engine.add_custom_commands() {
+        return Response::error(format!("commands: {e}"), 500);
+    }
+    if let Err(e) = new_engine.parse_closure(script, None) {
+        // Bad script -> 400, leave existing handler in place.
+        return Response::error(format!("parse: {e}"), 400);
+    }
+
+    let mut state = state().lock().expect("state mutex poisoned");
+    state.script = script.to_string();
+    state.engine = new_engine;
+    Response::ok("handler updated\n")
+}
+
 fn handle(req: &WorkerRequest, body: Vec<u8>) -> std::result::Result<Response, String> {
-    let mut engine = Engine::new().map_err(|e| format!("engine: {e}"))?;
-    engine
-        .add_custom_commands()
-        .map_err(|e| format!("commands: {e}"))?;
-    engine
-        .parse_closure(HANDLER_SCRIPT, None)
-        .map_err(|e| format!("parse: {e}"))?;
+    let state = state()
+        .lock()
+        .map_err(|_| "state mutex poisoned".to_string())?;
 
     let req_struct = worker_request_to_http_nu(req)?;
     let req_value = request_to_value(&req_struct, nu_protocol::Span::unknown());
 
-    let pipeline_input = body_to_pipeline(body, &engine);
+    let pipeline_input = body_to_pipeline(body, &state.engine);
 
-    let pd = engine
+    let pd = state
+        .engine
         .run_closure(req_value, pipeline_input)
         .map_err(|e| format!("eval: {e}"))?;
 
