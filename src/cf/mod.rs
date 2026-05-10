@@ -25,15 +25,12 @@ use crate::engine::Engine;
 use crate::request::{request_to_value, Request};
 use crate::response::value_to_bytes;
 
-// Load an existing http-nu example at compile time. Eventually this comes
-// from R2 or `@cloudflare/shell`'s Workspace; for now it's baked in.
-//
-// `examples/blog/serve.nu` was picked because it exercises a real chunk of
-// the http-nu surface (router DSL, HTML DSL, content-type inference) using
-// only wasm-portable commands. `examples/basic.nu` was tried first but its
-// `/time` branch uses `sleep 1sec` + `generate`, which don't compile on the
-// wasm Nu (those need nu-command's `os` feature, which pulls os_pipe).
-const HANDLER_SCRIPT: &str = include_str!("../../examples/blog/serve.nu");
+// The handler script is embedded at compile time. The path is taken from
+// the CF_HANDLER_PATH env var (relative to this file) so `mise run ex:cf:*`
+// tasks can pick which example to run without editing source. Default is
+// set by mise's cf:build task; eventually this comes from R2 or
+// `@cloudflare/shell` at runtime instead of being baked in.
+const HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
 
 #[worker::event(fetch)]
 async fn fetch(req: WorkerRequest, _env: Env, _ctx: Context) -> Result<Response> {

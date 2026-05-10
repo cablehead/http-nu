@@ -67,6 +67,12 @@ impl Engine {
         engine_state = nu_cmd_extra::extra::add_extra_command_context(engine_state);
 
         load_http_nu_stdlib(&mut engine_state)?;
+        // nu_std's load_standard_library parses `use std/prelude *` against
+        // a placeholder file path, which triggers nu-protocol's cwd() check.
+        // On wasm32 there's no real cwd and Path::exists() always returns
+        // false, so this fails. Skip on non-desktop; scripts that need the
+        // std/ prelude won't run on wasm until upstream gates this load.
+        #[cfg(feature = "desktop")]
         nu_std::load_standard_library(&mut engine_state)?;
 
         #[cfg(feature = "desktop")]
@@ -241,6 +247,10 @@ impl Engine {
             .into());
         }
 
+        // merge_env() calls std::env::set_current_dir based on $env.PWD,
+        // which can't work on wasm32 (no real cwd). Skip on non-desktop.
+        // The closure already captured what it needs from the stack.
+        #[cfg(feature = "desktop")]
         self.state.merge_env(&mut stack)?;
 
         self.closure = Some(closure);

@@ -46,11 +46,13 @@ run = "cargo build -p nu_plugin_test"
 # wrangler.toml is). mise abstracts the cwd dance.
 
 [tasks."cf:build"]
-description = "Build the http-nu Workers cdylib via worker-build (release; --features cloudflare)"
+description = "Build the http-nu Workers cdylib via worker-build. CF_HANDLER_PATH (relative to src/cf/) picks the embedded example; defaults to examples/blog/serve.nu."
 dir = "{{config_root}}"
 tools = { "cargo:worker-build" = "^0.8" }
 run = '''
 set -euo pipefail
+export CF_HANDLER_PATH="${CF_HANDLER_PATH:-../../examples/blog/serve.nu}"
+echo "embedding handler: $CF_HANDLER_PATH"
 worker-build --release -- --no-default-features --features cloudflare
 WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
 if [ -n "$WASM" ]; then
@@ -60,7 +62,7 @@ fi
 '''
 
 [tasks."cf:dev"]
-description = "Run the http-nu Worker locally via wrangler dev (no auth needed)"
+description = "Run the http-nu Worker locally via wrangler dev (no auth needed). Uses CF_HANDLER_PATH from cf:build."
 depends = ["cf:build"]
 dir = "{{config_root}}/src/cf"
 tools = { "npm:wrangler" = "4", node = "22" }
@@ -72,6 +74,43 @@ depends = ["cf:build"]
 dir = "{{config_root}}/src/cf"
 tools = { "npm:wrangler" = "4", node = "22" }
 run = "wrangler deploy"
+
+# ===== examples on Cloudflare (mirrors ex:* but on wasm Workers) =====
+# Each ex:cf:<name> sets CF_HANDLER_PATH then runs cf:dev. The env propagates
+# through the cf:build dependency, so cargo rebuilds with the right script.
+# Same example name as the desktop ex:* task -- pick your target.
+#
+# What works on CF today is whatever the script needs that's already in our
+# wasm-curated nu-command set. Things known to break:
+#   - `sleep` and `generate` (need nu-command/os, gated on wasm)
+#   - `.bus sub` (needs a Bus DO; today's wasm impl returns an error)
+#   - `.static`, `--store`, `--watch` (need Vfs / xs CF integration)
+#   - Streaming responses (ListStream/ByteStream -> ReadableStream not wired)
+# See CLOUDFLARE.md "Status" for the full list.
+
+[tasks."ex:cf:blog"]
+description = "examples/blog on CF -- works end-to-end (router DSL, HTML DSL, content-type)"
+env = { CF_HANDLER_PATH = "../../examples/blog/serve.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+[tasks."ex:cf:cargo-docs"]
+description = "examples/cargo-docs on CF -- should work (same surface as blog: router + html, no sleep/generate)"
+env = { CF_HANDLER_PATH = "../../examples/cargo-docs/serve.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+[tasks."ex:cf:basic"]
+description = "examples/basic on CF -- KNOWN BROKEN: /time uses `sleep` + `generate` (nu-command/os, gated on wasm); compile errors at parse"
+env = { CF_HANDLER_PATH = "../../examples/basic.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+[tasks."ex:cf:2048"]
+description = "examples/2048 on CF -- KNOWN BROKEN: uses `.bus sub`, `sleep`, `generate`; needs BusDO + streaming"
+env = { CF_HANDLER_PATH = "../../examples/2048/serve.nu" }
+depends = ["cf:dev"]
+run = "true"
 
 # ===== nu-on-web (prior art for curated Nu in wasm; lives in .src/) =====
 # Reference build patterns that nu-on-web uses (wasm-pack + svelte playground).

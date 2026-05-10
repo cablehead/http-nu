@@ -23,13 +23,16 @@ and is structured so upstream merges stay clean.
   `cargo build --target wasm32-unknown-unknown --lib --no-default-features`).
 - ✅ Worker cdylib builds via worker-build with `--features cloudflare`.
   `mise run cf:build` produces `build/index_bg.wasm` (~17MB raw,
-  brotli-compressible to fit Workers paid-tier limits).
-- ✅ `wrangler dev` starts and routes requests into the wasm runtime.
-- 🚧 First request through real Nu eval **fails at parse time**:
-  Nu's parser rejects synthetic `$env.PWD`. We set it to `"/tmp"` on
-  wasm but the parser's path-resolution check doesn't accept it.
-  Tracking as the next thing to fix.
-- ⏳ Not yet wired: request body → Nu pipeline; `ListStream` /
+  ~4.5MB brotli — fits Workers paid-tier comfortably).
+- ✅ `wrangler dev` serves requests through real `crate::Engine`.
+  `examples/blog/serve.nu` runs end-to-end on Workers:
+  - `GET /` → HTML post list (200)
+  - `GET /posts/getting-started-nushell` → single post page (200)
+  - `GET /about` → about page (200)
+  - Router DSL, HTML DSL, content-type inference all working.
+- ⏳ Not yet wired: HTTP status codes from `metadata set` (nonexistent
+  routes return 200 instead of 404; need response-metadata bridging
+  in `src/cf/mod.rs`); request body → Nu pipeline; `ListStream` /
   `ByteStream` → JS `ReadableStream`; `.static` (Vfs); `.bus sub`
   on a Bus DO; loading handler from R2 / `@cloudflare/shell`.
 
@@ -40,7 +43,7 @@ mise install                          # one-time, all toolchain pins
 mise run ci                           # verify desktop is green
 mise run cf:build                     # build the Workers cdylib
 mise run cf:dev                       # wrangler dev on :8787
-curl http://127.0.0.1:8787/           # ⚠ today: 500 (PWD parser bug)
+curl http://127.0.0.1:8787/           # blog post list rendered by Nu
 ```
 
 ## What's here
