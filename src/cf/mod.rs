@@ -23,7 +23,7 @@ use worker::{Context, Env, Request as WorkerRequest, Response, Result};
 
 use crate::engine::Engine;
 use crate::request::{request_to_value, Request};
-use crate::response::value_to_bytes;
+use crate::response::{extract_http_response_meta, value_to_bytes, HeaderValue};
 
 // The handler script is embedded at compile time. The path is taken from
 // the CF_HANDLER_PATH env var (relative to this file) so `mise run ex:cf:*`
@@ -36,12 +36,12 @@ const HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
 async fn fetch(req: WorkerRequest, _env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
     match handle(&req) {
-        Ok(body) => Response::ok(body),
+        Ok(response) => Ok(response),
         Err(err) => Response::error(err, 500),
     }
 }
 
-fn handle(req: &WorkerRequest) -> std::result::Result<String, String> {
+fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
     let mut engine = Engine::new().map_err(|e| format!("engine: {e}"))?;
     engine
         .add_custom_commands()
@@ -57,12 +57,35 @@ fn handle(req: &WorkerRequest) -> std::result::Result<String, String> {
         .run_closure(req_value, nu_protocol::PipelineData::Empty)
         .map_err(|e| format!("eval: {e}"))?;
 
+    // Pull `http.response { status, headers }` from pipeline metadata
+    // before consuming pd. Same shape as desktop's response handler.
+    let http_meta = extract_http_response_meta(pd.metadata_ref());
+
     let value = pd
         .into_value(nu_protocol::Span::unknown())
         .map_err(|e| format!("into_value: {e}"))?;
 
     let bytes = value_to_bytes(value);
-    String::from_utf8(bytes).map_err(|e| format!("utf8: {e}"))
+    let body = String::from_utf8(bytes).map_err(|e| format!("utf8: {e}"))?;
+
+    let mut response = Response::ok(body).map_err(|e| format!("response: {e}"))?;
+    if let Some(status) = http_meta.status {
+        response = response.with_status(status);
+    }
+    let headers = response.headers_mut();
+    for (k, v) in &http_meta.headers {
+        match v {
+            HeaderValue::Single(s) => {
+                let _ = headers.set(k, s);
+            }
+            HeaderValue::Multiple(vs) => {
+                for s in vs {
+                    let _ = headers.append(k, s);
+                }
+            }
+        }
+    }
+    Ok(response)
 }
 
 fn worker_request_to_http_nu(req: &WorkerRequest) -> std::result::Result<Request, String> {

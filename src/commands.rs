@@ -1724,6 +1724,9 @@ impl Command for BusPubCommand {
 
 #[derive(Clone)]
 pub struct BusSubCommand {
+    // The desktop fn run uses self.bus to subscribe; the wasm stub returns
+    // an error before touching it, so the wasm build sees this as dead.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     bus: Arc<Bus>,
 }
 
@@ -1829,12 +1832,11 @@ yields only events whose topic matches. `*` matches any run of characters includ
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        Err(ShellError::GenericError {
-            error: ".bus sub is not yet implemented on this target".into(),
-            msg: "use the desktop binary, or wait for the BusDO bridge".into(),
-            span: Some(call.head),
-            help: None,
-            inner: vec![],
-        })
+        use nu_protocol::shell_error::generic::GenericError;
+        Err(ShellError::Generic(GenericError::new(
+            ".bus sub is not yet implemented on this target",
+            "use the desktop binary, or wait for the BusDO bridge",
+            call.head,
+        )))
     }
 }
