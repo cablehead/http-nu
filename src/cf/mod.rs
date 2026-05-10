@@ -1,12 +1,21 @@
-//! Cloudflare Workers entrypoint for http-nu (gated by `cloudflare` feature).
+//! Cloudflare Workers entrypoint for http-nu.
 //!
-//! This module is *additive* and never imported on desktop. It uses the same
-//! `crate::Engine` desktop uses -- no clean-room copy. All http-nu custom
-//! commands (`.bus pub`, `.mj`, `.md`, `.highlight`, `to sse`, etc.) come
-//! along automatically via `add_custom_commands()`.
+//! Build / deploy:
+//!   mise run cf:build       # worker-build --features cloudflare
+//!   mise run cf:dev         # wrangler dev
+//!   mise run cf:deploy      # wrangler deploy
 //!
-//! What's still TODO: streaming response bodies, `.static` via R2 / Vfs,
-//! `.bus sub` via a BusDO, request body as a Nu pipeline. See CLOUDFLARE.md.
+//! This module is gated to `cf(all(feature = "cloudflare",
+//! target_arch = "wasm32"))` and is the *only* CF-specific code in the
+//! tree. It is additive — never imported on desktop, never edits an
+//! upstream file. It calls `crate::Engine` directly so all custom
+//! commands (`.bus pub`, `.mj`, `.md`, `.highlight`, `to sse`, ...)
+//! come along automatically.
+//!
+//! Today: each request rebuilds the engine, parses a hardcoded
+//! `examples/blog/serve.nu`, runs the closure synchronously, returns
+//! the value as a string. There is no body bridging, no response
+//! streaming, no Vfs. See CLOUDFLARE.md "Status" for the full punchlist.
 
 use std::collections::HashMap;
 
@@ -16,7 +25,15 @@ use crate::engine::Engine;
 use crate::request::{request_to_value, Request};
 use crate::response::value_to_bytes;
 
-const HANDLER_SCRIPT: &str = r#"{|req| $"hello: ($req.method) ($req.path)"}"#;
+// Load an existing http-nu example at compile time. Eventually this comes
+// from R2 or `@cloudflare/shell`'s Workspace; for now it's baked in.
+//
+// `examples/blog/serve.nu` was picked because it exercises a real chunk of
+// the http-nu surface (router DSL, HTML DSL, content-type inference) using
+// only wasm-portable commands. `examples/basic.nu` was tried first but its
+// `/time` branch uses `sleep 1sec` + `generate`, which don't compile on the
+// wasm Nu (those need nu-command's `os` feature, which pulls os_pipe).
+const HANDLER_SCRIPT: &str = include_str!("../../examples/blog/serve.nu");
 
 #[worker::event(fetch)]
 async fn fetch(req: WorkerRequest, _env: Env, _ctx: Context) -> Result<Response> {

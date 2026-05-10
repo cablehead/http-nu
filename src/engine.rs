@@ -74,6 +74,16 @@ impl Engine {
             let init_cwd = std::env::current_dir()?;
             gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
         }
+        // wasm: no parent process, no real cwd. Nu's parser still expects
+        // $env.PWD to be set (use-statement path resolution touches it).
+        // FIXME: today the Nu parser rejects this synthetic value at runtime
+        // ("$env.PWD is not an absolute path") even though "/tmp" is
+        // absolute. Likely a Nu-side check that touches the path beyond a
+        // simple "starts with /" test. See CLOUDFLARE.md "Status".
+        #[cfg(not(feature = "desktop"))]
+        {
+            engine_state.add_env_var("PWD".into(), Value::string("/tmp", Span::unknown()));
+        }
 
         Ok(Self {
             state: engine_state,
