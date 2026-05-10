@@ -1,0 +1,185 @@
+[settings]
+# extends task-inheritance is mise experimental — required by the
+# joeblew999/.github shared task lib (ci:_base, rust:_base, etc.).
+experimental = true
+
+[task_config]
+# Shared TOML task library from joeblew999/.github. Per-task tool pins
+# (gh, jq, fnox, nu) propagate from the lib; consumers don't pin them
+# globally. Tag bumps -> see https://github.com/joeblew999/.github/blob/main/CHANGELOG.md
+includes = [
+  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.19.2",
+  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.19.2",
+  "git::https://github.com/joeblew999/.github.git//tasks/rust.toml?ref=v0.19.2",
+  # Uncomment when CF work begins (see CLOUDFLARE.md):
+  # "git::https://github.com/joeblew999/.github.git//tasks/cf.toml?ref=v0.19.2",
+  # "git::https://github.com/joeblew999/.github.git//tasks/wrangler.toml?ref=v0.19.2",
+]
+
+[tools]
+# Rust + nu pinned here (used by local tasks below). deno is needed for
+# `deno fmt` of README.md — kept here even though no shared task uses it.
+rust                     = "stable"
+"github:nushell/nushell" = "0.112"   # match joeblew999/.github lib pin
+deno                     = "latest"
+
+[env]
+CARGO_TERM_COLOR = "always"
+PORT = "3001"
+STORE = "./.store"
+HTTP_NU = "./target/debug/http-nu"
+
+# ===== build =====
+
+[tasks.build]
+description = "Build debug binary"
+sources = ["src/**/*.rs", "build.rs", "Cargo.toml", "Cargo.lock"]
+outputs = ["target/debug/http-nu"]
+run = "cargo build"
+
+[tasks."build:plugin"]
+description = "Build the nu_plugin_test binary used by cargo test"
+sources = ["tests/test_plugin/**/*.rs", "tests/test_plugin/Cargo.toml"]
+outputs = ["target/debug/nu_plugin_test"]
+run = "cargo build -p nu_plugin_test"
+
+# ===== format / lint =====
+
+[tasks.fmt]
+description = "Apply rustfmt and deno fmt"
+run = [
+  "cargo fmt --all",
+  "deno fmt README.md",
+]
+
+[tasks."fmt:check"]
+description = "Verify formatting without writing"
+run = [
+  "cargo fmt --check --all",
+  "deno fmt README.md --check",
+]
+
+[tasks.clippy]
+description = "Clippy with -D warnings -W uninlined_format_args"
+run = "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -W clippy::uninlined_format_args"
+
+# ===== test =====
+
+[tasks.test]
+description = "Run cargo test"
+depends = ["build:plugin"]
+run = "cargo test"
+
+[tasks."test:nu"]
+description = "Run nushell test scripts (router, html, datastar)"
+depends = ["build"]
+run = [
+  "nu tests/test_router.nu",
+  "nu tests/test_html.nu",
+  "nu tests/test_datastar.nu",
+]
+
+[tasks."test:tao"]
+description = "Run the Tao eval test"
+depends = ["build"]
+run = "$HTTP_NU eval examples/tao/test.nu"
+
+[tasks.ci]
+description = "CI aggregator — what the .github/workflows/mise.yaml workflow runs"
+alias = "check"
+depends = ["test:nu", "fmt:check", "clippy", "test", "test:tao"]
+
+# ===== run (interactive) =====
+
+[tasks.run]
+description = "Run http-nu (pass args after --, e.g. mise run run -- :3001 examples/basic.nu)"
+depends = ["build"]
+run = "$HTTP_NU"
+
+# ===== examples =====
+# All listen on :$PORT (default 3001). Override: PORT=4000 mise run ex:basic
+# Store-using examples write to $STORE (default ./.store).
+
+[tasks."ex:hub"]
+description = "All examples under one server (datastar + store)"
+depends = ["build"]
+run = "$HTTP_NU --datastar --store $STORE :$PORT examples/serve.nu"
+
+[tasks."ex:basic"]
+description = "Minimal routes, JSON, streaming, POST echo"
+depends = ["build"]
+run = "$HTTP_NU :$PORT examples/basic.nu"
+
+[tasks."ex:stor"]
+description = "In-memory SQLite via stor commands"
+depends = ["build"]
+run = "$HTTP_NU :$PORT examples/stor.nu"
+
+[tasks."ex:blog"]
+description = "Routing, layouts, HTML composition"
+depends = ["build"]
+run = "$HTTP_NU :$PORT examples/blog/serve.nu"
+
+[tasks."ex:cargo-docs"]
+description = "Browse cargo docs"
+depends = ["build"]
+run = "$HTTP_NU :$PORT examples/cargo-docs/serve.nu"
+
+[tasks."ex:datastar-counter"]
+description = "Datastar reactive counter"
+depends = ["build"]
+run = "$HTTP_NU --datastar :$PORT examples/datastar-counter/serve.nu"
+
+[tasks."ex:datastar-sdk"]
+description = "Datastar SDK feature demo"
+depends = ["build"]
+run = "$HTTP_NU --datastar :$PORT examples/datastar-sdk/serve.nu"
+
+[tasks."ex:mermaid-editor"]
+description = "Live Mermaid diagram editor"
+depends = ["build"]
+run = "$HTTP_NU --datastar :$PORT examples/mermaid-editor/serve.nu"
+
+[tasks."ex:templates"]
+description = ".mj file, inline, and topic modes (needs store)"
+depends = ["build"]
+run = "$HTTP_NU --datastar --store $STORE :$PORT examples/templates/serve.nu"
+
+[tasks."ex:quotes"]
+description = "Live quotes board with SSE (needs store)"
+depends = ["build"]
+run = "$HTTP_NU --datastar --store $STORE :$PORT examples/quotes/serve.nu"
+
+[tasks."ex:tao"]
+description = "The Tao of Datastar (--dev -w)"
+depends = ["build"]
+run = "$HTTP_NU --datastar --dev -w :$PORT examples/tao/serve.nu"
+
+[tasks."ex:2048"]
+description = "Solo 2048 driven by .bus pub / .bus sub"
+depends = ["build"]
+run = "$HTTP_NU --datastar :$PORT examples/2048/serve.nu"
+
+# ===== housekeeping =====
+
+[tasks.clean]
+description = "Remove cargo target/ only (DESTRUCTIVE, prompts to confirm)"
+confirm = "Run 'cargo clean'? This deletes target/ — say no if unsure."
+run = "cargo clean"
+
+[tasks."clean:store"]
+description = "Delete the local store dir at $STORE (DESTRUCTIVE, prompts to confirm)"
+confirm = "Delete $STORE and everything in it? This is NOT recoverable."
+run = '''
+set -euo pipefail
+: "${STORE:?STORE not set}"
+case "$STORE" in
+  ""|"/"|"."|"./"|".."|"../"|"$HOME"|"$HOME/")
+    echo "refusing to delete suspicious STORE='$STORE'" >&2
+    exit 1
+    ;;
+esac
+[ -d "$STORE" ] || { echo "no $STORE to remove"; exit 0; }
+rm -rf -- "$STORE"
+echo "removed $STORE"
+'''
