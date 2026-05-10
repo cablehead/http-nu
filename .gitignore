@@ -2,5 +2,6 @@
 .cargo/
 store
 .store/
+.src/
 www/assets/_/
 __pycache__/

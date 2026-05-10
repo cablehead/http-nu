@@ -81,27 +81,67 @@ deployment shape.
 
 ## The blocker: Nushell on `wasm32-unknown-unknown`
 
-Spike-test this before anything else. Likely failures:
+**Spike result: PASS** (see `cf-spike/`, `mise run cf:spike`).
 
-- `nu-cli` / `nu-command` pull in ctrlc, sysinfo, sqlite (rusqlite
-  links libsqlite3 by default), filesystem and process commands. None
-  of those compile to wasm32 unmodified.
-- `nu-plugin-engine` spawns plugin subprocesses. Plugin support is
-  already noted as drop-on-CF.
-- `nu-engine` itself is mostly pure compute -- the question is whether
-  we can build a curated context (drop `add_shell_command_context`,
-  drop `add_cli_context`, drop `nu_cmd_extra`) and still get a usable
-  language. `nu-cmd-lang`, `nu-parser`, `nu-protocol`, `nu-engine`,
-  plus `nu-std`, plus our own `src/stdlib/*` are the only pieces the
-  examples actually use.
-- `std::thread::spawn` in `src/worker.rs` is the worst offender. wasm
-  has no threads in the Workers runtime; eval has to become async.
+Curated set `nu-cmd-lang + nu-engine + nu-parser + nu-protocol`, all
+with `default-features = false`, compiles clean to
+`wasm32-unknown-unknown`. Release artifact: ~424KB.
 
-Until the spike answers "yes, a curated Nu compiles to wasm32 and
-evaluates a `{|req| ...}` closure with `await`-able primitives", every
-path below is conditional. If the answer is no, http-nu on CF means
-running a *different* scripting surface at the edge (rhai, mdjs, JS)
-while keeping the routing/HTML/Datastar/xs concepts identical.
+Key gotcha that the spike found: `nu-protocol` has a `default = ["os"]`
+feature that pulls `os_pipe` (no wasm32 support). Disabling default
+features strips it. We don't need OS pipes for pure script eval.
+
+Prior art that confirms the wasm story:
+
+- **[nu-on-web/nu-on-web](https://github.com/nu-on-web/nu-on-web)** —
+  runs Nushell in a browser via wasm. Cargo recipe + ZenFS bridge are
+  cribbable. Cloned to `.src/nu-on-web/` for reference.
+- **Upstream nushell** itself ships an officially-maintained wasm
+  build target. See [toolkit/wasm.nu](
+  https://github.com/nushell/nushell/blob/main/toolkit/wasm.nu) for
+  the canonical list of wasm-compatible crates. They CI-check it with
+  `cargo clippy --target wasm32-unknown-unknown --no-default-features
+  -- -D warnings -D clippy::unwrap_used` per crate. **This is the
+  SSOT for what compiles.** Cloned to `.src/nushell/` for reference.
+- Driving the upstream wasm work: **[@cptpiepmatz](
+  https://github.com/cptpiepmatz)**. Worth tracking his open PRs
+  before assuming a wasm gap is permanent.
+
+Per the upstream `toolkit/wasm.nu`, the full set of crates currently
+known to build for wasm32 is:
+
+```
+nu-cmd-base       nu-cmd-extra    nu-cmd-lang     nu-color-config
+nu-command        nu-derive-value nu-engine       nu-glob
+nu-json           nu-parser       nu-path         nu-pretty-hex
+nu-protocol       nu-std          nu-system       nu-table
+nu-term-grid      nu-utils        nuon
+```
+
+Our spike currently uses only a subset (the eval-essential five plus
+nu-command + nu-cmd-extra). When http-nu's stdlib commands move
+across, expect to pull in `nu-std`, `nu-json`, `nu-table`, and `nuon`
+on top of that.
+
+What's *not* yet proven by the spike:
+
+- Adding `nu-std` (stdlib in Nu) — likely fine, it's pure Nu.
+- Adding our own `src/stdlib/*` modules — also pure Nu.
+- The async eval refactor (`std::thread::spawn` in `src/worker.rs:234`
+  is the worst offender). The spike calls `eval_block` synchronously,
+  which is fine for build-test but won't work on Workers' single
+  isolate. Eval has to yield to the JS event loop. Open question.
+- Custom commands from `src/commands.rs` that touch fs/network/threads
+  (`.static`, `.reverse-proxy`, `.bus sub`'s mini-runtime, plugin
+  loading). Each needs an audit; pure ones (`.mj inline`, `.md`,
+  `.highlight`, `to sse`) should port cleanly.
+
+Excluded from the curated set (won't compile to wasm32):
+
+- `nu-cli` / `nu-command` — pull in ctrlc, sysinfo, sqlite, fs
+  commands.
+- `nu-cmd-extra` — process management, kill/ps.
+- `nu-plugin-engine` — spawns plugin subprocesses.
 
 ## Cloudflare Containers / Sandbox SDK: out
 
@@ -110,6 +150,47 @@ includes the Sandbox SDK, which is built on Containers + DO. CF
 deployment means worker-rs targeting `wasm32-unknown-unknown` against
 the Workers runtime, talking to DO + R2 + KV. No Linux processes at
 the edge.
+
+## `@cloudflare/shell`: the FS + git substrate (Workers-native, no containers)
+
+[`@cloudflare/shell`](https://www.npmjs.com/package/@cloudflare/shell)
+([source](https://github.com/cloudflare/agents/tree/main/packages/shell))
+is a JS package that runs **inside a Workers isolate** and provides:
+
+- `Workspace` -- durable filesystem-like storage backed by **Durable
+  Object SQLite + optional R2**. Exactly the shape we sketched for xs
+  on CF: SQLite for the metadata index, R2 for blob payloads.
+- `FileSystem` trait with `InMemoryFs` and `WorkspaceFileSystem`
+  impls.
+- `createGit(fs)` -- isomorphic-git on top of the same filesystem.
+  Standard ops: `clone`, `pull`, `commit`, `push`, `add`, `log`, etc.
+- A `gitTools` ToolProvider with auto-injected auth so secrets never
+  leak to scripts.
+
+This is Workers-native -- no Containers, no Sandbox SDK -- so it does
+not violate the "no containers" rule from `../xs/CLOUDFLARE.md`.
+
+Implications for http-nu on CF:
+
+- The `Vfs` trait below has its CF impl *for free*: a thin
+  wasm-bindgen bridge that calls `workspace.readFile(path)`,
+  `workspace.writeFile(...)`, etc. We don't write the R2 / DO-SQLite
+  glue ourselves; we delegate.
+- xs's CF port (per xs/CLOUDFLARE.md path #1) gets to delegate too.
+  `Workspace`'s SQLite-backed metadata + R2-backed blobs is already
+  the frame-log + CAS shape xs has internally.
+- `--watch` on CF becomes `git pull` on a Workspace at a topic
+  interval (or on a webhook). Handler scripts version naturally.
+- `--topic` (load handler from xs) on CF -> read from a Workspace
+  path (or a CAS hash) the same way.
+- The Worker JS shim wires it up: imports `@cloudflare/shell`, sets up
+  a Workspace, instantiates the wasm, hands the Vfs handle in via
+  wasm-bindgen.
+
+What it does NOT change: the Rust wasm still has to compile to
+`wasm32-unknown-unknown`. `os_pipe` and the rest of the Cargo refactor
+are still required. `@cloudflare/shell` is the *runtime substrate*,
+not a compile-time fix.
 
 ## A virtual filesystem trait, not per-call cfg gates
 

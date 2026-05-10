@@ -1,0 +1,43 @@
+# http-nu-cf — Cloudflare Workers entrypoint for http-nu (Path #1).
+#
+# Standalone workspace ([workspace] below) so the parent repo's `cargo build`
+# never sees this crate. Runs `worker-build --release` to produce the wasm +
+# JS shim that wrangler deploys.
+#
+# Dep set mirrors the upstream nushell wasm-compatible list (see
+# .src/nushell/toolkit/wasm.nu) plus worker-rs for the fetch event.
+
+[workspace]
+
+[package]
+name = "http-nu-cf"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Worker SDK
+worker = "0.8"
+
+# Curated Nu (no nu-cli, no nu-plugin-engine; nu-command's `js` feature)
+nu-protocol  = { version = "0.112", default-features = false }
+nu-parser    = { version = "0.112", default-features = false }
+nu-engine    = { version = "0.112", default-features = false }
+nu-cmd-lang  = { version = "0.112", default-features = false }
+nu-command   = { version = "0.112", default-features = false, features = ["js", "rand"] }
+nu-cmd-extra = { version = "0.112", default-features = false }
+nu-utils     = { version = "0.112", default-features = false }
+
+# wasm essentials
+wasm-bindgen             = "=0.2.121"   # match worker-rs 0.8.3 transitive
+getrandom                = { version = "0.3", features = ["wasm_js"] }
+uuid                     = { version = "1",   features = ["js"] }
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

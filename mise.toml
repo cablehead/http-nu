@@ -11,9 +11,8 @@ includes = [
   "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.19.2",
   "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.19.2",
   "git::https://github.com/joeblew999/.github.git//tasks/rust.toml?ref=v0.19.2",
-  # Uncomment when CF work begins (see CLOUDFLARE.md):
-  # "git::https://github.com/joeblew999/.github.git//tasks/cf.toml?ref=v0.19.2",
-  # "git::https://github.com/joeblew999/.github.git//tasks/wrangler.toml?ref=v0.19.2",
+  "git::https://github.com/joeblew999/.github.git//tasks/cf.toml?ref=v0.19.2",
+  "git::https://github.com/joeblew999/.github.git//tasks/wrangler.toml?ref=v0.19.2",
 ]
 
 [tools]
@@ -42,6 +41,133 @@ description = "Build the nu_plugin_test binary used by cargo test"
 sources = ["tests/test_plugin/**/*.rs", "tests/test_plugin/Cargo.toml"]
 outputs = ["target/debug/nu_plugin_test"]
 run = "cargo build -p nu_plugin_test"
+
+# ===== cloudflare wasm spike (see CLOUDFLARE.md) =====
+
+[tasks."cf:spike"]
+description = "Build cf-spike for wasm32 (gate test for curated Nu); reports .wasm size"
+dir = "{{config_root}}/cf-spike"
+run = '''
+set -euo pipefail
+cargo build --release --target wasm32-unknown-unknown
+WASM=$(find target/wasm32-unknown-unknown/release -maxdepth 1 -name '*.wasm' -type f | head -1)
+if [ -z "$WASM" ]; then
+  echo "✗ no .wasm artifact produced"
+  exit 1
+fi
+SIZE_BYTES=$(wc -c < "$WASM" | tr -d ' ')
+SIZE_HUMAN=$(du -h "$WASM" | cut -f1)
+echo ""
+echo "✓ built  $WASM"
+echo "  size   $SIZE_HUMAN ($SIZE_BYTES bytes)"
+'''
+
+[tasks."cf:spike:tree"]
+description = "Print cf-spike dependency tree (use to trace why a wasm-incompatible crate got pulled in)"
+dir = "{{config_root}}/cf-spike"
+run = '''
+set -euo pipefail
+if [ "${1:-}" = "" ]; then
+  cargo tree --target wasm32-unknown-unknown
+else
+  cargo tree --target wasm32-unknown-unknown -i "$1"
+fi
+'''
+
+# ===== http-nu-cf (the real worker-rs deployment) =====
+
+[tasks."cf:build"]
+description = "Build http-nu-cf for Cloudflare Workers via worker-build (release)"
+dir = "{{config_root}}/http-nu-cf"
+tools = { "cargo:worker-build" = "^0.8" }
+run = '''
+set -euo pipefail
+worker-build --release
+WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
+if [ -n "$WASM" ]; then
+  echo ""
+  echo "✓ built  $WASM ($(du -h "$WASM" | cut -f1))"
+fi
+'''
+
+[tasks."cf:dev"]
+description = "Run http-nu-cf locally via wrangler dev (no auth needed)"
+depends = ["cf:build"]
+dir = "{{config_root}}/http-nu-cf"
+tools = { "npm:wrangler" = "4" }
+run = "wrangler dev"
+
+[tasks."cf:deploy"]
+description = "Deploy http-nu-cf to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
+depends = ["cf:build"]
+dir = "{{config_root}}/http-nu-cf"
+tools = { "npm:wrangler" = "4" }
+run = "wrangler deploy"
+
+[tasks."cf:spike:pack"]
+description = "Build cf-spike via wasm-pack (JS-callable artifact); reports .wasm size"
+dir = "{{config_root}}/cf-spike"
+tools = { "cargo:wasm-pack" = "0.13" }
+run = '''
+set -euo pipefail
+wasm-pack build --target web --no-pack --release --out-dir pkg
+WASM=$(find pkg -maxdepth 1 -name '*_bg.wasm' -type f | head -1)
+if [ -z "$WASM" ]; then
+  echo "✗ no _bg.wasm produced under pkg/"
+  exit 1
+fi
+SIZE_BYTES=$(wc -c < "$WASM" | tr -d ' ')
+SIZE_HUMAN=$(du -h "$WASM" | cut -f1)
+echo ""
+echo "✓ packed  $WASM"
+echo "  size    $SIZE_HUMAN ($SIZE_BYTES bytes)"
+echo "  also    pkg/cf_spike.js  (ES module entry)"
+'''
+
+# ===== nu-on-web (prior art for curated Nu in wasm; lives in .src/) =====
+# Reference build patterns that nu-on-web uses (wasm-pack + svelte playground).
+# .src/ is gitignored — these tasks operate against a cloned working copy.
+
+[tasks."nu-on-web:clone"]
+description = "Clone nu-on-web/nu-on-web into .src/ (idempotent)"
+dir = "{{config_root}}"
+run = '''
+set -euo pipefail
+mkdir -p .src
+if [ -d ".src/nu-on-web/.git" ]; then
+  echo "✓ .src/nu-on-web already present"
+else
+  git clone --depth 1 https://github.com/nu-on-web/nu-on-web.git .src/nu-on-web
+fi
+'''
+
+[tasks."nu-on-web:build"]
+description = "Build nu-on-web wasm into its playground/src/wasm/ (dev)"
+depends = ["nu-on-web:clone"]
+dir = "{{config_root}}/.src/nu-on-web"
+tools = { "cargo:wasm-pack" = "0.13" }
+run = "wasm-pack build --dev --no-opt --no-pack --target web --out-dir playground/src/wasm"
+
+[tasks."nu-on-web:prod"]
+description = "Build nu-on-web wasm (release/optimized)"
+depends = ["nu-on-web:clone"]
+dir = "{{config_root}}/.src/nu-on-web"
+tools = { "cargo:wasm-pack" = "0.13" }
+run = "wasm-pack build --target web --no-pack --release --out-dir playground/src/wasm"
+
+[tasks."nu-on-web:install"]
+description = "Install nu-on-web playground npm deps"
+depends = ["nu-on-web:clone"]
+dir = "{{config_root}}/.src/nu-on-web/playground"
+tools = { node = "22" }
+run = "npm install"
+
+[tasks."nu-on-web:dev"]
+description = "Run nu-on-web playground dev server (Vite); auto-builds wasm + npm install first"
+depends = ["nu-on-web:build", "nu-on-web:install"]
+dir = "{{config_root}}/.src/nu-on-web/playground"
+tools = { node = "22" }
+run = "npm run dev"
 
 # ===== format / lint =====
 

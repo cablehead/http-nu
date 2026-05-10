@@ -1,0 +1,47 @@
+# Throwaway wasm spike — does curated Nushell compile to wasm32-unknown-unknown?
+#
+# Standalone workspace ([workspace] below) so the parent repo's `cargo build`
+# never sees this crate. Run from the cf-spike/ directory:
+#
+#   cargo build --target wasm32-unknown-unknown
+#
+# Curated set: nu-cmd-lang + nu-engine + nu-parser + nu-protocol only.
+# Explicitly excluded: nu-cli, nu-command, nu-cmd-extra, nu-plugin-engine,
+# nu-std (these pull threads/fs/process/network).
+
+[workspace]
+
+[package]
+name = "cf-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# default-features = false strips the `os` feature which pulls os_pipe (no
+# wasm32 support). nu-command's `js` feature is the wasm path -- it pulls
+# getrandom/wasm_js, rand, uuid, and skips os/network/tls.
+# Pattern cribbed from .src/nu-on-web/Cargo.toml.
+nu-protocol  = { version = "0.112", default-features = false }
+nu-parser    = { version = "0.112", default-features = false }
+nu-engine    = { version = "0.112", default-features = false }
+nu-cmd-lang  = { version = "0.112", default-features = false }
+nu-command   = { version = "0.112", default-features = false, features = ["js", "rand"] }
+nu-cmd-extra = { version = "0.112", default-features = false }
+nu-utils     = { version = "0.112", default-features = false }
+getrandom    = { version = "0.3",   features = ["wasm_js"] }
+uuid         = { version = "1",     features = ["js"] }
+
+# JS interop for wasm-pack output. Pinned to match worker-rs 0.8.3.
+wasm-bindgen             = "=0.2.121"
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[profile.release]
+opt-level = "s"
+lto = true
