@@ -28,7 +28,7 @@ use crate::commands::{
     MdCommand, MjCommand, MjCompileCommand, MjRenderCommand, PrintCommand, ReverseProxyCommand,
     RunNuCommand, StaticCommand, ToSse,
 };
-use crate::logging::log_error;
+use crate::log::log_error;
 use crate::stdlib::load_http_nu_stdlib;
 use crate::Error;
 

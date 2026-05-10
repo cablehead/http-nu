@@ -1842,6 +1842,17 @@ checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fancy-regex"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "998b056554fbe42e03ae0e152895cd1a7e1002aec800fdc6635d20270260c46f"
+dependencies = [
+ "bit-set",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "fancy-regex"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72cf461f865c862bb7dc573f643dd6a2b6842f7c30b07882b56bd148cc2761b8"
@@ -2575,8 +2586,10 @@ dependencies = [
  "crossterm",
  "ctrlc",
  "futures-util",
+ "getrandom 0.3.4",
  "headers",
  "http",
+ "http-body",
  "http-body-util",
  "http-serde",
  "http_encoding_headers",
@@ -4214,7 +4227,7 @@ checksum = "f6f6aacdbd55bfa13ccae2020b392283e268630d26d7f367eb8b802806e5ce2b"
 dependencies = [
  "chrono",
  "crossterm",
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "is_executable",
  "log",
  "lscolors",
@@ -4260,7 +4273,7 @@ version = "0.112.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "485fb2672beae9042bd82d94e4da3de30fdbe40db7b1a78300655eb2c1dfd20b"
 dependencies = [
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "heck",
  "itertools 0.14.0",
  "mime",
@@ -4335,7 +4348,7 @@ dependencies = [
  "dns-lookup",
  "dtparse",
  "encoding_rs",
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "filesize",
  "filetime",
  "fuzzy-matcher",
@@ -4443,7 +4456,7 @@ version = "0.112.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21070daac55c85e7c6c608937d3747d4b239f48c111ef8697c9179e7f3832dfd"
 dependencies = [
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "log",
  "nu-experimental",
  "nu-glob",
@@ -4597,7 +4610,7 @@ dependencies = [
  "chrono-humanize",
  "dirs 6.0.0",
  "dirs-sys 0.5.0",
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "heck",
  "indexmap",
  "log",
@@ -4666,7 +4679,7 @@ version = "0.112.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea787e6af24e59138129540821488ad22f371711af81ce6c09503e1ead8e9bf2"
 dependencies = [
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "nu-ansi-term",
  "nu-color-config",
  "nu-engine",
@@ -4694,7 +4707,7 @@ dependencies = [
  "byteyarn",
  "crossterm",
  "crossterm_winapi",
- "fancy-regex",
+ "fancy-regex 0.17.0",
  "lean_string",
  "log",
  "lscolors",
@@ -6873,6 +6886,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "656b45c05d95a5704399aeef6bd0ddec7b2b3531b7c9e900abbf7c4d2190c925"
 dependencies = [
  "bincode",
+ "fancy-regex 0.16.2",
  "flate2",
  "fnv",
  "once_cell",

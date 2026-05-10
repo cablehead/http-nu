@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-use crate::logging::log_print;
+use crate::log::log_print;
 use crate::response::{Response, ResponseBodyType};
 use nu_engine::command_prelude::*;
 use nu_protocol::{
@@ -1758,6 +1758,7 @@ yields only events whose topic matches. `*` matches any run of characters includ
             .category(Category::Experimental)
     }
 
+    #[cfg(feature = "desktop")]
     fn run(
         &self,
         engine_state: &EngineState,
@@ -1814,5 +1815,26 @@ yields only events whose topic matches. `*` matches any run of characters includ
         );
 
         Ok(PipelineData::ListStream(stream, None))
+    }
+
+    // wasm path: the desktop impl uses std::thread::spawn + a fresh tokio
+    // runtime to bridge async broadcast -> sync ListStream. Neither exists
+    // on Workers; the real wasm impl will be a BusDO + WS Hibernation bridge
+    // (see CLOUDFLARE.md). For now, surface a clear error.
+    #[cfg(not(feature = "desktop"))]
+    fn run(
+        &self,
+        _engine_state: &EngineState,
+        _stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        Err(ShellError::GenericError {
+            error: ".bus sub is not yet implemented on this target".into(),
+            msg: "use the desktop binary, or wait for the BusDO bridge".into(),
+            span: Some(call.head),
+            help: None,
+            inner: vec![],
+        })
     }
 }

@@ -3,9 +3,10 @@ use brotli::enc::encode::{BrotliEncoderOperation, BrotliEncoderStateStruct};
 use brotli::enc::StandardAlloc;
 use bytes::Bytes;
 use headers::Header;
+use http::HeaderMap;
+use http_body::Frame;
 use http_body_util::{combinators::BoxBody, BodyExt, StreamBody};
 use http_encoding_headers::{AcceptEncoding, Encoding};
-use hyper::body::Frame;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
@@ -22,9 +23,9 @@ const OUTBUF_CAP: usize = 16 * 1024;
 /// Parses the `Accept-Encoding` header respecting quality values.
 /// Returns `true` only if `br` is present with quality > 0.
 #[must_use]
-pub fn accepts_brotli(headers: &hyper::header::HeaderMap) -> bool {
+pub fn accepts_brotli(headers: &HeaderMap) -> bool {
     let Ok(accept) =
-        AcceptEncoding::decode(&mut headers.get_all(hyper::header::ACCEPT_ENCODING).iter())
+        AcceptEncoding::decode(&mut headers.get_all(http::header::ACCEPT_ENCODING).iter())
     else {
         return false;
     };
