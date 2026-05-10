@@ -26,7 +26,10 @@ PORT = "3001"
 STORE = "./.store"
 HTTP_NU = "./target/debug/http-nu"
 
-# ===== build =====
+
+# ============================================================================
+# build
+# ============================================================================
 
 [tasks.build]
 description = "Build debug binary"
@@ -40,130 +43,10 @@ sources = ["tests/test_plugin/**/*.rs", "tests/test_plugin/Cargo.toml"]
 outputs = ["target/debug/nu_plugin_test"]
 run = "cargo build -p nu_plugin_test"
 
-# ===== Cloudflare Workers (src/cf/) =====
-# CF code lives in src/cf/, additive to upstream's src/ tree. Build runs
-# from repo root (where Cargo.toml is); wrangler runs from src/cf/ (where
-# wrangler.toml is). mise abstracts the cwd dance.
 
-[tasks."cf:build"]
-description = "Build the http-nu Workers cdylib via worker-build. CF_HANDLER_PATH (relative to src/cf/) picks the embedded example; defaults to examples/blog/serve.nu."
-dir = "{{config_root}}"
-tools = { "cargo:worker-build" = "^0.8" }
-run = '''
-set -euo pipefail
-export CF_HANDLER_PATH="${CF_HANDLER_PATH:-../../examples/blog/serve.nu}"
-echo "embedding handler: $CF_HANDLER_PATH"
-worker-build --release -- --no-default-features --features cloudflare
-WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
-if [ -n "$WASM" ]; then
-  echo ""
-  echo "✓ built  $WASM ($(du -h "$WASM" | cut -f1))"
-fi
-'''
-
-[tasks."cf:dev"]
-description = "Run the http-nu Worker locally via wrangler dev (no auth needed). Uses CF_HANDLER_PATH from cf:build."
-depends = ["cf:build"]
-dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22" }
-run = "wrangler dev"
-
-[tasks."cf:deploy"]
-description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
-depends = ["cf:build"]
-dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22" }
-run = "wrangler deploy"
-
-[tasks."cf:tail"]
-description = "Live-tail logs from the deployed http-nu Worker (wrangler tail; requires CLOUDFLARE_API_TOKEN)"
-dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22" }
-run = "wrangler tail"
-
-# ===== examples on Cloudflare (mirrors ex:* but on wasm Workers) =====
-# Each ex:cf:<name> sets CF_HANDLER_PATH then runs cf:dev. The env propagates
-# through the cf:build dependency, so cargo rebuilds with the right script.
-# Same example name as the desktop ex:* task -- pick your target.
-#
-# What works on CF today is whatever the script needs that's already in our
-# wasm-curated nu-command set. Things known to break:
-#   - `sleep` and `generate` (need nu-command/os, gated on wasm)
-#   - `.bus sub` (needs a Bus DO; today's wasm impl returns an error)
-#   - `.static`, `--store`, `--watch` (need Vfs / xs CF integration)
-#   - Streaming responses (ListStream/ByteStream -> ReadableStream not wired)
-# See CLOUDFLARE.md "Status" for the full list.
-
-[tasks."ex:cf:blog"]
-description = "examples/blog on CF -- works end-to-end (router DSL, HTML DSL, content-type)"
-env = { CF_HANDLER_PATH = "../../examples/blog/serve.nu" }
-depends = ["cf:dev"]
-run = "true"
-
-[tasks."ex:cf:cargo-docs"]
-description = "examples/cargo-docs on CF -- KNOWN BROKEN: hangs at runtime (uses `ls $doc_root` + `path exists` on a real fs, plus `.static` which is desktop-only); needs Vfs"
-env = { CF_HANDLER_PATH = "../../examples/cargo-docs/serve.nu" }
-depends = ["cf:dev"]
-run = "true"
-
-[tasks."ex:cf:basic"]
-description = "examples/basic on CF -- KNOWN BROKEN: /time uses `sleep` + `generate` (nu-command/os, gated on wasm); compile errors at parse"
-env = { CF_HANDLER_PATH = "../../examples/basic.nu" }
-depends = ["cf:dev"]
-run = "true"
-
-[tasks."ex:cf:2048"]
-description = "examples/2048 on CF -- KNOWN BROKEN: uses `.bus sub`, `sleep`, `generate`; needs BusDO + streaming"
-env = { CF_HANDLER_PATH = "../../examples/2048/serve.nu" }
-depends = ["cf:dev"]
-run = "true"
-
-# ===== nu-on-web (prior art for curated Nu in wasm; lives in .src/) =====
-# Reference build patterns that nu-on-web uses (wasm-pack + svelte playground).
-# .src/ is gitignored — these tasks operate against a cloned working copy.
-
-[tasks."nu-on-web:clone"]
-description = "Clone nu-on-web/nu-on-web into .src/ (idempotent)"
-dir = "{{config_root}}"
-run = '''
-set -euo pipefail
-mkdir -p .src
-if [ -d ".src/nu-on-web/.git" ]; then
-  echo "✓ .src/nu-on-web already present"
-else
-  git clone --depth 1 https://github.com/nu-on-web/nu-on-web.git .src/nu-on-web
-fi
-'''
-
-[tasks."nu-on-web:build"]
-description = "Build nu-on-web wasm into its playground/src/wasm/ (dev)"
-depends = ["nu-on-web:clone"]
-dir = "{{config_root}}/.src/nu-on-web"
-tools = { "cargo:wasm-pack" = "0.13" }
-run = "wasm-pack build --dev --no-opt --no-pack --target web --out-dir playground/src/wasm"
-
-[tasks."nu-on-web:prod"]
-description = "Build nu-on-web wasm (release/optimized)"
-depends = ["nu-on-web:clone"]
-dir = "{{config_root}}/.src/nu-on-web"
-tools = { "cargo:wasm-pack" = "0.13" }
-run = "wasm-pack build --target web --no-pack --release --out-dir playground/src/wasm"
-
-[tasks."nu-on-web:install"]
-description = "Install nu-on-web playground npm deps"
-depends = ["nu-on-web:clone"]
-dir = "{{config_root}}/.src/nu-on-web/playground"
-tools = { node = "22" }
-run = "npm install"
-
-[tasks."nu-on-web:dev"]
-description = "Run nu-on-web playground dev server (Vite); auto-builds wasm + npm install first"
-depends = ["nu-on-web:build", "nu-on-web:install"]
-dir = "{{config_root}}/.src/nu-on-web/playground"
-tools = { node = "22" }
-run = "npm run dev"
-
-# ===== format / lint =====
+# ============================================================================
+# format / lint
+# ============================================================================
 
 [tasks.fmt]
 description = "Apply rustfmt"
@@ -177,7 +60,10 @@ run = "cargo fmt --check --all"
 description = "Clippy with -D warnings -W uninlined_format_args"
 run = "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -W clippy::uninlined_format_args"
 
-# ===== test =====
+
+# ============================================================================
+# test
+# ============================================================================
 
 [tasks.test]
 description = "Run cargo test"
@@ -203,14 +89,20 @@ description = "CI aggregator — what the .github/workflows/mise.yaml workflow r
 alias = "check"
 depends = ["test:nu", "fmt:check", "clippy", "test", "test:tao"]
 
-# ===== run (interactive) =====
+
+# ============================================================================
+# run (interactive)
+# ============================================================================
 
 [tasks.run]
 description = "Run http-nu (pass args after --, e.g. mise run run -- :3001 examples/basic.nu)"
 depends = ["build"]
 run = "$HTTP_NU"
 
-# ===== examples =====
+
+# ============================================================================
+# examples (desktop)
+# ============================================================================
 # All listen on :$PORT (default 3001). Override: PORT=4000 mise run ex:basic
 # Store-using examples write to $STORE (default ./.store).
 
@@ -274,7 +166,137 @@ description = "Solo 2048 driven by .bus pub / .bus sub"
 depends = ["build"]
 run = "$HTTP_NU --datastar :$PORT examples/2048/serve.nu"
 
-# ===== housekeeping =====
+
+# ============================================================================
+# Cloudflare Workers (src/cf/)
+# ============================================================================
+# CF code lives in src/cf/, additive to upstream's src/ tree. Build runs
+# from repo root (where Cargo.toml is); wrangler runs from src/cf/ (where
+# wrangler.toml is). mise abstracts the cwd dance.
+#
+# See CLOUDFLARE.md for the full status, what each example does on CF,
+# and the overall design.
+
+[tasks."cf:build"]
+description = "Build the http-nu Workers cdylib via worker-build. CF_HANDLER_PATH (relative to src/cf/) picks the embedded example; defaults to examples/blog/serve.nu."
+dir = "{{config_root}}"
+tools = { "cargo:worker-build" = "^0.8" }
+run = '''
+set -euo pipefail
+export CF_HANDLER_PATH="${CF_HANDLER_PATH:-../../examples/blog/serve.nu}"
+echo "embedding handler: $CF_HANDLER_PATH"
+worker-build --release -- --no-default-features --features cloudflare
+WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
+if [ -n "$WASM" ]; then
+  echo ""
+  echo "✓ built  $WASM ($(du -h "$WASM" | cut -f1))"
+fi
+'''
+
+[tasks."cf:dev"]
+description = "Run the http-nu Worker locally via wrangler dev (no auth needed). Uses CF_HANDLER_PATH from cf:build."
+depends = ["cf:build"]
+dir = "{{config_root}}/src/cf"
+tools = { "npm:wrangler" = "4", node = "22" }
+run = "wrangler dev"
+
+[tasks."cf:deploy"]
+description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
+depends = ["cf:build"]
+dir = "{{config_root}}/src/cf"
+tools = { "npm:wrangler" = "4", node = "22" }
+run = "wrangler deploy"
+
+[tasks."cf:tail"]
+description = "Live-tail logs from the deployed http-nu Worker (wrangler tail; requires CLOUDFLARE_API_TOKEN)"
+dir = "{{config_root}}/src/cf"
+tools = { "npm:wrangler" = "4", node = "22" }
+run = "wrangler tail"
+
+
+# ============================================================================
+# examples on Cloudflare (mirrors ex:* but on wasm Workers)
+# ============================================================================
+# Each ex:cf:<name> sets CF_HANDLER_PATH then runs cf:dev. The env propagates
+# through the cf:build dependency, so cargo rebuilds with the right script.
+# CLOUDFLARE.md "Status" tracks which examples work and why.
+
+[tasks."ex:cf:blog"]
+description = "examples/blog on CF -- works end-to-end (router DSL, HTML DSL, content-type)"
+env = { CF_HANDLER_PATH = "../../examples/blog/serve.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+[tasks."ex:cf:cargo-docs"]
+description = "examples/cargo-docs on CF -- KNOWN BROKEN: hangs at runtime (uses `ls $doc_root` + `path exists` on a real fs, plus `.static` which is desktop-only); needs Vfs"
+env = { CF_HANDLER_PATH = "../../examples/cargo-docs/serve.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+[tasks."ex:cf:basic"]
+description = "examples/basic on CF -- KNOWN BROKEN: /time uses `sleep` + `generate` (nu-command/os, gated on wasm); compile errors at parse"
+env = { CF_HANDLER_PATH = "../../examples/basic.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+[tasks."ex:cf:2048"]
+description = "examples/2048 on CF -- KNOWN BROKEN: uses `.bus sub`, `sleep`, `generate`; needs BusDO + streaming"
+env = { CF_HANDLER_PATH = "../../examples/2048/serve.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+
+# ============================================================================
+# nu-on-web (prior art for curated Nu in wasm; lives in .src/)
+# ============================================================================
+# Reference build patterns that nu-on-web uses (wasm-pack + svelte playground).
+# .src/ is gitignored — these tasks operate against a cloned working copy.
+
+[tasks."nu-on-web:clone"]
+description = "Clone nu-on-web/nu-on-web into .src/ (idempotent)"
+dir = "{{config_root}}"
+run = '''
+set -euo pipefail
+mkdir -p .src
+if [ -d ".src/nu-on-web/.git" ]; then
+  echo "✓ .src/nu-on-web already present"
+else
+  git clone --depth 1 https://github.com/nu-on-web/nu-on-web.git .src/nu-on-web
+fi
+'''
+
+[tasks."nu-on-web:build"]
+description = "Build nu-on-web wasm into its playground/src/wasm/ (dev)"
+depends = ["nu-on-web:clone"]
+dir = "{{config_root}}/.src/nu-on-web"
+tools = { "cargo:wasm-pack" = "0.13" }
+run = "wasm-pack build --dev --no-opt --no-pack --target web --out-dir playground/src/wasm"
+
+[tasks."nu-on-web:prod"]
+description = "Build nu-on-web wasm (release/optimized)"
+depends = ["nu-on-web:clone"]
+dir = "{{config_root}}/.src/nu-on-web"
+tools = { "cargo:wasm-pack" = "0.13" }
+run = "wasm-pack build --target web --no-pack --release --out-dir playground/src/wasm"
+
+[tasks."nu-on-web:install"]
+description = "Install nu-on-web playground npm deps"
+depends = ["nu-on-web:clone"]
+dir = "{{config_root}}/.src/nu-on-web/playground"
+tools = { node = "22" }
+run = "npm install"
+
+[tasks."nu-on-web:dev"]
+description = "Run nu-on-web playground dev server (Vite); auto-builds wasm + npm install first"
+depends = ["nu-on-web:build", "nu-on-web:install"]
+dir = "{{config_root}}/.src/nu-on-web/playground"
+tools = { node = "22" }
+run = "npm run dev"
+
+
+# ============================================================================
+# housekeeping (DESTRUCTIVE -- prompts to confirm)
+# ============================================================================
 
 [tasks.clean]
 description = "Remove cargo target/ only (DESTRUCTIVE, prompts to confirm)"
