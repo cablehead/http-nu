@@ -57,9 +57,10 @@ fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
         .run_closure(req_value, nu_protocol::PipelineData::Empty)
         .map_err(|e| format!("eval: {e}"))?;
 
-    // Pull `http.response { status, headers }` from pipeline metadata
+    // Pull `http.response { status, headers }` and infer content-type
     // before consuming pd. Same shape as desktop's response handler.
     let http_meta = extract_http_response_meta(pd.metadata_ref());
+    let content_type = infer_content_type(&pd);
 
     let value = pd
         .into_value(nu_protocol::Span::unknown())
@@ -73,6 +74,11 @@ fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
         response = response.with_status(status);
     }
     let headers = response.headers_mut();
+    if let Some(ct) = content_type {
+        let _ = headers.set("Content-Type", &ct);
+    }
+    // Explicit headers via `metadata set { merge {'http.response': {headers: ...}}}`
+    // override the inferred Content-Type (set last wins via `set`).
     for (k, v) in &http_meta.headers {
         match v {
             HeaderValue::Single(s) => {
@@ -86,6 +92,38 @@ fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
         }
     }
     Ok(response)
+}
+
+/// Mirrors src/worker.rs's content-type inference. Records with `__html`
+/// are HTML; bare records and lists are JSON; binary is octet-stream;
+/// everything else uses pipeline metadata's content-type if set.
+fn infer_content_type(pd: &nu_protocol::PipelineData) -> Option<String> {
+    use nu_protocol::{PipelineData, Value};
+    match pd {
+        PipelineData::Value(Value::Record { val, .. }, meta)
+            if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+        {
+            if val.get("__html").is_some() {
+                Some("text/html; charset=utf-8".into())
+            } else {
+                Some("application/json".into())
+            }
+        }
+        PipelineData::Value(Value::List { .. }, meta)
+            if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+        {
+            Some("application/json".into())
+        }
+        PipelineData::Value(Value::Binary { .. }, meta)
+            if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+        {
+            Some("application/octet-stream".into())
+        }
+        PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
+            meta.as_ref().and_then(|m| m.content_type.clone())
+        }
+        _ => None,
+    }
 }
 
 fn worker_request_to_http_nu(req: &WorkerRequest) -> std::result::Result<Request, String> {
