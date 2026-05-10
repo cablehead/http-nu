@@ -3,5 +3,7 @@
 store
 .store/
 .src/
+.wrangler/
+build/
 www/assets/_/
 __pycache__/
