@@ -70,13 +70,34 @@ src/                              cablehead/http-nu's tree (byte-identical
                                   layout; we add #[cfg(feature = "desktop")]
                                   gates inline where targets differ)
 src/cf/                           CF-only code we own (never upstream)
-  mod.rs                          #[event(fetch)] entrypoint -> Engine
+  mod.rs                          #[event(fetch)] entrypoint + engine cache
+  request.rs                      mirrors src/request.rs (worker::Request adapter)
+  response.rs                     mirrors src/response.rs (PipelineData -> Response,
+                                  streaming via worker::Response::from_stream)
   wrangler.toml                   Workers config
 build/                            worker-build output (gitignored)
 mise.toml                         tasks, including cf:build/cf:dev/cf:deploy
 Cargo.toml                        single manifest with `desktop` (default),
                                   `cloudflare`, `cross-stream` features
 ```
+
+### File-layout rule
+
+Each file under `src/cf/` mirrors a sibling under `src/` when there's
+a desktop equivalent. `src/cf/<x>.rs` is the wasm/CF flavor of
+`src/<x>.rs`. Pair-comparison reviews are then a side-by-side diff per
+file rather than a hunt across the tree.
+
+| Situation | Where it goes |
+|---|---|
+| Helper used by *both* targets | upstream file (`src/<x>.rs`); both targets call it. Example: `src/response.rs::infer_content_type` is shared by `src/worker.rs` (desktop) and `src/cf/response.rs` (wasm). |
+| CF adapter for a desktop concern | `src/cf/<same_name>.rs` (mirrors upstream filename) |
+| Genuinely CF-only primitive (BusDO bridge, Vfs over `@cloudflare/shell`) | `src/cf/<descriptive>.rs` with a comment explaining why no upstream sibling |
+| Desktop concern with no CF analog (e.g. `listener.rs` -- Workers invokes us, no listener) | upstream file gated `#[cfg(feature = "desktop")]`; *no* `src/cf/<same_name>.rs` |
+
+When a CF helper *and* a desktop helper end up doing the same job, the
+dedup goes upstream into `src/<x>.rs` and both targets call it. That
+keeps duplication from accumulating.
 
 The Workers entry (`src/cf/mod.rs`) calls `Engine::new()` +
 `add_custom_commands()` + `parse_closure(...)` + `run_closure(...)`
