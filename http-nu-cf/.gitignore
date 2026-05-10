@@ -1,5 +1,0 @@
-target/
-build/
-Cargo.lock
-.dev.vars
-.wrangler/

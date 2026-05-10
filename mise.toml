@@ -40,47 +40,18 @@ sources = ["tests/test_plugin/**/*.rs", "tests/test_plugin/Cargo.toml"]
 outputs = ["target/debug/nu_plugin_test"]
 run = "cargo build -p nu_plugin_test"
 
-# ===== cloudflare wasm spike (see CLOUDFLARE.md) =====
-
-[tasks."cf:spike"]
-description = "Build cf-spike for wasm32 (gate test for curated Nu); reports .wasm size"
-dir = "{{config_root}}/cf-spike"
-run = '''
-set -euo pipefail
-cargo build --release --target wasm32-unknown-unknown
-WASM=$(find target/wasm32-unknown-unknown/release -maxdepth 1 -name '*.wasm' -type f | head -1)
-if [ -z "$WASM" ]; then
-  echo "✗ no .wasm artifact produced"
-  exit 1
-fi
-SIZE_BYTES=$(wc -c < "$WASM" | tr -d ' ')
-SIZE_HUMAN=$(du -h "$WASM" | cut -f1)
-echo ""
-echo "✓ built  $WASM"
-echo "  size   $SIZE_HUMAN ($SIZE_BYTES bytes)"
-'''
-
-[tasks."cf:spike:tree"]
-description = "Print cf-spike dependency tree (use to trace why a wasm-incompatible crate got pulled in)"
-dir = "{{config_root}}/cf-spike"
-run = '''
-set -euo pipefail
-if [ "${1:-}" = "" ]; then
-  cargo tree --target wasm32-unknown-unknown
-else
-  cargo tree --target wasm32-unknown-unknown -i "$1"
-fi
-'''
-
-# ===== http-nu-cf (the real worker-rs deployment) =====
+# ===== Cloudflare Workers (src/cf/) =====
+# CF code lives in src/cf/, additive to upstream's src/ tree. Build runs
+# from repo root (where Cargo.toml is); wrangler runs from src/cf/ (where
+# wrangler.toml is). mise abstracts the cwd dance.
 
 [tasks."cf:build"]
-description = "Build http-nu-cf for Cloudflare Workers via worker-build (release)"
-dir = "{{config_root}}/http-nu-cf"
+description = "Build the http-nu Workers cdylib via worker-build (release; --features cloudflare)"
+dir = "{{config_root}}"
 tools = { "cargo:worker-build" = "^0.8" }
 run = '''
 set -euo pipefail
-worker-build --release
+worker-build --release -- --no-default-features --features cloudflare
 WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
 if [ -n "$WASM" ]; then
   echo ""
@@ -89,38 +60,18 @@ fi
 '''
 
 [tasks."cf:dev"]
-description = "Run http-nu-cf locally via wrangler dev (no auth needed)"
+description = "Run the http-nu Worker locally via wrangler dev (no auth needed)"
 depends = ["cf:build"]
-dir = "{{config_root}}/http-nu-cf"
-tools = { "npm:wrangler" = "4" }
+dir = "{{config_root}}/src/cf"
+tools = { "npm:wrangler" = "4", node = "22" }
 run = "wrangler dev"
 
 [tasks."cf:deploy"]
-description = "Deploy http-nu-cf to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
+description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
 depends = ["cf:build"]
-dir = "{{config_root}}/http-nu-cf"
-tools = { "npm:wrangler" = "4" }
+dir = "{{config_root}}/src/cf"
+tools = { "npm:wrangler" = "4", node = "22" }
 run = "wrangler deploy"
-
-[tasks."cf:spike:pack"]
-description = "Build cf-spike via wasm-pack (JS-callable artifact); reports .wasm size"
-dir = "{{config_root}}/cf-spike"
-tools = { "cargo:wasm-pack" = "0.13" }
-run = '''
-set -euo pipefail
-wasm-pack build --target web --no-pack --release --out-dir pkg
-WASM=$(find pkg -maxdepth 1 -name '*_bg.wasm' -type f | head -1)
-if [ -z "$WASM" ]; then
-  echo "✗ no _bg.wasm produced under pkg/"
-  exit 1
-fi
-SIZE_BYTES=$(wc -c < "$WASM" | tr -d ' ')
-SIZE_HUMAN=$(du -h "$WASM" | cut -f1)
-echo ""
-echo "✓ packed  $WASM"
-echo "  size    $SIZE_HUMAN ($SIZE_BYTES bytes)"
-echo "  also    pkg/cf_spike.js  (ES module entry)"
-'''
 
 # ===== nu-on-web (prior art for curated Nu in wasm; lives in .src/) =====
 # Reference build patterns that nu-on-web uses (wasm-pack + svelte playground).

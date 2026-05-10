@@ -24,12 +24,12 @@ target -- the existing code is Rust + tokio + hyper.
 The local-first, single-binary deployment is non-negotiable and stays as
 the default. CF support is additive.
 
-## Ground rule: this is a fork, not a rewrite
+## Ground rule: this is a fork; upstream merges must stay clean
 
-Upstream cablehead/http-nu keeps shipping. Every commit changes `src/`.
-Any structural decision we make has to keep upstream merges clean -- a
-file moved to a new crate is a merge conflict every time the upstream
-edits it.
+Upstream `cablehead/http-nu` keeps shipping. Every upstream commit
+changes files in `src/`. Any structural decision we make has to keep
+upstream merges clean -- a file moved or restructured here is a merge
+conflict every time upstream edits it.
 
 This rules out a workspace split that relocates `src/` files (e.g.
 extracting a `http-nu-core` crate). Even though such a split would
@@ -37,16 +37,58 @@ reduce cfg-gate churn long-term, the per-merge cost of every upstream
 sync would be worse. We pay a small ongoing cfg tax to keep the file
 layout identical to upstream.
 
-Concretely:
+### Concrete rules
 
-- `src/` mirrors cablehead/http-nu's tree. We do not move files. We
-  add `#[cfg(feature = "desktop")]` (or `not(feature = "desktop")`)
-  where a module / fn / import differs.
-- New CF-only code goes in `http-nu-cf/` (or other sibling crates).
-  Additive, no conflict with upstream because upstream has no
-  equivalent.
-- A throwaway like `cf-spike/` is also fine -- it's a sibling crate,
-  not a `src/` reorganisation.
+The two-axis split: **what changes** (existing upstream file) vs.
+**what's added** (new CF-only file). Each axis has one rule.
+
+1. **Upstream file** (anything that exists in `cablehead/http-nu`):
+   - Never move, never rename, never restructure.
+   - When desktop and CF need to differ inside that file, use
+     `#[cfg(feature = "desktop")]` / `#[cfg(not(feature = "desktop"))]`
+     in place. Keeping the surrounding code byte-for-byte identical to
+     upstream means future merges resolve cleanly even when they touch
+     the same function.
+   - Optional deps in `Cargo.toml` go behind the `desktop` feature
+     cascade, never deleted.
+
+2. **CF-only file** (anything that doesn't exist upstream):
+   - Lives under `src/cf/` (or a sibling tree we own).
+   - Gated with `#[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]`
+     so it's invisible to desktop builds, even with `--all-features`.
+   - Free to evolve however we want -- upstream can't conflict with
+     a file it doesn't have.
+   - The Workers `wrangler.toml` lives at `src/cf/wrangler.toml`,
+     keeping every CF artifact under that one directory.
+
+### What this looks like in practice
+
+| Concern | Where it lives | Rule |
+|---|---|---|
+| Existing module touched by both targets (e.g. `src/engine.rs`) | upstream file in `src/` | cfg-gate the differing import / fn body in place |
+| Desktop-only module (e.g. `src/listener.rs`, `src/handler.rs`) | upstream file in `src/` | gate the whole `pub mod ...;` line in `lib.rs` |
+| CF-only entrypoint (`#[event(fetch)]`) | `src/cf/mod.rs` | new file we own; cfg-gated to wasm32 |
+| CF-native primitives (BusDO bridge, Vfs over `@cloudflare/shell`, etc.) | `src/cf/<thing>.rs` | new files we own |
+| `worker-rs` dependency | `Cargo.toml` | `optional = true`, gated to `cloudflare` feature |
+| `wrangler.toml` | `src/cf/wrangler.toml` | next to the code it deploys |
+
+### Merge protocol when syncing upstream
+
+1. `git fetch upstream && git merge upstream/main` (or rebase).
+2. If a merge conflict touches a file with our `#[cfg(feature = "desktop")]`
+   gates, resolve in favour of upstream's logic, then re-apply the
+   cfg gates (they're typically import-line / fn-attribute edits;
+   small).
+3. If upstream adds new `pub mod foo;` to `lib.rs`, decide if `foo`
+   is wasm-clean (compiles to wasm32 with `--no-default-features`) or
+   desktop-only. If desktop-only, gate it `#[cfg(feature = "desktop")]`
+   in `lib.rs`.
+4. Run `mise run ci` (desktop) and `mise run cf:build` (wasm) to
+   confirm both targets still pass.
+5. Push.
+
+The merge cost should be O(cfg-gate-edits), not O(architectural
+decisions per file).
 
 ## Ground rule: desktop must keep working
 

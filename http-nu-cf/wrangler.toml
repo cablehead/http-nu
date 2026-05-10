@@ -1,7 +1,0 @@
-name = "http-nu-cf"
-main = "build/worker/shim.mjs"
-compatibility_date = "2026-05-01"
-workers_dev = true
-
-[build]
-command = "worker-build --release"

@@ -1,0 +1,8 @@
+name = "http-nu-cf"
+main = "../../build/worker/shim.mjs"
+compatibility_date = "2026-05-01"
+workers_dev = true
+
+# Build is driven by `mise run cf:build` from the repo root (cwd dance is
+# easier in mise than in wrangler.toml). `wrangler dev` / `wrangler deploy`
+# expect the artifact to already exist at `main`.

@@ -8,6 +8,12 @@ pub mod request;
 pub mod response;
 pub mod stdlib;
 
+// Cloudflare Workers entrypoint. Additive: lives in src/cf/, never imported
+// on desktop, never modifies upstream files in this directory. Gated to
+// wasm32 so a host-target build with `--all-features` (e.g. clippy) skips it.
+#[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
+pub mod cf;
+
 // Modules that depend on desktop-only crates (hyper server, rustls, ctrlc,
 // notify, tower-http/fs, std::thread). On Cloudflare these get a different
 // implementation via worker-rs; they're not just stubbed out. Tracking the
