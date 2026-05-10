@@ -37,6 +37,13 @@ and is structured so upstream merges stay clean.
   runtime handler swap (today the handler is embedded at build time
   via `include_str!` -- see "Handler script lifecycle" below for
   the runtime-swap design).
+- ⏳ The `examples/serve.nu` hub (`mise run cf:build` with
+  `CF_HANDLER_PATH=../../examples/serve.nu`) **fails to parse** on
+  Workers: it does `source basic.nu` etc., which resolves through
+  the filesystem. On wasm there's no fs so each `source` returns
+  `SourcedFileNotFound`. This is the canonical use case for the Vfs
+  trait + `@cloudflare/shell`'s Workspace -- back the hub's
+  `source` calls with R2/Workspace and the hub works.
 
 ## Try it
 
@@ -46,6 +53,9 @@ mise run ci                           # verify desktop is green
 mise run cf:build                     # build the Workers cdylib
 mise run cf:dev                       # wrangler dev on :8787
 curl http://127.0.0.1:8787/           # blog post list rendered by Nu
+
+# Live tail logs from a deployed Worker:
+mise run cf:tail
 ```
 
 ## What's here

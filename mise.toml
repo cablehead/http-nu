@@ -75,6 +75,12 @@ dir = "{{config_root}}/src/cf"
 tools = { "npm:wrangler" = "4", node = "22" }
 run = "wrangler deploy"
 
+[tasks."cf:tail"]
+description = "Live-tail logs from the deployed http-nu Worker (wrangler tail; requires CLOUDFLARE_API_TOKEN)"
+dir = "{{config_root}}/src/cf"
+tools = { "npm:wrangler" = "4", node = "22" }
+run = "wrangler tail"
+
 # ===== examples on Cloudflare (mirrors ex:* but on wasm Workers) =====
 # Each ex:cf:<name> sets CF_HANDLER_PATH then runs cf:dev. The env propagates
 # through the cf:build dependency, so cargo rebuilds with the right script.
