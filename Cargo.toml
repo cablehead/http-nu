@@ -17,6 +17,7 @@ categories = ["web-programming", "command-line-utilities"]
 [[bin]]
 name = "http-nu"
 path = "src/main.rs"
+required-features = ["desktop"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -41,14 +42,14 @@ url = "2.5.0"
 # `os` (which pulls os_pipe). Desktop behavior is unchanged: the `desktop`
 # feature below cascades the same effective feature set that was implicit
 # before.
-nu-cli = "0.112.1"
+nu-cli = { version = "0.112.1", optional = true }
 nu-cmd-lang = { version = "0.112.1", default-features = false }
 nu-cmd-extra = { version = "0.112.1", default-features = false }
 nu-command = { version = "0.112.1", default-features = false }
 nu-engine = { version = "0.112.1", default-features = false }
 nu-parser = { version = "0.112.1", default-features = false }
-nu-plugin-engine = "0.112.1"
-nu-protocol = { version = "0.112.1", default-features = false, features = ["plugin"] }
+nu-plugin-engine = { version = "0.112.1", optional = true }
+nu-protocol = { version = "0.112.1", default-features = false }
 ctrlc = "3.4"
 arc-swap = "1.7"
 rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
@@ -85,6 +86,9 @@ optional = true
 # pulls os_pipe, no wasm32 support) and opt into `js` for nu-command.
 default = ["desktop", "cross-stream"]
 desktop = [
+    # desktop-only optional crates
+    "dep:nu-cli",
+    "dep:nu-plugin-engine",
     # crates that *have* an `os` feature (verified via crates.io 0.112.1)
     "nu-cmd-lang/os",
     "nu-command/os",
@@ -93,6 +97,7 @@ desktop = [
     "nu-command/sqlite",
     "nu-engine/os",
     "nu-protocol/os",
+    "nu-protocol/plugin",
     "nu-utils/os",
     # nu-cmd-extra, nu-parser, nu-std have no `os` feature; nothing to cascade.
 ]
