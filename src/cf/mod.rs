@@ -94,9 +94,12 @@ fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
     Ok(response)
 }
 
-/// Mirrors src/worker.rs's content-type inference. Records with `__html`
-/// are HTML; bare records and lists are JSON; binary is octet-stream;
-/// everything else uses pipeline metadata's content-type if set.
+/// Content-type inference -- the wasm sibling of the match in
+/// src/worker.rs (which is gated to `desktop` because of std::thread).
+/// Records with `__html` are HTML; bare records and lists are JSON;
+/// binary is octet-stream; everything else uses pipeline metadata's
+/// content-type if set. Keep in sync with worker.rs until the two are
+/// merged into src/response.rs.
 fn infer_content_type(pd: &nu_protocol::PipelineData) -> Option<String> {
     use nu_protocol::{PipelineData, Value};
     match pd {

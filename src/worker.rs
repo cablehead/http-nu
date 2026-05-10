@@ -66,6 +66,9 @@ pub fn spawn_eval_thread(
         // | ListStream       | application/x-ndjson   | JSONL (if records)  |
         // | Other            | text/html (default)    | .to_string()        |
         //
+        // NOTE: src/cf/mod.rs::infer_content_type duplicates this match for
+        // the wasm path (this whole module is gated to `desktop`). When this
+        // logic stabilises, extract both into src/response.rs.
         let inferred_content_type = match &output {
             PipelineData::Value(Value::Record { val, .. }, meta)
                 if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
