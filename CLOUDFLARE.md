@@ -24,6 +24,30 @@ target -- the existing code is Rust + tokio + hyper.
 The local-first, single-binary deployment is non-negotiable and stays as
 the default. CF support is additive.
 
+## Ground rule: this is a fork, not a rewrite
+
+Upstream cablehead/http-nu keeps shipping. Every commit changes `src/`.
+Any structural decision we make has to keep upstream merges clean -- a
+file moved to a new crate is a merge conflict every time the upstream
+edits it.
+
+This rules out a workspace split that relocates `src/` files (e.g.
+extracting a `http-nu-core` crate). Even though such a split would
+reduce cfg-gate churn long-term, the per-merge cost of every upstream
+sync would be worse. We pay a small ongoing cfg tax to keep the file
+layout identical to upstream.
+
+Concretely:
+
+- `src/` mirrors cablehead/http-nu's tree. We do not move files. We
+  add `#[cfg(feature = "desktop")]` (or `not(feature = "desktop")`)
+  where a module / fn / import differs.
+- New CF-only code goes in `http-nu-cf/` (or other sibling crates).
+  Additive, no conflict with upstream because upstream has no
+  equivalent.
+- A throwaway like `cf-spike/` is also fine -- it's a sibling crate,
+  not a `src/` reorganisation.
+
 ## Ground rule: desktop must keep working
 
 Every change for CF lands the Cargo way -- as optional dependencies and
