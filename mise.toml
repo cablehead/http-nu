@@ -16,11 +16,9 @@ includes = [
 ]
 
 [tools]
-# Rust + nu pinned here (used by local tasks below). deno is needed for
-# `deno fmt` of README.md — kept here even though no shared task uses it.
+# Rust + nu pinned here (used by local tasks below).
 rust                     = "stable"
 "github:nushell/nushell" = "0.112"   # match joeblew999/.github lib pin
-deno                     = "latest"
 
 [env]
 CARGO_TERM_COLOR = "always"
@@ -172,18 +170,12 @@ run = "npm run dev"
 # ===== format / lint =====
 
 [tasks.fmt]
-description = "Apply rustfmt and deno fmt"
-run = [
-  "cargo fmt --all",
-  "deno fmt README.md",
-]
+description = "Apply rustfmt"
+run = "cargo fmt --all"
 
 [tasks."fmt:check"]
 description = "Verify formatting without writing"
-run = [
-  "cargo fmt --check --all",
-  "deno fmt README.md --check",
-]
+run = "cargo fmt --check --all"
 
 [tasks.clippy]
 description = "Clippy with -D warnings -W uninlined_format_args"
