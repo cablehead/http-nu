@@ -101,7 +101,7 @@ depends = ["cf:dev"]
 run = "true"
 
 [tasks."ex:cf:cargo-docs"]
-description = "examples/cargo-docs on CF -- should work (same surface as blog: router + html, no sleep/generate)"
+description = "examples/cargo-docs on CF -- KNOWN BROKEN: hangs at runtime (uses `ls $doc_root` + `path exists` on a real fs, plus `.static` which is desktop-only); needs Vfs"
 env = { CF_HANDLER_PATH = "../../examples/cargo-docs/serve.nu" }
 depends = ["cf:dev"]
 run = "true"

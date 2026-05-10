@@ -32,23 +32,38 @@ and is structured so upstream merges stay clean.
   - Router DSL, HTML DSL, content-type inference all working.
 - ✅ Request body → Nu `$in` pipeline (POST/PUT/PATCH bodies reach
   closures as a `ByteStream`).
-- ✅ Runtime handler swap via `PUT /admin/handler` (option 1 from the
-  lifecycle ladder below). Engine is cached in `OnceLock<Mutex<...>>`;
-  bad scripts return 400 and leave the running handler intact. New
-  script sticks for the lifetime of the warm isolate. ⚠ unauth'd --
-  gate before deploy.
-- ⏳ Not yet wired: streaming responses (`ListStream` / `ByteStream`
-  → JS `ReadableStream`); `.static` (Vfs); `.bus sub` on a Bus DO;
-  persistent handler (today's swap survives only warm requests; cold
-  starts revert to embedded -- options 2-4 in the lifecycle ladder
-  add KV / R2 / Workspace persistence).
-- ⏳ The `examples/serve.nu` hub (`mise run cf:build` with
-  `CF_HANDLER_PATH=../../examples/serve.nu`) **fails to parse** on
-  Workers: it does `source basic.nu` etc., which resolves through
-  the filesystem. On wasm there's no fs so each `source` returns
-  `SourcedFileNotFound`. This is the canonical use case for the Vfs
-  trait + `@cloudflare/shell`'s Workspace -- back the hub's
-  `source` calls with R2/Workspace and the hub works.
+- ✅ Engine cache (`OnceLock<Mutex<Engine>>`): warm requests reuse
+  the parsed handler. Same property desktop has had since day one.
+  No CF-only HTTP surface for hot reload -- waiting on a desktop-
+  parity trigger (xs frame append, Workspace event); see
+  "Handler script lifecycle" below.
+- ✅ Streaming responses: `ListStream` and `ByteStream` flow through
+  `worker::Response::from_stream`. `to sse` produces real chunked
+  SSE output; record streams emit `application/x-ndjson`. Verified
+  via wrangler dev.
+- ✅ Datastar JS bundle short-circuit: `GET /datastar@1.0.1.js`
+  returns the embedded bundle (`include_bytes!`) byte-identical to
+  desktop's route at `src/handler.rs:148`.
+- ⏳ Not yet wired: `.static` (needs a Vfs trait + R2 / Workspace
+  impl; see notes); `.bus sub` (needs a Bus DO with WS Hibernation);
+  `--store`/`--topic`/`.cat`/`.append`/`.cas` (needs xs CF storage
+  backend, lives in the xs repo); the `--watch`/`--topic` reload
+  trigger on CF (waiting on xs frame append or Workspace event).
+- ❌ Examples that don't work yet on CF (with reasons, all in the
+  ex:cf:* mise tasks as KNOWN BROKEN):
+  - `basic` -- `/time` uses `sleep 1sec` + `generate`, which need
+    nu-command's `os` feature (gated off on wasm).
+  - `cargo-docs` -- uses `ls $doc_root` + `path exists` + `.static`,
+    all of which need a real filesystem; hangs at runtime today.
+    Unblocks once Vfs lands.
+  - `2048` -- `.bus sub` + `sleep` + `generate`. Needs Bus DO and
+    nu-command/os parity.
+  - hub (`examples/serve.nu`) -- does `source basic.nu` etc., which
+    resolves through the filesystem. Unblocks once Vfs backs Nu's
+    `source` resolution.
+  - `quotes`, `templates` -- need `--store`, blocked on xs CF.
+  - `stor` -- uses in-memory sqlite via nu-command's `sqlite`
+    feature; not in our wasm dep set.
 
 ## Try it
 
