@@ -33,15 +33,24 @@ use crate::response::{extract_http_response_meta, value_to_bytes, HeaderValue};
 const HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
 
 #[worker::event(fetch)]
-async fn fetch(req: WorkerRequest, _env: Env, _ctx: Context) -> Result<Response> {
+async fn fetch(mut req: WorkerRequest, _env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
-    match handle(&req) {
+
+    // Read the body upfront. Workers caps body size and we have to consume
+    // the request to drive the wasm Nu pipeline anyway. GET/HEAD requests
+    // skip this -- bytes() is fine to call but we save a copy.
+    let body = match req.method() {
+        worker::Method::Get | worker::Method::Head | worker::Method::Options => Vec::new(),
+        _ => req.bytes().await.unwrap_or_default(),
+    };
+
+    match handle(&req, body) {
         Ok(response) => Ok(response),
         Err(err) => Response::error(err, 500),
     }
 }
 
-fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
+fn handle(req: &WorkerRequest, body: Vec<u8>) -> std::result::Result<Response, String> {
     let mut engine = Engine::new().map_err(|e| format!("engine: {e}"))?;
     engine
         .add_custom_commands()
@@ -53,8 +62,10 @@ fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
     let req_struct = worker_request_to_http_nu(req)?;
     let req_value = request_to_value(&req_struct, nu_protocol::Span::unknown());
 
+    let pipeline_input = body_to_pipeline(body, &engine);
+
     let pd = engine
-        .run_closure(req_value, nu_protocol::PipelineData::Empty)
+        .run_closure(req_value, pipeline_input)
         .map_err(|e| format!("eval: {e}"))?;
 
     // Pull `http.response { status, headers }` and infer content-type
@@ -92,6 +103,34 @@ fn handle(req: &WorkerRequest) -> std::result::Result<Response, String> {
         }
     }
     Ok(response)
+}
+
+/// Build the `$in` pipeline from the request body. Empty body yields
+/// `PipelineData::Empty`; any bytes go through a single-shot ByteStream
+/// (the desktop path uses a tokio mpsc to stream from hyper; on Workers
+/// the body is already buffered by the time we get here).
+fn body_to_pipeline(body: Vec<u8>, engine: &Engine) -> nu_protocol::PipelineData {
+    if body.is_empty() {
+        return nu_protocol::PipelineData::Empty;
+    }
+    let span = nu_protocol::Span::unknown();
+    let signals = engine.state.signals().clone();
+    let mut consumed = false;
+    let stream = nu_protocol::ByteStream::from_fn(
+        span,
+        signals,
+        nu_protocol::ByteStreamType::Unknown,
+        move |buffer: &mut Vec<u8>| {
+            if !consumed {
+                buffer.extend_from_slice(&body);
+                consumed = true;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        },
+    );
+    nu_protocol::PipelineData::ByteStream(stream, None)
 }
 
 /// Content-type inference -- the wasm sibling of the match in

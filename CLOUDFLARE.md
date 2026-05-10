@@ -30,11 +30,13 @@ and is structured so upstream merges stay clean.
   - `GET /posts/getting-started-nushell` → single post page (200)
   - `GET /about` → about page (200)
   - Router DSL, HTML DSL, content-type inference all working.
-- ⏳ Not yet wired: HTTP status codes from `metadata set` (nonexistent
-  routes return 200 instead of 404; need response-metadata bridging
-  in `src/cf/mod.rs`); request body → Nu pipeline; `ListStream` /
-  `ByteStream` → JS `ReadableStream`; `.static` (Vfs); `.bus sub`
-  on a Bus DO; loading handler from R2 / `@cloudflare/shell`.
+- ✅ Request body → Nu `$in` pipeline (POST/PUT/PATCH bodies reach
+  closures as a `ByteStream`).
+- ⏳ Not yet wired: streaming responses (`ListStream` / `ByteStream`
+  → JS `ReadableStream`); `.static` (Vfs); `.bus sub` on a Bus DO;
+  runtime handler swap (today the handler is embedded at build time
+  via `include_str!` -- see "Handler script lifecycle" below for
+  the runtime-swap design).
 
 ## Try it
 
@@ -124,6 +126,41 @@ The merge cost is O(cfg-gate-edits), not O(architectural-decisions).
 - A standalone `cf-spike/` crate was used briefly as a wasm
   compile-gate test; deleted once `src/cf/` could prove the same
   thing.
+
+### Handler script lifecycle (embed now, swap at runtime later)
+
+The Nu closure that handles each request is currently embedded at
+build time:
+
+- `src/cf/mod.rs` does `include_str!(env!("CF_HANDLER_PATH"))`.
+- mise's `cf:build` and `ex:cf:<name>` tasks set `CF_HANDLER_PATH`
+  to pick which `examples/<...>` script gets baked in.
+- A new script ships only on the next deploy.
+
+This is intentionally simple for the proof point. The architecture
+supports runtime swap natively -- desktop already does it via
+`ArcSwap<Engine>` so `--watch` and `--topic` can hot-reload the
+handler without dropping connections. The CF side will land the same
+shape; today's `include_str!` is the placeholder.
+
+Sources we can plug a runtime-loaded handler into, cheapest first:
+
+1. **POST `/admin/handler`** -- worker accepts the script as request
+   body, stashes in DO storage or KV, ArcSwap-replaces the engine.
+   Live edit via `curl`. ~50 lines.
+2. **KV** -- boot reads `KV.get("handler")` once, refreshes on a
+   schedule. `wrangler kv put` to update. Cheap, eventually
+   consistent.
+3. **R2** -- same shape as KV, fits bigger scripts.
+4. **`@cloudflare/shell` Workspace + git** -- worker `git pull`s a
+   handler repo on an alarm tick. Versioned. The closest CF analog
+   to desktop's `--watch` against a checkout. Larger commit.
+5. **Per-request override** -- a header (e.g. `X-Handler-Id`)
+   selects from a namespace. Multi-tenant story.
+
+(1) is the smallest meaningful unlock; it gets you live editing in a
+single short PR. (4) is the closest match to the local-first
+"point http-nu at a directory" experience.
 
 ### What we'll need (not yet built)
 
