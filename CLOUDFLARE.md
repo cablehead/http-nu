@@ -110,6 +110,42 @@ to exercise the real http-nu surface (router DSL, HTML DSL,
 content-type inference) on a real example. Eventually it'll come
 from R2 or `@cloudflare/shell`'s Workspace.
 
+## Cross-repo boundary (http-nu vs xs)
+
+http-nu and xs are two separate forks (cablehead/http-nu and
+cablehead/xs); we maintain `joeblew999` branches on both. xs is the
+persistent event-stream + CAS library that http-nu *depends on* for
+`--store` / `--topic` / `.cat` / `.append` / `.cas`. The CF story
+splits cleanly along the same dependency line:
+
+- **This repo (http-nu) -- HTTP server concerns on CF:**
+  the `#[event(fetch)]` entrypoint, request/response adapters,
+  Datastar JS short-circuit, streaming bridges, BusDO for `.bus sub`,
+  Vfs trait for `.static`. Anything that's about *serving HTTP from
+  Nu closures* on Workers lives here, mostly under `src/cf/`.
+
+- **xs repo -- storage/persistence CF backend:**
+  swapping `fjall` (LSM index) for DO SQLite, swapping `cacache`
+  (CAS) for R2. The xs::store / xs::api / xs::processor surfaces
+  stay the same; what changes is the backend. `--topic`-loaded
+  handlers, `.cat` / `.append` / `.cas`, and `--store`-using
+  examples (quotes, templates) only work on CF once xs has that
+  backend.
+
+- **What lives at the seam:** in this repo, `src/store.rs` (and a
+  future `src/cf/store.rs`) wires CF Workers' bindings through to
+  xs. The actual storage code is xs's; we're the consumer.
+
+- **Today:** no CF work has touched xs. The work in this repo so far
+  (datastar JS, streaming, request/response adapters, engine cache,
+  handler split) is purely HTTP-server-side. xs's repo does not
+  need a single edit for that surface to be done.
+
+**This file is the canonical CF design doc** for the joint http-nu +
+xs CF effort. xs's repo has a one-line pointer back here -- when CF
+work lands in xs, the design rationale lives here, the implementation
+lives there.
+
 ## Coexistence rules (this is the merge story)
 
 Upstream (`cablehead/http-nu`) keeps shipping. The two-axis split:
