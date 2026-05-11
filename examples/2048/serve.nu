@@ -16,18 +16,29 @@ const SCRIPT_DIR = path self | path dirname
 # --- game logic -----------------------------------------------------------
 
 def initial-state []: nothing -> record {
-  let s0 = {tiles: [] next_id: 1 score: 0 game_over: false}
+  let s0 = {tiles: [] ghosts: [] next_id: 1 score: 0 game_over: false}
   $s0 | spawn-tile | spawn-tile
 }
 
 # Drop a 2 (90%) or 4 (10%) into a random empty cell. Assigns a fresh id.
-def spawn-tile []: record -> record {
+# When `dir` is given, the spawn is biased toward the trailing edge (the side
+# opposite the press) so a fresh tile rarely lands between the player's
+# expected merge targets. Falls back to uniform if the trailing band is empty.
+def spawn-tile [dir?: string]: record -> record {
   let s = $in
   let occupied = $s.tiles | each {|t| {r: $t.r c: $t.c} }
-  let empties = 0..3 | each {|r|
+  let all_empties = 0..3 | each {|r|
       0..3 | each {|c| {r: $r c: $c} }
     } | flatten | where {|cell| $cell not-in $occupied }
-  if ($empties | is-empty) { return $s }
+  if ($all_empties | is-empty) { return $s }
+  let trailing = match $dir {
+    "h" => ($all_empties | where c >= 2)
+    "l" => ($all_empties | where c <= 1)
+    "k" => ($all_empties | where r >= 2)
+    "j" => ($all_empties | where r <= 1)
+    _ => $all_empties
+  }
+  let empties = if ($trailing | is-empty) { $all_empties } else { $trailing }
   let pick = $empties | get (random int 0..(($empties | length) - 1))
   let value = if (random int 0..9) == 0 { 4 } else { 2 }
   $s
@@ -37,10 +48,12 @@ def spawn-tile []: record -> record {
 
 # Slide one row left, preserving tile identity. When two adjacent tiles merge,
 # the leading tile keeps its id (and doubles its value); the trailing tile is
-# removed. Returns {tiles, score}.
+# emitted as a ghost at the merge cell so view-transitions slide it in from
+# its old position and fade it out. Returns {tiles, ghosts, score}.
 def slide-row-tiles [row_idx: int]: list -> record {
   let in_row = $in | where r == $row_idx | sort-by c
   mut out = []
+  mut ghosts = []
   mut score = 0
   mut col = 0
   mut i = 0
@@ -52,6 +65,7 @@ def slide-row-tiles [row_idx: int]: list -> record {
     if $has_next and $cur.value == $nxt.value {
       let merged = $cur.value * 2
       $out = $out | append {id: $cur.id r: $row_idx c: $col value: $merged}
+      $ghosts = $ghosts | append {id: $nxt.id r: $row_idx c: $col value: $nxt.value}
       $score = $score + $merged
       $col = $col + 1
       $i = $i + 2
@@ -61,13 +75,17 @@ def slide-row-tiles [row_idx: int]: list -> record {
       $i = $i + 1
     }
   }
-  {tiles: $out score: $score}
+  {tiles: $out ghosts: $ghosts score: $score}
 }
 
 def slide-tiles-left []: list -> record {
   let tiles = $in
   let rows = 0..3 | each {|r| $tiles | slide-row-tiles $r }
-  {tiles: ($rows | each {|r| $r.tiles } | flatten) score: ($rows | each {|r| $r.score } | math sum)}
+  {
+    tiles: ($rows | each {|r| $r.tiles } | flatten)
+    ghosts: ($rows | each {|r| $r.ghosts } | flatten)
+    score: ($rows | each {|r| $r.score } | math sum)
+  }
 }
 
 # Reflect tiles over the vertical axis (c -> 3 - c).
@@ -86,17 +104,21 @@ def slide-tiles [dir: string]: list -> record {
     "h" => ($tiles | slide-tiles-left)
     "l" => {
       let r = $tiles | reflect-cols | slide-tiles-left
-      {tiles: ($r.tiles | reflect-cols) score: $r.score}
+      {tiles: ($r.tiles | reflect-cols) ghosts: ($r.ghosts | reflect-cols) score: $r.score}
     }
     "k" => {
       let r = $tiles | transpose-tiles | slide-tiles-left
-      {tiles: ($r.tiles | transpose-tiles) score: $r.score}
+      {tiles: ($r.tiles | transpose-tiles) ghosts: ($r.ghosts | transpose-tiles) score: $r.score}
     }
     "j" => {
       let r = $tiles | transpose-tiles | reflect-cols | slide-tiles-left
-      {tiles: ($r.tiles | reflect-cols | transpose-tiles) score: $r.score}
+      {
+        tiles: ($r.tiles | reflect-cols | transpose-tiles)
+        ghosts: ($r.ghosts | reflect-cols | transpose-tiles)
+        score: $r.score
+      }
     }
-    _ => {tiles: $tiles score: 0}
+    _ => {tiles: $tiles ghosts: [] score: 0}
   }
 }
 
@@ -116,14 +138,15 @@ def is-game-over []: record -> bool {
 }
 
 def apply-move [dir: string]: record -> record {
-  let s = $in
+  let s = $in | update ghosts []
   if $s.game_over { return $s }
   let r = $s.tiles | slide-tiles $dir
   if (tiles-equal $s.tiles $r.tiles) { return $s }
   let with_tile = ($s
   | update tiles { $r.tiles }
+  | update ghosts { $r.ghosts }
   | update score { $in + $r.score }
-  | spawn-tile)
+  | spawn-tile $dir)
   $with_tile | update game_over { $with_tile | is-game-over }
 }
 
@@ -177,6 +200,29 @@ def render-tile []: record -> record {
   } ($t.value | into string))
 }
 
+# Render the trailing half of a merged pair at the merge cell. Same
+# view-transition-name as before, so the old pseudo (source cell, pre-merge)
+# pairs with this new pseudo at the merge cell -- giving a slide. Rendered
+# with opacity 0 so the new snapshot is invisible: visually the tile slides
+# in and disappears under the doubled merger.
+def render-ghost []: record -> record {
+  let g = $in
+  (DIV {
+    style: {
+      position: absolute
+      left: $"(cell-pos $g.c)px"
+      top: $"(cell-pos $g.r)px"
+      width: $"($CELL)px"
+      height: $"($CELL)px"
+      background-color: (color-for $g.value)
+      border-radius: "4px"
+      view-transition-name: $"tile-($g.id)"
+      opacity: 0
+      "pointer-events": none
+    }
+  } "")
+}
+
 def render-empty-cell [r: int c: int]: nothing -> record {
   (DIV {
     style: {
@@ -194,6 +240,7 @@ def render-empty-cell [r: int c: int]: nothing -> record {
 def render-board []: record -> record {
   let state = $in
   let bg = 0..3 | each {|r| 0..3 | each {|c| render-empty-cell $r $c } } | flatten
+  let ghosts = $state.ghosts | each {|g| $g | render-ghost }
   let tiles = $state.tiles | each {|t| $t | render-tile }
   (DIV {
     id: "board"
@@ -204,7 +251,7 @@ def render-board []: record -> record {
       background: "#bbada0"
       border-radius: "6px"
     }
-  } $bg $tiles)
+  } $bg $ghosts $tiles)
 }
 
 def render-status []: record -> record {
@@ -312,9 +359,9 @@ def render-game []: record -> record {
               --lead-offset: 9px;       /* how far they drift in press dir    */
               --lead-duration: 1000ms;  /* breath loop while waiting          */
               --slide-duration: 280ms;  /* view-transition (tile slide) time  */
-              --spawn-duration: 360ms;  /* new-tile pop duration              */
+              --spawn-duration: 500ms;  /* new-tile pop duration              */
               --spawn-from: 0.2;        /* new-tile starting scale            */
-              --spawn-overshoot: 1.25;  /* new-tile peak scale before settle  */
+              --spawn-overshoot: 1.35;  /* new-tile peak scale before settle  */
             }
             * { box-sizing: border-box; margin: 0; }
             body { display: flex; flex-direction: column; align-items: center;
