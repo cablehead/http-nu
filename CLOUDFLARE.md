@@ -263,6 +263,22 @@ single short PR. (4) is the closest match to the local-first
   give Nushell the POSIX-like `stat` / `readdir` semantics its fs
   commands actually call. Workspace provides a real FS index (DO
   SQLite) with R2 for blob storage -- that is the correct substrate.
+
+  Implementation plan (two layers):
+  - JS side: initialize `@cloudflare/shell` `Workspace` in the worker
+    entry shim; expose `WorkspaceFileSystem` methods (`readFile`,
+    `writeFile`, `readdir`, `stat`, `mkdir`, etc.) to Rust.
+  - Rust side: `src/cf/vfs.rs` -- `wasm_bindgen` externs calling into
+    the JS-side `WorkspaceFileSystem`. Same pattern as
+    `.src/nu-on-web/src/zenfs.rs` (which does the same for
+    `@zenfs/core` in the browser); swap `@zenfs/core` for
+    `@cloudflare/shell` and align method names to the `state` API.
+  - `src/cf/commands/` -- Nu shadow commands (`ls`, `open`,
+    `path exists`, ...) that call `vfs.rs` instead of `std::fs`.
+    Reference: `.src/nu-on-web/src/commands/` for the command shape.
+  Once proven here, `vfs.rs` + `commands/` extract to a `cf-vfs`
+  crate in a shared platform repo; other Rust Workers depend on it
+  via Cargo git dep.
 - `BusBridge` for `.bus sub` -- desktop uses thread + tokio runtime
   (gated, today's behavior); CF will use a Durable Object with
   WebSocket Hibernation. Both emit the same record stream.
@@ -289,11 +305,18 @@ The wasm path is well-trodden by the upstream Nushell team:
   ships Nushell in a browser today. Their Cargo recipe was the
   template for ours (`nu-command` with `default-features = false`,
   `features = ["js", "rand"]` + `getrandom/wasm_js` +
-  `console_error_panic_hook`).
+  `console_error_panic_hook`). Critically, their `src/zenfs.rs`
+  (local copy: `.src/nu-on-web/src/zenfs.rs`) is the `wasm_bindgen`
+  extern pattern for shadowing Nu's fs commands via a JS VFS backend
+  (`@zenfs/core`). Our `src/cf/vfs.rs` will follow the same pattern
+  targeting `@cloudflare/shell`'s `WorkspaceFileSystem` instead.
+  Their `src/commands/` (ls, cat, rm) is the shadow command template.
 - [`@cloudflare/shell`](https://www.npmjs.com/package/@cloudflare/shell)
-  -- Workers-native FS + `isomorphic-git` package. Lives inside the
-  isolate (no Containers). Will be the substrate for our `Vfs`
-  impl when that lands.
+  -- Workers-native FS + `isomorphic-git` package. Provides
+  `WorkspaceFileSystem` (DO SQLite + R2) and `InMemoryFs`. Local copy
+  of the README: `.src/agents/packages/shell/README.md`. Will be the
+  JS-side substrate for our `Vfs` impl; Rust calls into it via
+  `wasm_bindgen` externs in `src/cf/vfs.rs`.
 
 ## Questions for review
 
