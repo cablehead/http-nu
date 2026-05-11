@@ -279,6 +279,23 @@ single short PR. (4) is the closest match to the local-first
   Once proven here, `vfs.rs` + `commands/` extract to a `cf-vfs`
   crate in a shared platform repo; other Rust Workers depend on it
   via Cargo git dep.
+
+  Deeper insight: the desktop Vfs (tokio::fs + notify) and the CF
+  Vfs (@cloudflare/shell Workspace) are not just compatible -- they
+  are the same concept with different backends:
+
+  | Primitive     | Desktop                  | CF Workers                  |
+  |---------------|--------------------------|-----------------------------|
+  | File storage  | local fs (tokio::fs)     | Workspace (DO SQLite + R2)  |
+  | Git           | local git                | isomorphic-git (@cf/shell)  |
+  | Change signal | notify (fs watch)        | DO alarm / --topic event    |
+
+  This means sync is achievable: `git push` from desktop → CF
+  Workspace picks it up → handler hot-reloads. That is the CF
+  equivalent of `--watch` on desktop, with git as the transport
+  instead of inotify. The Vfs trait abstraction is what makes both
+  sides substitutable -- the Nu script never knows which backend it
+  is talking to.
 - `BusBridge` for `.bus sub` -- desktop uses thread + tokio runtime
   (gated, today's behavior); CF will use a Durable Object with
   WebSocket Hibernation. Both emit the same record stream.
