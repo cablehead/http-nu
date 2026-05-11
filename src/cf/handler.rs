@@ -21,6 +21,12 @@ use super::response::{body_to_pipeline, build_response};
 const DATASTAR_JS_PATH: &str = "/datastar@1.0.1.js";
 const DATASTAR_JS: &[u8] = include_bytes!("../stdlib/datastar/datastar@1.0.1.js");
 
+// PUT /admin/handler -- accepts a Nu closure as request body and hot-swaps
+// it into the cached engine for this isolate. Per-isolate only: new warm
+// isolates restart from the compiled-in HANDLER_SCRIPT. Useful for live
+// editing during development via `curl -X PUT ... --data-binary @script.nu`.
+const ADMIN_HANDLER_PATH: &str = "/admin/handler";
+
 /// Top-level request handler. Errors here become 500 in the fetch event.
 pub(super) async fn handle(req: &mut WorkerRequest) -> Result<Response> {
     let path = req.url().map(|u| u.path().to_string()).unwrap_or_default();
@@ -40,10 +46,31 @@ pub(super) async fn handle(req: &mut WorkerRequest) -> Result<Response> {
         _ => req.bytes().await.unwrap_or_default(),
     };
 
+    if path == ADMIN_HANDLER_PATH && matches!(req.method(), Method::Put | Method::Post) {
+        let script = match String::from_utf8(body) {
+            Ok(s) => s,
+            Err(_) => return Response::error("body must be valid UTF-8", 400),
+        };
+        return match swap_handler(&script) {
+            Ok(r) => Ok(r),
+            Err(e) => Response::error(e, 400),
+        };
+    }
+
     match run_closure(req, body) {
         Ok(response) => Ok(response),
         Err(err) => Response::error(err, 500),
     }
+}
+
+fn swap_handler(script: &str) -> std::result::Result<Response, String> {
+    let mut engine = super::engine()
+        .lock()
+        .map_err(|_| "engine mutex poisoned".to_string())?;
+    engine
+        .parse_closure(script, None)
+        .map_err(|e| format!("parse error: {e}"))?;
+    Response::ok("ok").map_err(|e| e.to_string())
 }
 
 fn datastar_js_response() -> Result<Response> {
