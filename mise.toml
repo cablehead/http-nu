@@ -19,6 +19,7 @@ includes = [
 # Rust + nu pinned here (used by local tasks below).
 rust                     = "stable"
 "github:nushell/nushell" = "0.112"   # match joeblew999/.github lib pin
+"github:jdx/fnox"        = "1.24"    # match joeblew999/.github lib pin
 
 [env]
 CARGO_TERM_COLOR = "always"
@@ -202,13 +203,14 @@ run = "wrangler dev"
 
 [tasks."cf:deploy"]
 description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
-depends = ["cf:build"]
+depends = ["cf:build", "cf:token-check"]
 dir = "{{config_root}}/src/cf"
 tools = { "npm:wrangler" = "4", node = "22" }
 run = "wrangler deploy"
 
 [tasks."cf:tail"]
 description = "Live-tail logs from the deployed http-nu Worker (wrangler tail; requires CLOUDFLARE_API_TOKEN)"
+depends = ["cf:token-check"]
 dir = "{{config_root}}/src/cf"
 tools = { "npm:wrangler" = "4", node = "22" }
 run = "wrangler tail"

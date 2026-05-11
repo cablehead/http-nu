@@ -4,6 +4,9 @@ Work-in-progress port of http-nu to Cloudflare Workers via worker-rs.
 This branch lives at `joeblew999/http-nu` (fork of cablehead/http-nu)
 and is structured so upstream merges stay clean.
 
+**Deployed worker:** https://http-nu-cf.gedw99.workers.dev
+(blog example; `mise run cf:deploy` to update)
+
 ## TL;DR
 
 - One crate, two outputs. `cargo build` produces today's desktop
@@ -255,6 +258,11 @@ single short PR. (4) is the closest match to the local-first
   impls. Desktop = `tokio::fs` + `notify`. CF = `@cloudflare/shell`
   Workspace (DO SQLite + R2). Required when `.static` /
   `--watch` / `--topic` move across.
+  Note: bare R2 is ruled out. R2 is object storage with flat keys;
+  you can fake directory listing with prefix queries but you cannot
+  give Nushell the POSIX-like `stat` / `readdir` semantics its fs
+  commands actually call. Workspace provides a real FS index (DO
+  SQLite) with R2 for blob storage -- that is the correct substrate.
 - `BusBridge` for `.bus sub` -- desktop uses thread + tokio runtime
   (gated, today's behavior); CF will use a Durable Object with
   WebSocket Hibernation. Both emit the same record stream.
