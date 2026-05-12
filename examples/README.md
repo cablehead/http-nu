@@ -34,6 +34,7 @@ Each example can also be run standalone.
 | tao | `http-nu --datastar --dev -w :3001 examples/tao/serve.nu` | The Tao of Datastar |
 | blog | `http-nu :3001 examples/blog/serve.nu` | Routing, layouts, HTML composition |
 | 2048 | `http-nu --datastar :3001 examples/2048/serve.nu` | Solo game driven by `.bus pub` / `.bus sub` |
+| 2048-animation | `http-nu --datastar :3001 examples/2048-animation/serve.nu` | Same game with latency simulation and animation dials |
 
 ## Store-dependent examples
 

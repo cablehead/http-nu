@@ -15,6 +15,7 @@ let templates = source templates/serve.nu
 let quotes = source quotes/serve.nu
 let blog = source blog/serve.nu
 let game_2048 = source 2048/serve.nu
+let game_2048_animation = source 2048-animation/serve.nu
 
 let has_store = $HTTP_NU.store != null
 
@@ -48,7 +49,8 @@ li { margin: 0.5rem 0; }
     (example-link "./templates/" "templates" ".mj template modes")
     (example-link "./quotes/" "quotes" "live quotes board" --disabled=(not $has_store))
     (example-link "./blog/" "blog" "routing, layouts, HTML composition")
-    (example-link "./2048/" "2048" "solo game over the local bus")))
+    (example-link "./2048/" "2048" "solo game over the local bus")
+    (example-link "./2048-animation/" "2048-animation" "same game, with latency + animation dials")))
   })
 
   (mount "/basic" $basic)
@@ -59,6 +61,7 @@ li { margin: 0.5rem 0; }
   (mount "/templates" $templates)
   (mount "/blog" $blog)
   (mount "/2048" $game_2048)
+  (mount "/2048-animation" $game_2048_animation)
   ...(
     if $has_store {
       [(mount "/quotes" $quotes)]
