@@ -205,15 +205,23 @@ run = "wrangler dev"
 description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
 depends = ["cf:build", "cf:token-check"]
 dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22" }
-run = "wrangler deploy"
+tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+run = '''
+set -euo pipefail
+export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
+wrangler deploy
+'''
 
 [tasks."cf:tail"]
 description = "Live-tail logs from the deployed http-nu Worker (wrangler tail; requires CLOUDFLARE_API_TOKEN)"
 depends = ["cf:token-check"]
 dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22" }
-run = "wrangler tail"
+tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+run = '''
+set -euo pipefail
+export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
+wrangler tail
+'''
 
 
 # ============================================================================
@@ -244,6 +252,12 @@ run = "true"
 [tasks."ex:cf:2048"]
 description = "examples/2048 on CF -- KNOWN BROKEN: uses `.bus sub`, `sleep`, `generate`; needs BusDO + streaming"
 env = { CF_HANDLER_PATH = "../../examples/2048/serve.nu" }
+depends = ["cf:dev"]
+run = "true"
+
+[tasks."ex:cf:workspace-browser"]
+description = "Per-user Workspace file browser. Each first URL segment is a user; their files are isolated in DO SQLite via the http-nu Rust port of @cloudflare/shell."
+env = { CF_HANDLER_PATH = "../../examples/cf-workspace-browser/serve.nu" }
 depends = ["cf:dev"]
 run = "true"
 
