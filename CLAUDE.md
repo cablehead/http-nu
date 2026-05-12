@@ -43,78 +43,31 @@ Use `/release [version]` command to execute the automated release workflow. See
 
 ## CF Worker development workflow (joeblew999 branch)
 
-When working on the Cloudflare Workers port (`src/cf/`, examples on CF,
-`mise run cf:*` tasks). See `CLOUDFLARE.md` for full design.
+`CLOUDFLARE.md` is the design doc (running state in
+`CLOUDFLARE_STATUS.md`, subsystem rules in
+`src/cf/{commands,shell}/CLAUDE.md`); this is the always-on checklist.
 
-1. **Iterate locally with `mise run cf:dev`** (~3s per change), not
-   `cf:deploy` (~45s). First wasm build is slow; subsequent are fast.
-   `console_log!` / `console_warn!` / panics print straight to the
+1. **Iterate with `mise run cf:dev`** (~3s/change), not `cf:deploy`
+   (~45s). `console_log!` / `console_warn!` / panics print to the
    terminal -- no need for `cf:tail` against the deployed worker.
-
-2. **Check `.src/` for prior art BEFORE writing greenfield code.** The
-   `.src/` folder is gitignored and contains local clones of related
-   libraries we mine for patterns. Grep first; guess second.
-   - `.src/nu-on-web/` -- same Nu-on-wasm32 target, different host.
-     Cargo features (`nu-command/js` + `rand`), shadow command patterns,
-     JS bridge pattern. We pulled the `js` feature from there.
-   - `.src/agents/packages/shell/` -- @cloudflare/shell schema +
-     semantics. Our Workspace port in `src/cf/workspace/` mirrors this
-     byte-for-byte so data is interoperable.
-   - `.src/workers-rs/worker/src/` -- the Workers SDK we build on.
-     Especially `sql.rs` (sync `SqlStorage`) and `durable.rs`.
-   - Adapt patterns, don't copy verbatim -- host APIs differ between
-     browser-wasm and Workers-wasm (e.g. sync `readFileSync` vs async
-     R2). When a `.src/` pattern doesn't fit, note why before writing
-     CF-specific code.
-
-3. **All CF-only code lives under `src/cf/`.** Never edit upstream files
-   (`src/lib.rs`, `src/handler.rs`, `src/commands.rs`, `src/response.rs`,
-   etc.) for CF-specific reasons. Conflicts with cablehead/http-nu
-   merges are the cost; this rule prevents them. The `Vfs` trait lives
-   in `src/cf/vfs.rs` for the same reason -- when desktop ever opts
-   into the same shadow surface, the trait promotes to a top-level
-   `src/vfs.rs` THEN, not speculatively now.
-
-4. **Nu commands that need shadowing on CF go in `src/cf/commands.rs`.**
-   They route through the `Vfs` trait (filesystem) or stay
-   self-contained for non-fs work. Before adding a new shadow, check
-   whether enabling a `nu-command` feature (`js`, `rand`, etc.) would
-   register the stock command. Stock command beats home-rolled shadow.
-
-5. **The Workspace port lives at `src/cf/workspace/`.** Bug-for-bug
-   schema compatibility with `@cloudflare/shell` is the contract --
-   data written from the JS package must be readable here and vice
-   versa. The async surface stays in `Workspace` (R2 spill); Nu eval
-   gets a sync `SnapshotVfs` view that preloads what it needs and
-   buffers writes for post-eval flush.
-
-6. **R2 + DurableObject bindings live in `src/cf/wrangler.toml`.** Token
-   for deploy is fetched from `fnox` by the `cf:deploy` mise task; you
-   don't need to export it manually if you have fnox set up.
-
-7. **Per-demo parity check is mandatory.** Each example must behave
-   the same on desktop and CF -- they are the same Nu source. Workflow:
-
-   ```
-   # a) Desktop baseline
-   mise run ex:<name>                          # serves at :3001
-   curl -i http://127.0.0.1:3001/              # capture HTTP code, body, Content-Type
-
-   # b) CF local (must match (a) before remote)
-   CF_HANDLER_PATH=examples/<name>/serve.nu mise run cf:dev
-   curl -i http://127.0.0.1:8787/              # diff against (a)
-
-   # c) CF remote (only after (b) matches)
-   CF_HANDLER_PATH=examples/<name>/serve.nu mise run cf:deploy
-   curl -i https://http-nu-cf.gedw99.workers.dev/
-   ```
-
-   Don't claim a demo "works on CF" until (b) matches (a). If the
-   behaviour diverges, fix the *cause* (commonly: a wasm-incompatible
-   Nu command, `$env.PWD` path-resolution, a missing workspace file).
-   Don't paper over by changing the example -- the demo is the spec.
-
-   Exceptions are explicit and live in CLOUDFLARE.md's example status
-   table: e.g. `sleep` is documented as a no-op on CF until async Nu
-   eval lands; `path self` returns a workspace-rooted path (same
-   semantic as desktop, different string). Anything else: parity.
+2. **Grep `.src/` BEFORE writing new wasm/CF code.** Local clones of
+   prior art (nushell, nu-on-web, @cloudflare/shell, workers-rs, ...);
+   see `CLOUDFLARE.md` Acknowledgements for what each provides.
+3. **All CF-only code lives under `src/cf/`.** Never edit `src/*.rs`
+   (lib, handler, commands, response, ...) for CF reasons -- use
+   `#[cfg(feature = "desktop")]` gates in place. The `Vfs` trait stays
+   at `src/cf/vfs.rs` until desktop actually opts in.
+4. **Shadow commands mirror Nu's source tree path-for-path:**
+   `src/cf/nu/nu_command/<cat>/<name>.rs` <-> `nu-command/src/<cat>/<name>.rs`.
+   Check whether a `nu-command` feature would register the stock
+   command before shadowing. Full rules: `src/cf/nu/nu_command/CLAUDE.md`.
+5. **`@cloudflare/shell` Rust port lives at `src/cf/shell/`, filenames
+   mirror the upstream JS package** (`filesystem.ts -> filesystem.rs`,
+   `fs/path-utils.ts -> fs/path_utils.rs`, etc.). Schema-compatible;
+   bidirectional interop is the contract. Full rules:
+   `src/cf/shell/CLAUDE.md`.
+6. **R2 + DO bindings live in `src/cf/wrangler.toml`.** `cf:deploy`
+   pulls `CLOUDFLARE_API_TOKEN` from `fnox`.
+7. **Per-demo desktop/CF parity check is mandatory** before claiming
+   a demo works on CF. Recipe: see `CLOUDFLARE.md` "Testing
+   (desktop/CF parity)". Fix the cause, not the example.
