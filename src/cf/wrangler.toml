@@ -6,3 +6,22 @@ workers_dev = true
 # Build is driven by `mise run cf:build` from the repo root (cwd dance is
 # easier in mise than in wrangler.toml). `wrangler dev` / `wrangler deploy`
 # expect the artifact to already exist at `main`.
+
+# One DO instance per user_id (first URL path segment). The DO holds the
+# user's Workspace + http-nu engine. SQLite-backed so we can use the sync
+# ctx.storage.sql() API from Rust (workers-rs SqlStorage) once piece #4
+# wires in @cloudflare/shell.
+[[durable_objects.bindings]]
+name = "USER_SPACE"
+class_name = "UserSpace"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserSpace"]
+
+# Per-Workspace R2 spillover. Files > 1.5MB get stored as R2 objects;
+# the SQLite row keeps storage_backend='r2' + r2_key pointing here. The
+# key prefix is `${namespace}/${namespace}<path>` (matches @cloudflare/shell).
+[[r2_buckets]]
+binding = "WORKSPACE_FILES"
+bucket_name = "http-nu-cf-files"

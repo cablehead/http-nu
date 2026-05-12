@@ -87,6 +87,9 @@ notify = { version = "8", optional = true }
 
 # CF Workers runtime (gated by the `cloudflare` feature)
 worker = { version = "0.8", optional = true }
+# base64 used by the Workspace port for binary content encoding (matches
+# @cloudflare/shell's content_encoding='base64' rows).
+base64 = "0.22"
 
 [dependencies.cross-stream]
 version = "0.12.0"
@@ -96,7 +99,14 @@ optional = true
 # `cloudflare` enables the worker-rs entrypoint (src/cf/) and pulls the
 # Workers SDK. Build with: `cargo build --target wasm32-unknown-unknown
 # --no-default-features --features cloudflare` (or via worker-build).
-cloudflare = ["dep:worker"]
+#
+# nu-command/js enables JS-environment-friendly versions of commands
+# that would otherwise need `os`. Matches nu-on-web's wasm recipe.
+# Transitively enables `rand` (random integer etc) + getrandom/wasm_js.
+# nu-command/sqlite is NOT here -- libsqlite3-sys needs a C toolchain
+# we don't have for wasm32. `stor` examples need a CF-side shadow over
+# ctx.storage.sql; tracked in the gap list below.
+cloudflare = ["dep:worker", "nu-command/js"]
 # `desktop` cascades the nu-* feature set that http-nu has always used.
 # Splitting it out lets a future `cloudflare` feature opt out of `os` (which
 # pulls os_pipe, no wasm32 support) and opt into `js` for nu-command.
