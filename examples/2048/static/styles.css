@@ -23,6 +23,12 @@
   inherits: true;
   initial-value: 0px;
 }
+/* All-sides pulse alpha (0..1) for the reconnect flash. */
+@property --pulse {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
 
 :root {
   --bg: #faf8ef;
@@ -67,6 +73,14 @@ body {
 }
 
 h1 { font-size: clamp(24px, 6vmin, 40px); }
+h1 a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--brand);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+h1 a:hover { text-decoration-color: var(--brand-hover); }
 p  { font-size: 14px; }
 
 kbd {
@@ -136,10 +150,36 @@ button:active {
   pointer-events: none;
   border-radius: 6px;
   background:
+    /* Directional glow driven by --glow-x / --glow-y (one side at a time). */
     linear-gradient(to left,   rgb(from var(--glow) r g b / max(0, calc(var(--glow-x) / 8px))),      transparent 1.25%),
     linear-gradient(to right,  rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-x) / 8px))), transparent 1.25%),
     linear-gradient(to top,    rgb(from var(--glow) r g b / max(0, calc(var(--glow-y) / 8px))),      transparent 1.25%),
-    linear-gradient(to bottom, rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-y) / 8px))), transparent 1.25%);
+    linear-gradient(to bottom, rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-y) / 8px))), transparent 1.25%),
+    /* All-sides reconnect pulse driven by --pulse. */
+    linear-gradient(to left,   rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
+    linear-gradient(to right,  rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
+    linear-gradient(to top,    rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
+    linear-gradient(to bottom, rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%);
+}
+
+/* Disconnected: fade the board, disable the reset button. Keyboard input
+   is gated in script.js; pointer input is gated by pointer-events:none. */
+body[data-conn="down"] #board-wrap {
+  opacity: 0.35;
+  pointer-events: none;
+}
+body[data-conn="down"] button {
+  opacity: 0.4;
+  pointer-events: none;
+}
+#board-wrap, button { transition: opacity 320ms ease; }
+
+/* Reconnect: a brief all-sides glow flash. */
+body.reconnect-pulse { animation: reconnect-pulse 600ms ease-out; }
+@keyframes reconnect-pulse {
+  0%   { --pulse: 0; }
+  20%  { --pulse: 1; }
+  100% { --pulse: 0; }
 }
 
 #board {
@@ -193,8 +233,15 @@ footer {
   margin-top: 4px;
 }
 footer #rtt { font-variant-numeric: tabular-nums; opacity: 0.7; }
-footer #glow { width: 24px; height: 20px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-footer #glow-hex { font-family: monospace; font-size: 12px; opacity: 0.7; }
+footer #conn {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-press);  /* default: down */
+  transition: background 200ms;
+}
+body[data-conn="ok"] footer #conn { background: #2a9d4a; }
 footer a {
   color: var(--light);
   background: var(--brand);

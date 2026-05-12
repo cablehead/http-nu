@@ -22,6 +22,19 @@ const move = (intent) => {
   });
 };
 
+// body[data-conn] is driven by datastar via data-attr + data-indicator
+// (see serve.nu). Watch for the down -> ok transition to trigger the pulse.
+let prevConn = null;
+new MutationObserver(() => {
+  const conn = document.body.dataset.conn;
+  if (prevConn === "down" && conn === "ok") {
+    document.body.classList.remove("reconnect-pulse");
+    void document.body.offsetWidth;  // force reflow so animation restarts
+    document.body.classList.add("reconnect-pulse");
+  }
+  prevConn = conn;
+}).observe(document.body, { attributes: true, attributeFilter: ["data-conn"] });
+
 new MutationObserver(() => {
   if (!initSeen) {
     // First mutation is the SSE init render. Now that the stream's open,
@@ -51,9 +64,17 @@ const keymap = {
   k: "k", ArrowUp: "k",
   l: "l", ArrowRight: "l",
 };
+// Per-direction peak glow values for keyboard / programmatic moves. Magnitude
+// is well above the alpha-saturation threshold so the edge fully lights up.
+const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
 addEventListener("keydown", (e) => {
+  if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
   const intent = keymap[e.key] || (e.key === "r" ? "reset" : "");
   if (intent) {
+    if (glowFor[intent]) {
+      const [prop, val] = glowFor[intent];
+      document.querySelector("#board-wrap")?.style.setProperty(prop, `${val}px`);
+    }
     move(intent);
     e.preventDefault();
   }
@@ -62,13 +83,6 @@ addEventListener("keydown", (e) => {
 // Reset button (visible tap target for touch users).
 document.querySelector("button")?.addEventListener("click", () => move("reset"));
 
-// Live glow-color picker -- writes to the --glow CSS variable and echoes
-// the hex into #glow-hex so it can be read back / shared.
-document.getElementById("glow")?.addEventListener("input", (e) => {
-  document.documentElement.style.setProperty("--glow", e.target.value);
-  const out = document.getElementById("glow-hex");
-  if (out) out.textContent = e.target.value;
-});
 
 // Swipe with anticipation: while dragging, lean the tiles toward the gesture
 // (CSS reads --tilt-x / --tilt-y). On release past threshold, leave the lean

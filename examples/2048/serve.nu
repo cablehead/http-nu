@@ -205,9 +205,12 @@ def render-status []: record -> record {
 
 def render-game []: record -> record {
   let state = $in
+  # The edge-glow color rides the highest-value tile, pushed as an inline
+  # CSS variable so it cascades to #board-wrap and the ::after pseudo.
+  let glow = color-for ($state.tiles | get value | math max)
   # board sits inside a scaled wrap so the page can fit any viewport without
   # touching the board's internal 460px coordinate system.
-  (DIV {id: "game"}
+  (DIV {id: "game" style: $"--glow: ($glow);"}
     ($state | render-status)
     (DIV {id: "board-wrap"} ($state | render-board)))
 }
@@ -281,10 +284,12 @@ def render-game []: record -> record {
         "data-tab-id": $tab_id
         "data-move-url": ($req | href "/move")
         "data-signals": $"{tabId: '($tab_id)'}"
+        # Mirror datastar's $connected signal (set by data-indicator on #game)
+        # into a data-attr CSS can react to.
+        "data-attr:data-conn": "$connected ? 'ok' : 'down'"
       }
       (H1 (A {
         href: "https://github.com/cablehead/http-nu/blob/main/examples/2048/serve.nu"
-        style: {color: "inherit" text-decoration: "none"}
       } "2048.nu"))
       (P {class: "hint"}
         "Letter or arrow keys "
@@ -294,12 +299,20 @@ def render-game []: record -> record {
         (KBD "l \u{2192}")
         ", or swipe. Reset: "
         (BUTTON {type: "button"} "r"))
-      (DIV {class: "column"}
-        (DIV {id: "game" "data-init": ("@get('" + ($req | href "/sse") + "')")} "")
+      # data-init and data-indicator live on .column (which is never patched)
+      # so the SSE fetch + connection signal survive the wholesale replacement
+      # of #game's contents on every server patch.
+      (DIV {
+        class: "column"
+        # data-indicator MUST come before data-init so the signal exists when
+        # the fetch fires.
+        "data-indicator": "connected"
+        "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always'})")
+      }
+        (DIV {id: "game"} "")
         (FOOTER
+          (SPAN {id: "conn" title: "SSE connection"})
           (SPAN {id: "rtt"} "0ms") " "
-          (INPUT {type: "color" id: "glow" value: "#fffdc2" title: "edge glow color"})
-          (CODE {id: "glow-hex"} "#fffdc2") " "
           "served by " (A {href: "https://http-nu.cross.stream"} "http-nu")))))
     })
   ]
