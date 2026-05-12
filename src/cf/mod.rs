@@ -89,6 +89,9 @@ pub(super) fn engine() -> &'static Mutex<Engine> {
                 Box::new(commands::VfsCp),
                 Box::new(commands::VfsMv),
                 Box::new(commands::VfsGlob),
+                // `path self` shadowed because the stock impl needs a
+                // working std::Path::is_absolute, which wasm32 lacks.
+                Box::new(commands::VfsPathSelf),
                 // `sleep` is the only os-gated command we shadow -- the
                 // others (date now, format date, random integer, ...)
                 // come from stock nu-command with `nu-command/js`
