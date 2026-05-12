@@ -298,6 +298,8 @@ def render-game []: record -> record {
         (DIV {id: "game" "data-init": ("@get('" + ($req | href "/sse") + "')")} "")
         (FOOTER
           (SPAN {id: "rtt"} "0ms") " "
+          (INPUT {type: "color" id: "glow" value: "#fffdc2" title: "edge glow color"})
+          (CODE {id: "glow-hex"} "#fffdc2") " "
           "served by " (A {href: "https://http-nu.cross.stream"} "http-nu")))))
     })
   ]

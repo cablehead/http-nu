@@ -1,3 +1,29 @@
+/* Register the tilt vars as lengths so they themselves can be transitioned --
+   gradient alpha and tile transform then animate in lockstep. */
+@property --tilt-x {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --tilt-y {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+/* Edge glow is driven separately from tile lean: glow stays at peak through
+   the commit decay and fades naturally via view-transition cross-fade when
+   the SSE patch lands. Cancel transitions both in sync. */
+@property --glow-x {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --glow-y {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
 :root {
   --bg: #faf8ef;
   --fg: #776e65;
@@ -12,6 +38,7 @@
   --gap: 8px;
   --radius: 4px;
   --decay-duration: 500ms;
+  --glow: #fffdc2;
   --board-scale: min(
     calc((100dvw - 24px) / var(--board-size)),
     calc((100dvh - 210px) / var(--board-size)),
@@ -78,9 +105,41 @@ button:active {
 .column { width: calc(var(--board-size) * var(--board-scale)); }
 
 #board-wrap {
+  position: relative;
   width: calc(var(--board-size) * var(--board-scale));
   height: calc(var(--board-size) * var(--board-scale));
   overflow: hidden;
+}
+/* Animate --tilt-x / --tilt-y themselves; the tile transform and the edge
+   glow then interpolate together rather than one snapping while the other
+   eases. Requires the @property registrations at the top of this file. */
+#board-wrap.snap {
+  transition:
+    --tilt-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    --tilt-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    --glow-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    --glow-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* decay transitions tilt only; glow holds at peak until view-transition fades it. */
+#board-wrap.decay {
+  transition:
+    --tilt-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
+    --tilt-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1);
+}
+/* Edge glow: soft band of the accent color on whichever edge the gesture is
+   heading toward. Alpha is driven by tilt magnitude so it ramps with the
+   drag and bleeds off through the decay/snap animation. */
+#board-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 6px;
+  background:
+    linear-gradient(to left,   rgb(from var(--glow) r g b / max(0, calc(var(--glow-x) / 8px))),      transparent 1.25%),
+    linear-gradient(to right,  rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-x) / 8px))), transparent 1.25%),
+    linear-gradient(to top,    rgb(from var(--glow) r g b / max(0, calc(var(--glow-y) / 8px))),      transparent 1.25%),
+    linear-gradient(to bottom, rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-y) / 8px))), transparent 1.25%);
 }
 
 #board {
@@ -92,12 +151,10 @@ button:active {
    Divide by scale so the lean reads as viewport pixels at any board scale. */
 #board > .tile {
   transform: translate(
-    calc(var(--tilt-x, 0px) / var(--board-scale)),
-    calc(var(--tilt-y, 0px) / var(--board-scale))
+    calc(var(--tilt-x) / var(--board-scale)),
+    calc(var(--tilt-y) / var(--board-scale))
   );
 }
-#board.snap > .tile { transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1); }
-#board.decay > .tile { transition: transform var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1); }
 
 /* Tight viewports (landscape phones): hide the hint, give more to the board. */
 @media (max-height: 600px) {
@@ -136,6 +193,8 @@ footer {
   margin-top: 4px;
 }
 footer #rtt { font-variant-numeric: tabular-nums; opacity: 0.7; }
+footer #glow { width: 24px; height: 20px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+footer #glow-hex { font-family: monospace; font-size: 12px; opacity: 0.7; }
 footer a {
   color: var(--light);
   background: var(--brand);

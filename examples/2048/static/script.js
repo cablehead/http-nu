@@ -62,6 +62,14 @@ addEventListener("keydown", (e) => {
 // Reset button (visible tap target for touch users).
 document.querySelector("button")?.addEventListener("click", () => move("reset"));
 
+// Live glow-color picker -- writes to the --glow CSS variable and echoes
+// the hex into #glow-hex so it can be read back / shared.
+document.getElementById("glow")?.addEventListener("input", (e) => {
+  document.documentElement.style.setProperty("--glow", e.target.value);
+  const out = document.getElementById("glow-hex");
+  if (out) out.textContent = e.target.value;
+});
+
 // Swipe with anticipation: while dragging, lean the tiles toward the gesture
 // (CSS reads --tilt-x / --tilt-y). On release past threshold, leave the lean
 // in place so the view-transition slide continues the motion. On cancel,
@@ -70,17 +78,17 @@ const DAMP = 0.45;
 const CAP = 26;
 const AXIS_LOCK = 8;  // once you move this far on one axis, the other locks
 let start = null;
-let board = null;
+let wrap = null;
 let axis = null;
 addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#board")) { start = null; return; }
   start = [e.clientX, e.clientY];
   axis = null;
-  board = document.querySelector("#board");
-  board?.classList.remove("snap", "decay");
+  wrap = document.querySelector("#board-wrap");
+  wrap?.classList.remove("snap", "decay");
 });
 addEventListener("pointermove", (e) => {
-  if (!start || !board) return;
+  if (!start || !wrap) return;
   let dx = e.clientX - start[0];
   let dy = e.clientY - start[1];
   if (!axis && Math.max(Math.abs(dx), Math.abs(dy)) >= AXIS_LOCK) {
@@ -90,30 +98,34 @@ addEventListener("pointermove", (e) => {
   if (axis === "v") dx = 0;
   const tx = Math.max(-CAP, Math.min(CAP, dx * DAMP));
   const ty = Math.max(-CAP, Math.min(CAP, dy * DAMP));
-  board.style.setProperty("--tilt-x", `${tx}px`);
-  board.style.setProperty("--tilt-y", `${ty}px`);
+  wrap.style.setProperty("--tilt-x", `${tx}px`);
+  wrap.style.setProperty("--tilt-y", `${ty}px`);
+  wrap.style.setProperty("--glow-x", `${tx}px`);
+  wrap.style.setProperty("--glow-y", `${ty}px`);
 });
 addEventListener("pointerup", (e) => {
   if (!start) return;
   const dx = e.clientX - start[0];
   const dy = e.clientY - start[1];
   start = null;
-  board?.style.setProperty("--tilt-x", "0px");
-  board?.style.setProperty("--tilt-y", "0px");
+  wrap?.style.setProperty("--tilt-x", "0px");
+  wrap?.style.setProperty("--tilt-y", "0px");
   if (Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
-    // Commit: slow ease-out decay back toward rest. View-transition picks
-    // up the tiles mid-decay when the SSE patch arrives 200-300ms later
-    // so the motion stays continuous through the network round-trip.
-    board?.classList.add("decay");
-    setTimeout(() => board?.classList.remove("decay"), 1000);
+    // Commit: tiles ease through zero with overshoot, but --glow-x/--glow-y
+    // are left at peak -- the edge stays lit until the SSE patch arrives and
+    // the view-transition cross-fade carries it away.
+    wrap?.classList.add("decay");
+    setTimeout(() => wrap?.classList.remove("decay"), 1000);
     move(
       Math.abs(dx) > Math.abs(dy)
         ? dx > 0 ? "l" : "h"
         : dy > 0 ? "j" : "k",
     );
   } else {
-    // Cancel: spring back with a touch of overshoot.
-    board?.classList.add("snap");
-    setTimeout(() => board?.classList.remove("snap"), 260);
+    // Cancel: tilt and glow both spring back together.
+    wrap?.style.setProperty("--glow-x", "0px");
+    wrap?.style.setProperty("--glow-y", "0px");
+    wrap?.classList.add("snap");
+    setTimeout(() => wrap?.classList.remove("snap"), 260);
   }
 });
