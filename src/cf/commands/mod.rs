@@ -24,5 +24,5 @@ pub mod path;
 pub mod platform;
 
 pub use filesystem::{VfsCp, VfsGlob, VfsLs, VfsMkdir, VfsMv, VfsOpen, VfsRm, VfsSave};
-pub use path::VfsPathExists;
+pub use path::{VfsPathExists, VfsPathSelf};
 pub use platform::Sleep;

@@ -88,7 +88,12 @@ impl Engine {
         // simple "starts with /" test. See CLOUDFLARE.md "Status".
         #[cfg(not(feature = "desktop"))]
         {
-            engine_state.add_env_var("PWD".into(), Value::string("/tmp", Span::unknown()));
+            // PWD = "/" -- the wasm32 std path module is the unix variant
+            // (per std::sys::path::mod.rs cfg_select fallback), so root
+            // counts as absolute. Anything deeper has historically been
+            // rejected by nu_path::AbsolutePathBuf::try_from on wasm32;
+            // keeping PWD minimal sidesteps it.
+            engine_state.add_env_var("PWD".into(), Value::string("/", Span::unknown()));
         }
 
         Ok(Self {
