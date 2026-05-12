@@ -32,3 +32,62 @@ formatting issues. Use ASCII characters only in code, comments, and documentatio
 
 Use `/release [version]` command to execute the automated release workflow. See
 `.claude/commands/release.md` for details.
+
+<!-- ===========================================================================
+     Sections below this marker are joeblew999-branch additions, NOT from
+     cablehead/http-nu upstream. Keep them after upstream content so a merge
+     from upstream is append-only and never produces a conflict on these
+     lines. If upstream adds a section after their "Release Process", move
+     this marker down -- never interleave.
+     =========================================================================== -->
+
+## CF Worker development workflow (joeblew999 branch)
+
+When working on the Cloudflare Workers port (`src/cf/`, examples on CF,
+`mise run cf:*` tasks). See `CLOUDFLARE.md` for full design.
+
+1. **Iterate locally with `mise run cf:dev`** (~3s per change), not
+   `cf:deploy` (~45s). First wasm build is slow; subsequent are fast.
+   `console_log!` / `console_warn!` / panics print straight to the
+   terminal -- no need for `cf:tail` against the deployed worker.
+
+2. **Check `.src/` for prior art BEFORE writing greenfield code.** The
+   `.src/` folder is gitignored and contains local clones of related
+   libraries we mine for patterns. Grep first; guess second.
+   - `.src/nu-on-web/` -- same Nu-on-wasm32 target, different host.
+     Cargo features (`nu-command/js` + `rand`), shadow command patterns,
+     JS bridge pattern. We pulled the `js` feature from there.
+   - `.src/agents/packages/shell/` -- @cloudflare/shell schema +
+     semantics. Our Workspace port in `src/cf/workspace/` mirrors this
+     byte-for-byte so data is interoperable.
+   - `.src/workers-rs/worker/src/` -- the Workers SDK we build on.
+     Especially `sql.rs` (sync `SqlStorage`) and `durable.rs`.
+   - Adapt patterns, don't copy verbatim -- host APIs differ between
+     browser-wasm and Workers-wasm (e.g. sync `readFileSync` vs async
+     R2). When a `.src/` pattern doesn't fit, note why before writing
+     CF-specific code.
+
+3. **All CF-only code lives under `src/cf/`.** Never edit upstream files
+   (`src/lib.rs`, `src/handler.rs`, `src/commands.rs`, `src/response.rs`,
+   etc.) for CF-specific reasons. Conflicts with cablehead/http-nu
+   merges are the cost; this rule prevents them. The `Vfs` trait lives
+   in `src/cf/vfs.rs` for the same reason -- when desktop ever opts
+   into the same shadow surface, the trait promotes to a top-level
+   `src/vfs.rs` THEN, not speculatively now.
+
+4. **Nu commands that need shadowing on CF go in `src/cf/commands.rs`.**
+   They route through the `Vfs` trait (filesystem) or stay
+   self-contained for non-fs work. Before adding a new shadow, check
+   whether enabling a `nu-command` feature (`js`, `rand`, etc.) would
+   register the stock command. Stock command beats home-rolled shadow.
+
+5. **The Workspace port lives at `src/cf/workspace/`.** Bug-for-bug
+   schema compatibility with `@cloudflare/shell` is the contract --
+   data written from the JS package must be readable here and vice
+   versa. The async surface stays in `Workspace` (R2 spill); Nu eval
+   gets a sync `SnapshotVfs` view that preloads what it needs and
+   buffers writes for post-eval flush.
+
+6. **R2 + DurableObject bindings live in `src/cf/wrangler.toml`.** Token
+   for deploy is fetched from `fnox` by the `cf:deploy` mise task; you
+   don't need to export it manually if you have fnox set up.

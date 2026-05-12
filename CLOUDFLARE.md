@@ -1,11 +1,101 @@
 # http-nu on Cloudflare Workers
 
-Work-in-progress port of http-nu to Cloudflare Workers via worker-rs.
-This branch lives at `joeblew999/http-nu` (fork of cablehead/http-nu)
-and is structured so upstream merges stay clean.
+Port of http-nu to Cloudflare Workers via worker-rs. Branch lives at
+`joeblew999/http-nu` (fork of cablehead/http-nu) and is structured so
+upstream merges stay clean.
 
-**Deployed worker:** https://http-nu-cf.gedw99.workers.dev
-(blog example; `mise run cf:deploy` to update)
+**Live:** https://http-nu-cf.gedw99.workers.dev (serves `examples/cf-workspace-browser`)
+
+---
+
+## Working practices (READ FIRST)
+
+KISS rules. Follow these every session; details elsewhere in this doc
+or in `CLAUDE.md`.
+
+1. **Iterate with `mise run cf:dev`, not `cf:deploy`.** Local wrangler
+   dev is ~3s/change; deploy is ~45s. Logs/panics print to terminal.
+   First wasm build is slow; subsequent are fast.
+
+2. **Grep `.src/` BEFORE writing new wasm/CF code.** Local clones of
+   prior art:
+   - `.src/nushell/` -- Nu upstream. `toolkit/wasm.nu` is the SSOT
+     for which Nu crates compile to wasm32. Command sources at
+     `crates/nu-command/src/<category>/<name>.rs` are what our
+     `src/cf/commands/<category>/<name>.rs` shadows mirror file-for-file.
+   - `.src/nu-on-web/` -- Nu-on-wasm32 (browser host). Cargo features
+     recipe (`nu-command/js`), shadow command patterns, JS bridge.
+   - `.src/agents/packages/shell/` -- `@cloudflare/shell` schema +
+     semantics. Our `src/cf/workspace/` mirrors this byte-for-byte.
+   - `.src/workers-rs/` -- Workers SDK. `sql.rs`, `durable.rs`.
+   Adapt patterns; don't copy verbatim (host APIs differ).
+
+3. **Shadow commands mirror Nu's source tree.** Path-for-path:
+   ```
+   nu-command/src/filesystem/ls.rs   ->  src/cf/commands/filesystem/ls.rs
+   nu-command/src/path/exists.rs     ->  src/cf/commands/path/exists.rs
+   nu-command/src/platform/sleep.rs  ->  src/cf/commands/platform/sleep.rs
+   ```
+   When Nu adds or restructures a stock command we want to shadow, add
+   or move the equivalent file here in the same relative path. A diff
+   between our tree and `.src/nushell/crates/nu-command/src/` shows
+   command-for-command what changed.
+
+4. **All CF-only code under `src/cf/`.** Never edit `src/lib.rs`,
+   `src/handler.rs`, `src/commands.rs`, `src/response.rs` etc. for
+   CF reasons. The Vfs trait lives in `src/cf/vfs.rs` for the same
+   reason -- promote to top-level only when desktop actually opts in.
+
+5. **Before shadowing a Nu command, check if a `nu-command` feature
+   would register the stock one.** `nu-command/js` (already enabled)
+   gives us `date now` / `format date` / etc. Stock beats home-rolled.
+
+6. **`.static` uses the existing `RESPONSE_TX` pattern from
+   `src/commands.rs`** -- don't reimplement. CF handler reads the
+   channel after eval, serves bytes from Workspace + Content-Type
+   from extension.
+
+7. **Workspace schema is `@cloudflare/shell`-compatible.** Don't
+   diverge from `cf_workspace_<ns>` columns/types or R2 key shape
+   (`${prefix}/${ns}<path>`). Interop both ways with the JS package
+   is the contract.
+
+8. **`mise run cf:deploy` fetches the token from `fnox`.** No need
+   to export `CLOUDFLARE_API_TOKEN` manually.
+
+---
+
+## What works on the live worker right now
+
+- **Per-user routing** via the URL's first path segment: `/alice/...`
+  lands in alice's DurableObject, `/bob/...` lands in bob's.
+- **Per-user FS** backed by DO SQLite, via our Rust port of
+  `@cloudflare/shell` at `src/cf/workspace/`. R2 spill at 1.5MB.
+- **Nine Nu shadow commands** (`ls`, `open`, `save`, `mkdir`, `rm`,
+  `cp`, `mv`, `path exists`, `glob`) read/write the per-request
+  snapshot via the `Vfs` trait. Pending writes async-flush after eval.
+- **`.static`** via the existing `RESPONSE_TX` pattern; serves from
+  Workspace with Content-Type from extension.
+- **`sleep`** as a CF-side no-op shadow (real sleep needs an async
+  Nu eval path that doesn't exist yet).
+- **Per-user handler hot-swap** via `PUT /<user>/admin/handler`.
+- **Debug routes** `/<user>/_workspace/{ls,stat,cat,put,rm,mkdir}`.
+
+```bash
+# read alice's workspace
+curl https://http-nu-cf.gedw99.workers.dev/alice/_workspace/ls?path=/
+
+# write a file
+curl -X POST --data-binary @notes.md \
+  https://http-nu-cf.gedw99.workers.dev/alice/file?path=/notes.md
+
+# read it back through Nu's shadowed `open`
+curl https://http-nu-cf.gedw99.workers.dev/alice/file?path=/notes.md
+
+# upload a custom handler for this user
+curl -X PUT --data-binary @serve.nu \
+  https://http-nu-cf.gedw99.workers.dev/alice/admin/handler
+```
 
 ## TL;DR
 
@@ -47,26 +137,81 @@ and is structured so upstream merges stay clean.
 - ✅ Datastar JS bundle short-circuit: `GET /datastar@1.0.1.js`
   returns the embedded bundle (`include_bytes!`) byte-identical to
   desktop's route at `src/handler.rs:148`.
-- ⏳ Not yet wired: `.static` (needs a Vfs trait + R2 / Workspace
-  impl; see notes); `.bus sub` (needs a Bus DO with WS Hibernation);
-  `--store`/`--topic`/`.cat`/`.append`/`.cas` (needs xs CF storage
-  backend, lives in the xs repo); the `--watch`/`--topic` reload
-  trigger on CF (waiting on xs frame append or Workspace event).
-- ❌ Examples that don't work yet on CF (with reasons, all in the
-  ex:cf:* mise tasks as KNOWN BROKEN):
-  - `basic` -- `/time` uses `sleep 1sec` + `generate`, which need
-    nu-command's `os` feature (gated off on wasm).
-  - `cargo-docs` -- uses `ls $doc_root` + `path exists` + `.static`,
-    all of which need a real filesystem; hangs at runtime today.
-    Unblocks once Vfs lands.
-  - `2048` -- `.bus sub` + `sleep` + `generate`. Needs Bus DO and
-    nu-command/os parity.
-  - hub (`examples/serve.nu`) -- does `source basic.nu` etc., which
-    resolves through the filesystem. Unblocks once Vfs backs Nu's
-    `source` resolution.
-  - `quotes`, `templates` -- need `--store`, blocked on xs CF.
-  - `stor` -- uses in-memory sqlite via nu-command's `sqlite`
-    feature; not in our wasm dep set.
+- ✅ **Per-user Workspace FS, live**:
+  - Rust port of `@cloudflare/shell` Workspace at [src/cf/workspace/](src/cf/workspace/).
+    Schema-compatible (`cf_workspace_<ns>`), all FileSystem methods
+    async, R2 spill at 1.5MB threshold (verified live with a 2MB file
+    round-trip). R2 binding declared in [src/cf/wrangler.toml](src/cf/wrangler.toml).
+  - One DurableObject per user via `USER_SPACE` binding; first URL
+    path segment is the user_id.
+  - Per-request `SnapshotVfs` preloaded from Workspace through a `Vfs`
+    trait ([src/cf/vfs.rs](src/cf/vfs.rs)). Nine Nu shadow commands
+    (`ls`, `open`, `save`, `mkdir`, `rm`, `cp`, `mv`, `path exists`,
+    `glob`) call the trait via `with_vfs` ([src/cf/commands.rs](src/cf/commands.rs)).
+    Writes buffer into pending ops and async-flush back to Workspace
+    after Nu eval.
+  - `.static` works via the existing `RESPONSE_TX` channel from
+    [src/commands.rs](src/commands.rs) (no duplicate command). CF
+    handler reads Workspace + sets Content-Type from extension.
+  - Per-user handler hot-swap: `PUT /<user>/admin/handler` re-parses
+    the closure for that user's DO isolate.
+  - Filed [workers-rs#998](https://github.com/cloudflare/workers-rs/issues/998)
+    asking Cloudflare to upstream this. Until/unless they do, our port
+    lives here.
+
+### Example status on CF (verified)
+
+`mise run cf:deploy` with `CF_HANDLER_PATH=examples/<name>/serve.nu`,
+then curl-tested. **Verified** means deployed + GET / returns 200 with
+expected body shape; not a deep functional test.
+
+| Example | Status | Notes |
+|---|---|---|
+| `blog` | ✅ verified | Router DSL + HTML DSL. |
+| `cf-workspace-browser` | ✅ verified | Uses the shadow command set. R2 spill verified with 2MB file. |
+| `datastar-counter` | ✅ verified | Datastar JS + Nu state. |
+| `datastar-sdk` | ✅ verified | Datastar SDK demo. |
+| `mermaid-editor` | ❌ blocked at parse | Uses `path self` -> `$env.PWD is not an absolute path` (wasm runtime has no PWD). |
+| `cargo-docs` | ⚠️ untested | Should serve via `.static` over Workspace once doc files are uploaded into `/<user>/_workspace/put`. No bundled upload tool yet. |
+| `basic` | ❌ blocked at parse | `date now`, `format date`, `sleep`, `generate` are missing from the wasm Nu surface (`nu-command/os` is off). Nu treats them as external calls -> "External calls are not supported." |
+| `2048` | ❌ blocked at parse | `.bus sub` + `sleep` + `generate`. Needs BusDO with WS Hibernation + sleep/generate parity. |
+| `tao` | ❌ blocked | `--dev -w` watch mode. Needs DO alarm + Workspace change events. |
+| `stor` | ❌ blocked at parse | `stor` command from `nu-command/sqlite`, off on wasm. Could be added with `nu-command/sqlite` enabled on wasm (if it compiles) or a CF-side `stor` shadow over DO SQLite. |
+| `templates` | ❌ blocked | Uses `--store`, needs xs CF backend (xs repo, not http-nu). |
+| `quotes` | ❌ blocked | Same `--store` dependency as templates. |
+| `hub` (`examples/serve.nu`) | ❌ blocked at parse | Uses Nu `source basic.nu` -> `SourcedFileNotFound`. Nu resolves `source` at parse time against the host filesystem, which doesn't exist on wasm. |
+
+### What it would take to unblock the rest
+
+These are independent tracks, mostly outside the FS work:
+
+1. **nu-command/os parity on wasm** -- `sleep`, `generate`, `date now`,
+   `format date`, `path self`. Upstream Nu work, or shadow each in
+   `src/cf/commands.rs` (sleep needs a wasm-bindgen-futures async path
+   reconciled with Nu's sync command surface; not trivial). Unblocks
+   `basic`, `mermaid-editor` (partially), `2048` (partially).
+2. **`stor` on wasm** -- enable `nu-command/sqlite` on wasm if it
+   compiles cleanly, or shadow `stor` over the DO's `ctx.storage.sql`
+   we already use for Workspace. Unblocks `stor`, and is a primitive
+   `templates` / `quotes` could be ported onto if xs CF is delayed.
+3. **BusDO with WebSocket Hibernation** -- new DO class in
+   `src/cf/`, ~1-2 days. Unblocks `.bus sub`, the streaming half of
+   `2048`.
+4. **xs CF backend** -- lives in the `xs` repo. Maps `fjall` (LSM log)
+   to DO SQLite and `cacache` (CAS) to R2. Days of work in that repo.
+   Unblocks `--store`, `--topic`, `.cat`, `.append`, `.cas`, the
+   `--watch` reload trigger on CF, and the rest of the `tao`/
+   `quotes`/`templates` examples.
+5. **`source` for hub** -- Nu's `source` resolves at parse time
+   against the OS filesystem. Three real fixes (all real work):
+   (a) patch Nu's parser to resolve `source` through a Vfs provider;
+   (b) build-time preprocessor that inlines `source` statements into
+   the handler script before `include_str!`; (c) Workers-side bundler
+   that pre-populates additional `include_str!` constants for every
+   `source` target.
+
+None of (1)-(5) are blocked by anything else; they're orthogonal
+work-tracks. None are tiny.
 
 ## Try it
 
@@ -264,21 +409,65 @@ single short PR. (4) is the closest match to the local-first
   commands actually call. Workspace provides a real FS index (DO
   SQLite) with R2 for blob storage -- that is the correct substrate.
 
-  Implementation plan (two layers):
-  - JS side: initialize `@cloudflare/shell` `Workspace` in the worker
-    entry shim; expose `WorkspaceFileSystem` methods (`readFile`,
-    `writeFile`, `readdir`, `stat`, `mkdir`, etc.) to Rust.
-  - Rust side: `src/cf/vfs.rs` -- `wasm_bindgen` externs calling into
-    the JS-side `WorkspaceFileSystem`. Same pattern as
-    `.src/nu-on-web/src/zenfs.rs` (which does the same for
-    `@zenfs/core` in the browser); swap `@zenfs/core` for
-    `@cloudflare/shell` and align method names to the `state` API.
-  - `src/cf/commands/` -- Nu shadow commands (`ls`, `open`,
-    `path exists`, ...) that call `vfs.rs` instead of `std::fs`.
-    Reference: `.src/nu-on-web/src/commands/` for the command shape.
-  Once proven here, `vfs.rs` + `commands/` extract to a `cf-vfs`
-  crate in a shared platform repo; other Rust Workers depend on it
-  via Cargo git dep.
+  Implementation plan -- preload + sync read, using `@cloudflare/shell`:
+
+  **The constraints:**
+  - Nu commands (`ls`, `open`, `path exists`) are synchronous; they
+    cannot `await`.
+  - `WorkspaceFileSystem` (`@cloudflare/shell`) is fully async. So is
+    R2. `SqlStorage::exec()` in workers-rs is sync, but Workspace
+    spills files >1.5MB to R2 (async) and resolves symlinks (up to
+    40-deep). Going around Workspace via raw SQL means reimplementing
+    ~1800 lines of edge cases (R2 spill, symlink walks, encoding,
+    glob, namespace prefixing, schema migration). That is exactly
+    the "reinventing the wheel" trap.
+
+  **The pick:** use `@cloudflare/shell` via an async JS bridge, and
+  decouple the async I/O from Nu eval with a per-request preload:
+
+  1. **Worker prelude (JS, async)** -- before invoking the Wasm
+     handler, walk the handler's known dependencies (handler script
+     itself, any `.static`/`source`/`open` targets the request needs)
+     and `await ws.readFile()` / `ws.readdir()` for each. Build a
+     `{ path -> bytes }` snapshot plus a `{ path -> stat }` map.
+  2. **Hand the snapshot to Rust** via `wasm_bindgen`. Snapshot is a
+     `HashMap<String, Vec<u8>>` plus stat map, owned by Rust for the
+     request lifetime.
+  3. **`src/cf/vfs.rs` (Rust, sync)** -- reads against the snapshot.
+     No JS calls during Nu eval. No `SqlStorage::exec()`. No async.
+  4. **`src/cf/commands/`** -- Nu shadow commands (`ls`, `open`,
+     `path exists`) call `vfs.rs` against the snapshot. Same shape
+     as `.src/nu-on-web/src/commands/`.
+  5. **Writes** (rare in handlers) -- collect into a pending-writes
+     buffer in the snapshot; flush back out through async JS calls
+     to `ws.writeFile()` after Nu eval returns. Or reject writes
+     entirely in the initial version.
+
+  The async cost lives in the prelude, not in Nu eval. All the hard
+  storage logic (R2 spill, symlinks, encoding, glob) stays in
+  `@cloudflare/shell` where it's already debugged.
+
+  **Dep discovery for the prelude.** Two strategies, cheapest first:
+  - Static: parse the handler closure once at warm-up, collect
+    literal paths it references (`open "foo.html"`, `.static "dir"`).
+    Cache as `HashSet<PathBuf>` keyed by handler hash. Preload that
+    set per request. Misses dynamic paths.
+  - Dynamic: run Nu, catch ENOENT, async-fetch the missing path,
+    retry. Slow but correct. Use as a fallback after static.
+
+  Static covers the realistic case (a blog handler `open`s the same
+  template set every request). Dynamic is the escape hatch.
+
+  Management plane stays in JS (`@cloudflare/shell`): git pull, diff,
+  archive, search/replace, glob, structured edit planning all run
+  via `Workspace` directly. They are async. Run in a management DO
+  or between requests. Same DO SQLite + R2 backing; whatever git
+  pull writes is visible to the next request's prelude.
+
+  Once proven, `vfs.rs` + `commands/` + the prelude shim extract to
+  a `cf-vfs` crate in a shared platform repo; other Rust Workers
+  that want Nu-style fs over Workspace depend on it via Cargo git
+  dep.
 
   Deeper insight: the desktop Vfs (tokio::fs + notify) and the CF
   Vfs (@cloudflare/shell Workspace) are not just compatible -- they
