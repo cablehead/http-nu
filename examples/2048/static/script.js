@@ -28,20 +28,42 @@ addEventListener("keydown", (e) => {
 // Reset button (visible tap target for touch users).
 document.querySelector("button")?.addEventListener("click", () => move("reset"));
 
-// Swipe: stash start coords on pointerdown if it begins inside the board,
-// pick the dominant axis on pointerup past a 30px threshold.
+// Swipe with anticipation: while dragging, lean the tiles toward the gesture
+// (CSS reads --tilt-x / --tilt-y). On release past threshold, leave the lean
+// in place so the view-transition slide continues the motion. On cancel,
+// snap back via the `.snap` class.
+const DAMP = 0.35;
+const CAP = 16;
 let start = null;
+let board = null;
 addEventListener("pointerdown", (e) => {
-  start = e.target.closest("#board") ? [e.clientX, e.clientY] : null;
+  if (!e.target.closest("#board")) { start = null; return; }
+  start = [e.clientX, e.clientY];
+  board = document.querySelector("#board");
+  board?.classList.remove("snap");
+});
+addEventListener("pointermove", (e) => {
+  if (!start || !board) return;
+  const dx = Math.max(-CAP, Math.min(CAP, (e.clientX - start[0]) * DAMP));
+  const dy = Math.max(-CAP, Math.min(CAP, (e.clientY - start[1]) * DAMP));
+  board.style.setProperty("--tilt-x", `${dx}px`);
+  board.style.setProperty("--tilt-y", `${dy}px`);
 });
 addEventListener("pointerup", (e) => {
   if (!start) return;
   const dx = e.clientX - start[0];
   const dy = e.clientY - start[1];
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < 30) return;
-  move(
-    Math.abs(dx) > Math.abs(dy)
-      ? dx > 0 ? "l" : "h"
-      : dy > 0 ? "j" : "k",
-  );
+  start = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
+    move(
+      Math.abs(dx) > Math.abs(dy)
+        ? dx > 0 ? "l" : "h"
+        : dy > 0 ? "j" : "k",
+    );
+  } else {
+    board?.classList.add("snap");
+    board?.style.setProperty("--tilt-x", "0px");
+    board?.style.setProperty("--tilt-y", "0px");
+    setTimeout(() => board?.classList.remove("snap"), 200);
+  }
 });
