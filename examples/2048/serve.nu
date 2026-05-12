@@ -296,7 +296,9 @@ def render-game []: record -> record {
         (BUTTON {type: "button"} "r"))
       (DIV {class: "column"}
         (DIV {id: "game" "data-init": ("@get('" + ($req | href "/sse") + "')")} "")
-        (FOOTER "served by " (A {href: "https://http-nu.cross.stream"} "http-nu")))))
+        (FOOTER
+          (SPAN {id: "rtt"} "0ms") " "
+          "served by " (A {href: "https://http-nu.cross.stream"} "http-nu")))))
     })
   ]
 }

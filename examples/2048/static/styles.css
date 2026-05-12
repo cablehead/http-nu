@@ -11,6 +11,7 @@
   --board-size: 460px;
   --gap: 8px;
   --radius: 4px;
+  --decay-duration: 500ms;
   --board-scale: min(
     calc((100dvw - 24px) / var(--board-size)),
     calc((100dvh - 210px) / var(--board-size)),
@@ -95,7 +96,8 @@ button:active {
     calc(var(--tilt-y, 0px) / var(--board-scale))
   );
 }
-#board.snap > .tile { transition: transform 180ms ease; }
+#board.snap > .tile { transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+#board.decay > .tile { transition: transform var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1); }
 
 /* Tight viewports (landscape phones): hide the hint, give more to the board. */
 @media (max-height: 600px) {
@@ -126,12 +128,14 @@ button:active {
 
 footer {
   font-size: 14px;
-  align-self: flex-end;
+  align-self: stretch;
   display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 6px;
   margin-top: 4px;
 }
+footer #rtt { font-variant-numeric: tabular-nums; opacity: 0.7; }
 footer a {
   color: var(--light);
   background: var(--brand);
