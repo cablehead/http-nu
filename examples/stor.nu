@@ -8,7 +8,9 @@
 
 use http-nu/html *
 
-stor create -t visits -c {path: str ts: str method: str} | ignore
+# nushell's `stor` is process-global, so the table outlives a re-source
+# (e.g. when watch mode reloads). Make the create idempotent.
+try { stor create -t visits -c {path: str ts: str method: str} | ignore }
 
 {|req|
   # Record every request
