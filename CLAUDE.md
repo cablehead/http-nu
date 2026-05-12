@@ -91,3 +91,30 @@ When working on the Cloudflare Workers port (`src/cf/`, examples on CF,
 6. **R2 + DurableObject bindings live in `src/cf/wrangler.toml`.** Token
    for deploy is fetched from `fnox` by the `cf:deploy` mise task; you
    don't need to export it manually if you have fnox set up.
+
+7. **Per-demo parity check is mandatory.** Each example must behave
+   the same on desktop and CF -- they are the same Nu source. Workflow:
+
+   ```
+   # a) Desktop baseline
+   mise run ex:<name>                          # serves at :3001
+   curl -i http://127.0.0.1:3001/              # capture HTTP code, body, Content-Type
+
+   # b) CF local (must match (a) before remote)
+   CF_HANDLER_PATH=examples/<name>/serve.nu mise run cf:dev
+   curl -i http://127.0.0.1:8787/              # diff against (a)
+
+   # c) CF remote (only after (b) matches)
+   CF_HANDLER_PATH=examples/<name>/serve.nu mise run cf:deploy
+   curl -i https://http-nu-cf.gedw99.workers.dev/
+   ```
+
+   Don't claim a demo "works on CF" until (b) matches (a). If the
+   behaviour diverges, fix the *cause* (commonly: a wasm-incompatible
+   Nu command, `$env.PWD` path-resolution, a missing workspace file).
+   Don't paper over by changing the example -- the demo is the spec.
+
+   Exceptions are explicit and live in CLOUDFLARE.md's example status
+   table: e.g. `sleep` is documented as a no-op on CF until async Nu
+   eval lands; `path self` returns a workspace-rooted path (same
+   semantic as desktop, different string). Anything else: parity.
