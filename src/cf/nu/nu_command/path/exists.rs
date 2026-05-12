@@ -1,10 +1,19 @@
 //! `path exists` shadow. Mirrors `nu-command/src/path/exists.rs`.
+//!
+//! Used by: common pattern across handlers.
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature           | Stock arg              | Shadow?           | Notes |
+//! |-------------------------|------------------------|-------------------|-------|
+//! | Pipeline or arg path    | yes                    | yes               | Both supported. |
+//! | `--no-symlink` / `-n`   | don't follow symlinks  | unknown -- AUDIT  | If shadowed, must route to `Vfs::lstat` instead of `Vfs::exists` (which follows symlinks). |
 
 use std::path::Path;
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::commands::shared::normalise_input;
+use crate::cf::nu::nu_command::shared::normalise_input;
 use crate::cf::vfs::with_vfs;
 
 #[derive(Clone, Default)]

@@ -1,10 +1,16 @@
-//! Path helpers for the Workspace. Pure-Rust, sync, testable on
-//! desktop -- the unit tests run via `cargo test` even though the rest
-//! of the workspace module is wasm32+cloudflare gated.
+//! Upstream: `.src/agents/packages/shell/src/fs/path-utils.ts`.
+//!
+//! Pure path utilities. No worker-rs deps, no FS deps, no time deps --
+//! safe to use from desktop tests. `normalize_path` is the
+//! length-validating wrapper that every public FS method calls at its
+//! entry point (matches upstream's inline `MAX_PATH_LENGTH` check at
+//! filesystem.ts:1584).
 
-/// Collapse `.`, `..`, and double slashes. Force a leading `/`. Result
-/// is always absolute, never has a trailing slash (except for the root
-/// itself).
+use crate::shell::{FsError, Result, MAX_PATH_LENGTH};
+
+/// Upstream: `fs/path-utils.ts:13` `normalizePath()`. Collapse `.`,
+/// `..`, and double slashes; force a leading `/`. Result is always
+/// absolute, never has a trailing slash (except for the root itself).
 pub fn normalize(path: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     for seg in path.split('/') {
@@ -26,6 +32,20 @@ pub fn normalize(path: &str) -> String {
         }
         s
     }
+}
+
+/// Upstream: `filesystem.ts:1584` raises `ENAMETOOLONG: path exceeds
+/// ${MAX_PATH_LENGTH} characters` inside `normalizePath`. We mirror by
+/// wrapping `normalize` in a `Result`-returning validator that every
+/// public FS method calls.
+pub fn normalize_path(path: &str) -> Result<String> {
+    let p = normalize(path);
+    if p.len() > MAX_PATH_LENGTH {
+        return Err(FsError::NameTooLong(format!(
+            "path exceeds {MAX_PATH_LENGTH} characters"
+        )));
+    }
+    Ok(p)
 }
 
 /// Parent directory of `path`. The root's parent is the empty string
@@ -85,5 +105,11 @@ mod tests {
         assert_eq!(path_name("/foo"), "foo");
         assert_eq!(path_name("/foo/bar"), "bar");
         assert_eq!(path_name("/a/b/c"), "c");
+    }
+
+    #[test]
+    fn normalize_path_rejects_overlong() {
+        let long = "/".to_string() + &"a".repeat(MAX_PATH_LENGTH);
+        assert!(normalize_path(&long).is_err());
     }
 }

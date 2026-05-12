@@ -1,4 +1,15 @@
 //! `glob` shadow. Mirrors `nu-command/src/filesystem/glob.rs`.
+//!
+//! Used by: `examples/cf-workspace-browser/`.
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature                              | Stock arg              | Shadow?           | Notes |
+//! |--------------------------------------------|------------------------|-------------------|-------|
+//! | `glob` required                            | pattern                | yes               | |
+//! | `--depth` / `-d`                           | recursion cap          | unknown -- AUDIT  | Confirm whether recursion cap is honoured. |
+//! | `--no-dir` / `--no-file` / `--no-symlink`  | filter by entry kind   | unknown -- AUDIT  | Vfs returns all kinds; shadow should filter. |
+//! | `--exclude` (named)                        | exclude patterns       | no                | Stock-only. |
 
 use nu_engine::command_prelude::*;
 

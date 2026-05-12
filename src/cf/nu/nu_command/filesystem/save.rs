@@ -1,10 +1,23 @@
 //! `save` shadow. Mirrors `nu-command/src/filesystem/save.rs`.
+//!
+//! Used by: `examples/cf-workspace-browser/`.
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature                | Stock arg            | Shadow?           | Notes |
+//! |------------------------------|----------------------|-------------------|-------|
+//! | Required `filename: Filepath`| path                 | yes               | |
+//! | `--stderr` / `-e`            | redirect stderr      | no                | Stock-only. |
+//! | `--raw` / `-r`               | bypass mime header   | unknown -- AUDIT  | |
+//! | `--append` / `-a`            | append, not replace  | unknown -- AUDIT  | Vfs has `append_file`; verify shadow wires it through. |
+//! | `--force` / `-f`             | overwrite            | unknown -- AUDIT  | |
+//! | `--progress` / `-p`          | progress bar         | no                | Workers can't render TTY. |
 
 use std::path::Path;
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::commands::shared::{normalise_input, require_vfs, vfs_err};
+use crate::cf::nu::nu_command::shared::{normalise_input, require_vfs, vfs_err};
 
 #[derive(Clone, Default)]
 pub struct VfsSave;

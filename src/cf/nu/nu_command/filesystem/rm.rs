@@ -1,10 +1,24 @@
 //! `rm` shadow. Mirrors `nu-command/src/filesystem/rm.rs`.
+//!
+//! Used by: `examples/cf-workspace-browser/` (many call sites).
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature             | Stock arg                  | Shadow?           | Notes |
+//! |---------------------------|----------------------------|-------------------|-------|
+//! | Rest paths                | multi-path                 | unknown -- AUDIT  | Verify shadow accepts more than one path. |
+//! | `--recursive` / `-r`      | recurse into dirs          | yes               | Matches stock. |
+//! | `--force` / `-f`          | suppress missing-file error| yes               | Matches stock. |
+//! | `--verbose` / `-v`        | print deletions            | no                | |
+//! | `--interactive` / `-i`    | confirm prompts            | no                | No TTY. |
+//! | `--trash`, `--permanent`  | trash semantics            | n/a               | Workspace has no trash; rm is permanent. |
+//! | `--all` / `-a`            | include hidden in `*` glob | no                | No hidden-file convention. |
 
 use std::path::Path;
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::commands::shared::{normalise_input, require_vfs, vfs_err};
+use crate::cf::nu::nu_command::shared::{normalise_input, require_vfs, vfs_err};
 
 #[derive(Clone, Default)]
 pub struct VfsRm;

@@ -23,7 +23,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use super::workspace::{EntryType, Workspace};
+use super::shell::Workspace;
+use crate::shell::EntryType;
 
 // ── trait + types ───────────────────────────────────────────────────
 

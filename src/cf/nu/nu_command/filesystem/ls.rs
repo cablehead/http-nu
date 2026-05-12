@@ -1,10 +1,28 @@
 //! `ls` shadow. Mirrors `nu-command/src/filesystem/ls.rs`.
+//!
+//! Used by: `examples/cf-workspace-browser/` (many call sites).
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature             | Stock arg                | Shadow? | Notes |
+//! |---------------------------|--------------------------|---------|-------|
+//! | Rest patterns             | `pattern: Glob` (multi)  | partial | Single `optional path: String`; use `glob` for multi. |
+//! | `--all` / `-a`            | hidden-file toggle       | no      | Workspace has no hidden-file convention. |
+//! | `--long` / `-l`           | extra columns            | no      | Would need wider row schema. |
+//! | `--full-paths` / `-f`     | absolute paths in `name` | no      | We output bare names. |
+//! | `--du`, `--directory`     | summary / dir-only       | no      | |
+//! | `--mime-type` / `-m`      | mime in type column      | no      | Vfs already exposes a `mime_type` column. |
+//! | `--threads` / `-t`        | multi-threaded           | n/a     | Workers is single-threaded. |
+//! | `--short-names`, `--icons`, ... | display tweaks     | no      | |
+//!
+//! Output columns: `name` / `type` / `size` / `mime_type` (via Vfs).
+//! No `created`, `accessed`, `readonly`, `inode`, etc.
 
 use std::path::Path;
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::commands::shared::{normalise_input, require_vfs, vfs_err};
+use crate::cf::nu::nu_command::shared::{normalise_input, require_vfs, vfs_err};
 use crate::cf::vfs::StatKind;
 
 #[derive(Clone, Default)]

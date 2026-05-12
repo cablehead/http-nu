@@ -1,4 +1,5 @@
-//! Rust port of @cloudflare/shell's `Workspace` filesystem.
+//! Rust port of @cloudflare/shell's `Workspace` class (upstream:
+//! `filesystem.ts`).
 //!
 //! Backs a per-user FS on a Durable Object using DO SQLite for the file
 //! index + content (up to 1.5MB inline) and R2 for spillover. Schema is
@@ -21,82 +22,39 @@
 //!     when the path doesn't exist. Callers that need ENOENT-as-error
 //!     wrap in their own adapter (e.g. crate::cf::vfs's SnapshotVfs).
 //!
-//! Lives at `src/cf/workspace/` for now; intended to extract to its own
-//! crate (`cf-workspace`) once stable so yoke + xs + future Rust-on-CF
-//! projects can depend on it directly.
-
-mod paths;
-mod schema;
-
-pub use schema::DEFAULT_NAMESPACE;
+//! Lives at `src/cf/shell/filesystem.rs` for now; intended to extract
+//! to its own crate (`cf-shell`) once stable so yoke + xs + future
+//! Rust-on-CF projects can depend on it directly.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use worker::{Bucket, Result, SqlStorage};
+use worker::{Bucket, SqlStorage};
 
-use paths::{normalize, parent_path, path_name};
+use crate::shell::{
+    error::FsError,
+    interface::{
+        CpOptions, DirEntry, EntryType, FileSystem, MkdirOptions, OnChange, RmOptions, Stat,
+        WorkspaceChangeEvent, WorkspaceChangeType, DEFAULT_BYTES_MIME, DEFAULT_TEXT_MIME,
+        MAX_PATH_LENGTH, MAX_SYMLINK_DEPTH,
+    },
+    path_utils::{normalize, normalize_path, parent_path, path_name},
+    Result,
+};
 
-const MAX_SYMLINK_DEPTH: u32 = 40;
+use super::schema;
+
+/// R2 spill threshold. Files larger than this go to R2; smaller stay
+/// inline in the SQL row. Matches `@cloudflare/shell`'s
+/// `inlineThreshold` default. Stays here because it's Workspace-specific
+/// (InMemoryFs has no R2).
 const R2_SPILL_THRESHOLD: usize = 1_500_000;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntryType {
-    File,
-    Directory,
-    Symlink,
-}
-
-impl EntryType {
-    fn as_str(self) -> &'static str {
-        match self {
-            EntryType::File => "file",
-            EntryType::Directory => "directory",
-            EntryType::Symlink => "symlink",
-        }
-    }
-
-    fn parse(s: &str) -> Option<EntryType> {
-        match s {
-            "file" => Some(EntryType::File),
-            "directory" => Some(EntryType::Directory),
-            "symlink" => Some(EntryType::Symlink),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Stat {
-    pub kind: EntryType,
-    pub size: u64,
-    pub modified_at: i64,
-    pub mime_type: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct DirEntry {
-    pub name: String,
-    pub kind: EntryType,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct MkdirOptions {
-    pub recursive: bool,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RmOptions {
-    pub recursive: bool,
-    pub force: bool,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct CpOptions {
-    pub recursive: bool,
-}
 
 /// One Workspace = one user's filesystem. Cheap to construct;
 /// `bootstrap()` is idempotent and only does work the first time.
-#[derive(Debug, Clone)]
+///
+/// Deliberately not `Debug`/`Clone`: `on_change` is `Arc<dyn Fn>` which
+/// doesn't implement `Debug`, and Workspace today isn't formatted or
+/// cloned anywhere. Restore the derives (with manual `Debug`) if a use
+/// case appears.
 pub struct Workspace {
     sql: SqlStorage,
     r2: Option<Bucket>,
@@ -107,9 +65,17 @@ pub struct Workspace {
     /// @cloudflare/shell's resolveR2Prefix(): final key is
     /// `${r2_prefix}/${namespace}<path>`.
     r2_prefix: String,
+    /// Upstream: filesystem.ts:232 `private readonly onChange`. Per-instance
+    /// listener fired after every successful mutation. Wrapped in `Mutex`
+    /// so `set_on_change` can take `&self` (matches `InMemoryFs`'s API
+    /// and lets the conformance harness call it through a `&F` reference).
+    on_change: std::sync::Mutex<Option<OnChange>>,
 }
 
 impl Workspace {
+    /// Upstream: filesystem.ts:237 `constructor(options: WorkspaceOptions)`.
+    /// We take `(sql, r2, namespace)` instead of an options bag --
+    /// `onChange` callback (TS L108) is not yet wired.
     pub fn new(sql: SqlStorage, r2: Option<Bucket>, namespace: &str) -> Result<Self> {
         let table = format!("cf_workspace_{namespace}");
         let index = format!("idx_{table}_parent_path");
@@ -121,13 +87,41 @@ impl Workspace {
             index,
             namespace: namespace.to_string(),
             r2_prefix,
+            on_change: std::sync::Mutex::new(None),
         };
         ws.bootstrap()?;
         Ok(ws)
     }
 
+    /// Upstream: filesystem.ts:108 `WorkspaceOptions.onChange`.
+    /// Per-instance listener; set after construction (TS sets it inside
+    /// the constructor via the options bag). The callback fires after a
+    /// successful mutation. Takes `&self` rather than `&mut self` so
+    /// callers (including the conformance harness) can install
+    /// listeners through a shared reference.
+    pub fn set_on_change(&self, cb: OnChange) {
+        *self.on_change.lock().unwrap() = Some(cb);
+    }
+
+    /// Upstream: filesystem.ts:307 `private emit()`.
+    /// Clones the Arc out of the lock before invoking so the user's
+    /// callback runs without holding the mutex.
+    fn emit(&self, kind: WorkspaceChangeType, path: &str, entry_type: EntryType) {
+        let cb = self.on_change.lock().unwrap().clone();
+        if let Some(cb) = cb {
+            cb(WorkspaceChangeEvent {
+                kind,
+                path: path.to_string(),
+                entry_type,
+            });
+        }
+    }
+
+    /// Port-only convenience constructor. Uses `DEFAULT_NAMESPACE = "default"`,
+    /// mirroring the TS default. No upstream equivalent (TS callers pass
+    /// `namespace` explicitly via `WorkspaceOptions`).
     pub fn default(sql: SqlStorage, r2: Option<Bucket>) -> Result<Self> {
-        Self::new(sql, r2, DEFAULT_NAMESPACE)
+        Self::new(sql, r2, schema::DEFAULT_NAMESPACE)
     }
 
     fn bootstrap(&self) -> Result<()> {
@@ -153,8 +147,9 @@ impl Workspace {
         Ok(())
     }
 
+    /// Upstream: filesystem.ts:1028 `exists()`.
     pub async fn exists(&self, path: &str) -> Result<bool> {
-        let p = normalize(path);
+        let p = normalize_path(path)?;
         let n = exec_count(
             &self.sql,
             &format!("SELECT 1 AS c FROM {} WHERE path = ? LIMIT 1", self.table),
@@ -163,18 +158,21 @@ impl Workspace {
         Ok(n > 0)
     }
 
-    /// stat follows symlinks. Returns Ok(None) on ENOENT.
+    /// Upstream: filesystem.ts:500 `stat()`.
+    /// Follows symlinks. Returns `Ok(None)` on ENOENT (TS: `Promise<FileStat | null>`).
     pub async fn stat(&self, path: &str) -> Result<Option<Stat>> {
-        let resolved = self.resolve_symlinks(&normalize(path), 0).await?;
+        let p = normalize_path(path)?;
+        let resolved = self.resolve_symlinks(&p, 0).await?;
         match resolved {
             Some(p) => self.lstat(&p).await,
             None => Ok(None),
         }
     }
 
-    /// lstat does NOT follow symlinks.
+    /// Upstream: filesystem.ts:475 `lstat()`.
+    /// Does NOT follow symlinks. `Ok(None)` on ENOENT.
     pub async fn lstat(&self, path: &str) -> Result<Option<Stat>> {
-        let p = normalize(path);
+        let p = normalize_path(path)?;
         let cursor = self.sql.exec(
             &format!(
                 "SELECT type, size, modified_at, mime_type FROM {} WHERE path = ? LIMIT 1",
@@ -184,7 +182,7 @@ impl Workspace {
         )?;
         let row = match cursor.next::<StatRow>().next() {
             Some(Ok(r)) => r,
-            Some(Err(e)) => return Err(e),
+            Some(Err(e)) => return Err(e.into()),
             None => return Ok(None),
         };
         let Some(kind) = EntryType::parse(&row.r#type) else {
@@ -195,9 +193,11 @@ impl Workspace {
             size: row.size as u64,
             modified_at: row.modified_at,
             mime_type: row.mime_type,
+            mode: Stat::mode_for(kind),
         }))
     }
 
+    /// Upstream: filesystem.ts:526 `readFile()`.
     pub async fn read_file(&self, path: &str) -> Result<Option<String>> {
         let bytes = match self.read_file_bytes(path).await? {
             Some(b) => b,
@@ -205,35 +205,44 @@ impl Workspace {
         };
         String::from_utf8(bytes)
             .map(Some)
-            .map_err(|e| worker::Error::RustError(format!("read_file: invalid utf8: {e}")))
+            .map_err(|e| FsError::InvalidEncoding(format!("readFile invalid utf8: {e}")))
     }
 
+    /// Upstream: filesystem.ts:569 `readFileBytes()`.
+    /// Resolves R2 spill transparently.
     pub async fn read_file_bytes(&self, path: &str) -> Result<Option<Vec<u8>>> {
-        let Some(resolved) = self.resolve_symlinks(&normalize(path), 0).await? else {
+        let p = normalize_path(path)?;
+        let Some(resolved) = self.resolve_symlinks(&p, 0).await? else {
             return Ok(None);
         };
+        // SELECT without the `type = 'file'` filter so we can distinguish
+        // EISDIR (caller asked to read a directory) from ENOENT.
+        // Upstream throws `EISDIR: <path> is a directory` (filesystem.ts:544 / L587).
         let cursor = self.sql.exec(
             &format!(
-                "SELECT storage_backend, content_encoding, content, r2_key \
-                 FROM {} WHERE path = ? AND type = 'file' LIMIT 1",
+                "SELECT type, storage_backend, content_encoding, content, r2_key \
+                 FROM {} WHERE path = ? LIMIT 1",
                 self.table
             ),
             Some(vec![resolved.clone().into()]),
         )?;
         let row = match cursor.next::<FileRow>().next() {
             Some(Ok(r)) => r,
-            Some(Err(e)) => return Err(e),
+            Some(Err(e)) => return Err(e.into()),
             None => return Ok(None),
         };
+        if row.r#type != "file" {
+            return Err(FsError::IsDir(format!("{resolved} is a {}",
+                row.r#type
+            )));
+        }
         let bytes = if row.storage_backend == "r2" {
             let Some(r2) = &self.r2 else {
-                return Err(worker::Error::RustError(format!(
-                    "read_file_bytes: {resolved} is R2-backed but no R2 bucket bound"
+                return Err(FsError::Io(format!("readFileBytes {resolved} is R2-backed but no R2 bucket bound"
                 )));
             };
             let Some(key) = row.r2_key else {
-                return Err(worker::Error::RustError(format!(
-                    "read_file_bytes: {resolved} storage_backend=r2 but r2_key is NULL"
+                return Err(FsError::Io(format!("readFileBytes {resolved} storage_backend=r2 but r2_key is NULL"
                 )));
             };
             let obj = match r2.get(&key).execute().await? {
@@ -241,7 +250,8 @@ impl Workspace {
                 None => return Ok(None),
             };
             let body = obj.body().ok_or_else(|| {
-                worker::Error::RustError(format!("read_file_bytes: R2 object {key} has no body"))
+                FsError::Io(format!("readFileBytes R2 object {key} has no body"
+                ))
             })?;
             body.bytes().await?
         } else {
@@ -250,7 +260,7 @@ impl Workspace {
             let content = row.content.unwrap_or_default();
             if row.content_encoding == "base64" {
                 B64.decode(content.as_bytes())
-                    .map_err(|e| worker::Error::RustError(format!("base64 decode: {e}")))?
+                    .map_err(|e| FsError::InvalidEncoding(format!("base64 decode: {e}")))?
             } else {
                 content.into_bytes()
             }
@@ -258,40 +268,82 @@ impl Workspace {
         Ok(Some(bytes))
     }
 
-    pub async fn write_file(&self, path: &str, content: &str) -> Result<()> {
-        self.write_inner(path, content.as_bytes(), "utf8").await
+    /// Upstream: filesystem.ts:729 `writeFile(path, content, mimeType = "text/plain")`.
+    /// `mime_type = None` defaults to `text/plain`, matching upstream.
+    pub async fn write_file(
+        &self,
+        path: &str,
+        content: &str,
+        mime_type: Option<&str>,
+    ) -> Result<()> {
+        let mime = mime_type.unwrap_or(DEFAULT_TEXT_MIME);
+        self.write_inner(path, content.as_bytes(), "utf8", mime)
+            .await
     }
 
-    pub async fn write_file_bytes(&self, path: &str, content: &[u8]) -> Result<()> {
+    /// Upstream: filesystem.ts:611 `writeFileBytes(path, data, mimeType = "application/octet-stream")`.
+    /// R2 spill at 1.5MB. `mime_type = None` defaults to `application/octet-stream`,
+    /// matching upstream.
+    pub async fn write_file_bytes(
+        &self,
+        path: &str,
+        content: &[u8],
+        mime_type: Option<&str>,
+    ) -> Result<()> {
+        let mime = mime_type.unwrap_or(DEFAULT_BYTES_MIME);
         // Choose encoding based on utf8-validity. utf8-clean bytes stay
         // as TEXT (cheaper, queryable); binary goes base64 (matches
         // @cloudflare/shell's content_encoding semantics).
         if let Ok(s) = std::str::from_utf8(content) {
-            self.write_inner(path, s.as_bytes(), "utf8").await
+            self.write_inner(path, s.as_bytes(), "utf8", mime).await
         } else {
-            self.write_inner(path, content, "base64").await
+            self.write_inner(path, content, "base64", mime).await
         }
     }
 
+    /// Upstream: filesystem.ts:938 `appendFile()`.
+    /// Preserves the existing entry's `mime_type` (re-reads via `lstat`
+    /// rather than overwriting with the default), matching the upstream
+    /// semantic that appendFile shouldn't change Content-Type.
     pub async fn append_file(&self, path: &str, content: &[u8]) -> Result<()> {
         let existing = self.read_file_bytes(path).await?.unwrap_or_default();
+        let existing_mime = self.lstat(path).await?.map(|s| s.mime_type);
         let mut combined = Vec::with_capacity(existing.len() + content.len());
         combined.extend_from_slice(&existing);
         combined.extend_from_slice(content);
-        self.write_file_bytes(path, &combined).await
+        self.write_file_bytes(path, &combined, existing_mime.as_deref())
+            .await
     }
 
-    async fn write_inner(&self, path: &str, content: &[u8], encoding: &str) -> Result<()> {
-        let p = normalize(path);
+    async fn write_inner(
+        &self,
+        path: &str,
+        content: &[u8],
+        encoding: &str,
+        mime_type: &str,
+    ) -> Result<()> {
+        let p = normalize_path(path)?;
+        // Upstream: filesystem.ts:619 / L737 -- `EISDIR: cannot write to
+        // root directory`.
+        if p == "/" {
+            return Err(FsError::IsDir("cannot write to root directory".to_string()));
+        }
         self.ensure_parent_dirs(&p)?;
         let parent = parent_path(&p);
         let name = path_name(&p);
         let size = content.len() as i64;
+        // Track Create vs Update for onChange emit (upstream emits
+        // `existing ? "update" : "create"` at filesystem.ts:680 / 719 /
+        // 801 / 841).
+        let existed = exec_count(
+            &self.sql,
+            &format!("SELECT 1 AS c FROM {} WHERE path = ? LIMIT 1", self.table),
+            Some(vec![p.clone().into()]),
+        )? > 0;
 
         if content.len() > R2_SPILL_THRESHOLD {
             let Some(r2) = &self.r2 else {
-                return Err(worker::Error::RustError(format!(
-                    "write: {p} would spill to R2 ({} bytes > {R2_SPILL_THRESHOLD}) but no R2 bucket bound",
+                return Err(FsError::NoSpace(format!("writeFileBytes {p} would spill to R2 ({} bytes > {R2_SPILL_THRESHOLD}) but no R2 bucket bound",
                     content.len()
                 )));
             };
@@ -300,10 +352,11 @@ impl Workspace {
             self.sql.exec(
                 &format!(
                     "INSERT INTO {table} \
-                       (path, parent_path, name, type, size, storage_backend, r2_key, \
+                       (path, parent_path, name, type, mime_type, size, storage_backend, r2_key, \
                         content_encoding, content, modified_at) \
-                     VALUES (?, ?, ?, 'file', ?, 'r2', ?, ?, NULL, unixepoch()) \
+                     VALUES (?, ?, ?, 'file', ?, ?, 'r2', ?, ?, NULL, unixepoch()) \
                      ON CONFLICT(path) DO UPDATE SET \
+                       mime_type = excluded.mime_type, \
                        size = excluded.size, \
                        storage_backend = 'r2', \
                        r2_key = excluded.r2_key, \
@@ -316,11 +369,21 @@ impl Workspace {
                     p.clone().into(),
                     parent.into(),
                     name.into(),
+                    mime_type.to_string().into(),
                     size.into(),
                     key.into(),
                     encoding.into(),
                 ]),
             )?;
+            self.emit(
+                if existed {
+                    WorkspaceChangeType::Update
+                } else {
+                    WorkspaceChangeType::Create
+                },
+                &p,
+                EntryType::File,
+            );
             // If a previous inline version was there and we just spilled,
             // the UPDATE already cleared content; nothing else to do.
             return Ok(());
@@ -334,10 +397,11 @@ impl Workspace {
         self.sql.exec(
             &format!(
                 "INSERT INTO {table} \
-                   (path, parent_path, name, type, size, storage_backend, r2_key, \
+                   (path, parent_path, name, type, mime_type, size, storage_backend, r2_key, \
                     content_encoding, content, modified_at) \
-                 VALUES (?, ?, ?, 'file', ?, 'inline', NULL, ?, ?, unixepoch()) \
+                 VALUES (?, ?, ?, 'file', ?, ?, 'inline', NULL, ?, ?, unixepoch()) \
                  ON CONFLICT(path) DO UPDATE SET \
+                   mime_type = excluded.mime_type, \
                    size = excluded.size, \
                    storage_backend = 'inline', \
                    r2_key = NULL, \
@@ -350,6 +414,7 @@ impl Workspace {
                 p.clone().into(),
                 parent.into(),
                 name.into(),
+                mime_type.to_string().into(),
                 size.into(),
                 encoding.into(),
                 content_str.into(),
@@ -362,9 +427,20 @@ impl Workspace {
             let key = self.r2_key(&p);
             let _ = r2.delete(&key).await;
         }
+        self.emit(
+            if existed {
+                WorkspaceChangeType::Update
+            } else {
+                WorkspaceChangeType::Create
+            },
+            &p,
+            EntryType::File,
+        );
         Ok(())
     }
 
+    /// Upstream: filesystem.ts:1041 `readDir()`.
+    /// Names-only variant. See `read_dir_with_file_types` for entry metadata.
     pub async fn read_dir(&self, path: &str) -> Result<Option<Vec<String>>> {
         let Some(entries) = self.read_dir_with_file_types(path).await? else {
             return Ok(None);
@@ -372,8 +448,12 @@ impl Workspace {
         Ok(Some(entries.into_iter().map(|e| e.name).collect()))
     }
 
+    /// Port-only variant of `readDir`. Upstream returns `FileInfo[]` from
+    /// `readDir` (filesystem.ts:1041); we split into names-only +
+    /// with-file-types for ergonomics. Same SQL index hit either way.
     pub async fn read_dir_with_file_types(&self, path: &str) -> Result<Option<Vec<DirEntry>>> {
-        let Some(resolved) = self.resolve_symlinks(&normalize(path), 0).await? else {
+        let p = normalize_path(path)?;
+        let Some(resolved) = self.resolve_symlinks(&p, 0).await? else {
             return Ok(None);
         };
         match self.lstat(&resolved).await? {
@@ -401,8 +481,10 @@ impl Workspace {
         Ok(Some(out))
     }
 
+    /// Upstream: filesystem.ts:1100 `mkdir()`.
+    /// `MkdirOptions { recursive }` matches the TS option shape.
     pub async fn mkdir(&self, path: &str, opts: MkdirOptions) -> Result<()> {
-        let p = normalize(path);
+        let p = normalize_path(path)?;
         if p == "/" {
             return Ok(());
         }
@@ -421,8 +503,7 @@ impl Workspace {
                 Some(vec![parent.clone().into()]),
             )? == 0
         {
-            return Err(worker::Error::RustError(format!(
-                "mkdir: parent {parent} does not exist"
+            return Err(FsError::NotFound(format!("mkdir parent {parent} does not exist"
             )));
         }
         self.insert_dir(&p)
@@ -441,6 +522,15 @@ impl Workspace {
     fn insert_dir(&self, path: &str) -> Result<()> {
         let parent = parent_path(path);
         let name = path_name(path);
+        // Upstream emits "create" only when a directory is actually new
+        // (filesystem.ts:1157 / L1510 fire after the SQL has produced a
+        // new row). The ON CONFLICT DO NOTHING above swallows the
+        // no-op case, so we mirror by pre-checking existence.
+        let existed = exec_count(
+            &self.sql,
+            &format!("SELECT 1 AS c FROM {} WHERE path = ? LIMIT 1", self.table),
+            Some(vec![path.to_string().into()]),
+        )? > 0;
         self.sql.exec(
             &format!(
                 "INSERT INTO {table} (path, parent_path, name, type, mime_type) \
@@ -450,6 +540,9 @@ impl Workspace {
             ),
             Some(vec![path.to_string().into(), parent.into(), name.into()]),
         )?;
+        if !existed {
+            self.emit(WorkspaceChangeType::Create, path, EntryType::Directory);
+        }
         Ok(())
     }
 
@@ -461,16 +554,19 @@ impl Workspace {
         self.mkdir_recursive(&parent)
     }
 
+    /// Upstream: filesystem.ts:1164 `rm()`.
+    /// `RmOptions { recursive, force }` matches the TS option shape.
+    /// Covers both file and directory paths -- no separate `deleteFile`.
     pub async fn rm(&self, path: &str, opts: RmOptions) -> Result<()> {
-        let p = normalize(path);
+        let p = normalize_path(path)?;
         let Some(stat) = self.lstat(&p).await? else {
             if opts.force {
                 return Ok(());
             }
-            return Err(worker::Error::RustError(format!("rm: {p} not found")));
+            return Err(FsError::NotFound(format!("rm {p} not found")));
         };
         match stat.kind {
-            EntryType::File | EntryType::Symlink => self.rm_single(&p).await,
+            EntryType::File | EntryType::Symlink => self.rm_single(&p, stat.kind).await,
             EntryType::Directory => {
                 if !opts.recursive {
                     let n = exec_count(
@@ -482,13 +578,14 @@ impl Workspace {
                         Some(vec![p.clone().into()]),
                     )?;
                     if n > 0 {
-                        return Err(worker::Error::RustError(format!(
-                            "rm: {p} is non-empty and recursive=false"
+                        return Err(FsError::NotEmpty(format!("rm {p} is non-empty and recursive=false"
                         )));
                     }
                 }
                 // Recursive: collect descendants by path prefix, delete each
                 // (so R2 spills also get cleaned). Then delete the dir.
+                // SELECT type too so each rm_single can emit the right
+                // EntryType in its onChange Delete event.
                 let prefix = if p == "/" {
                     "/".to_string()
                 } else {
@@ -496,24 +593,28 @@ impl Workspace {
                 };
                 let cursor = self.sql.exec(
                     &format!(
-                        "SELECT path FROM {} WHERE path = ? OR path LIKE ?",
+                        "SELECT path, type FROM {} WHERE path = ? OR path LIKE ?",
                         self.table
                     ),
                     Some(vec![p.clone().into(), format!("{prefix}%").into()]),
                 )?;
-                let mut to_delete = Vec::new();
-                for row in cursor.next::<PathRow>() {
-                    to_delete.push(row?.path);
+                let mut to_delete: Vec<(String, EntryType)> = Vec::new();
+                for row in cursor.next::<PathTypeRow>() {
+                    let row = row?;
+                    let Some(kind) = EntryType::parse(&row.r#type) else {
+                        continue;
+                    };
+                    to_delete.push((row.path, kind));
                 }
-                for child in to_delete {
-                    self.rm_single(&child).await?;
+                for (child, kind) in to_delete {
+                    self.rm_single(&child, kind).await?;
                 }
                 Ok(())
             }
         }
     }
 
-    async fn rm_single(&self, path: &str) -> Result<()> {
+    async fn rm_single(&self, path: &str, entry_type: EntryType) -> Result<()> {
         // Pull the row first so we know whether to clean an R2 key.
         if let Some(r2) = &self.r2 {
             let cursor = self.sql.exec(
@@ -535,19 +636,27 @@ impl Workspace {
             &format!("DELETE FROM {} WHERE path = ?", self.table),
             Some(vec![path.to_string().into()]),
         )?;
+        // Upstream emits after the delete (filesystem.ts:1012 / L1212).
+        self.emit(WorkspaceChangeType::Delete, path, entry_type);
         Ok(())
     }
 
+    /// Upstream: filesystem.ts:1221 `cp()`.
+    /// `CpOptions { recursive }` matches the TS option shape.
     pub async fn cp(&self, src: &str, dst: &str, opts: CpOptions) -> Result<()> {
-        let src = normalize(src);
-        let dst = normalize(dst);
+        let src = normalize_path(src)?;
+        let dst = normalize_path(dst)?;
         let Some(src_stat) = self.lstat(&src).await? else {
-            return Err(worker::Error::RustError(format!("cp: {src} not found")));
+            return Err(FsError::NotFound(format!("no such file or directory: {src}"
+            )));
         };
         match src_stat.kind {
             EntryType::File => {
+                // Preserve mime_type across cp (matches upstream
+                // filesystem.ts:1255 which passes srcStat.mimeType).
                 let bytes = self.read_file_bytes(&src).await?.unwrap_or_default();
-                self.write_file_bytes(&dst, &bytes).await
+                self.write_file_bytes(&dst, &bytes, Some(&src_stat.mime_type))
+                    .await
             }
             EntryType::Symlink => {
                 let target = self.readlink(&src).await?.unwrap_or_default();
@@ -555,8 +664,7 @@ impl Workspace {
             }
             EntryType::Directory => {
                 if !opts.recursive {
-                    return Err(worker::Error::RustError(format!(
-                        "cp: {src} is a directory and recursive=false"
+                    return Err(FsError::IsDir(format!("cannot copy directory without recursive: {src}"
                     )));
                 }
                 self.mkdir(&dst, MkdirOptions { recursive: true }).await?;
@@ -574,11 +682,13 @@ impl Workspace {
         }
     }
 
+    /// Upstream: filesystem.ts:1264 `mv()`.
     pub async fn mv(&self, src: &str, dst: &str) -> Result<()> {
-        let src = normalize(src);
-        let dst = normalize(dst);
+        let src = normalize_path(src)?;
+        let dst = normalize_path(dst)?;
         let Some(src_stat) = self.lstat(&src).await? else {
-            return Err(worker::Error::RustError(format!("mv: {src} not found")));
+            return Err(FsError::NotFound(format!("no such file or directory: {src}"
+            )));
         };
         match src_stat.kind {
             EntryType::Directory => {
@@ -597,19 +707,19 @@ impl Workspace {
                 // Single row: cp + rm preserves R2 keys correctly because
                 // write_inner allocates a fresh r2_key for the new path.
                 self.cp(&src, &dst, CpOptions::default()).await?;
-                self.rm_single(&src).await
+                self.rm_single(&src, src_stat.kind).await
             }
         }
     }
 
+    /// Upstream: filesystem.ts:415 `symlink()`. `MAX_SYMLINK_DEPTH = 40`.
     pub async fn symlink(&self, target: &str, link_path: &str) -> Result<()> {
-        if target.len() > 4096 {
-            return Err(worker::Error::RustError(format!(
-                "symlink: target length {} exceeds 4096",
+        if target.len() > MAX_PATH_LENGTH {
+            return Err(FsError::NameTooLong(format!("symlink target length {} exceeds {MAX_PATH_LENGTH}",
                 target.len()
             )));
         }
-        let p = normalize(link_path);
+        let p = normalize_path(link_path)?;
         self.ensure_parent_dirs(&p)?;
         let parent = parent_path(&p);
         let name = path_name(&p);
@@ -625,17 +735,22 @@ impl Workspace {
                 table = self.table
             ),
             Some(vec![
-                p.into(),
+                p.clone().into(),
                 parent.into(),
                 name.into(),
                 target.to_string().into(),
             ]),
         )?;
+        // Upstream emits "create" unconditionally for symlink
+        // (filesystem.ts:457), even if ON CONFLICT replaced an existing
+        // symlink. Match that.
+        self.emit(WorkspaceChangeType::Create, &p, EntryType::Symlink);
         Ok(())
     }
 
+    /// Upstream: filesystem.ts:460 `readlink()`.
     pub async fn readlink(&self, path: &str) -> Result<Option<String>> {
-        let p = normalize(path);
+        let p = normalize_path(path)?;
         let cursor = self.sql.exec(
             &format!(
                 "SELECT target FROM {} WHERE path = ? AND type = 'symlink' LIMIT 1",
@@ -645,16 +760,22 @@ impl Workspace {
         )?;
         match cursor.next::<TargetRow>().next() {
             Some(Ok(r)) => Ok(r.target),
-            Some(Err(e)) => Err(e),
+            Some(Err(e)) => Err(e.into()),
             None => Ok(None),
         }
     }
 
+    /// Port-only public helper. Upstream resolves symlinks inline inside
+    /// methods that need it (e.g. `stat`, `readFile`); we surface it
+    /// because callers (e.g. `crate::cf::vfs::SnapshotVfs`) want the
+    /// resolved path directly.
     pub async fn realpath(&self, path: &str) -> Result<Option<String>> {
-        self.resolve_symlinks(&normalize(path), 0).await
+        let p = normalize_path(path)?;
+        self.resolve_symlinks(&p, 0).await
     }
 
-    /// Glob over the index using SQL LIKE. `*` → `%`, `?` → `_`.
+    /// Upstream: filesystem.ts:1071 `glob()`.
+    /// Glob over the index using SQL LIKE. `*` -> `%`, `?` -> `_`.
     /// Returns absolute paths matching the pattern, sorted.
     pub async fn glob(&self, pattern: &str) -> Result<Vec<String>> {
         let like = glob_to_like(pattern);
@@ -676,8 +797,7 @@ impl Workspace {
     /// on ENOENT anywhere in the chain.
     async fn resolve_symlinks(&self, path: &str, depth: u32) -> Result<Option<String>> {
         if depth > MAX_SYMLINK_DEPTH {
-            return Err(worker::Error::RustError(format!(
-                "symlink: depth > {MAX_SYMLINK_DEPTH} resolving {path}"
+            return Err(FsError::SymlinkLoop(format!("too many symbolic links (>{MAX_SYMLINK_DEPTH}) resolving {path}"
             )));
         }
         let cursor = self.sql.exec(
@@ -689,7 +809,7 @@ impl Workspace {
         )?;
         let row = match cursor.next::<TypeTargetRow>().next() {
             Some(Ok(r)) => r,
-            Some(Err(e)) => return Err(e),
+            Some(Err(e)) => return Err(e.into()),
             None => return Ok(None),
         };
         if row.r#type != "symlink" {
@@ -763,6 +883,7 @@ struct StatRow {
 
 #[derive(Deserialize)]
 struct FileRow {
+    r#type: String,
     storage_backend: String,
     content_encoding: String,
     content: Option<String>,
@@ -778,6 +899,12 @@ struct DirEntryRow {
 #[derive(Deserialize)]
 struct PathRow {
     path: String,
+}
+
+#[derive(Deserialize)]
+struct PathTypeRow {
+    path: String,
+    r#type: String,
 }
 
 #[derive(Deserialize)]
@@ -803,4 +930,93 @@ struct R2RefRow {
 #[allow(dead_code)]
 fn _entry_type_kept_for_completeness(e: EntryType) -> &'static str {
     e.as_str()
+}
+
+// ── impl FileSystem ──────────────────────────────────────────────────
+//
+// Workspace's inherent methods already have the right signatures and
+// semantics; this impl block exists so callers can be polymorphic via
+// `<F: FileSystem>` and so the conformance suite in
+// `crate::shell::conformance` can run against the real DO-backed FS in
+// the same way it runs against `InMemoryFs`. Each method delegates
+// straight to the inherent fn -- no behavioural divergence between the
+// trait route and the inherent route.
+
+impl FileSystem for Workspace {
+    async fn exists(&self, path: &str) -> Result<bool> {
+        Workspace::exists(self, path).await
+    }
+
+    async fn stat(&self, path: &str) -> Result<Option<Stat>> {
+        Workspace::stat(self, path).await
+    }
+
+    async fn lstat(&self, path: &str) -> Result<Option<Stat>> {
+        Workspace::lstat(self, path).await
+    }
+
+    async fn read_file(&self, path: &str) -> Result<Option<String>> {
+        Workspace::read_file(self, path).await
+    }
+
+    async fn read_file_bytes(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        Workspace::read_file_bytes(self, path).await
+    }
+
+    async fn write_file(&self, path: &str, content: &str, mime_type: Option<&str>) -> Result<()> {
+        Workspace::write_file(self, path, content, mime_type).await
+    }
+
+    async fn write_file_bytes(
+        &self,
+        path: &str,
+        content: &[u8],
+        mime_type: Option<&str>,
+    ) -> Result<()> {
+        Workspace::write_file_bytes(self, path, content, mime_type).await
+    }
+
+    async fn append_file(&self, path: &str, content: &[u8]) -> Result<()> {
+        Workspace::append_file(self, path, content).await
+    }
+
+    async fn read_dir(&self, path: &str) -> Result<Option<Vec<String>>> {
+        Workspace::read_dir(self, path).await
+    }
+
+    async fn read_dir_with_file_types(&self, path: &str) -> Result<Option<Vec<DirEntry>>> {
+        Workspace::read_dir_with_file_types(self, path).await
+    }
+
+    async fn mkdir(&self, path: &str, opts: MkdirOptions) -> Result<()> {
+        Workspace::mkdir(self, path, opts).await
+    }
+
+    async fn rm(&self, path: &str, opts: RmOptions) -> Result<()> {
+        Workspace::rm(self, path, opts).await
+    }
+
+    async fn cp(&self, src: &str, dst: &str, opts: CpOptions) -> Result<()> {
+        Workspace::cp(self, src, dst, opts).await
+    }
+
+    async fn mv(&self, src: &str, dst: &str) -> Result<()> {
+        Workspace::mv(self, src, dst).await
+    }
+
+    async fn symlink(&self, target: &str, link_path: &str) -> Result<()> {
+        Workspace::symlink(self, target, link_path).await
+    }
+
+    async fn readlink(&self, path: &str) -> Result<Option<String>> {
+        Workspace::readlink(self, path).await
+    }
+
+    async fn realpath(&self, path: &str) -> Result<Option<String>> {
+        Workspace::realpath(self, path).await
+    }
+
+    async fn glob(&self, pattern: &str) -> Result<Vec<String>> {
+        Workspace::glob(self, pattern).await
+    }
 }

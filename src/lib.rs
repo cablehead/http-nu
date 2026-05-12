@@ -8,6 +8,13 @@ pub mod request;
 pub mod response;
 pub mod stdlib;
 
+// Backend-agnostic FS abstraction (FileSystem trait, InMemoryFs, FsError,
+// shared types). Reachable from BOTH desktop and wasm so InMemoryFs-backed
+// unit tests run under `cargo test` and conformance tests can exercise the
+// same code against either backend. The wasm-only Workspace impl lives
+// under src/cf/shell/ and `impl crate::shell::FileSystem for Workspace`.
+pub mod shell;
+
 // Cloudflare Workers entrypoint. Additive: lives in src/cf/, never imported
 // on desktop, never modifies upstream files in this directory. Gated to
 // wasm32 so a host-target build with `--all-features` (e.g. clippy) skips it.

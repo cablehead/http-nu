@@ -1,11 +1,24 @@
 //! `mv` shadow. Mirrors `nu-command/src/filesystem/mv.rs` (or `umv.rs`
 //! depending on the Nu release).
+//!
+//! Used by: `examples/cf-workspace-browser/`.
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature              | Stock arg                | Shadow?           | Notes |
+//! |----------------------------|--------------------------|-------------------|-------|
+//! | Rest paths (`SRC... DEST`) | yes                      | unknown -- AUDIT  | Verify multi-source mv into a dir works. |
+//! | `--force` / `-f`           | suppress overwrite prompt| no                | We never prompt; default behaviour. |
+//! | `--verbose` / `-v`         | log moves                | no                | |
+//! | `--interactive` / `-i`     | prompt before overwrite  | no                | No TTY. |
+//! | `--progress`, `--no-clobber` | progress / never-overwrite | no            | |
+//! | `--all` / `-a`             | include hidden           | no                | |
 
 use std::path::Path;
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::commands::shared::{normalise_input, require_vfs, vfs_err};
+use crate::cf::nu::nu_command::shared::{normalise_input, require_vfs, vfs_err};
 
 #[derive(Clone, Default)]
 pub struct VfsMv;

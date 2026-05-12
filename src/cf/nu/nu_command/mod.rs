@@ -4,9 +4,9 @@
 //! lives in the same relative path as the stock command we're shadowing
 //! so a diff against an upstream Nu update is file-for-file. Example:
 //!
-//!   nu-command/src/filesystem/ls.rs      ->  src/cf/commands/filesystem/ls.rs
-//!   nu-command/src/path/exists.rs        ->  src/cf/commands/path/exists.rs
-//!   nu-command/src/platform/sleep.rs     ->  src/cf/commands/platform/sleep.rs
+//!   nu-command/src/filesystem/ls.rs      ->  src/cf/nu/nu_command/filesystem/ls.rs
+//!   nu-command/src/path/exists.rs        ->  src/cf/nu/nu_command/path/exists.rs
+//!   nu-command/src/platform/sleep.rs     ->  src/cf/nu/nu_command/platform/sleep.rs
 //!
 //! When Nu adds or restructures a stock command we want to shadow, add
 //! or move the equivalent file here in the same relative path. Process

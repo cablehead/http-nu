@@ -1,10 +1,25 @@
 //! `cp` shadow. Mirrors `nu-command/src/filesystem/ucp.rs`.
+//!
+//! Used by: `examples/cf-workspace-browser/`.
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature                         | Stock arg                    | Shadow?           | Notes |
+//! |---------------------------------------|------------------------------|-------------------|-------|
+//! | Rest paths (`SRC... DEST`)            | yes                          | unknown -- AUDIT  | Verify multi-source cp into a dir works. |
+//! | `--recursive` / `-r`                  | recurse dirs                 | yes               | Matches stock. |
+//! | `--verbose` / `-v`                    | log copies                   | no                | |
+//! | `--interactive` / `-i`                | prompt before overwrite      | no                | |
+//! | `--force`, `--no-clobber`, `--update`, `--debug` | overwrite modes    | no                | |
+//! | `--progress` / `-p`                   | progress bar                 | no                | |
+//! | `--all` / `-a`                        | include hidden in `*` glob   | no                | |
+//! | MIME preservation                     | implicit                     | yes               | Source `mime_type` propagated (matches Vfs `Workspace::cp`). |
 
 use std::path::Path;
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::commands::shared::{normalise_input, require_vfs, vfs_err};
+use crate::cf::nu::nu_command::shared::{normalise_input, require_vfs, vfs_err};
 
 #[derive(Clone, Default)]
 pub struct VfsCp;

@@ -1,7 +1,16 @@
 //! `path self` shadow. Mirrors `nu-command/src/path/self_.rs`.
 //!
-//! Stock `path self` calls `engine_state.cwd()` -> `AbsolutePathBuf::try_from($env.PWD)`
-//! -> `std::path::Path::is_absolute()` on wasm32-unknown-unknown, which
+//! Used by: `examples/mermaid-editor/` (partially).
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature                   | Stock arg | Shadow? | Notes |
+//! |---------------------------------|-----------|---------|-------|
+//! | Returns current script's path   | yes       | yes     | Stock breaks on wasm (`Path::is_absolute` always false); we return a workspace-rooted path. `is_const = true` matches stock. |
+//!
+//! Wasm-specific rationale: stock `path self` calls
+//! `engine_state.cwd()` -> `AbsolutePathBuf::try_from($env.PWD)` ->
+//! `std::path::Path::is_absolute()` on wasm32-unknown-unknown, which
 //! returns false for every path. So the stock command unconditionally
 //! errors at parse-time on CF.
 //!

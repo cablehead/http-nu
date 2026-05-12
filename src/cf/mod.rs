@@ -40,14 +40,18 @@
 //! reload mechanism plugs into the same `Mutex<Engine>` here and stays
 //! invisible to the closure-author.
 
-mod commands;
+mod conformance;
 mod handler;
+mod nu;
 mod request;
 mod response;
 mod vfs;
-mod workspace;
+pub mod shell;
 
-use std::sync::{Mutex, OnceLock};
+use nu::nu_command;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use worker::{
     durable_object, wasm_bindgen, Context, DurableObject, Env, Request as WorkerRequest, Response,
@@ -58,6 +62,19 @@ use crate::engine::Engine;
 use vfs::SnapshotVfs;
 
 const HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
+
+/// Path inside each user's Workspace whose contents drive the handler
+/// closure. A write/update to this path fires a Workspace `onChange`
+/// event; the next request re-parses it through the cached engine
+/// (effectively the CF equivalent of desktop `--watch`, with the
+/// Workspace as the transport rather than inotify).
+const HANDLER_SCRIPT_PATH: &str = "/serve.nu";
+
+/// Flag set by the Workspace `onChange` listener whenever
+/// `HANDLER_SCRIPT_PATH` is created or updated. Checked at the top of
+/// every fetch; if set, the engine re-parses from Workspace before
+/// invoking the handler. Per-isolate state, same lifetime as `ENGINE`.
+static HANDLER_RELOAD_PENDING: AtomicBool = AtomicBool::new(false);
 
 // Per-isolate engine cache. Each DO instance runs in its own wasm
 // isolate, so this OnceLock is effectively per-user: alice's UserSpace
@@ -80,23 +97,23 @@ pub(super) fn engine() -> &'static Mutex<Engine> {
             .expect("add_custom_commands failed");
         engine
             .add_commands(vec![
-                Box::new(commands::VfsLs),
-                Box::new(commands::VfsOpen),
-                Box::new(commands::VfsSave),
-                Box::new(commands::VfsPathExists),
-                Box::new(commands::VfsMkdir),
-                Box::new(commands::VfsRm),
-                Box::new(commands::VfsCp),
-                Box::new(commands::VfsMv),
-                Box::new(commands::VfsGlob),
+                Box::new(nu_command::VfsLs),
+                Box::new(nu_command::VfsOpen),
+                Box::new(nu_command::VfsSave),
+                Box::new(nu_command::VfsPathExists),
+                Box::new(nu_command::VfsMkdir),
+                Box::new(nu_command::VfsRm),
+                Box::new(nu_command::VfsCp),
+                Box::new(nu_command::VfsMv),
+                Box::new(nu_command::VfsGlob),
                 // `path self` shadowed because the stock impl needs a
                 // working std::Path::is_absolute, which wasm32 lacks.
-                Box::new(commands::VfsPathSelf),
+                Box::new(nu_command::VfsPathSelf),
                 // `sleep` is the only os-gated command we shadow -- the
                 // others (date now, format date, random integer, ...)
                 // come from stock nu-command with `nu-command/js`
                 // enabled (Cargo.toml `cloudflare` feature).
-                Box::new(commands::Sleep),
+                Box::new(nu_command::Sleep),
             ])
             .expect("add_commands (vfs shadows) failed");
         engine
@@ -107,8 +124,8 @@ pub(super) fn engine() -> &'static Mutex<Engine> {
 }
 
 /// One Durable Object instance per user. The DO's storage.sql() backs a
-/// per-user Workspace (crate::cf::workspace, our Rust port of
-/// @cloudflare/shell's filesystem).
+/// per-user Workspace (crate::cf::shell::Workspace, our Rust port of
+/// @cloudflare/shell's filesystem.ts).
 ///
 /// Routing:
 /// - `/_workspace/*` debug routes: hit the Workspace directly, bypass Nu.
@@ -128,6 +145,11 @@ impl DurableObject for UserSpace {
     }
 
     async fn fetch(&self, mut req: WorkerRequest) -> Result<Response> {
+        // Hot-reload check: if the previous request wrote
+        // HANDLER_SCRIPT_PATH (anywhere -- Nu shadow `save`, debug PUT),
+        // re-parse the engine before serving anything else.
+        self.maybe_reload_handler().await;
+
         let url = req.url()?;
         let path = url.path().to_string();
         // Strip the leading /{user_id}/ so debug routes can match a fixed
@@ -157,7 +179,7 @@ impl DurableObject for UserSpace {
             if let vfs::PendingOp::Mkdir(path) = op {
                 let p = path.to_string_lossy().to_string();
                 if let Err(e) = ws
-                    .mkdir(&p, workspace::MkdirOptions { recursive: true })
+                    .mkdir(&p, shell::MkdirOptions { recursive: true })
                     .await
                 {
                     worker::console_log!("flush mkdir {p} failed: {e:?}");
@@ -166,7 +188,10 @@ impl DurableObject for UserSpace {
         }
         for (path, bytes) in writes {
             let p = path.to_string_lossy().to_string();
-            if let Err(e) = ws.write_file_bytes(&p, &bytes).await {
+            // Nu shadow `save` doesn't carry MIME; pass None so the
+            // Workspace falls back to its `application/octet-stream`
+            // default (matches upstream `writeFileBytes`).
+            if let Err(e) = ws.write_file_bytes(&p, &bytes, None).await {
                 worker::console_log!("flush pending write {p} failed: {e:?}");
             }
         }
@@ -176,7 +201,7 @@ impl DurableObject for UserSpace {
                 if let Err(e) = ws
                     .rm(
                         &p,
-                        workspace::RmOptions {
+                        shell::RmOptions {
                             recursive: true,
                             force: true,
                         },
@@ -192,11 +217,74 @@ impl DurableObject for UserSpace {
     }
 }
 
+/// Workspace `onChange` listener. Sets `HANDLER_RELOAD_PENDING` whenever
+/// the handler script gets written or updated. Pure flag flip -- the
+/// actual read+parse is async and happens at the start of the next
+/// request (see `UserSpace::maybe_reload_handler`).
+fn handler_reload_listener(event: shell::WorkspaceChangeEvent) {
+    use crate::shell::WorkspaceChangeType::*;
+    if event.path == HANDLER_SCRIPT_PATH && matches!(event.kind, Create | Update) {
+        HANDLER_RELOAD_PENDING.store(true, Ordering::SeqCst);
+    }
+}
+
 impl UserSpace {
-    fn open_workspace(&self) -> Result<workspace::Workspace> {
+    fn open_workspace(&self) -> Result<shell::Workspace> {
         let sql = self.state.storage().sql();
         let r2 = self.env.bucket("WORKSPACE_FILES").ok();
-        workspace::Workspace::default(sql, r2)
+        let ws = shell::Workspace::default(sql, r2)?;
+        // Every Workspace this DO mints carries the reload listener, so
+        // ALL write paths -- snapshot drain, debug PUT, future routes --
+        // funnel through the same hot-reload signal.
+        let cb: shell::OnChange = Arc::new(handler_reload_listener);
+        ws.set_on_change(cb);
+        Ok(ws)
+    }
+
+    /// If a recent Workspace write touched `HANDLER_SCRIPT_PATH`, re-read
+    /// it and swap into the cached engine. No-op when the flag isn't set
+    /// (the common case). Errors are logged but don't fail the request:
+    /// a bad reload should fall back to the previously-parsed handler.
+    async fn maybe_reload_handler(&self) {
+        if !HANDLER_RELOAD_PENDING.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        // Build a Workspace without the listener -- we're reading, not
+        // writing, so no events would fire anyway, but skipping the
+        // listener install also avoids any future cross-talk.
+        let sql = self.state.storage().sql();
+        let r2 = self.env.bucket("WORKSPACE_FILES").ok();
+        let ws = match shell::Workspace::default(sql, r2) {
+            Ok(ws) => ws,
+            Err(e) => {
+                worker::console_warn!("handler reload: open_workspace failed: {e:?}");
+                return;
+            }
+        };
+        let script = match ws.read_file(HANDLER_SCRIPT_PATH).await {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                worker::console_warn!(
+                    "handler reload: {HANDLER_SCRIPT_PATH} not found in Workspace"
+                );
+                return;
+            }
+            Err(e) => {
+                worker::console_warn!("handler reload: read failed: {e:?}");
+                return;
+            }
+        };
+        let mut engine_guard = match engine().lock() {
+            Ok(g) => g,
+            Err(_) => {
+                worker::console_warn!("handler reload: engine mutex poisoned");
+                return;
+            }
+        };
+        match engine_guard.parse_closure(&script, None) {
+            Ok(_) => worker::console_log!("handler reloaded from {HANDLER_SCRIPT_PATH}"),
+            Err(e) => worker::console_warn!("handler reload parse failed: {e}"),
+        }
     }
 
     async fn workspace_debug(&self, suffix: &str, req: &mut WorkerRequest) -> Result<Response> {
@@ -224,9 +312,9 @@ impl UserSpace {
                     Some(s) => format!(
                         r#"{{"kind":"{kind}","size":{size},"modified_at":{mt},"mime_type":"{mt2}"}}"#,
                         kind = match s.kind {
-                            workspace::EntryType::File => "file",
-                            workspace::EntryType::Directory => "directory",
-                            workspace::EntryType::Symlink => "symlink",
+                            shell::EntryType::File => "file",
+                            shell::EntryType::Directory => "directory",
+                            shell::EntryType::Symlink => "symlink",
                         },
                         size = s.size,
                         mt = s.modified_at,
@@ -243,14 +331,24 @@ impl UserSpace {
                 None => Response::error("not found", 404),
             },
             "/_workspace/put" => {
+                // Honor the request's Content-Type so files written from
+                // browser uploads land in Workspace with the right
+                // `mime_type` (and serve back via `.static` with the
+                // correct Content-Type).
+                let mime = req
+                    .headers()
+                    .get("Content-Type")
+                    .ok()
+                    .flatten();
                 let body = req.bytes().await.unwrap_or_default();
-                ws.write_file_bytes(&path_param, &body).await?;
+                ws.write_file_bytes(&path_param, &body, mime.as_deref())
+                    .await?;
                 Response::ok("ok")
             }
             "/_workspace/rm" => {
                 ws.rm(
                     &path_param,
-                    workspace::RmOptions {
+                    shell::RmOptions {
                         recursive: true,
                         force: true,
                     },
@@ -259,9 +357,18 @@ impl UserSpace {
                 Response::ok("ok")
             }
             "/_workspace/mkdir" => {
-                ws.mkdir(&path_param, workspace::MkdirOptions { recursive: true })
+                ws.mkdir(&path_param, shell::MkdirOptions { recursive: true })
                     .await?;
                 Response::ok("ok")
+            }
+            "/_workspace/conformance" => {
+                // Wasm-side leg of the FileSystem conformance suite.
+                // See src/cf/conformance.rs and src/shell/CLAUDE.md.
+                // Uses its own Workspace under namespace `__conformance`
+                // so this user's real workspace stays untouched.
+                let sql = self.state.storage().sql();
+                let r2 = self.env.bucket("WORKSPACE_FILES").ok();
+                conformance::run(sql, r2).await
             }
             _ => Response::error(format!("unknown debug route: {suffix}"), 404),
         }

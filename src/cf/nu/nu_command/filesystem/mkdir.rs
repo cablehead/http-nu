@@ -1,11 +1,21 @@
 //! `mkdir` shadow. Mirrors `nu-command/src/filesystem/umkdir.rs`
 //! (Nu calls its impl `umkdir` internally; the public name is `mkdir`).
+//!
+//! Used by: `examples/cf-workspace-browser/`.
+//!
+//! Divergences from stock (against `nu-command` 0.112.1):
+//!
+//! | Stock feature      | Stock arg              | Shadow?           | Notes |
+//! |--------------------|------------------------|-------------------|-------|
+//! | Rest paths         | multi-path             | yes               | First arg + rest both supported. |
+//! | `--verbose` / `-v` | print created paths    | parsed but ignored | Switch is in signature; nothing prints. Either implement or remove. |
+//! | Recursive          | implicit in stock      | yes               | Verify behaviour when intermediates exist. |
 
 use std::path::Path;
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::commands::shared::{normalise_input, require_vfs, vfs_err};
+use crate::cf::nu::nu_command::shared::{normalise_input, require_vfs, vfs_err};
 
 #[derive(Clone, Default)]
 pub struct VfsMkdir;
