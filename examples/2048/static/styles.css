@@ -87,15 +87,15 @@ button:active {
   transform: scale(var(--board-scale));
   transform-origin: top left;
 }
-/* Lean the tiles in the gesture direction during a swipe. Divide by scale
-   so the lean is measured in viewport pixels regardless of board scale. */
-#board > div {
+/* Lean the value tiles (not the empty background cells) during a swipe.
+   Divide by scale so the lean reads as viewport pixels at any board scale. */
+#board > .tile {
   transform: translate(
     calc(var(--tilt-x, 0px) / var(--board-scale)),
     calc(var(--tilt-y, 0px) / var(--board-scale))
   );
 }
-#board.snap > div { transition: transform 180ms ease; }
+#board.snap > .tile { transition: transform 180ms ease; }
 
 /* Tight viewports (landscape phones): hide the hint, give more to the board. */
 @media (max-height: 600px) {

@@ -159,7 +159,7 @@ def cell-pos [n: int]: nothing -> int { $PAD + $n * ($CELL + $GAP) }
 
 def render-tile []: record -> record {
   let t = $in
-  (DIV {style: {
+  (DIV {class: "tile" style: {
     position: absolute  left: $"(cell-pos $t.c)px"  top: $"(cell-pos $t.r)px"
     width: $"($CELL)px"  height: $"($CELL)px"
     display: flex  align-items: center  justify-content: center
