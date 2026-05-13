@@ -1,5 +1,9 @@
 # cloudflare-shell
 
+> One of three crates in the `cloudflare-shell` family. For the
+> family overview + why we split interface from impl, see
+> [`../README.md`](../README.md).
+
 Backend-agnostic Rust port of
 [`@cloudflare/shell`](https://www.npmjs.com/package/@cloudflare/shell)'s
 `FileSystem` abstraction.

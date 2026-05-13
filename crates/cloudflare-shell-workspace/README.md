@@ -1,5 +1,9 @@
 # cloudflare-shell-workspace
 
+> One of three crates in the `cloudflare-shell` family. For the
+> family overview + why we split interface from impl, see
+> [`../README.md`](../README.md).
+
 DurableObject + R2 implementation of
 [`cloudflare-shell`](../cloudflare-shell/)'s `FileSystem` trait.
 Schema-compatible with

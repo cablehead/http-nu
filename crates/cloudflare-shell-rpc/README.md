@@ -1,5 +1,8 @@
 # cloudflare-shell-rpc
 
+> One of three crates in the `cloudflare-shell` family. For the
+> family overview + dependency graph, see [`../README.md`](../README.md).
+
 A Cloudflare Worker that exposes the `cloudflare-shell` `FileSystem`
 trait (backed by `cloudflare-shell-workspace`'s DO SQLite + R2 impl)
 as a **Worker RPC binding**. Any other Worker on your Cloudflare
