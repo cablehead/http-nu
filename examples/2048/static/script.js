@@ -58,6 +58,11 @@ new MutationObserver(() => {
   if (pending == null) return;
   const rtt = Math.round(performance.now() - pending);
   pending = null;
+  // SSE patch landed: release the "still lit" edge glow. The patch's own
+  // .edge-flash element carries the per-step visual from here on.
+  const w = document.querySelector("#board-wrap");
+  w?.style.setProperty("--glow-x", "0px");
+  w?.style.setProperty("--glow-y", "0px");
   document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();
@@ -135,15 +140,20 @@ document.addEventListener("click", (e) => {
 // (CSS reads --tilt-x / --tilt-y). On release past threshold, leave the lean
 // in place so the view-transition slide continues the motion. On cancel,
 // snap back via the `.snap` class.
-const DAMP = 0.45;
+const DAMP = 0.9;
 const CAP = 26;
 const AXIS_LOCK = 8;  // once you move this far on one axis, the other locks
-const HOLD_FOR_SHIFT_MS = 1000;  // hold after the swipe for this long -> shift
+const HOLD_FOR_SHIFT_MS = 750;  // hold after the swipe for this long -> shift
 let start = null;
 let wrap = null;
 let axis = null;
 let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
 let holdShiftTimer = null;   // fires shift-<dir> if the user keeps holding
+let touchDot = null;         // visual dot under the finger during charge-up
+
+const removeTouchDot = () => {
+  if (touchDot) { touchDot.remove(); touchDot = null; }
+};
 
 addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#board")) { start = null; return; }
@@ -151,8 +161,10 @@ addEventListener("pointerdown", (e) => {
   axis = null;
   committedDir = null;
   if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
+  removeTouchDot();
   wrap = document.querySelector("#board-wrap");
-  wrap?.classList.remove("snap", "decay");
+  wrap?.classList.remove("snap", "decay", "charging");
+  delete wrap?.dataset.charge;
 });
 
 addEventListener("pointermove", (e) => {
@@ -164,22 +176,56 @@ addEventListener("pointermove", (e) => {
   }
   if (axis === "h") dy = 0;
   if (axis === "v") dx = 0;
+  // Once committed, freeze the tilt and let the board settle -- subsequent
+  // pointermoves don't keep "holding" the board at the lean.
+  if (committedDir) return;
   const tx = Math.max(-CAP, Math.min(CAP, dx * DAMP));
   const ty = Math.max(-CAP, Math.min(CAP, dy * DAMP));
   wrap.style.setProperty("--tilt-x", `${tx}px`);
   wrap.style.setProperty("--tilt-y", `${ty}px`);
   wrap.style.setProperty("--glow-x", `${tx}px`);
   wrap.style.setProperty("--glow-y", `${ty}px`);
-  // Commit on first threshold crossing -- single impulse fires immediately.
+  // Commit on first threshold crossing -- single impulse fires immediately,
+  // tilt + glow release with a spring so the board visibly settles back to
+  // its origin and the incoming SSE patches animate over a still board.
   // Then arm a hold timer: if the user keeps the finger down for
   // HOLD_FOR_SHIFT_MS, fire shift-<dir> to keep sliding until settled.
-  if (!committedDir && Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
+  if (Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
     committedDir = Math.abs(dx) > Math.abs(dy)
       ? (dx > 0 ? "l" : "h")
       : (dy > 0 ? "j" : "k");
     move(committedDir);
+    // Release tilt to 0 with RTT-tuned decay so the spring overshoot is
+    // still in motion when the SSE patch lands. Hold a subtle "lit" glow
+    // on the committed edge -- not full peak -- until the patch arrives;
+    // the observer clears it on mutation, and .edge-flash takes over.
+    wrap.style.setProperty("--tilt-x", "0px");
+    wrap.style.setProperty("--tilt-y", "0px");
+    const LIT = 5;  // alpha ~0.6 via /8 in the gradient
+    wrap.style.setProperty("--glow-x",
+      committedDir === "l" ? `${LIT}px` :
+      committedDir === "h" ? `${-LIT}px` : "0px");
+    wrap.style.setProperty("--glow-y",
+      committedDir === "j" ? `${LIT}px` :
+      committedDir === "k" ? `${-LIT}px` : "0px");
+    wrap.classList.add("decay");
+    // Spawn a dot under the finger that grows over HOLD_FOR_SHIFT_MS.
+    removeTouchDot();
+    touchDot = document.createElement("div");
+    touchDot.className = "touch-dot";
+    touchDot.style.left = `${e.clientX}px`;
+    touchDot.style.top = `${e.clientY}px`;
+    document.body.appendChild(touchDot);
+    // Begin charging up: gradient builds in the press direction over
+    // HOLD_FOR_SHIFT_MS. Timer fires shift on completion; pointerup
+    // cancels both.
+    wrap.dataset.charge = committedDir;
+    wrap.classList.add("charging");
     holdShiftTimer = setTimeout(() => {
       holdShiftTimer = null;
+      wrap?.classList.remove("charging");
+      delete wrap?.dataset.charge;
+      removeTouchDot();
       move(`shift-${committedDir}`);
     }, HOLD_FOR_SHIFT_MS);
   }
@@ -188,19 +234,20 @@ addEventListener("pointermove", (e) => {
 addEventListener("pointerup", () => {
   if (!start) return;
   start = null;
-  wrap?.style.setProperty("--tilt-x", "0px");
-  wrap?.style.setProperty("--tilt-y", "0px");
   if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
-  if (committedDir) {
-    // Single swipe committed during pointermove; just ease the tilt back.
-    wrap?.classList.add("decay");
-    setTimeout(() => wrap?.classList.remove("decay"), 1300);
-  } else {
+  // Cancel charge-up if user released before it fired.
+  wrap?.classList.remove("charging");
+  delete wrap?.dataset.charge;
+  removeTouchDot();
+  if (!committedDir) {
     // Below threshold: cancel, spring tilt + glow back to rest.
+    wrap?.style.setProperty("--tilt-x", "0px");
+    wrap?.style.setProperty("--tilt-y", "0px");
     wrap?.style.setProperty("--glow-x", "0px");
     wrap?.style.setProperty("--glow-y", "0px");
     wrap?.classList.add("snap");
     setTimeout(() => wrap?.classList.remove("snap"), 260);
   }
+  // If committed, the release already happened in pointermove on commit.
   committedDir = null;
 });

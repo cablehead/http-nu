@@ -180,11 +180,14 @@ button:active {
     --glow-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
     --glow-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-/* decay transitions tilt only; glow holds at peak until view-transition fades it. */
+/* decay transitions everything together with the RTT-tuned duration so the
+   overshoot bounce is still in motion when the SSE patch lands. */
 #board-wrap.decay {
   transition:
     --tilt-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
-    --tilt-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1);
+    --tilt-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
+    --glow-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
+    --glow-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1);
 }
 
 /* Keyboard anticipation: synthetic two-phase animation (attack -> spring-back
@@ -302,6 +305,51 @@ body.flash-red { animation: flash-red 300ms ease; }
   0%   { transform: scale(0.2); opacity: 0; }
   60%  { transform: scale(1.25); opacity: 1; }
   100% { transform: scale(1); opacity: 1; }
+}
+
+/* Hold-to-shift charge-up: while the user is holding past the commit, a
+   gradient builds in the press direction. If the hold reaches HOLD_FOR_-
+   SHIFT_MS the class is removed (timer fires shift, gradient vanishes,
+   server's per-step edge-flash takes over). If the user releases early
+   it's also removed and nothing extra happens. */
+#board-wrap.charging::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0;
+  animation: charge-build 750ms ease-in forwards;
+}
+#board-wrap.charging[data-charge="l"]::before { background: linear-gradient(to left,   rgb(from var(--glow) r g b / 0.85), transparent 35%); }
+#board-wrap.charging[data-charge="h"]::before { background: linear-gradient(to right,  rgb(from var(--glow) r g b / 0.85), transparent 35%); }
+#board-wrap.charging[data-charge="k"]::before { background: linear-gradient(to bottom, rgb(from var(--glow) r g b / 0.85), transparent 35%); }
+#board-wrap.charging[data-charge="j"]::before { background: linear-gradient(to top,    rgb(from var(--glow) r g b / 0.85), transparent 35%); }
+@keyframes charge-build {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Touch dot: spawned under the finger on swipe-commit, grows over the charge
+   window so the user has a tactile sense of charging the cascade. Removed
+   on hold-fire or early release. */
+.touch-dot {
+  position: fixed;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  background: rgb(from var(--glow) r g b / 0.85);
+  pointer-events: none;
+  z-index: 10;
+  transform: scale(0.2);
+  opacity: 0.6;
+  animation: touch-dot-grow 750ms ease-in forwards;
+}
+@keyframes touch-dot-grow {
+  from { transform: scale(0.2); opacity: 0.6; }
+  to   { transform: scale(3.5); opacity: 0.95; }
 }
 
 /* Edge flash: server emits a fresh .edge-flash element with a unique id per
