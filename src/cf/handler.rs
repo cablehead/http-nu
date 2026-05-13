@@ -148,9 +148,15 @@ fn run_closure(req: &WorkerRequest, body: Vec<u8>) -> std::result::Result<Respon
         response = response.with_status(status);
     }
     let headers = response.headers_mut();
-    if let Some(ct) = jsonl_ct_override.or(inferred_ct) {
-        let _ = headers.set("Content-Type", &ct);
-    }
+    // Default to text/html when neither the closure nor the inference
+    // set one (e.g. a raw-string body like `"<html>..."`). Matches the
+    // desktop handler in src/handler.rs:417. Without this, worker-rs
+    // defaults Content-Type to application/octet-stream and browsers
+    // download the page instead of rendering it.
+    let ct = jsonl_ct_override
+        .or(inferred_ct)
+        .unwrap_or_else(|| "text/html; charset=utf-8".to_string());
+    let _ = headers.set("Content-Type", &ct);
     // Explicit headers via `metadata set { merge {'http.response': {headers: ...}}}`
     // override the inferred Content-Type (set last wins via `set`).
     for (k, v) in &http_meta.headers {

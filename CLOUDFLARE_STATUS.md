@@ -97,7 +97,7 @@ first. Last full sweep: see `scripts/cf-demos-probe.sh`.
 | `templates` | ❌ blocked | Top-level `.append page.html` (cross-stream). Needs xs CF backend before this parses. |
 | `quotes` | ❌ blocked | `.last quotes --follow` / `.append quotes` (cross-stream). Same blocker as templates. |
 | `stor` | ❌ blocked | `stor *` family unported to wasm. Port plan in [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md). |
-| `hub` (`examples/serve.nu`) | 🟡 bundler works | `scripts/bundle-cf-handler.nu` inlines `source X.nu` directives recursively (works -- bundled hub parses on desktop). Second blocker on CF: "External calls are not supported" because the bundled script references commands not registered on wasm. Untangling is the per-demo work above; once all demos are wasm-clean, the hub should follow. |
+| `hub` (`examples/serve-cf.nu`) | ✅ works | CF-tailored hub at `examples/serve-cf.nu` -- same shape as desktop `examples/serve.nu` but only `source`s the 11 wasm-clean demos. `mise run cf:dev:hub` builds the bundled handler via `scripts/bundle-cf-handler.nu`. All 10 mounted sub-demos return 200 on `GET /alice/<demo>/...`. Per-demo asset routes (tao's CSS, cargo-docs's per-crate pages) still expect root-relative URLs and won't traverse the mount prefix; that's a separate per-demo `$req.mount_prefix` adoption. |
 
 **Summary: 11 demos verified working on local wrangler dev. 2048 home + assets work; gameplay (`.bus sub`) needs streaming bridge. 3 demos (templates / quotes / stor) blocked on cross-stream / stor wasm ports.**
 

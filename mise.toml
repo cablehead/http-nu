@@ -190,14 +190,28 @@ run = "$HTTP_NU --datastar :$PORT examples/2048/serve.nu"
 # and the overall design.
 
 [tasks."cf:build"]
-description = "Build the http-nu Workers cdylib via worker-build. CF_HANDLER_PATH (relative to src/cf/) picks the embedded example; defaults to examples/blog/serve.nu."
+description = "Build the http-nu Workers cdylib via worker-build. CF_HANDLER_PATH (relative to src/cf/) picks the embedded example; defaults to examples/blog/serve.nu. Set CF_BUILD_MODE=release for an optimised build (slower, what cf:deploy uses); defaults to dev for fast local iteration."
 dir = "{{config_root}}"
 tools = { "cargo:worker-build" = "^0.8" }
 run = '''
 set -euo pipefail
 export CF_HANDLER_PATH="${CF_HANDLER_PATH:-../../examples/blog/serve.nu}"
-echo "embedding handler: $CF_HANDLER_PATH"
-worker-build --release -- --no-default-features --features cloudflare
+MODE="${CF_BUILD_MODE:-dev}"
+echo "embedding handler: $CF_HANDLER_PATH  (mode: $MODE)"
+case "$MODE" in
+  dev)
+    # --dev skips wasm-opt and uses cargo debug profile -> ~5-10s incremental
+    # rebuilds vs ~30-45s for release.
+    worker-build --dev -- --no-default-features --features cloudflare
+    ;;
+  release)
+    worker-build --release -- --no-default-features --features cloudflare
+    ;;
+  *)
+    echo "✗ CF_BUILD_MODE=$MODE invalid (use 'dev' or 'release')" >&2
+    exit 1
+    ;;
+esac
 WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
 if [ -n "$WASM" ]; then
   echo ""
@@ -213,13 +227,14 @@ tools = { "npm:wrangler" = "4", node = "22" }
 run = "wrangler dev"
 
 [tasks."cf:deploy"]
-description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN)"
-depends = ["cf:build", "cf:token-check"]
+description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN). Forces release-mode build via cf:build's CF_BUILD_MODE env."
+depends = ["cf:token-check"]
 dir = "{{config_root}}/src/cf"
 tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
+CF_BUILD_MODE=release mise run cf:build
 wrangler deploy
 '''
 
@@ -347,22 +362,28 @@ run = "CF_HANDLER_PATH=../../examples/datastar-sdk-test/serve.nu mise run cf:dev
 #   still fail at runtime. See CLOUDFLARE_STATUS.md.
 
 [tasks."cf:bundle:hub"]
-description = "Pre-resolve `source X.nu` directives in examples/serve.nu so the result is self-contained. Nu's parser resolves source via std::fs which doesn't exist on wasm; this textual inline lets the desktop hub work as the CF handler too."
+description = "Pre-resolve `source X.nu` directives in examples/serve-cf.nu so the result is self-contained. Nu's parser resolves source via std::fs which doesn't exist on wasm; this textual inline lets the hub work as the CF handler. serve-cf.nu is the CF-tailored hub -- mounts only demos that work on wasm (skips stor / templates / quotes pending xs port). Desktop hub remains examples/serve.nu."
 dir = "{{config_root}}"
 sources = ["examples/**/*.nu", "scripts/bundle-cf-handler.nu"]
 outputs = ["target/cf-hub.nu"]
 run = '''
 mkdir -p target
-nu scripts/bundle-cf-handler.nu examples/serve.nu > target/cf-hub.nu
+nu scripts/bundle-cf-handler.nu examples/serve-cf.nu > target/cf-hub.nu
 '''
 
 [tasks."cf:dev:hub"]
-description = "Run the examples hub on CF (bundled examples/serve.nu, all `source`s inlined). All demos under /demos/<demo>/... -- pair with `cf:seed` to upload assets and `cf:wipe` to teardown."
+description = "Run the examples hub on CF (bundled examples/serve-cf.nu, all `source`s inlined). All wasm-clean demos under /alice/<demo>/... -- seed per-demo assets via `DEMO=<name> mise run cf:seed:demo`. Iteration: keep this running, then in another terminal `CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build` -- wrangler dev hot-reloads on wasm changes (~10s)."
 dir = "{{config_root}}"
 depends = ["cf:bundle:hub"]
 # Inline-export rather than `env = {}` -- mise's task-table env does NOT
 # propagate to depended-on tasks (cf:build sees its own fallback otherwise).
 run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:dev"
+
+[tasks."cf:rebuild:hub"]
+description = "Re-bundle examples/serve-cf.nu + rebuild wasm (dev mode). Use this from a second terminal while `cf:dev:hub` is running -- wrangler dev hot-reloads when the wasm changes. ~5-15s typical (incremental cargo rebuild)."
+dir = "{{config_root}}"
+depends = ["cf:bundle:hub"]
+run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build"
 
 [tasks."cf:wipe"]
 description = "Wipe /demos/* in the local wrangler dev's Workspace (the namespace cf:seed uploads to). Useful when re-seeding or recovering from a half-failed upload."
