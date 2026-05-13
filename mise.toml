@@ -379,15 +379,25 @@ depends = ["cf:bundle:hub"]
 run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build"
 
 [tasks."cf:deploy:hub"]
-description = "Deploy the CF hub (bundled examples/serve-cf.nu) to the live worker. Forces release-mode build via cf:build's CF_BUILD_MODE env. Requires CLOUDFLARE_API_TOKEN (pulled from fnox)."
+description = "Deploy the CF hub (bundled examples/serve-cf.nu) to the live worker AND seed asset-dependent demos. Forces release-mode build. Requires CLOUDFLARE_API_TOKEN (pulled from fnox). Live URL: https://http-nu-cf.gedw99.workers.dev/"
 dir = "{{config_root}}"
 depends = ["cf:bundle:hub", "cf:token-check"]
 tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+shell = "bash -c"
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
 CF_HANDLER_PATH=../../target/cf-hub.nu CF_BUILD_MODE=release mise run cf:build
-cd src/cf && wrangler deploy
+(cd src/cf && wrangler deploy)
+
+# Seed asset-dependent demos against the live worker so visitors hitting
+# `/mermaid-editor/` etc. get a working page on first request without
+# needing the operator to remember to seed manually.
+LIVE_BASE="${LIVE_BASE:-https://http-nu-cf.gedw99.workers.dev}"
+for d in mermaid-editor; do
+  echo "→ seeding $d into $LIVE_BASE"
+  BASE="$LIVE_BASE" DEMO="$d" mise run cf:seed:demo
+done
 '''
 
 [tasks."cf:wipe"]
