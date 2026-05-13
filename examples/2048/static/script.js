@@ -99,7 +99,9 @@ addEventListener("keydown", (e) => {
   // Shift+letter sends uppercase ("H"), so fall back to the lowercased key.
   // Arrow keys aren't affected (e.key is "ArrowLeft" regardless of Shift).
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
-  const intent = dir || (e.key === "r" ? "reset" : "");
+  const intent = dir
+    || (e.key === "r" ? "reset" : "")
+    || (e.key === "u" ? "undo" : "");
   if (intent) {
     if (glowFor[intent]) {
       const [prop, val] = glowFor[intent];
@@ -117,8 +119,8 @@ addEventListener("keydown", (e) => {
         }, { once: true });
       }
     }
-    // Shift + arrow auto-slides in that direction until no more movement.
-    move(dir && e.shiftKey ? `shift-${dir}` : intent);
+    // Shift + arrow triggers a slam: slide until the board stops changing.
+    move(dir && e.shiftKey ? `slam-${dir}` : intent);
     e.preventDefault();
   }
 });
@@ -126,7 +128,9 @@ addEventListener("keydown", (e) => {
 // Reset button lives in the hint paragraph (static); the settings toggle
 // lives inside #game and gets morphed in/out -- delegated handler catches
 // both via event bubbling.
-document.querySelector("p.hint button")?.addEventListener("click", () => move("reset"));
+document.querySelectorAll("p.hint button[data-intent]").forEach((b) => {
+  b.addEventListener("click", () => move(b.dataset.intent));
+});
 
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-view-to]");
@@ -151,13 +155,13 @@ document.addEventListener("click", (e) => {
 const DAMP = 0.9;
 const CAP = 26;
 const AXIS_LOCK = 8;  // once you move this far on one axis, the other locks
-const HOLD_FOR_SHIFT_MS = 500;  // hold after the swipe for this long -> shift
+const HOLD_FOR_SLAM_MS = 500;  // hold after the swipe for this long -> slam
 let start = null;
 let wrap = null;
 let axis = null;
 let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
-let holdShiftTimer = null;   // fires shift-<dir> if the user keeps holding
-let blastFired = false;      // hold-timer already fired a shift -- skip single on release
+let holdSlamTimer = null;   // fires slam-<dir> if the user keeps holding
+let blastFired = false;      // hold-timer already fired a slam -- skip single on release
 let touchDot = null;         // visual dot under the finger during charge-up
 let settleTimer = null;      // fires startChargeUp once the finger stops moving
 let lastClientX = 0, lastClientY = 0;  // tracked so charge-up spawns under finger
@@ -176,7 +180,7 @@ const armSettleTimer = () => {
 // Spawns the dot at the current finger position, lights the board edge, and
 // arms the hold timer.
 const startChargeUp = () => {
-  if (!start || !committedDir || holdShiftTimer || touchDot || !wrap) return;
+  if (!start || !committedDir || holdSlamTimer || touchDot || !wrap) return;
   touchDot = document.createElement("div");
   touchDot.className = "touch-dot-pos";
   touchDot.style.transform = `translate3d(${lastClientX}px, ${lastClientY}px, 0)`;
@@ -186,13 +190,13 @@ const startChargeUp = () => {
   document.body.appendChild(touchDot);
   wrap.dataset.charge = committedDir;
   wrap.classList.add("charging");
-  holdShiftTimer = setTimeout(() => {
-    holdShiftTimer = null;
+  holdSlamTimer = setTimeout(() => {
+    holdSlamTimer = null;
     blastFired = true;
     wrap?.classList.remove("charging");
     delete wrap?.dataset.charge;
     removeTouchDot();
-    // Relight the committed edge so the user sees "shift request in flight"
+    // Relight the committed edge so the user sees "slam request in flight"
     // -- the observer clears it when the first SSE patch (or no-op echo)
     // lands.
     const LIT = 5;
@@ -202,8 +206,8 @@ const startChargeUp = () => {
     wrap?.style.setProperty("--glow-y",
       committedDir === "j" ? `${LIT}px` :
       committedDir === "k" ? `${-LIT}px` : "0px");
-    move(`shift-${committedDir}`);
-  }, HOLD_FOR_SHIFT_MS);
+    move(`slam-${committedDir}`);
+  }, HOLD_FOR_SLAM_MS);
 };
 
 addEventListener("pointerdown", (e) => {
@@ -214,7 +218,7 @@ addEventListener("pointerdown", (e) => {
   axis = null;
   committedDir = null;
   blastFired = false;
-  if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
+  if (holdSlamTimer) { clearTimeout(holdSlamTimer); holdSlamTimer = null; }
   if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
   removeTouchDot();
   wrap = document.querySelector("#board-wrap");
@@ -255,7 +259,7 @@ addEventListener("pointermove", (e) => {
   // tilt + glow release with a spring so the board visibly settles back to
   // its origin and the incoming SSE patches animate over a still board.
   // Then arm a hold timer: if the user keeps the finger down for
-  // HOLD_FOR_SHIFT_MS, fire shift-<dir> to keep sliding until settled.
+  // HOLD_FOR_SLAM_MS, fire slam-<dir> to keep sliding until settled.
   if (Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
     committedDir = Math.abs(dx) > Math.abs(dy)
       ? (dx > 0 ? "l" : "h")
@@ -282,7 +286,7 @@ addEventListener("pointermove", (e) => {
 addEventListener("pointerup", () => {
   if (!start) return;
   start = null;
-  if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
+  if (holdSlamTimer) { clearTimeout(holdSlamTimer); holdSlamTimer = null; }
   if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
   // Cancel charge-up if user released before it fired.
   wrap?.classList.remove("charging");

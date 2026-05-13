@@ -307,9 +307,9 @@ body.flash-red { animation: flash-red 300ms ease; }
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* Hold-to-shift charge-up: while the user is holding past the commit, a
+/* Hold-to-slam charge-up: while the user is holding past the commit, a
    gradient builds in the press direction. If the hold reaches HOLD_FOR_-
-   SHIFT_MS the class is removed (timer fires shift, gradient vanishes,
+   SLAM_MS the class is removed (timer fires slam, gradient vanishes,
    server's per-step edge-flash takes over). If the user releases early
    it's also removed and nothing extra happens. */
 #board-wrap.charging::before {
@@ -361,7 +361,7 @@ body.flash-red { animation: flash-red 300ms ease; }
 /* Edge flash: server emits a fresh .edge-flash element with a unique id per
    patch (whenever the patch carries a direction). Morphdom recreates the
    element, so its CSS animation re-fires each step -- including each step
-   of a shift sequence. The keyframes start near-invisible so the snapshot
+   of a slam cascade. The keyframes start near-invisible so the snapshot
    captured during the view-transition doesn't show a "stuck" glow, then
    ramps to peak around the time view-transition completes, then fades. */
 .edge-flash {

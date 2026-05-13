@@ -242,7 +242,7 @@ def render-game [direction?: string, changed?: bool]: record -> record {
   let did_change = $changed | default false
   # A fresh edge-flash element per patch (unique id forces morphdom to
   # destroy/recreate, so its CSS animation re-fires every step -- including
-  # each step of a shift sequence). When the move did not change the board
+  # each step of a slam cascade). When the move did not change the board
   # (slide had no effect), skip the flash.
   let wrap_children = if ($did_change and $dir in [h j k l]) {
     [
@@ -299,42 +299,59 @@ def render-current [mode: string, direction?: string, changed?: bool]: record ->
 
 # --- pipeline boxes ------------------------------------------------------
 # The SSE handler is a tight composition of:
-#   .cat --follow -> impulses-to-states -> threshold-gate -> states-to-patches -> to sse
+#   .cat --follow -> impulses-to-states -> threshold-gate -> states-to-html -> html-to-patches -> to sse
 # Each stage has one job.
 
 # Box A. Takes xs frames, yields {state, mode, threshold?} records. A normal
-# move yields one record; a shift-intent runs apply-move until the board
+# move yields one record; a slam-intent runs apply-move until the board
 # settles and yields one record per successful step, paced 50ms apart so the
 # client sees each step animate. Pacing lives here because this is the box
-# that knows the difference between a one-shot move and a multi-step shift.
+# that knows the difference between a one-shot move and a multi-step slam.
 def impulses-to-states [initial: record] {
+  # s = {stack: [state, ...], mode: string}
+  # Stack discipline: every move that actually changes the board pushes the
+  # resulting state. A slam counts as one undoable step (its final state).
+  # An undo frame pops the top, exposing the previous state. The "current"
+  # state is always the top of the stack.
   generate {|frame s|
+    let cur = $s.stack | last
     if $frame.topic == "xs.threshold" {
-      return {out: [{state: $s.state, mode: $s.mode, threshold: true}], next: $s}
+      return {out: [{state: $cur, mode: $s.mode, threshold: true}], next: $s}
     }
     let kind = $frame.meta | get kind? | default "move"
     if $kind == "start" {
       let new_state = $frame.meta.state
-      return {out: [{state: $new_state, mode: $s.mode, threshold: false}], next: ($s | upsert state $new_state)}
+      return {out: [{state: $new_state, mode: $s.mode, threshold: false}], next: ($s | update stack [$new_state])}
     }
     if $kind == "view" {
       # Ephemeral (ttl=ephemeral): only arrives live, never during replay,
       # so mode resets to game on reconnect.
       let new_s = $s | upsert mode ($frame.meta | get mode? | default "game")
-      return {out: [{state: $new_s.state, mode: $new_s.mode, threshold: false}], next: $new_s}
+      return {out: [{state: $cur, mode: $new_s.mode, threshold: false}], next: $new_s}
+    }
+    if $kind == "undo" {
+      # Pop one entry. If only the initial state is on the stack, echo.
+      if ($s.stack | length) <= 1 {
+        return {out: [{state: $cur, mode: $s.mode, threshold: false}], next: $s}
+      }
+      let popped = $s.stack | drop 1
+      let new_top = $popped | last
+      return {out: [{state: $new_top, mode: $s.mode, direction: "undo", changed: true, threshold: false}], next: ($s | update stack $popped)}
     }
     let intent = $frame.meta | get intent? | default ""
     if $intent in [h j k l] {
       let idx = $frame.meta | get spawn_idx? | default 0
       let val = $frame.meta | get spawn_value? | default 0
-      let new_state = $s.state | apply-move $intent $idx $val
-      let changed = not (tiles-equal $s.state.tiles $new_state.tiles)
-      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, threshold: false}], next: ($s | upsert state $new_state)}
+      let new_state = $cur | apply-move $intent $idx $val
+      let changed = not (tiles-equal $cur.tiles $new_state.tiles)
+      # No-op moves don't push -- nothing to undo if the board didn't change.
+      let new_stack = if $changed { $s.stack | append $new_state } else { $s.stack }
+      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, threshold: false}], next: ($s | update stack $new_stack)}
     }
-    if ($intent | str starts-with "shift-") {
+    if ($intent | str starts-with "slam-") {
       let dir = $intent | str substring 6..
       let seeds = $frame.meta | get seeds? | default []
-      let result = $seeds | reduce --fold {state: $s.state, stopped: false, yields: []} {|seed acc|
+      let result = $seeds | reduce --fold {state: $cur, stopped: false, yields: []} {|seed acc|
         if $acc.stopped { return $acc }
         let nxt = $acc.state | apply-move $dir $seed.idx $seed.value
         if (tiles-equal $acc.state.tiles $nxt.tiles) {
@@ -345,21 +362,21 @@ def impulses-to-states [initial: record] {
           }
         }
       }
-      # If the shift was a complete no-op (first step didn't move), still
-      # emit a state echo so the client sees a mutation and clears pending.
+      # No-op slam: echo, no stack change.
       if ($result.yields | is-empty) {
-        return {out: [{state: $s.state, mode: $s.mode, threshold: false}], next: $s}
+        return {out: [{state: $cur, mode: $s.mode, threshold: false}], next: $s}
       }
-      return {out: $result.yields, next: ($s | upsert state $result.state)}
+      # A slam cascade is ONE undoable step: push only the final state.
+      return {out: $result.yields, next: ($s | update stack ($s.stack | append $result.state))}
     }
     # Any other intent (empty ping, unrecognised) still emits a no-op state
     # echo. The client uses the resulting mutation to measure RTT and to
     # clear the "lit edge" -- if the edge stays lit, the server is slow.
-    return {out: [{state: $s.state, mode: $s.mode, threshold: false}], next: $s}
+    return {out: [{state: $cur, mode: $s.mode, threshold: false}], next: $s}
   } $initial
   | flatten
   | generate {|item state = {prev_paced: false}|
-    # Pace consecutive paced items 100ms apart so each shift step animates.
+    # Pace consecutive paced items 100ms apart so each slam step animates.
     if (($item.paced? | default false) and $state.prev_paced) { sleep 250ms }
     {out: $item, next: {prev_paced: ($item.paced? | default false)}}
   }
@@ -381,11 +398,19 @@ def threshold-gate-states [] {
   }
 }
 
-# Box C. Pure rendering. State -> datastar patch event.
-def states-to-patches [] {
+# Box C. Pure rendering. {state, mode, direction?, changed?} -> html record.
+def states-to-html [] {
   each {|s|
     $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false)
-    | to datastar-patch-elements --use-view-transition --id (random uuid)
+  }
+}
+
+# Box D. Wrap each html render in a datastar patch event. Unique id per patch
+# so morphdom recreates the .edge-flash element and its animation re-fires
+# each step.
+def html-to-patches [] {
+  each {|html|
+    $html | to datastar-patch-elements --use-view-transition --id (random uuid)
   }
 }
 
@@ -395,14 +420,16 @@ def states-to-patches [] {
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
       # One frame per request. The state machine in /sse handles whatever
-      # the intent demands -- shift-intents replay deterministically from
+      # the intent demands -- slam-intents replay deterministically from
       # the bundled seeds.
       let signals = $in | from datastar-signals $req
       let topic = $"game.($signals.tabId).move"
       let intent = $signals | get intent? | default ""
       if $intent == "reset" {
         null | .append $topic --meta {kind: "start" state: (initial-state)}
-      } else if ($intent | str starts-with "shift-") {
+      } else if $intent == "undo" {
+        null | .append $topic --meta {kind: "undo"}
+      } else if ($intent | str starts-with "slam-") {
         let seeds = 0..15 | each {|_| fresh-spawn-seeds}
         null | .append $topic --meta {intent: $intent seeds: $seeds}
       } else {
@@ -423,9 +450,10 @@ def states-to-patches [] {
 
       .cat --follow
       | where {|f| $f.topic == $topic or $f.topic == "xs.threshold"}
-      | impulses-to-states {state: (initial-state), mode: "game"}
+      | impulses-to-states {stack: [(initial-state)], mode: "game"}
       | threshold-gate-states
-      | states-to-patches
+      | states-to-html
+      | html-to-patches
       | to sse
     })
 
@@ -510,8 +538,10 @@ def states-to-patches [] {
         (KBD "j \u{2193}") " "
         (KBD "k \u{2191}") " "
         (KBD "l \u{2192}")
-        ", or swipe. Reset: "
-        (BUTTON {type: "button"} "r"))
+        ", or swipe. Undo: "
+        (BUTTON {type: "button" "data-intent": "undo"} "u")
+        ", reset: "
+        (BUTTON {type: "button" "data-intent": "reset"} "r"))
       # data-init and data-indicator live on .column (which is never patched)
       # so the SSE fetch + connection signal survive the wholesale replacement
       # of #game's contents on every server patch.
