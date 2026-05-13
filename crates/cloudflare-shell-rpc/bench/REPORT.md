@@ -90,6 +90,25 @@ The wrapper is essentially free for primitives. On big-response ops (`stat` / `l
 
 **When numbers are 0 / NaN.** The bench parser pulls `rps` / `avg` / `p99` from oha's text output. If `ok_count` is 0 but `rps` is non-zero, oha got responses but they weren't HTTP 2xx -- usually wrangler dev cracking under sustained load, or a deployed Worker hitting a rate-cap. Treat those rows as bench failures, not slow performance.
 
+## Deployment sizes
+
+Per-Worker bundle size at last measurement. `gz_total` is what CF charges
+against the script-size limit; raw is the on-disk bundle before
+compression. Budgets:
+
+- **1 MB (self)** -- self-imposed for this subsystem (each Worker is meant
+  to compose with others via service binding -- staying small is the point).
+- **3 MB (free)** -- CF Workers free-plan ceiling.
+- **10 MB (paid)** -- CF Workers paid-plan ceiling.
+
+Regenerate via `mise run cf:fs:bench:sizes`.
+
+| worker | raw_total | gz_total | vs 1MB (self) | vs 3MB (free) | vs 10MB (paid) | captured |
+| --- | --- | --- | --- | --- | --- | --- |
+| demo-js | 18.6 KB | 6.0 KB | 0.6% | 0.2% | 0.1% | 2026-05-13T16:23:32 |
+| demo-rust | 503.0 KB | 190.0 KB | 18.6% | 6.2% | 1.9% | 2026-05-13T16:23:34 |
+| server | 754.1 KB | 270.1 KB | 26.4% | 8.8% | 2.6% | 2026-05-13T16:23:31 |
+
 ## Rolling averages
 
 How each label performs across every run we've captured.

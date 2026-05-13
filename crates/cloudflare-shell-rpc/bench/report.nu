@@ -160,6 +160,41 @@ def by-tier [rows: list] {
     | sort-by op
 }
 
+def humanize [n: int]: nothing -> string {
+  if $n >= 1_048_576 {
+    let mib = ($n / 1_048_576.0 | math round -p 2)
+    $"($mib) MB"
+  } else if $n >= 1024 {
+    let kib = ($n / 1024.0 | math round -p 1)
+    $"($kib) KB"
+  } else {
+    $"($n) B"
+  }
+}
+
+# Pick out the latest size row per worker from sizes.nuon and shape it
+# for the markdown table. Returns [] if no sizes data has been captured
+# yet (sizes.nuon missing or empty).
+def latest-sizes [script_dir: string] {
+  let p = ($script_dir | path join "sizes.nuon")
+  if not ($p | path exists) { return [] }
+  let rows = (open $p)
+  if ($rows | is-empty) { return [] }
+  $rows
+    | group-by worker
+    | items {|k v| $v | sort-by when | last }
+    | sort-by worker
+    | each {|r| {
+        worker: $r.worker
+        raw_total: (humanize $r.raw_total)
+        gz_total: (humanize $r.gz_total)
+        "vs 1MB (self)": $"($r.budget_self_pct)%"
+        "vs 3MB (free)": $"($r.budget_free_pct)%"
+        "vs 10MB (paid)": $"($r.budget_paid_pct)%"
+        captured: $r.when
+      }}
+}
+
 def main [
   --save (-s)
 ] {
@@ -173,6 +208,7 @@ def main [
 
   let rows = open $data_path
   let total = ($rows | length)
+  let sizes_rows = (latest-sizes $script_dir)
 
   let latest = ($rows
     | group-by label
@@ -246,6 +282,26 @@ the typed Rust client wrapper specifically.
 
 "
   let s_analysis = (render-analysis $pairs)
+  let s_sizes_header = "
+## Deployment sizes
+
+Per-Worker bundle size at last measurement. `gz_total` is what CF charges
+against the script-size limit; raw is the on-disk bundle before
+compression. Budgets:
+
+- **1 MB (self)** -- self-imposed for this subsystem (each Worker is meant
+  to compose with others via service binding -- staying small is the point).
+- **3 MB (free)** -- CF Workers free-plan ceiling.
+- **10 MB (paid)** -- CF Workers paid-plan ceiling.
+
+Regenerate via `mise run cf:fs:bench:sizes`.
+
+"
+  let s_sizes_body = if ($sizes_rows | is-empty) {
+    "_(no sizes captured yet -- run `mise run cf:fs:bench:sizes` to populate)_\n"
+  } else {
+    md-table $sizes_rows
+  }
   let s2 = "
 ## Rolling averages
 
@@ -285,7 +341,7 @@ Notes:
 - The seed step runs once before each bench so GET /fs paths always read
   a file of the configured size.
 "
-  let report = $header + (md-table $latest) + $s_pairs + (md-table $pairs) + $s_analysis + "\n" + $s2 + (md-table $rolling) + $s3 + (md-table $history) + $footer
+  let report = $header + (md-table $latest) + $s_pairs + (md-table $pairs) + $s_analysis + "\n" + $s_sizes_header + $s_sizes_body + $s2 + (md-table $rolling) + $s3 + (md-table $history) + $footer
 
   if $save {
     let out_path = $"($script_dir)/REPORT.md"

@@ -18,6 +18,7 @@ Rust client's overhead vs. the JS-direct path.
 ```bash
 mise run cf:fs:up               # start server + demo-js + demo-rust
 mise run cf:fs:bench:local      # bench both demos against a fixed matrix
+mise run cf:fs:bench:sizes      # measure deployed bundle size per Worker
 mise run cf:fs:bench:report     # render REPORT.md
 mise run cf:fs:down             # tear down
 ```
@@ -35,8 +36,13 @@ mise run cf:fs:bench:remote     # LIVE_BASE_JS / LIVE_BASE_RUST override
 - `matrix.nu` -- orchestrator. Calls `run.nu` once per row of the
   JS-vs-Rust path matrix. The `cf:fs:bench:local` / `:remote` tasks
   wrap this.
-- `report.nu` -- renders `results.nuon` into `REPORT.md`, including
-  the JS-vs-Rust delta column.
+- `sizes.nu` -- measures deployed bundle size per Worker (server,
+  demo-js, demo-rust) via `wrangler deploy --dry-run --outdir=...`.
+  Writes one row per Worker to `sizes.nuon`. Wrapper:
+  `mise run cf:fs:bench:sizes`. Tracks raw + gzip-9 + headroom against
+  the 1 MB (self), 3 MB (free), 10 MB (paid) ceilings.
+- `report.nu` -- renders `results.nuon` + `sizes.nuon` into `REPORT.md`,
+  including the JS-vs-Rust delta column and the per-Worker size table.
 
 ## Direct invocation
 

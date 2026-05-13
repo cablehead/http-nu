@@ -546,9 +546,15 @@ nu crates/cloudflare-shell-rpc/bench/matrix.nu \
 '''
 
 [tasks."cf:fs:bench:report"]
-description = "Regenerate crates/cloudflare-shell-rpc/bench/REPORT.md from results.nuon. Includes a JS-vs-Rust pairing showing the typed-client overhead."
+description = "Regenerate crates/cloudflare-shell-rpc/bench/REPORT.md from results.nuon. Includes a JS-vs-Rust pairing showing the typed-client overhead, plus the latest Deployment sizes from sizes.nuon if present."
 dir = "{{config_root}}"
 run = "nu crates/cloudflare-shell-rpc/bench/report.nu --save"
+
+[tasks."cf:fs:bench:sizes"]
+description = "Measure deployed bundle sizes (raw + gzip-9) for server / demo-js / demo-rust via `wrangler deploy --dry-run`. Appends to sizes.nuon -- run cf:fs:bench:report to render the size table into REPORT.md. No Workers need to be running; this only touches the build pipeline."
+dir = "{{config_root}}"
+tools = { "npm:wrangler" = "4.90", node = "22", "cargo:worker-build" = "^0.8" }
+run = "nu crates/cloudflare-shell-rpc/bench/sizes.nu --save"
 
 [tasks."cf:fs:bench:all"]
 description = "Full bench pipeline: bring up Workers via pitchfork, run cf:fs:bench:local, regenerate REPORT.md, tear down."
