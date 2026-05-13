@@ -242,35 +242,187 @@ wrangler tail
 # through the cf:build dependency, so cargo rebuilds with the right script.
 # CLOUDFLARE.md "Status" tracks which examples work and why.
 
+# NOTE on these tasks: we used to use `env = {...} + depends = ["cf:dev"]`
+# but mise's task-table env does NOT propagate to depended-on tasks. The
+# result was every `ex:cf:*` silently building blog (cf:build's fallback)
+# instead of its intended handler. Inline-exporting CF_HANDLER_PATH in
+# `run` is the working pattern -- shell env DOES propagate into the
+# `mise run cf:dev` subprocess and its deps.
+
 [tasks."ex:cf:blog"]
 description = "examples/blog on CF -- works end-to-end (router DSL, HTML DSL, content-type)"
-env = { CF_HANDLER_PATH = "../../examples/blog/serve.nu" }
-depends = ["cf:dev"]
-run = "true"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/blog/serve.nu mise run cf:dev"
 
 [tasks."ex:cf:cargo-docs"]
 description = "examples/cargo-docs on CF -- KNOWN BROKEN: hangs at runtime (uses `ls $doc_root` + `path exists` on a real fs, plus `.static` which is desktop-only); needs Vfs"
-env = { CF_HANDLER_PATH = "../../examples/cargo-docs/serve.nu" }
-depends = ["cf:dev"]
-run = "true"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/cargo-docs/serve.nu mise run cf:dev"
 
 [tasks."ex:cf:basic"]
 description = "examples/basic on CF -- KNOWN BROKEN: /time uses `sleep` + `generate` (nu-command/os, gated on wasm); compile errors at parse"
-env = { CF_HANDLER_PATH = "../../examples/basic.nu" }
-depends = ["cf:dev"]
-run = "true"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/basic.nu mise run cf:dev"
 
 [tasks."ex:cf:2048"]
 description = "examples/2048 on CF -- KNOWN BROKEN: uses `.bus sub`, `sleep`, `generate`; needs BusDO + streaming"
-env = { CF_HANDLER_PATH = "../../examples/2048/serve.nu" }
-depends = ["cf:dev"]
-run = "true"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/2048/serve.nu mise run cf:dev"
 
 [tasks."ex:cf:workspace-browser"]
 description = "Per-user Workspace file browser. Each first URL segment is a user; their files are isolated in DO SQLite via the http-nu Rust port of @cloudflare/shell."
-env = { CF_HANDLER_PATH = "../../examples/cf-workspace-browser/serve.nu" }
-depends = ["cf:dev"]
-run = "true"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/cf-workspace-browser/serve.nu mise run cf:dev"
+
+# All remaining examples have a CF entry too -- whether they work end-to-end
+# is captured in CLOUDFLARE_STATUS.md. New demos that fail at parse time
+# leave behind a clear panic; the CF/desktop parity check is "does the
+# desktop demo also pass?".
+
+[tasks."ex:cf:datastar-counter"]
+description = "examples/datastar-counter on CF -- reactive counter via SSE"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/datastar-counter/serve.nu mise run cf:dev"
+
+[tasks."ex:cf:datastar-sdk"]
+description = "examples/datastar-sdk on CF -- Datastar SDK feature demo"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/datastar-sdk/serve.nu mise run cf:dev"
+
+[tasks."ex:cf:mermaid-editor"]
+description = "examples/mermaid-editor on CF -- live Mermaid diagram editor"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/mermaid-editor/serve.nu mise run cf:dev"
+
+[tasks."ex:cf:templates"]
+description = "examples/templates on CF -- .mj template modes (needs store on desktop; CF has no store yet)"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/templates/serve.nu mise run cf:dev"
+
+[tasks."ex:cf:quotes"]
+description = "examples/quotes on CF -- live quotes board with SSE (needs store on desktop; CF has no store yet)"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/quotes/serve.nu mise run cf:dev"
+
+[tasks."ex:cf:tao"]
+description = "examples/tao on CF -- The Tao of Datastar (large + uses --dev + -w on desktop)"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/tao/serve.nu mise run cf:dev"
+
+[tasks."ex:cf:stor"]
+description = "examples/stor on CF -- in-memory SQLite via stor commands (NOT wasm-ported yet)"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/stor.nu mise run cf:dev"
+
+[tasks."ex:cf:generate-test"]
+description = "examples/generate-test on CF -- exercise of the `generate` command"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/generate-test/serve.nu mise run cf:dev"
+
+[tasks."ex:cf:datastar-sdk-test"]
+description = "examples/datastar-sdk-test on CF -- Datastar SDK test runner"
+dir = "{{config_root}}"
+run = "CF_HANDLER_PATH=../../examples/datastar-sdk-test/serve.nu mise run cf:dev"
+
+
+# ============================================================================
+# CF hub -- ALL desktop demos under one wrangler dev
+# ============================================================================
+# Mirror of the desktop `ex:hub` flow on Workers. ONE worker bundle, ONE
+# wrangler dev, all demos under `/demos/<demo-name>/...`.
+#
+# Demo assets (templates, static files, .nu sub-scripts) need to be in the
+# Workspace before requests hit them -- that's what `cf:seed` does.
+#
+# Iteration loop:
+#   mise run cf:dev:hub      # one terminal -- ~45s first build, then live
+#   mise run cf:seed         # other terminal -- ~2s to upload all assets
+#   # iterate; re-seed only when assets change (Nu script changes hot-reload)
+#
+# Known limitations today:
+# - `source X.nu` in the hub is resolved at parse time by nu-parser; on wasm
+#   that has no fs, so sub-demos that the hub `source`s won't parse. Tracked
+#   for the cf-handler-bundler work (resolve sources at build time).
+# - Demos using `sleep`, `generate`, `.bus sub`, or other unported commands
+#   still fail at runtime. See CLOUDFLARE_STATUS.md.
+
+[tasks."cf:bundle:hub"]
+description = "Pre-resolve `source X.nu` directives in examples/serve.nu so the result is self-contained. Nu's parser resolves source via std::fs which doesn't exist on wasm; this textual inline lets the desktop hub work as the CF handler too."
+dir = "{{config_root}}"
+sources = ["examples/**/*.nu", "scripts/bundle-cf-handler.nu"]
+outputs = ["target/cf-hub.nu"]
+run = '''
+mkdir -p target
+nu scripts/bundle-cf-handler.nu examples/serve.nu > target/cf-hub.nu
+'''
+
+[tasks."cf:dev:hub"]
+description = "Run the examples hub on CF (bundled examples/serve.nu, all `source`s inlined). All demos under /demos/<demo>/... -- pair with `cf:seed` to upload assets and `cf:wipe` to teardown."
+dir = "{{config_root}}"
+depends = ["cf:bundle:hub"]
+# Inline-export rather than `env = {}` -- mise's task-table env does NOT
+# propagate to depended-on tasks (cf:build sees its own fallback otherwise).
+run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:dev"
+
+[tasks."cf:wipe"]
+description = "Wipe /demos/* in the local wrangler dev's Workspace (the namespace cf:seed uploads to). Useful when re-seeding or recovering from a half-failed upload."
+dir = "{{config_root}}"
+run = '''
+set -euo pipefail
+BASE="${BASE:-http://127.0.0.1:8787}"
+USER_NS="demos"
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
+  echo "✗ $BASE not reachable -- start `mise run cf:dev:hub` first" >&2
+  exit 1
+fi
+# `_workspace/rm` is recursive + force. Wipe top-level entries (not / itself).
+ls=$(curl -fs "$BASE/$USER_NS/_workspace/ls?path=/" || echo '[]')
+echo "$ls" | python3 -c 'import json,sys; [print(p) for p in json.load(sys.stdin)]' | while read -r entry; do
+  echo "rm /$entry"
+  curl -fs -o /dev/null -X POST "$BASE/$USER_NS/_workspace/rm?path=/$entry"
+done
+echo "✓ wiped /demos/*"
+'''
+
+[tasks."cf:seed"]
+description = "Upload every file under examples/ to /demos/<path>/ in the local wrangler dev's Workspace. Run AFTER `cf:dev:hub` is listening on :8787."
+dir = "{{config_root}}"
+run = '''
+set -euo pipefail
+BASE="${BASE:-http://127.0.0.1:8787}"
+USER_NS="demos"
+
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
+  echo "✗ $BASE not reachable -- start `mise run cf:dev:hub` first" >&2
+  exit 1
+fi
+
+count=0
+fail=0
+# -print0 / read -d are POSIX-portable safe-for-spaces.
+while IFS= read -r -d '' file; do
+  rel="${file#examples/}"
+  mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
+  url="$BASE/$USER_NS/_workspace/put?path=/$rel"
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST \
+    -H "Content-Type: $mime" \
+    --data-binary "@$file" \
+    "$url")
+  if [ "$http_code" = "200" ]; then
+    count=$((count + 1))
+  else
+    echo "✗ $rel ($http_code)" >&2
+    fail=$((fail + 1))
+  fi
+done < <(find examples -type f -print0)
+
+echo "✓ uploaded $count files to $BASE/$USER_NS/"
+if [ "$fail" -gt 0 ]; then
+  echo "✗ $fail failed -- see above" >&2
+  exit 1
+fi
+'''
 
 
 # ============================================================================
