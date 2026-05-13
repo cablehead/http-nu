@@ -253,16 +253,12 @@ wrangler tail
 # ============================================================================
 # examples on Cloudflare (mirrors ex:* but on wasm Workers)
 # ============================================================================
-# Each ex:cf:<name> sets CF_HANDLER_PATH then runs cf:dev. The env propagates
-# through the cf:build dependency, so cargo rebuilds with the right script.
-# CLOUDFLARE.md "Status" tracks which examples work and why.
-
-# NOTE on these tasks: we used to use `env = {...} + depends = ["cf:dev"]`
-# but mise's task-table env does NOT propagate to depended-on tasks. The
-# result was every `ex:cf:*` silently building blog (cf:build's fallback)
-# instead of its intended handler. Inline-exporting CF_HANDLER_PATH in
-# `run` is the working pattern -- shell env DOES propagate into the
-# `mise run cf:dev` subprocess and its deps.
+# Each ex:cf:<name> inline-exports CF_HANDLER_PATH and shells out to
+# `mise run cf:dev`. (We used to use `env = {...} + depends = ["cf:dev"]`
+# but mise's task-table env doesn't propagate to depended-on tasks --
+# every demo silently built the default handler. The inline-export form
+# works because shell env DOES propagate into the subprocess + its deps.)
+# CLOUDFLARE_STATUS.md's "Example status" table tracks which demos work.
 
 [tasks."ex:cf:blog"]
 description = "examples/blog on CF -- works end-to-end (router DSL, HTML DSL, content-type)"
@@ -270,17 +266,17 @@ dir = "{{config_root}}"
 run = "CF_HANDLER_PATH=../../examples/blog/serve.nu mise run cf:dev"
 
 [tasks."ex:cf:cargo-docs"]
-description = "examples/cargo-docs on CF -- KNOWN BROKEN: hangs at runtime (uses `ls $doc_root` + `path exists` on a real fs, plus `.static` which is desktop-only); needs Vfs"
+description = "examples/cargo-docs on CF -- pair with `mise run cf:seed:cargo-docs` to populate target/doc/ in the workspace; then /cargo-docs/ renders the rustdoc index + per-crate pages"
 dir = "{{config_root}}"
 run = "CF_HANDLER_PATH=../../examples/cargo-docs/serve.nu mise run cf:dev"
 
 [tasks."ex:cf:basic"]
-description = "examples/basic on CF -- KNOWN BROKEN: /time uses `sleep` + `generate` (nu-command/os, gated on wasm); compile errors at parse"
+description = "examples/basic on CF -- all routes work. /time bounded by the sleep-cap guard (returns ~64 timestamps before the no-op-sleep generator is shut down)"
 dir = "{{config_root}}"
 run = "CF_HANDLER_PATH=../../examples/basic.nu mise run cf:dev"
 
 [tasks."ex:cf:2048"]
-description = "examples/2048 on CF -- KNOWN BROKEN: uses `.bus sub`, `sleep`, `generate`; needs BusDO + streaming"
+description = "examples/2048 on CF -- home page renders; gameplay (.append/.cat/.bus sub) needs cross-stream + bus wasm ports. See src/cf/nu/nu_command/xs/PLAN.md."
 dir = "{{config_root}}"
 run = "CF_HANDLER_PATH=../../examples/2048/serve.nu mise run cf:dev"
 
