@@ -345,6 +345,11 @@ def impulses-to-states [initial: record] {
           }
         }
       }
+      # If the shift was a complete no-op (first step didn't move), still
+      # emit a state echo so the client sees a mutation and clears pending.
+      if ($result.yields | is-empty) {
+        return {out: [{state: $s.state, mode: $s.mode, threshold: false}], next: $s}
+      }
       return {out: $result.yields, next: ($s | upsert state $result.state)}
     }
     # Any other intent (empty ping, unrecognised) still emits a no-op state

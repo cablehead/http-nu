@@ -190,6 +190,16 @@ const startChargeUp = () => {
     wrap?.classList.remove("charging");
     delete wrap?.dataset.charge;
     removeTouchDot();
+    // Relight the committed edge so the user sees "shift request in flight"
+    // -- the observer clears it when the first SSE patch (or no-op echo)
+    // lands.
+    const LIT = 5;
+    wrap?.style.setProperty("--glow-x",
+      committedDir === "l" ? `${LIT}px` :
+      committedDir === "h" ? `${-LIT}px` : "0px");
+    wrap?.style.setProperty("--glow-y",
+      committedDir === "j" ? `${LIT}px` :
+      committedDir === "k" ? `${-LIT}px` : "0px");
     move(`shift-${committedDir}`);
   }, HOLD_FOR_SHIFT_MS);
 };
