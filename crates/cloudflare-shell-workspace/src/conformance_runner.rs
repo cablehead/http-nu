@@ -106,7 +106,16 @@ pub async fn run_conformance(sql: SqlStorage, r2: Option<Bucket>) -> Result<Resp
     wipe(&ws).await?;
     streaming_writes_toggle_state(&ws).await;
 
-    Response::ok("13 passed")
+    wipe(&ws).await?;
+    file_exists_distinguishes_file_dir_missing(&ws).await;
+
+    wipe(&ws).await?;
+    delete_file_removes_files_refuses_dirs(&ws).await;
+
+    wipe(&ws).await?;
+    get_workspace_info_aggregates(&ws).await;
+
+    Response::ok("16 passed")
 }
 
 /// `read_file_stream` round-trip via `write_file_bytes`. Drains the
@@ -181,6 +190,72 @@ async fn streaming_writes_toggle_state(ws: &Workspace) {
     assert!(ws.streaming_writes(), "setter ON must be observable");
     ws.set_streaming_writes(false);
     assert!(!ws.streaming_writes(), "setter OFF must be observable");
+}
+
+/// `file_exists` is true only for files (after symlink resolution), not
+/// directories or missing paths.
+async fn file_exists_distinguishes_file_dir_missing(ws: &Workspace) {
+    ws.write_file("/exists.txt", "x", None).await.unwrap();
+    ws.mkdir("/somedir", MkdirOptions::default()).await.unwrap();
+    ws.symlink("/exists.txt", "/link-to-file").await.unwrap();
+
+    assert!(ws.file_exists("/exists.txt").await.unwrap(), "file");
+    assert!(
+        !ws.file_exists("/somedir").await.unwrap(),
+        "dir is not a file"
+    );
+    assert!(!ws.file_exists("/missing").await.unwrap(), "missing");
+    assert!(
+        ws.file_exists("/link-to-file").await.unwrap(),
+        "symlink resolves to file"
+    );
+}
+
+/// `delete_file` removes files (returning true), is a no-op for missing
+/// (returning false), and refuses directories (Err IsDir).
+async fn delete_file_removes_files_refuses_dirs(ws: &Workspace) {
+    ws.write_file("/d.txt", "x", None).await.unwrap();
+    assert!(ws.delete_file("/d.txt").await.unwrap(), "removes existing");
+    assert!(
+        matches!(ws.stat("/d.txt").await, Ok(None)),
+        "gone after delete"
+    );
+
+    assert!(
+        !ws.delete_file("/never-existed").await.unwrap(),
+        "false on missing"
+    );
+
+    ws.mkdir("/adir", MkdirOptions::default()).await.unwrap();
+    match ws.delete_file("/adir").await {
+        Err(FsError::IsDir(_)) => {}
+        other => panic!("expected EISDIR on delete_file of dir, got {other:?}"),
+    }
+}
+
+/// `get_workspace_info` totals match an explicit seed: two files (one
+/// inline, one would be R2 if bound, but conformance covers the SQL
+/// row counts -- not the storage_backend split, which is a Workspace
+/// invariant exercised elsewhere) and one directory.
+async fn get_workspace_info_aggregates(ws: &Workspace) {
+    ws.write_file("/a.txt", "hello", None).await.unwrap();
+    ws.write_file_bytes("/b.bin", &[0u8; 7], None)
+        .await
+        .unwrap();
+    ws.mkdir("/d1", MkdirOptions::default()).await.unwrap();
+
+    let info = ws.get_workspace_info().await.unwrap();
+    assert_eq!(info.file_count, 2, "2 files");
+    // `/` (root) + `/d1` = 2 directories.
+    assert_eq!(info.directory_count, 2, "2 directories (root + /d1)");
+    assert_eq!(info.total_bytes, 5 + 7, "total bytes = 12");
+    // r2_file_count is exercised only with R2 bound; in default
+    // conformance runs (no R2), it should be 0.
+    if ws.has_r2() {
+        // can't assert exact count without knowing whether files spilled
+    } else {
+        assert_eq!(info.r2_file_count, 0, "no R2 = no R2 files");
+    }
 }
 
 async fn wipe(ws: &Workspace) -> Result<()> {

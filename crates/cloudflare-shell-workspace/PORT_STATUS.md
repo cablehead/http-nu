@@ -53,7 +53,7 @@ here. Line numbers are anchors for side-by-side review.
 | -- / `is_valid_namespace`                     | 189  | 80     | port-only helper. Iterative ASCII check (no `regex` dep). Tests: `valid_namespaces_accepted`, `invalid_namespaces_rejected`. |
 | -- / `default`                                | -    | 151    | port-only convenience; uses `DEFAULT_NAMESPACE = "default"`.    |
 | `exists`                                      | 1028 | 179    | done.                                                           |
-| `fileExists`                                  | 1017 | -      | not ported. Use `exists` + `stat`.                              |
+| `fileExists`                                  | 1017 | 248    | done. Resolves symlinks like upstream; returns true only when the resolved row's `type = 'file'`. |
 | `stat`                                        | 500  | 191    | done. Returns `Ok(None)` on ENOENT (TS: `Promise<FileStat \| null>`). |
 | `lstat`                                       | 475  | 202    | done. Same `Ok(None)` semantics.                                |
 | `readFile`                                    | 526  | 229    | done. EISDIR on dir; ENOENT -> `Ok(None)`.                      |
@@ -64,7 +64,7 @@ here. Line numbers are anchors for side-by-side review.
 | `writeFileStream`                             | 907  | 449    | done (faithful). Drain stream into `Vec<u8>`, error `EFBIG` past `MAX_STREAM_SIZE` (100 MB), delegate to `write_file_bytes`. Stream-shaped in, single-shot out -- see "Behavioral parity" note. Cap is gated on the [`set_streaming_writes`](#workspace-method-level-mapping) toggle (OFF default = cap enforced; ON = cap lifted, forward-compat hook for the future multipart path). |
 | -- / `set_streaming_writes` + `streaming_writes` | -    | 184 / 191 | port-only forward-compat toggle. OFF (default) keeps `write_file_stream` byte-faithful to upstream (cap enforced, collect-then-write). ON lifts the cap; the actual streaming-into-R2 path (R2 multipart upload, 5 MB parts) is the planned follow-up -- callers using ON today will benefit transparently when that lands. See "Intentional deviations". |
 | `appendFile`                                  | 938  | 335    | done. Preserves existing `mime_type`.                           |
-| `deleteFile`                                  | 990  | -      | not ported. Use `rm` (covers files and dirs).                   |
+| `deleteFile`                                  | 990  | 861    | done. File/symlink only -- `EISDIR` on a directory ("use rm() instead"), matching upstream. Returns `Ok(false)` on ENOENT, `Ok(true)` on success; R2-backed rows have their object dropped via `rm_single`. |
 | `readDir`                                     | 1041 | 471    | done. Names only.                                               |
 | -- / `read_dir_with_file_types`               | -    | 481    | port-only. TS `readDir` returns `FileInfo[]`; we split for ergonomics. |
 | `glob`                                        | 1071 | 813    | done.                                                           |
@@ -77,7 +77,7 @@ here. Line numbers are anchors for side-by-side review.
 | -- / `realpath`                               | -    | 805    | port-only public helper; TS resolves inline.                    |
 | `diff`                                        | 1370 | -      | not ported (Agents-SDK structured editing).                     |
 | `diffContent`                                 | 1390 | -      | not ported.                                                     |
-| `getWorkspaceInfo`                            | 1406 | -      | not ported (metadata helper).                                   |
+| `getWorkspaceInfo`                            | 1406 | 1044   | done. Returns `WorkspaceInfo { file_count, directory_count, total_bytes, r2_file_count }`. Single `SUM(CASE ...)` scan over the index table, same query shape as upstream. |
 | `onChange` (option callback, emitted at L312) | 108  | `set_on_change` + private `emit` | done. Setter is `set_on_change(&self, cb: OnChange)` (interior mutability via `Mutex`) rather than a constructor option -- callback type is `Arc<dyn Fn(WorkspaceChangeEvent) + Send + Sync>`. Emit sites wired into `write_inner` (Create/Update), `insert_dir` (Create on real insert), `symlink` (always Create), `rm_single` (Delete after DELETE). `cp` / `mv` / `append_file` inherit emits transitively. |
 | `SqlBackend.query` / `.run` (raw SQL)         | 38/42| -      | not ported as `Workspace` methods; callers use `worker::SqlStorage` directly. |
 
@@ -94,6 +94,31 @@ here. Line numbers are anchors for side-by-side review.
 | `WorkspaceChangeEvent`    | 137   | `WorkspaceChangeEvent`          | Field `kind` instead of TS reserved `type`; `entry_type` snake_cased. |
 | `OnChange`                | -     | `OnChange`                      | Port-only alias `Arc<dyn Fn(WorkspaceChangeEvent) + Send + Sync>` so callers (Rust + future cross-DO proxies) can pass listeners cheaply. |
 | `WorkspaceFsLike`         | 162   | --                              | Pick<> shape for callers; Rust callers use concrete `Workspace`.   |
+| `getWorkspaceInfo` return | 1407  | `WorkspaceInfo`                 | `{ file_count, directory_count, total_bytes, r2_file_count }`. Field names snake_case; types `u64` (TS: `number`). |
+
+## Trait surface (`FileSystem`)
+
+| Upstream (`fs/interface.ts`) | TS L | Rust (`crates/cloudflare-shell/src/interface.rs`) | Status                                              |
+|-----------------------------|------|---------------------------------------------------|------------------------------------------------------|
+| `readFile`                  | 53   | `read_file`                                       | done                                                 |
+| `readFileBytes`             | 54   | `read_file_bytes`                                 | done                                                 |
+| `writeFile`                 | 55   | `write_file`                                      | done (mime_type Option deviation)                    |
+| `writeFileBytes`            | 56   | `write_file_bytes`                                | done                                                 |
+| `appendFile`                | 57   | `append_file`                                     | done                                                 |
+| `exists`                    | 58   | `exists`                                          | done                                                 |
+| `stat`                      | 60   | `stat`                                            | done (Ok(None) deviation)                            |
+| `lstat`                     | 62   | `lstat`                                           | done (Ok(None) deviation)                            |
+| `mkdir`                     | 63   | `mkdir`                                           | done                                                 |
+| `readdir`                   | 64   | `read_dir`                                        | done                                                 |
+| `readdirWithFileTypes`      | 65   | `read_dir_with_file_types`                        | done                                                 |
+| `rm`                        | 66   | `rm`                                              | done                                                 |
+| `cp`                        | 67   | `cp`                                              | done                                                 |
+| `mv`                        | 68   | `mv`                                              | done                                                 |
+| `symlink`                   | 69   | `symlink`                                         | done                                                 |
+| `readlink`                  | 70   | `readlink`                                        | done                                                 |
+| `realpath`                  | 71   | `realpath`                                        | done                                                 |
+| `resolvePath`               | 72   | `resolve_path` (default impl)                     | done. Pure path math; sync trait method with default delegating to `path_utils::resolve_path`. |
+| `glob`                      | 73   | `glob`                                            | done                                                 |
 
 ## Schema compatibility
 

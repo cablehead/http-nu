@@ -247,4 +247,13 @@ pub trait FileSystem {
 
     /// Upstream: `glob()`. Returns absolute paths, sorted.
     fn glob(&self, pattern: &str) -> impl std::future::Future<Output = Result<Vec<String>>>;
+
+    /// Upstream: `resolvePath(base, path)` -- fs/interface.ts:72.
+    /// Pure path math; absolute `path` is normalized as-is, relative
+    /// `path` is joined onto `base` first. Synchronous: no I/O, no DB
+    /// access, no symlink resolution. Default impl delegates to
+    /// [`crate::path_utils::resolve_path`].
+    fn resolve_path(&self, base: &str, path: &str) -> String {
+        crate::path_utils::resolve_path(base, path)
+    }
 }

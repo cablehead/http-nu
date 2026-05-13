@@ -48,6 +48,21 @@ pub fn normalize_path(path: &str) -> Result<String> {
     Ok(p)
 }
 
+/// Upstream: `fs/path-utils.ts:49` `resolvePath()`. Resolve `path`
+/// relative to `base`: an absolute `path` is normalized as-is; a
+/// relative `path` is joined onto `base` first.
+pub fn resolve_path(base: &str, path: &str) -> String {
+    if path.starts_with('/') {
+        return normalize(path);
+    }
+    let combined = if base == "/" {
+        format!("/{path}")
+    } else {
+        format!("{base}/{path}")
+    };
+    normalize(&combined)
+}
+
 /// Parent directory of `path`. The root's parent is the empty string
 /// (matches @cloudflare/shell's invariant: root has parent_path = '').
 pub fn parent_path(path: &str) -> String {
@@ -111,5 +126,15 @@ mod tests {
     fn normalize_path_rejects_overlong() {
         let long = "/".to_string() + &"a".repeat(MAX_PATH_LENGTH);
         assert!(normalize_path(&long).is_err());
+    }
+
+    #[test]
+    fn resolve_path_basics() {
+        assert_eq!(resolve_path("/", "/abs/file"), "/abs/file");
+        assert_eq!(resolve_path("/foo", "/abs/file"), "/abs/file");
+        assert_eq!(resolve_path("/", "rel"), "/rel");
+        assert_eq!(resolve_path("/foo", "bar"), "/foo/bar");
+        assert_eq!(resolve_path("/a/b", "../c"), "/a/c");
+        assert_eq!(resolve_path("/a/b", "./c"), "/a/b/c");
     }
 }

@@ -46,6 +46,16 @@ use crate::schema;
 /// the inline-bytes and R2-spilled paths share one item type.
 pub type ReadStream = Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Unpin>>;
 
+/// Upstream: filesystem.ts:1406 `getWorkspaceInfo()` return shape.
+/// Aggregated counters across every row in the workspace table.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WorkspaceInfo {
+    pub file_count: u64,
+    pub directory_count: u64,
+    pub total_bytes: u64,
+    pub r2_file_count: u64,
+}
+
 /// R2 spill threshold. Files larger than this go to R2; smaller stay
 /// inline in the SQL row. Matches `@cloudflare/shell`'s
 /// `inlineThreshold` default.
@@ -164,6 +174,13 @@ impl Workspace {
         Self::new(sql, r2, schema::DEFAULT_NAMESPACE)
     }
 
+    /// Port-only: whether this Workspace was constructed with an R2
+    /// bucket bound. Tests use this to decide which invariants apply
+    /// (R2 spill paths, R2-file-count assertions, etc.).
+    pub fn has_r2(&self) -> bool {
+        self.r2.is_some()
+    }
+
     /// Port-only: forward-compat toggle for the large-upload code path of
     /// `write_file_stream`.
     ///
@@ -222,6 +239,26 @@ impl Workspace {
             Some(vec![p.into()]),
         )?;
         Ok(n > 0)
+    }
+
+    /// Upstream: filesystem.ts:1017 `fileExists()`.
+    /// Returns `true` only when the resolved path exists *and* is a
+    /// file. Symlinks are followed (matches upstream's
+    /// `resolveSymlink(normalizePath(...))` then `type === "file"`).
+    pub async fn file_exists(&self, path: &str) -> Result<bool> {
+        let p = normalize_path(path)?;
+        let Some(resolved) = self.resolve_symlinks(&p, 0).await? else {
+            return Ok(false);
+        };
+        let cursor = self.sql.exec(
+            &format!("SELECT type FROM {} WHERE path = ? LIMIT 1", self.table),
+            Some(vec![resolved.into()]),
+        )?;
+        match cursor.next::<TypeRow>().next() {
+            Some(Ok(row)) => Ok(row.r#type == "file"),
+            Some(Err(e)) => Err(e.into()),
+            None => Ok(false),
+        }
     }
 
     /// Upstream: filesystem.ts:500 `stat()`.
@@ -812,6 +849,37 @@ impl Workspace {
         Ok(())
     }
 
+    /// Upstream: filesystem.ts:990 `deleteFile()`.
+    ///
+    /// File-or-symlink-only counterpart of [`rm`](Self::rm): refuses to
+    /// delete a directory (use `rm` with `recursive=true` for that).
+    /// Returns `Ok(false)` when the path doesn't exist; `Ok(true)` when
+    /// a row was deleted. R2-backed rows have their object dropped too.
+    ///
+    /// Upstream raises `EISDIR: <path> is a directory -- use rm() instead`
+    /// (filesystem.ts:1004) on a directory; we match.
+    pub async fn delete_file(&self, path: &str) -> Result<bool> {
+        let p = normalize_path(path)?;
+        let cursor = self.sql.exec(
+            &format!("SELECT type FROM {} WHERE path = ? LIMIT 1", self.table),
+            Some(vec![p.clone().into()]),
+        )?;
+        let row = match cursor.next::<TypeRow>().next() {
+            Some(Ok(r)) => r,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Ok(false),
+        };
+        if row.r#type == "directory" {
+            return Err(FsError::IsDir(format!(
+                "{p} is a directory -- use rm() instead"
+            )));
+        }
+        let kind = EntryType::parse(&row.r#type)
+            .ok_or_else(|| FsError::Io(format!("deleteFile: unknown row type {}", row.r#type)))?;
+        self.rm_single(&p, kind).await?;
+        Ok(true)
+    }
+
     /// Upstream: filesystem.ts:1221 `cp()`.
     /// `CpOptions { recursive }` matches the TS option shape.
     pub async fn cp(&self, src: &str, dst: &str, opts: CpOptions) -> Result<()> {
@@ -968,6 +1036,37 @@ impl Workspace {
         Ok(out)
     }
 
+    /// Upstream: filesystem.ts:1406 `getWorkspaceInfo()`.
+    /// Aggregate counters: file count, directory count, total bytes
+    /// (files only -- directories have `size = 0`), and the subset of
+    /// files that have spilled to R2. Single `SUM(CASE ...)` scan over
+    /// the index table; same query shape as upstream.
+    pub async fn get_workspace_info(&self) -> Result<WorkspaceInfo> {
+        let cursor = self.sql.exec(
+            &format!(
+                "SELECT \
+                    SUM(CASE WHEN type = 'file'                            THEN 1 ELSE 0 END) AS files, \
+                    SUM(CASE WHEN type = 'directory'                       THEN 1 ELSE 0 END) AS dirs, \
+                    COALESCE(SUM(CASE WHEN type = 'file' THEN size ELSE 0 END), 0)            AS total, \
+                    SUM(CASE WHEN type = 'file' AND storage_backend = 'r2' THEN 1 ELSE 0 END) AS r2files \
+                 FROM {}",
+                self.table
+            ),
+            None,
+        )?;
+        let row = match cursor.next::<InfoRow>().next() {
+            Some(Ok(r)) => r,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Ok(WorkspaceInfo::default()),
+        };
+        Ok(WorkspaceInfo {
+            file_count: row.files.max(0) as u64,
+            directory_count: row.dirs.max(0) as u64,
+            total_bytes: row.total.max(0) as u64,
+            r2_file_count: row.r2files.max(0) as u64,
+        })
+    }
+
     /// Follow symlinks down to a non-symlink target. Returns Ok(None)
     /// on ENOENT anywhere in the chain.
     async fn resolve_symlinks(&self, path: &str, depth: u32) -> Result<Option<String>> {
@@ -1098,6 +1197,19 @@ struct TypeTargetRow {
 struct R2RefRow {
     storage_backend: String,
     r2_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TypeRow {
+    r#type: String,
+}
+
+#[derive(Deserialize)]
+struct InfoRow {
+    files: i64,
+    dirs: i64,
+    total: i64,
+    r2files: i64,
 }
 
 // ── impl FileSystem ──────────────────────────────────────────────────
