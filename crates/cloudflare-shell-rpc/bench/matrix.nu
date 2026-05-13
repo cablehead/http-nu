@@ -1,8 +1,8 @@
 #!/usr/bin/env nu
 
 # Bench matrix orchestrator. Calls `bench/run.nu` once per (label, url,
-# path) row so REPORT.md shows the full JS-vs-Rust grid for the same
-# duration / connection count.
+# path) row so REPORT.local.md / REPORT.remote.md shows the full
+# JS-vs-Rust grid for the same duration / connection count.
 #
 # Doesn't spin up Workers -- assume `mise run cf:fs:up` is running.
 #
@@ -112,5 +112,5 @@ def main [
     sleep 1sec
   }
 
-  print $"✓ bench matrix done -- run `mise run cf:fs:bench:report` to render REPORT.md"
+  print $"✓ bench matrix done -- run `mise run cf:fs:bench:report` to render REPORT.local.md + REPORT.remote.md"
 }

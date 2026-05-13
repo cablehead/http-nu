@@ -15,7 +15,7 @@
 # mise wraps the common cases:
 #   mise run cf:fs:bench:local   # benches both demos against a known matrix
 #   mise run cf:fs:bench:remote  # same but live deploy
-#   mise run cf:fs:bench:report  # render REPORT.md
+#   mise run cf:fs:bench:report  # render REPORT.local.md + REPORT.remote.md
 #
 # Numbers to interpret:
 #  - Local: dev-mode wasm in workerd-on-Node; numbers reflect your

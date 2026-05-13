@@ -8,7 +8,7 @@
 #
 # Usage:
 #   nu crates/cloudflare-shell-rpc/bench/report.nu             # stdout
-#   nu crates/cloudflare-shell-rpc/bench/report.nu --save      # write REPORT.md
+#   nu crates/cloudflare-shell-rpc/bench/report.nu --save      # write REPORT.local.md + REPORT.remote.md
 
 def md-table [rows: list] {
   if ($rows | is-empty) {
@@ -195,21 +195,22 @@ def latest-sizes [script_dir: string] {
       }}
 }
 
-def main [
-  --save (-s)
-] {
-  let script_dir = ($env.FILE_PWD? | default ".")
-  let data_path = $"($script_dir)/results.nuon"
+# Classify a results.nuon row as local-dev (wrangler dev hitting
+# 127.0.0.1 / localhost) vs remote (deployed Worker on the real CF
+# edge). Used to split results into REPORT.local.md vs REPORT.remote.md.
+def is-local-row [row]: nothing -> bool {
+  ($row.target | str contains "127.0.0.1") or ($row.target | str contains "localhost")
+}
 
-  if not ($data_path | path exists) {
-    print $"✗ no results yet -- run `mise run cf:fs:bench:local` first"
-    exit 1
+# Render a single scope's report markdown. `scope` is "local" or
+# "remote" and drives the prose differences (dev banner on local, no
+# banner on remote, etc.). Deployment sizes are scope-agnostic so they
+# render into both files identically.
+def render-scope [rows: list, scope: string, sizes_rows: list]: nothing -> string {
+  if ($rows | is-empty) {
+    return $"# cloudflare-shell-rpc/bench -- ($scope) report\n\n_(no ($scope) results yet -- run `mise run cf:fs:bench:($scope)` to populate)_\n"
   }
-
-  let rows = open $data_path
   let total = ($rows | length)
-  let sizes_rows = (latest-sizes $script_dir)
-
   let latest = ($rows
     | group-by label
     | items {|k v| $v | sort-by when | last }
@@ -235,27 +236,30 @@ def main [
     | first 20)
 
   let when_latest = ($rows | sort-by when | last | get when)
-  # If any row's target is localhost, we're including dev numbers and
-  # the banner needs to be loud. Quoting these numbers as production
-  # is wrong -- wrangler dev runs unoptimised wasm in workerd-on-Node.
-  let has_local = ($rows | any {|r| ($r.target | str contains "127.0.0.1") or ($r.target | str contains "localhost") })
-  let dev_banner = if $has_local {
+  let title_suffix = if $scope == "local" { "(local)" } else { "(remote)" }
+  let banner = if $scope == "local" {
     "
 > ## ⚠️ DEV NUMBERS, NOT PRODUCTION
 >
-> Rows with targets at `127.0.0.1` come from `wrangler dev`: unoptimised
-> wasm, debug profile, hosted in workerd-on-Node. They are useful for
-> spotting **regressions** and JS-vs-Rust **relative** differences but
-> are **not** representative of production rps / latency on the real
-> Cloudflare edge. For prod numbers run `mise run cf:fs:bench:remote`
-> against a deployed Worker.
+> These rows come from `wrangler dev`: unoptimised wasm, debug profile,
+> hosted in workerd-on-Node. They are useful for spotting **regressions**
+> and JS-vs-Rust **relative** differences but are **not** representative
+> of production rps / latency. The deployed-Worker numbers live in
+> [`REPORT.remote.md`](./REPORT.remote.md).
 "
   } else {
-    ""
+    "
+> _Production rows -- requests against deployed Workers at_
+> `*.gedw99.workers.dev`. _For the dev-mode counterpart see_
+> [`REPORT.local.md`](./REPORT.local.md).
+"
   }
-  let header = $"# cloudflare-shell-rpc/bench -- results report
-($dev_banner)
-Auto-generated from `crates/cloudflare-shell-rpc/bench/results.nuon`. Regenerate via `mise run cf:fs:bench:report`.
+  let regen_cmd = if $scope == "local" { "mise run cf:fs:bench:local" } else { "mise run cf:fs:bench:remote" }
+  let regen_note = $"Regenerate this report with `($regen_cmd) && mise run cf:fs:bench:report`."
+
+  let header = $"# cloudflare-shell-rpc/bench -- ($title_suffix)
+($banner)
+Auto-generated from `crates/cloudflare-shell-rpc/bench/results.nuon`. ($regen_note)
 
 - Latest run captured: `($when_latest)`
 - Total runs recorded: ($total)
@@ -315,25 +319,7 @@ How each label performs across every run we've captured.
   let footer = "
 ---
 
-How to add more data:
-
-```bash
-# bring up the three Workers via pitchfork
-mise run cf:fs:up
-
-# benchmark a path against both demos
-mise run cf:fs:bench:local
-
-# regenerate this report
-mise run cf:fs:bench:report
-
-# tear down
-mise run cf:fs:down
-```
-
 Notes:
-- Local numbers reflect wrangler dev's unoptimised wasm in workerd-on-Node.
-  Not a production read.
 - The JS demo speaks JSON to the binding directly. The Rust demo goes
   through the typed `cloudflare-shell-rpc-client` wrapper (serde-wasm-bindgen
   encode/decode). The `rust_vs_js_pct` column isolates that overhead.
@@ -341,13 +327,40 @@ Notes:
 - The seed step runs once before each bench so GET /fs paths always read
   a file of the configured size.
 "
-  let report = $header + (md-table $latest) + $s_pairs + (md-table $pairs) + $s_analysis + "\n" + $s_sizes_header + $s_sizes_body + $s2 + (md-table $rolling) + $s3 + (md-table $history) + $footer
+  $header + (md-table $latest) + $s_pairs + (md-table $pairs) + $s_analysis + "\n" + $s_sizes_header + $s_sizes_body + $s2 + (md-table $rolling) + $s3 + (md-table $history) + $footer
+}
+
+def main [
+  --save (-s)
+] {
+  let script_dir = ($env.FILE_PWD? | default ".")
+  let data_path = $"($script_dir)/results.nuon"
+
+  if not ($data_path | path exists) {
+    print $"✗ no results yet -- run `mise run cf:fs:bench:local` first"
+    exit 1
+  }
+
+  let rows = open $data_path
+  let sizes_rows = (latest-sizes $script_dir)
+  let local_rows = ($rows | where {|r| is-local-row $r })
+  let remote_rows = ($rows | where {|r| not (is-local-row $r) })
+
+  let local_md = (render-scope $local_rows "local" $sizes_rows)
+  let remote_md = (render-scope $remote_rows "remote" $sizes_rows)
 
   if $save {
-    let out_path = $"($script_dir)/REPORT.md"
-    $report | save -f $out_path
-    print $"✓ wrote ($out_path)"
+    let local_out = ($script_dir | path join "REPORT.local.md")
+    let remote_out = ($script_dir | path join "REPORT.remote.md")
+    $local_md | save -f $local_out
+    $remote_md | save -f $remote_out
+    print $"✓ wrote ($local_out)"
+    print $"✓ wrote ($remote_out)"
   } else {
-    print $report
+    print "=== REPORT.local.md ==="
+    print $local_md
+    print ""
+    print "=== REPORT.remote.md ==="
+    print $remote_md
   }
 }

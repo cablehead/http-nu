@@ -7,11 +7,26 @@ locality with the things it measures.
 Hits a running demo Worker (JS on :8789 or Rust on :8790) with
 [`oha`](https://github.com/hatoo/oha); the demo forwards over the
 FS-RPC service binding to the server + DurableObject + R2 Workspace.
-Parses rps + latency, optionally appends to `results.nuon`.
+Parses rps + latency, appends to `results.nuon`. Sizes of the deployed
+bundle are tracked separately in `sizes.nuon`.
 
-Same shape as the top-level [`benchmarks/bench-cf/`](../../../benchmarks/bench-cf/)
-plus a JS-vs-Rust pairing in the report so you can see the typed
-Rust client's overhead vs. the JS-direct path.
+## Reports (rendered output)
+
+The report renders two files because **local-dev numbers and real-edge
+numbers belong in different conversations**:
+
+- [**`REPORT.remote.md`**](./REPORT.remote.md) -- production rows.
+  Deployed Workers on `*.gedw99.workers.dev` benched from your laptop.
+  These are the numbers to quote / cite. The full-matrix Three-tier
+  comparison (`server`, `js`, `rust` per op) shows the binding + RPC
+  cost and the typed-client cost in one place.
+- [**`REPORT.local.md`**](./REPORT.local.md) -- `wrangler dev` rows.
+  Useful for spotting regressions and watching JS-vs-Rust deltas while
+  iterating. The numbers themselves are dev-profile wasm in workerd-on-Node
+  and **not** representative of production rps / latency.
+
+Both reports embed the latest Deployment sizes table from `sizes.nuon`
+(unchanged between scopes -- the gzip-9 ceiling is the gzip-9 ceiling).
 
 ## Local (requires the Workers running)
 
@@ -19,14 +34,17 @@ Rust client's overhead vs. the JS-direct path.
 mise run cf:fs:up               # start server + demo-js + demo-rust
 mise run cf:fs:bench:local      # bench both demos against a fixed matrix
 mise run cf:fs:bench:sizes      # measure deployed bundle size per Worker
-mise run cf:fs:bench:report     # render REPORT.md
+mise run cf:fs:bench:report     # render REPORT.local.md + REPORT.remote.md
 mise run cf:fs:down             # tear down
 ```
 
 ## Remote (deployed Workers)
 
 ```bash
-mise run cf:fs:bench:remote     # LIVE_BASE_JS / LIVE_BASE_RUST override
+# SHELL_FS_TOKEN required for the server-direct rows when the deployed
+# server has SHELL_FS_TOKEN set as a Secret. Pull from fnox:
+SHELL_FS_TOKEN="$(fnox get SHELL_FS_TOKEN)" mise run cf:fs:bench:remote
+mise run cf:fs:bench:report
 ```
 
 ## Layout
@@ -41,8 +59,9 @@ mise run cf:fs:bench:remote     # LIVE_BASE_JS / LIVE_BASE_RUST override
   Writes one row per Worker to `sizes.nuon`. Wrapper:
   `mise run cf:fs:bench:sizes`. Tracks raw + gzip-9 + headroom against
   the 1 MB (self), 3 MB (free), 10 MB (paid) ceilings.
-- `report.nu` -- renders `results.nuon` + `sizes.nuon` into `REPORT.md`,
-  including the JS-vs-Rust delta column and the per-Worker size table.
+- `report.nu` -- splits `results.nuon` by target (localhost vs not)
+  and renders **both** `REPORT.local.md` and `REPORT.remote.md`. Each
+  embeds the same Deployment sizes section from `sizes.nuon`.
 
 ## Direct invocation
 
