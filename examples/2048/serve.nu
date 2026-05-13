@@ -233,14 +233,26 @@ def render-game []: record -> record {
   # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
   # fire a MutationObserver event and the RTT readout would never seed.
   # data-view tells the client which mode the current render is in.
-  (DIV {id: "game" style: $"--glow: ($glow);" "data-rev": (random uuid) "data-view": "game"}
+  # view-transition-name: per-mode so a game<->settings switch becomes an
+  # UNPAIRED pseudo (game->game stays paired and cross-fades as usual).
+  (DIV {
+    id: "game"
+    style: $"--glow: ($glow); view-transition-name: view-game;"
+    "data-rev": (random uuid)
+    "data-view": "game"
+  }
     (gear-button)
     ($state | render-status)
     (DIV {id: "board-wrap"} ($state | render-board)))
 }
 
 def render-settings []: nothing -> record {
-  (DIV {id: "game" "data-rev": (random uuid) "data-view": "settings"}
+  (DIV {
+    id: "game"
+    style: "view-transition-name: view-settings;"
+    "data-rev": (random uuid)
+    "data-view": "settings"
+  }
     (close-button)
     (DIV {id: "settings-panel"}
       (H2 "settings")
@@ -309,6 +321,8 @@ def render-current [mode: string]: record -> record {
         let new_s = if $kind == "start" {
           $s | upsert state $frame.meta.state
         } else if $kind == "view" {
+          # Ephemeral (ttl=ephemeral on append): only arrives live, never
+          # during replay -- so mode always resets to game on reconnect.
           $s | upsert mode ($frame.meta | get mode? | default "game")
         } else {
           let intent = $frame.meta | get intent? | default ""
@@ -348,13 +362,13 @@ def render-current [mode: string]: record -> record {
     })
 
     (route {method: POST path: "/view"} {|req ctx|
-      # Switch the per-tab view between "game" and "settings". The change is
-      # an event on the same log as moves; the SSE generator picks it up and
-      # re-renders #game accordingly.
+      # View changes go on the same per-tab topic as moves, but with
+      # ttl=ephemeral so they are NOT persisted -- only currently-connected
+      # subscribers receive them. Reconnecting always starts in game mode.
       let signals = $in | from datastar-signals $req
       let topic = $"game.($signals.tabId).move"
       let mode = $signals | get mode? | default "game"
-      null | .append $topic --meta {kind: "view" mode: $mode}
+      null | .append $topic --ttl ephemeral --meta {kind: "view" mode: $mode}
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 

@@ -301,6 +301,35 @@ body.flash-red { animation: flash-red 300ms ease; }
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* View-mode flip. Game and settings each have their own view-transition-name
+   so a switch produces UNPAIRED pseudos (the :only-child guard); same-name
+   renders (game move) stay paired and cross-fade. Old and new run SIMUL-
+   taneously across 180deg with backface-visibility:hidden, so each is only
+   visible during its front-facing half -- producing one continuous card-
+   flip illusion. perspective on the image-pair gives the rotation depth. */
+::view-transition-image-pair(view-game),
+::view-transition-image-pair(view-settings) {
+  perspective: 1200px;
+}
+::view-transition-old(view-game):only-child,
+::view-transition-old(view-settings):only-child {
+  animation: card-flip-out 1500ms ease-in-out forwards;
+  backface-visibility: hidden;
+}
+::view-transition-new(view-game):only-child,
+::view-transition-new(view-settings):only-child {
+  animation: card-flip-in 1500ms ease-in-out forwards;
+  backface-visibility: hidden;
+}
+@keyframes card-flip-out {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(180deg); }
+}
+@keyframes card-flip-in {
+  from { transform: rotateY(-180deg); }
+  to   { transform: rotateY(0deg); }
+}
+
 footer {
   font-size: 14px;
   align-self: stretch;
