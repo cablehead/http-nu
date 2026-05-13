@@ -24,13 +24,19 @@ silently. We have a `build.rs` guard that asserts each
 shim.js and `exit(1)`s on drift (build fails). Cost: one more file to
 maintain.
 
-**Revisit when:** `wasm-bindgen` PR
-[#4757](https://github.com/rustwasm/wasm-bindgen/pull/4757) lands and
-worker-rs adopts it. Then non-fetch exports get auto-env-injection
-and the custom shim becomes unnecessary. Plan: delete `shim.js`,
-delete `build.rs`, remove `CUSTOM_SHIM` from the `cf:fs:build` mise
-task, point `wrangler.toml`'s `main` at worker-build's default
-output, re-run smoke + bench, confirm zero behavior change.
+**Revisit when:** worker-rs releases a version that uses
+`wasm-bindgen` PR
+[#4757](https://github.com/rustwasm/wasm-bindgen/pull/4757)
+(**already merged upstream as of 2025-10-28**, and wasm-bindgen-cli
+0.2.100+ ships the feature). The remaining blocker is worker-rs
+itself: as of v0.8.3, `worker-build/src/main.rs:191` still carries
+the literal TODO "Switch these over to PR 4757". When the worker-rs
+release that flips that branch lands, non-fetch exports get
+auto-env-injection and the custom shim becomes unnecessary. Plan:
+delete `shim.js`, delete `build.rs`, remove `CUSTOM_SHIM` from the
+`cf:fs:build` mise task, point `wrangler.toml`'s `main` at
+worker-build's default output, re-run smoke + bench, confirm zero
+behavior change.
 
 ---
 

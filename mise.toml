@@ -223,14 +223,14 @@ fi
 description = "Run the http-nu Worker locally via wrangler dev (no auth needed). Uses CF_HANDLER_PATH from cf:build."
 depends = ["cf:build"]
 dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22" }
+tools = { "npm:wrangler" = "4.90", node = "22" }
 run = "wrangler dev"
 
 [tasks."cf:deploy"]
 description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN). Forces release-mode build via cf:build's CF_BUILD_MODE env."
 depends = ["cf:token-check"]
 dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
@@ -242,7 +242,7 @@ wrangler deploy
 description = "Live-tail logs from the deployed http-nu Worker (wrangler tail; requires CLOUDFLARE_API_TOKEN)"
 depends = ["cf:token-check"]
 dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
@@ -285,14 +285,14 @@ WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
 description = "Run cloudflare-shell-rpc locally via wrangler dev. Health check: curl http://127.0.0.1:8788/. RPC methods are only reachable via a service binding -- see cf:fs:demo:* tasks."
 depends = ["cf:fs:build"]
 dir = "{{config_root}}/crates/cloudflare-shell-rpc/server"
-tools = { "npm:wrangler" = "4", node = "22" }
+tools = { "npm:wrangler" = "4.90", node = "22" }
 run = "wrangler dev --port 8788"
 
 [tasks."cf:fs:deploy"]
 description = "Deploy cloudflare-shell-rpc to Cloudflare (requires CLOUDFLARE_API_TOKEN; pulls from fnox). Forces release-mode build."
 depends = ["cf:token-check"]
 dir = "{{config_root}}/crates/cloudflare-shell-rpc/server"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
@@ -304,7 +304,7 @@ wrangler deploy
 description = "Live-tail logs from the deployed cloudflare-shell-rpc Worker."
 depends = ["cf:token-check"]
 dir = "{{config_root}}/crates/cloudflare-shell-rpc/server"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
@@ -316,14 +316,14 @@ wrangler tail
 [tasks."cf:fs:demo:dev"]
 description = "Run the cloudflare-shell-rpc JS demo client locally via wrangler dev on :8789. The server (cf:fs:dev on :8788) must be running too -- service bindings resolve cross-process via wrangler's local dev registry. Smoke-test via cf:fs:smoke."
 dir = "{{config_root}}/crates/cloudflare-shell-rpc/demo-js"
-tools = { "npm:wrangler" = "4", node = "22" }
+tools = { "npm:wrangler" = "4.90", node = "22" }
 run = "wrangler dev --port 8789"
 
 [tasks."cf:fs:demo:deploy"]
 description = "Deploy the cloudflare-shell-rpc JS demo client. Requires the server to be deployed first (service binding resolution)."
 depends = ["cf:token-check"]
 dir = "{{config_root}}/crates/cloudflare-shell-rpc/demo-js"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
@@ -353,14 +353,14 @@ WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
 description = "Run the cloudflare-shell-rpc Rust demo Worker locally via wrangler dev on :8790. Server (cf:fs:dev :8788) must be running for service binding to resolve. Smoke-test via cf:fs:smoke:rust."
 depends = ["cf:fs:demo:rust:build"]
 dir = "{{config_root}}/crates/cloudflare-shell-rpc/demo-rust"
-tools = { "npm:wrangler" = "4", node = "22" }
+tools = { "npm:wrangler" = "4.90", node = "22" }
 run = "wrangler dev --port 8790"
 
 [tasks."cf:fs:demo:rust:deploy"]
 description = "Deploy the Rust demo Worker. Server must be deployed first."
 depends = ["cf:token-check"]
 dir = "{{config_root}}/crates/cloudflare-shell-rpc/demo-rust"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
@@ -374,7 +374,7 @@ wrangler deploy
 description = "Deploy all three Workers (server, demo-js, demo-rust) in dependency order, then push SHELL_FS_TOKEN to each as a wrangler secret if it's in fnox. Idempotent: re-running redeploys + refreshes secrets. The deploy order (server first, then demos, then secret-push to demos before server) avoids any window where consumers can't auth."
 depends = ["cf:token-check"]
 dir = "{{config_root}}"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 echo "─── 1/3 deploying server ───"
@@ -427,7 +427,7 @@ description = "Tear down the three deployed Workers (wrangler delete) -- DESTRUC
 depends = ["cf:token-check"]
 confirm = "Delete deployed Workers cloudflare-shell-rpc + demo-js + demo-rust? Worker code goes; R2 bucket data + DO contents survive."
 dir = "{{config_root}}"
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
 run = '''
 set -euo pipefail
 export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
