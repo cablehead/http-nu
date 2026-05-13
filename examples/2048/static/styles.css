@@ -144,6 +144,34 @@ button:active {
     --tilt-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
     --tilt-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1);
 }
+
+/* Keyboard anticipation: synthetic two-phase animation (attack -> spring-back
+   with overshoot) since there's no finger to drive --tilt-x continuously.
+   Total duration tracks RTT just like swipe-commit decay. */
+@keyframes key-lean-h {
+  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-x: 0px; }
+}
+@keyframes key-lean-l {
+  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-x: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-x: 0px; }
+}
+@keyframes key-lean-k {
+  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-y: 0px; }
+}
+@keyframes key-lean-j {
+  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-y: 0px; }
+}
+#board-wrap.key-h { animation: key-lean-h var(--decay-duration) both; }
+#board-wrap.key-l { animation: key-lean-l var(--decay-duration) both; }
+#board-wrap.key-k { animation: key-lean-k var(--decay-duration) both; }
+#board-wrap.key-j { animation: key-lean-j var(--decay-duration) both; }
 /* Edge glow: soft band of the accent color on whichever edge the gesture is
    heading toward. Alpha is driven by tilt magnitude so it ramps with the
    drag and bleeds off through the decay/snap animation. */

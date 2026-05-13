@@ -79,13 +79,26 @@ const keymap = {
 // Per-direction peak glow values for keyboard / programmatic moves. Magnitude
 // is well above the alpha-saturation threshold so the edge fully lights up.
 const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
+const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 addEventListener("keydown", (e) => {
   if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
   const intent = keymap[e.key] || (e.key === "r" ? "reset" : "");
   if (intent) {
     if (glowFor[intent]) {
       const [prop, val] = glowFor[intent];
-      document.querySelector("#board-wrap")?.style.setProperty(prop, `${val}px`);
+      const w = document.querySelector("#board-wrap");
+      w?.style.setProperty(prop, `${val}px`);
+      // Synthetic anticipation: restart the directional lean animation by
+      // clearing any prior key-* class, forcing a reflow, then adding the
+      // new one. animationend then cleans it up.
+      if (w) {
+        w.classList.remove(...keyClasses);
+        void w.offsetWidth;
+        w.classList.add(`key-${intent}`);
+        w.addEventListener("animationend", () => {
+          w.classList.remove(`key-${intent}`);
+        }, { once: true });
+      }
     }
     move(intent);
     e.preventDefault();
