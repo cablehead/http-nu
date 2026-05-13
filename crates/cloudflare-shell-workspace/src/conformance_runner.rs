@@ -41,9 +41,10 @@
 //! `wipe_root` between fns. It uses namespace `conformance` (valid
 //! per `VALID_NAMESPACE`) to keep its state segregated from real data.
 
+use futures_util::stream::{self, StreamExt};
 use worker::{Bucket, Response, Result, SqlStorage};
 
-use cloudflare_shell::conformance as suite;
+use cloudflare_shell::{conformance as suite, error::FsError, interface::MkdirOptions};
 
 use crate::Workspace;
 
@@ -88,7 +89,98 @@ pub async fn run_conformance(sql: SqlStorage, r2: Option<Bucket>) -> Result<Resp
     wipe(&ws).await?;
     suite::round_trip(&ws).await;
 
-    Response::ok("8 passed")
+    // Workspace-only: streams aren't on the FileSystem trait, so these
+    // tests live next to the impl (not in cloudflare-shell::conformance).
+    wipe(&ws).await?;
+    stream_round_trip(&ws).await;
+
+    wipe(&ws).await?;
+    write_stream_round_trip(&ws).await;
+
+    wipe(&ws).await?;
+    stream_read_enoent(&ws).await;
+
+    wipe(&ws).await?;
+    stream_read_eisdir(&ws).await;
+
+    wipe(&ws).await?;
+    streaming_writes_toggle_state(&ws).await;
+
+    Response::ok("13 passed")
+}
+
+/// `read_file_stream` round-trip via `write_file_bytes`. Drains the
+/// returned stream and re-assembles the original bytes.
+async fn stream_round_trip(ws: &Workspace) {
+    let payload: Vec<u8> = (0..256u32).map(|i| (i % 251) as u8).collect();
+    ws.write_file_bytes("/stream-rt.bin", &payload, Some("application/octet-stream"))
+        .await
+        .unwrap();
+    let mut s = ws
+        .read_file_stream("/stream-rt.bin")
+        .await
+        .unwrap()
+        .expect("read_file_stream missing for known path");
+    let mut got: Vec<u8> = Vec::new();
+    while let Some(chunk) = s.next().await {
+        got.extend_from_slice(&chunk.unwrap());
+    }
+    assert_eq!(got, payload);
+}
+
+/// `write_file_stream` round-trip via `read_file_bytes`. Feeds a
+/// multi-chunk stream and verifies the file holds the concatenated bytes.
+async fn write_stream_round_trip(ws: &Workspace) {
+    let chunks: Vec<std::result::Result<Vec<u8>, FsError>> = vec![
+        Ok(b"chunk-1 ".to_vec()),
+        Ok(b"chunk-2 ".to_vec()),
+        Ok(b"chunk-3".to_vec()),
+    ];
+    let s = stream::iter(chunks);
+    ws.write_file_stream("/stream-wr.txt", s, Some("text/plain"))
+        .await
+        .unwrap();
+    let got = ws
+        .read_file_bytes("/stream-wr.txt")
+        .await
+        .unwrap()
+        .expect("write_file_stream did not persist file");
+    assert_eq!(got, b"chunk-1 chunk-2 chunk-3");
+}
+
+/// `read_file_stream` on a missing path returns `Ok(None)` (matches the
+/// crate-wide ENOENT deviation).
+async fn stream_read_enoent(ws: &Workspace) {
+    let r = ws.read_file_stream("/no-such-stream").await.unwrap();
+    assert!(r.is_none(), "expected Ok(None) on ENOENT");
+}
+
+/// `read_file_stream` on a directory returns `Err(IsDir)` (matches
+/// `read_file_bytes` on a dir).
+async fn stream_read_eisdir(ws: &Workspace) {
+    ws.mkdir("/stream-dir", MkdirOptions::default())
+        .await
+        .unwrap();
+    // `dyn Stream` isn't `Debug`, so summarise the variant by hand
+    // instead of `{:?}`-printing the whole `Result`.
+    match ws.read_file_stream("/stream-dir").await {
+        Err(FsError::IsDir(_)) => {}
+        Err(e) => panic!("expected EISDIR on read_file_stream of dir, got error: {e}"),
+        Ok(None) => panic!("expected EISDIR on read_file_stream of dir, got Ok(None)"),
+        Ok(Some(_)) => panic!("expected EISDIR on read_file_stream of dir, got Ok(Some(<stream>))"),
+    }
+}
+
+/// Toggle round-trip. Verifies the public getter mirrors the setter --
+/// the EFBIG cap behavior itself isn't exercised here (would require
+/// allocating > `MAX_STREAM_SIZE` = 100 MB inside the wasm conformance
+/// harness). Behavior is documented + asserted by code review.
+async fn streaming_writes_toggle_state(ws: &Workspace) {
+    assert!(!ws.streaming_writes(), "default must be OFF");
+    ws.set_streaming_writes(true);
+    assert!(ws.streaming_writes(), "setter ON must be observable");
+    ws.set_streaming_writes(false);
+    assert!(!ws.streaming_writes(), "setter OFF must be observable");
 }
 
 async fn wipe(ws: &Workspace) -> Result<()> {

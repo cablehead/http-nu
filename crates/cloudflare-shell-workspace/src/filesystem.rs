@@ -23,6 +23,9 @@
 //!     wrap in their own adapter.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use futures_util::stream::{self, Stream, StreamExt};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use worker::{Bucket, SqlStorage};
 
 use cloudflare_shell::{
@@ -30,13 +33,18 @@ use cloudflare_shell::{
     interface::{
         CpOptions, DirEntry, EntryType, FileSystem, MkdirOptions, OnChange, RmOptions, Stat,
         WorkspaceChangeEvent, WorkspaceChangeType, DEFAULT_BYTES_MIME, DEFAULT_TEXT_MIME,
-        MAX_PATH_LENGTH, MAX_SYMLINK_DEPTH,
+        MAX_PATH_LENGTH, MAX_STREAM_SIZE, MAX_SYMLINK_DEPTH,
     },
     path_utils::{normalize, normalize_path, parent_path, path_name},
     Result,
 };
 
 use crate::schema;
+
+/// Stream of file content chunks. Returned by
+/// [`Workspace::read_file_stream`]. Items are owned `Vec<u8>` chunks so
+/// the inline-bytes and R2-spilled paths share one item type.
+pub type ReadStream = Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Unpin>>;
 
 /// R2 spill threshold. Files larger than this go to R2; smaller stay
 /// inline in the SQL row. Matches `@cloudflare/shell`'s
@@ -65,6 +73,9 @@ pub struct Workspace {
     /// Wrapped in `Mutex` so `set_on_change` can take `&self`, letting
     /// the conformance harness call it through a `&F` reference.
     on_change: std::sync::Mutex<Option<OnChange>>,
+    /// Port-only: forward-compat toggle for `write_file_stream`'s
+    /// large-upload path. See `set_streaming_writes`.
+    streaming_writes: AtomicBool,
 }
 
 /// Upstream: filesystem.ts:189 `const VALID_NAMESPACE = /^[a-zA-Z][a-zA-Z0-9_]*$/`.
@@ -116,6 +127,7 @@ impl Workspace {
             namespace: namespace.to_string(),
             r2_prefix,
             on_change: std::sync::Mutex::new(None),
+            streaming_writes: AtomicBool::new(false),
         };
         ws.bootstrap()?;
         Ok(ws)
@@ -150,6 +162,32 @@ impl Workspace {
     /// `namespace` explicitly via `WorkspaceOptions`).
     pub fn default(sql: SqlStorage, r2: Option<Bucket>) -> Result<Self> {
         Self::new(sql, r2, schema::DEFAULT_NAMESPACE)
+    }
+
+    /// Port-only: forward-compat toggle for the large-upload code path of
+    /// `write_file_stream`.
+    ///
+    /// - **OFF (default).** `write_file_stream` follows upstream
+    ///   (filesystem.ts:907) byte-for-byte: drain the stream into a
+    ///   `Vec<u8>`, error `EFBIG` past `MAX_STREAM_SIZE` (100 MB), then
+    ///   delegate to `write_file_bytes`. Safe on Workers up to roughly
+    ///   half the isolate memory ceiling.
+    /// - **ON.** Cap is lifted; the stream is still buffered today, but
+    ///   the contract is forward-compatible: a future change will swap
+    ///   the buffered path for R2 multipart upload (chunk into 5 MB
+    ///   parts, pipe each into `Bucket::create_multipart_upload`,
+    ///   `upload_part`, `complete`). Memory peak then drops to one part.
+    ///   Until that change lands, treat ON as "I am sure I have memory
+    ///   headroom for this upload."
+    ///
+    /// Toggling between calls is fine; the value is read atomically.
+    pub fn set_streaming_writes(&self, enabled: bool) {
+        self.streaming_writes.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Port-only: current state of the [`set_streaming_writes`] toggle.
+    pub fn streaming_writes(&self) -> bool {
+        self.streaming_writes.load(Ordering::Relaxed)
     }
 
     fn bootstrap(&self) -> Result<()> {
@@ -295,6 +333,73 @@ impl Workspace {
         Ok(Some(bytes))
     }
 
+    /// Upstream: filesystem.ts:851 `readFileStream()`.
+    ///
+    /// Returns a `Stream<Item = Result<Vec<u8>>>`. The R2-spilled path
+    /// proxies `Object::body().stream()` so bytes are not buffered. The
+    /// inline path yields the row's content as a single chunk -- matches
+    /// upstream's `new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); }})`.
+    ///
+    /// `Ok(None)` on ENOENT (deviation: upstream returns `null` -> same
+    /// shape). `EISDIR` on a directory. ENOENT for an R2 row whose key
+    /// has been deleted out from under us collapses to `Ok(None)` as
+    /// well (matches upstream's empty-stream emit at filesystem.ts:887).
+    pub async fn read_file_stream(&self, path: &str) -> Result<Option<ReadStream>> {
+        let p = normalize_path(path)?;
+        let Some(resolved) = self.resolve_symlinks(&p, 0).await? else {
+            return Ok(None);
+        };
+        let cursor = self.sql.exec(
+            &format!(
+                "SELECT type, storage_backend, content_encoding, content, r2_key \
+                 FROM {} WHERE path = ? LIMIT 1",
+                self.table
+            ),
+            Some(vec![resolved.clone().into()]),
+        )?;
+        let row = match cursor.next::<FileRow>().next() {
+            Some(Ok(r)) => r,
+            Some(Err(e)) => return Err(e.into()),
+            None => return Ok(None),
+        };
+        if row.r#type != "file" {
+            return Err(FsError::IsDir(format!("{resolved} is a {}", row.r#type)));
+        }
+        if row.storage_backend == "r2" {
+            let Some(r2) = &self.r2 else {
+                return Err(FsError::Io(format!(
+                    "readFileStream {resolved} is R2-backed but no R2 bucket bound"
+                )));
+            };
+            let Some(key) = row.r2_key else {
+                return Err(FsError::Io(format!(
+                    "readFileStream {resolved} storage_backend=r2 but r2_key is NULL"
+                )));
+            };
+            let obj = match r2.get(&key).execute().await? {
+                Some(o) => o,
+                None => return Ok(None),
+            };
+            let Some(body) = obj.body() else {
+                return Ok(None);
+            };
+            let bs = body.stream()?.map(|chunk| chunk.map_err(FsError::from));
+            return Ok(Some(Box::pin(bs)));
+        }
+        let content = row.content.unwrap_or_default();
+        let bytes: Vec<u8> = if row.content_encoding == "base64" {
+            B64.decode(content.as_bytes())
+                .map_err(|e| FsError::InvalidEncoding(format!("base64 decode: {e}")))?
+        } else {
+            content.into_bytes()
+        };
+        // `stream::iter` is Unpin (unlike `stream::once`, which wraps a
+        // future) -- a one-shot Vec is enough to mirror upstream's
+        // `enqueue(bytes); close();` shape.
+        let once: ReadStream = Box::pin(stream::iter(std::iter::once(Ok(bytes))));
+        Ok(Some(once))
+    }
+
     /// Upstream: filesystem.ts:729 `writeFile(path, content, mimeType = "text/plain")`.
     /// `mime_type = None` defaults to `text/plain`, matching upstream.
     pub async fn write_file(
@@ -326,6 +431,43 @@ impl Workspace {
         } else {
             self.write_inner(path, content, "base64", mime).await
         }
+    }
+
+    /// Upstream: filesystem.ts:907 `writeFileStream()`.
+    ///
+    /// Drain the stream into a `Vec<u8>` and delegate to
+    /// [`write_file_bytes`](Self::write_file_bytes). Matches upstream's
+    /// collect-then-write shape (the TS version buffers chunks then calls
+    /// `writeFileBytes`).
+    ///
+    /// The `EFBIG` cap (`MAX_STREAM_SIZE`, 100 MB) is gated on
+    /// [`streaming_writes`](Self::streaming_writes):
+    /// - OFF (default): enforce the cap. Faithful to upstream.
+    /// - ON: cap is lifted; caller is responsible for memory headroom.
+    ///   Forward-compatible with the future multipart-upload streaming
+    ///   path -- see [`set_streaming_writes`](Self::set_streaming_writes).
+    pub async fn write_file_stream<S>(
+        &self,
+        path: &str,
+        stream: S,
+        mime_type: Option<&str>,
+    ) -> Result<()>
+    where
+        S: Stream<Item = Result<Vec<u8>>> + Unpin,
+    {
+        let cap_enforced = !self.streaming_writes();
+        let mut buf: Vec<u8> = Vec::new();
+        let mut s = stream;
+        while let Some(chunk) = s.next().await {
+            let chunk = chunk?;
+            if cap_enforced && buf.len() + chunk.len() > MAX_STREAM_SIZE {
+                return Err(FsError::NoSpace(format!(
+                    "writeFileStream stream exceeds maximum size of {MAX_STREAM_SIZE} bytes"
+                )));
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        self.write_file_bytes(path, &buf, mime_type).await
     }
 
     /// Upstream: filesystem.ts:938 `appendFile()`.

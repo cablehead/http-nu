@@ -49,35 +49,36 @@ here. Line numbers are anchors for side-by-side review.
 
 | Method (TS / Rust)                            | TS L | Rust L | Status / deviation                                              |
 |-----------------------------------------------|------|--------|-----------------------------------------------------------------|
-| `constructor` / `new`                         | 237  | 110    | done. Takes `(sql, r2, namespace)` instead of `WorkspaceOptions`; option bag pared back. Mirrors upstream's `VALID_NAMESPACE` (filesystem.ts:189) -- rejects anything not matching `/^[a-zA-Z][a-zA-Z0-9_]*$/`. Required: the namespace lands in `format!("cf_workspace_{ns}")` inline in SQL DDL/queries (SqlStorage can't parameterise table names), so this validation is the only line of defence against namespace-as-injection. |
-| -- / `is_valid_namespace`                     | 189  | (helper) | port-only helper. Iterative ASCII check (no `regex` dep). Tests: `valid_namespaces_accepted`, `invalid_namespaces_rejected`. |
-| -- / `default`                                | -    | 144    | port-only convenience; uses `DEFAULT_NAMESPACE = "default"`.    |
-| `exists`                                      | 1028 | 153    | done.                                                           |
+| `constructor` / `new`                         | 237  | 102    | done. Takes `(sql, r2, namespace)` instead of `WorkspaceOptions`; option bag pared back. Mirrors upstream's `VALID_NAMESPACE` (filesystem.ts:189) -- rejects anything not matching `/^[a-zA-Z][a-zA-Z0-9_]*$/`. Required: the namespace lands in `format!("cf_workspace_{ns}")` inline in SQL DDL/queries (SqlStorage can't parameterise table names), so this validation is the only line of defence against namespace-as-injection. |
+| -- / `is_valid_namespace`                     | 189  | 80     | port-only helper. Iterative ASCII check (no `regex` dep). Tests: `valid_namespaces_accepted`, `invalid_namespaces_rejected`. |
+| -- / `default`                                | -    | 151    | port-only convenience; uses `DEFAULT_NAMESPACE = "default"`.    |
+| `exists`                                      | 1028 | 179    | done.                                                           |
 | `fileExists`                                  | 1017 | -      | not ported. Use `exists` + `stat`.                              |
-| `stat`                                        | 500  | 164    | done. Returns `Ok(None)` on ENOENT (TS: `Promise<FileStat \| null>`). |
-| `lstat`                                       | 475  | 173    | done. Same `Ok(None)` semantics.                                |
-| `readFile`                                    | 526  | 198    | done. EISDIR on dir; ENOENT -> `Ok(None)`.                      |
-| `readFileBytes`                               | 569  | 208    | done. R2 spill resolved transparently. EISDIR on dir.           |
-| `readFileStream`                              | 851  | -      | not ported. Would need worker-rs streaming body bridge.         |
-| `writeFile`                                   | 729  | 258    | done. Signature: `(path, content, mime_type: Option<&str>)`. None -> `'text/plain'`. EISDIR on root. |
-| `writeFileBytes`                              | 611  | 262    | done. R2 spill at 1.5MB. `mime_type: Option<&str>`. None -> `'application/octet-stream'`. EISDIR on root. |
-| `writeFileStream`                             | 907  | -      | not ported (pair with `readFileStream`).                        |
-| `appendFile`                                  | 938  | 273    | done. Preserves existing `mime_type`.                           |
+| `stat`                                        | 500  | 191    | done. Returns `Ok(None)` on ENOENT (TS: `Promise<FileStat \| null>`). |
+| `lstat`                                       | 475  | 202    | done. Same `Ok(None)` semantics.                                |
+| `readFile`                                    | 526  | 229    | done. EISDIR on dir; ENOENT -> `Ok(None)`.                      |
+| `readFileBytes`                               | 569  | 241    | done. R2 spill resolved transparently. EISDIR on dir.           |
+| `readFileStream`                              | 851  | 347    | done. R2 path proxies `ObjectBody::stream()` (workers-rs `ByteStream`); inline path wraps bytes in `stream::iter(once)` (Unpin-friendly, mirrors upstream's `enqueue + close`). EISDIR on dir; ENOENT -> `Ok(None)`. Return type `Option<ReadStream>` alias = `Pin<Box<dyn Stream<Item = Result<Vec<u8>>> + Unpin>>`. |
+| `writeFile`                                   | 729  | 300    | done. Signature: `(path, content, mime_type: Option<&str>)`. None -> `'text/plain'`. EISDIR on root. |
+| `writeFileBytes`                              | 611  | 314    | done. R2 spill at 1.5MB. `mime_type: Option<&str>`. None -> `'application/octet-stream'`. EISDIR on root. |
+| `writeFileStream`                             | 907  | 449    | done (faithful). Drain stream into `Vec<u8>`, error `EFBIG` past `MAX_STREAM_SIZE` (100 MB), delegate to `write_file_bytes`. Stream-shaped in, single-shot out -- see "Behavioral parity" note. Cap is gated on the [`set_streaming_writes`](#workspace-method-level-mapping) toggle (OFF default = cap enforced; ON = cap lifted, forward-compat hook for the future multipart path). |
+| -- / `set_streaming_writes` + `streaming_writes` | -    | 184 / 191 | port-only forward-compat toggle. OFF (default) keeps `write_file_stream` byte-faithful to upstream (cap enforced, collect-then-write). ON lifts the cap; the actual streaming-into-R2 path (R2 multipart upload, 5 MB parts) is the planned follow-up -- callers using ON today will benefit transparently when that lands. See "Intentional deviations". |
+| `appendFile`                                  | 938  | 335    | done. Preserves existing `mime_type`.                           |
 | `deleteFile`                                  | 990  | -      | not ported. Use `rm` (covers files and dirs).                   |
-| `readDir`                                     | 1041 | 365    | done. Names only.                                               |
-| -- / `read_dir_with_file_types`               | -    | 372    | port-only. TS `readDir` returns `FileInfo[]`; we split for ergonomics. |
-| `glob`                                        | 1071 | 656    | done.                                                           |
-| `mkdir`                                       | 1100 | 401    | done. `MkdirOptions { recursive }` matches TS.                  |
-| `rm`                                          | 1164 | 461    | done. `RmOptions { recursive, force }` matches TS.              |
-| `cp`                                          | 1221 | 538    | done. Preserves source `mime_type`. `CpOptions { recursive }` matches TS.    |
-| `mv`                                          | 1264 | 574    | done.                                                           |
-| `symlink`                                     | 415  | 602    | done. `MAX_SYMLINK_DEPTH = 40` matches.                         |
-| `readlink`                                    | 460  | 634    | done.                                                           |
-| -- / `realpath`                               | -    | 650    | port-only public helper; TS resolves inline.                    |
+| `readDir`                                     | 1041 | 471    | done. Names only.                                               |
+| -- / `read_dir_with_file_types`               | -    | 481    | port-only. TS `readDir` returns `FileInfo[]`; we split for ergonomics. |
+| `glob`                                        | 1071 | 813    | done.                                                           |
+| `mkdir`                                       | 1100 | 513    | done. `MkdirOptions { recursive }` matches TS.                  |
+| `rm`                                          | 1164 | 588    | done. `RmOptions { recursive, force }` matches TS.              |
+| `cp`                                          | 1221 | 675    | done. Preserves source `mime_type`. `CpOptions { recursive }` matches TS.    |
+| `mv`                                          | 1264 | 717    | done.                                                           |
+| `symlink`                                     | 415  | 748    | done. `MAX_SYMLINK_DEPTH = 40` matches.                         |
+| `readlink`                                    | 460  | 785    | done.                                                           |
+| -- / `realpath`                               | -    | 805    | port-only public helper; TS resolves inline.                    |
 | `diff`                                        | 1370 | -      | not ported (Agents-SDK structured editing).                     |
 | `diffContent`                                 | 1390 | -      | not ported.                                                     |
 | `getWorkspaceInfo`                            | 1406 | -      | not ported (metadata helper).                                   |
-| `onChange` (option callback, emitted at L312) | 108  | `set_on_change` + private `emit` | done. Setter is `set_on_change(&mut self, cb: OnChange)` rather than a constructor option -- callback type is `Arc<dyn Fn(WorkspaceChangeEvent) + Send + Sync>`. Emit sites wired into `write_inner` (Create/Update), `insert_dir` (Create on real insert), `symlink` (always Create), `rm_single` (Delete after DELETE). `cp` / `mv` / `append_file` inherit emits transitively. |
+| `onChange` (option callback, emitted at L312) | 108  | `set_on_change` + private `emit` | done. Setter is `set_on_change(&self, cb: OnChange)` (interior mutability via `Mutex`) rather than a constructor option -- callback type is `Arc<dyn Fn(WorkspaceChangeEvent) + Send + Sync>`. Emit sites wired into `write_inner` (Create/Update), `insert_dir` (Create on real insert), `symlink` (always Create), `rm_single` (Delete after DELETE). `cp` / `mv` / `append_file` inherit emits transitively. |
 | `SqlBackend.query` / `.run` (raw SQL)         | 38/42| -      | not ported as `Workspace` methods; callers use `worker::SqlStorage` directly. |
 
 ## Type-level mapping
@@ -170,9 +171,30 @@ review doesn't have to re-derive them from the code:
   sync-bridge. D1 path is a future variant.
 - **`onChange` is a post-construction setter, not a constructor option.**
   Upstream `WorkspaceOptions.onChange` is passed at construction;
-  `set_on_change(&mut self, cb)` is functionally equivalent (the
+  `set_on_change(&self, cb)` is functionally equivalent (the
   callback is per-instance state, fired after the same mutations) but
   fits a Rust call site that doesn't have a builder-style options bag.
+  The `&self` signature uses interior mutability (`Mutex<Option<OnChange>>`)
+  so callers don't need a `&mut Workspace` after construction.
+- **`BufferEncoding` parameter is not surfaced on the API.** Upstream's
+  `readFile`/`writeFile`/etc. accept an optional `encoding`
+  (`"utf8" | "base64" | "hex" | "binary" | "latin1"`); see
+  `fs/encoding.ts` (92 lines, not ported). We expose `read_file ->
+  Option<String>` (UTF-8) and `read_file_bytes -> Option<Vec<u8>>`
+  separately; callers do the base64/hex conversion at the boundary.
+  **Not a compliance gap** -- the bytes on disk are identical; this is
+  an API-surface deviation. Anyone porting JS callers needs to handle
+  the conversion themselves (`base64`/`hex` crates on the Rust side).
+- **`set_streaming_writes` toggle (port-only).** Gates
+  `write_file_stream`'s cap. Upstream has no equivalent because
+  upstream's `writeFileStream` *always* buffers and *always* enforces
+  the 100 MB cap. The toggle exists so we can flip on a future
+  streaming-into-R2 implementation (R2 multipart upload, ~5 MB peak
+  memory) without an API break. **Today:** OFF preserves upstream
+  parity; ON lifts the cap but still buffers (caller takes on the
+  memory risk). **Future:** ON will switch to multipart upload; callers
+  who already have ON will benefit transparently. Documented in the
+  method-level table next to `writeFileStream`.
 - **`realpath` exposed publicly.** Upstream resolves symlinks inline
   inside methods that need it; we surface a public helper because
   callers (e.g. `SnapshotVfs`) want the resolved path directly.
@@ -217,9 +239,14 @@ for it without modification.
 
 ## Next port targets (ranked)
 
-1. **`readFileStream` / `writeFileStream`** -- streaming I/O on top of
-   `worker::Response::from_stream`. Pair with eventual `.static` Range
-   support.
+1. **Stream-into-R2 path for `write_file_stream` (toggle ON).** Today
+   ON only lifts the EFBIG cap -- bytes still land in a `Vec<u8>`
+   before reaching R2. The actual memory win comes from switching to
+   R2 multipart upload: `Bucket::create_multipart_upload`, then
+   `upload_part` per 5 MB chunk, then `complete`. Peak memory drops to
+   one part (~5 MB) regardless of total upload size. Already plumbed
+   behind the `streaming_writes` toggle so callers don't change when
+   this lands.
 2. **`git/` (3 files)** -- isomorphic-git fs adapter. Either bridge
    isomorphic-git via `wasm_bindgen` or port the bits we need to
    `gitoxide`. Days of work; only when we actually want `git pull`

@@ -24,3 +24,4 @@ cloudflare-shell = { version = "0.1.0", path = "../cloudflare-shell", features =
 worker.workspace = true
 serde.workspace = true
 base64.workspace = true
+futures-util.workspace = true

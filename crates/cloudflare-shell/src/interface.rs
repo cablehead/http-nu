@@ -130,6 +130,15 @@ pub const SYMLINK_MODE: u32 = 0o777;
 pub const DEFAULT_TEXT_MIME: &str = "text/plain";
 pub const DEFAULT_BYTES_MIME: &str = "application/octet-stream";
 
+/// Upstream: filesystem.ts:191 `const MAX_STREAM_SIZE = 100 * 1024 * 1024`.
+/// Maximum stream size accepted by `Workspace::write_file_stream` in the
+/// default (faithful) mode. The faithful path buffers every chunk in
+/// memory before delegating to `write_file_bytes`, so this cap is what
+/// prevents a runaway producer from OOM-ing the isolate. Practical Workers
+/// memory ceiling (128 MB) means real-world callers will hit allocation
+/// pressure well before reaching this constant.
+pub const MAX_STREAM_SIZE: usize = 100 * 1024 * 1024;
+
 // ── The trait ────────────────────────────────────────────────────────
 
 /// Upstream: fs/interface.ts:52 `interface FileSystem`.
