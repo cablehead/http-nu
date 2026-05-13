@@ -83,7 +83,9 @@ const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 addEventListener("keydown", (e) => {
   if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
   if (document.getElementById("game")?.dataset.view !== "game") return;  // settings shown
-  const dir = keymap[e.key];
+  // Shift+letter sends uppercase ("H"), so fall back to the lowercased key.
+  // Arrow keys aren't affected (e.key is "ArrowLeft" regardless of Shift).
+  const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
   const intent = dir || (e.key === "r" ? "reset" : "");
   if (intent) {
     if (glowFor[intent]) {
