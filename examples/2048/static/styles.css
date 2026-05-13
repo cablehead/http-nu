@@ -1,0 +1,347 @@
+/* Register the tilt vars as lengths so they themselves can be transitioned --
+   gradient alpha and tile transform then animate in lockstep. */
+@property --tilt-x {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --tilt-y {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+/* Edge glow is driven separately from tile lean: glow stays at peak through
+   the commit decay and fades naturally via view-transition cross-fade when
+   the SSE patch lands. Cancel transitions both in sync. */
+@property --glow-x {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+@property --glow-y {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+/* All-sides pulse alpha (0..1) for the reconnect flash. */
+@property --pulse {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+:root {
+  --bg: #faf8ef;
+  --fg: #776e65;
+  --tile: #eee4da;
+  --accent: #f59563;
+  --accent-hover: #f67c5f;
+  --accent-press: #d97a45;
+  --brand: #0077b6;
+  --brand-hover: #005a8a;
+  --light: #f9f6f2;
+  --board-size: 460px;
+  --gap: 8px;
+  --radius: 4px;
+  --decay-duration: 500ms;
+  --glow: #fffdc2;
+  --board-scale: min(
+    calc((100dvw - 24px) / var(--board-size)),
+    calc((100dvh - 210px) / var(--board-size)),
+    1
+  );
+}
+
+* { box-sizing: border-box; margin: 0; }
+
+html, body {
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Stop iOS/Android from inflating text on narrow viewports, which would
+     scale up em-sized children (like the footer mascot) unexpectedly. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  gap: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: sans-serif;
+}
+
+h1 { font-size: clamp(24px, 6vmin, 40px); }
+h1 a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--brand);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+h1 a:hover { text-decoration-color: var(--brand-hover); }
+p  { font-size: 14px; }
+
+kbd {
+  background: var(--tile);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+button {
+  background: var(--accent);
+  color: var(--light);
+  border: 0;
+  padding: 4px 14px;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 2px 0 var(--accent-press);
+  transition: background 120ms, transform 80ms, box-shadow 80ms;
+}
+button:hover { background: var(--accent-hover); }
+button:active {
+  background: var(--accent-press);
+  transform: translateY(2px);
+  box-shadow: none;
+}
+
+#game, .column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap);
+}
+.column { width: calc(var(--board-size) * var(--board-scale)); }
+
+/* The gear / close button overlays the #game container's top-right corner.
+   Server renders the right icon for the current mode (gear in game, close
+   in settings). */
+#game { position: relative; }
+.settings-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.settings-toggle:hover { background: rgba(0, 0, 0, 0.05); }
+.settings-toggle:active { background: rgba(0, 0, 0, 0.12); transform: none; }
+
+#settings-panel {
+  width: calc(var(--board-size) * var(--board-scale));
+  min-height: calc(var(--board-size) * var(--board-scale));
+  background: var(--tile);
+  border-radius: 6px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--fg);
+}
+
+#board-wrap {
+  position: relative;
+  width: calc(var(--board-size) * var(--board-scale));
+  height: calc(var(--board-size) * var(--board-scale));
+  overflow: hidden;
+}
+/* Animate --tilt-x / --tilt-y themselves; the tile transform and the edge
+   glow then interpolate together rather than one snapping while the other
+   eases. Requires the @property registrations at the top of this file. */
+#board-wrap.snap {
+  transition:
+    --tilt-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    --tilt-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    --glow-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    --glow-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* decay transitions tilt only; glow holds at peak until view-transition fades it. */
+#board-wrap.decay {
+  transition:
+    --tilt-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
+    --tilt-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1);
+}
+
+/* Keyboard anticipation: synthetic two-phase animation (attack -> spring-back
+   with overshoot) since there's no finger to drive --tilt-x continuously.
+   Total duration tracks RTT just like swipe-commit decay. */
+@keyframes key-lean-h {
+  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-x: 0px; }
+}
+@keyframes key-lean-l {
+  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-x: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-x: 0px; }
+}
+@keyframes key-lean-k {
+  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-y: 0px; }
+}
+@keyframes key-lean-j {
+  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-y: 0px; }
+}
+#board-wrap.key-h { animation: key-lean-h var(--decay-duration) both; }
+#board-wrap.key-l { animation: key-lean-l var(--decay-duration) both; }
+#board-wrap.key-k { animation: key-lean-k var(--decay-duration) both; }
+#board-wrap.key-j { animation: key-lean-j var(--decay-duration) both; }
+/* Edge glow: soft band of the accent color on whichever edge the gesture is
+   heading toward. Alpha is driven by tilt magnitude so it ramps with the
+   drag and bleeds off through the decay/snap animation. */
+#board-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 6px;
+  background:
+    /* Directional glow driven by --glow-x / --glow-y (one side at a time). */
+    linear-gradient(to left,   rgb(from var(--glow) r g b / max(0, calc(var(--glow-x) / 8px))),      transparent 1.25%),
+    linear-gradient(to right,  rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-x) / 8px))), transparent 1.25%),
+    linear-gradient(to top,    rgb(from var(--glow) r g b / max(0, calc(var(--glow-y) / 8px))),      transparent 1.25%),
+    linear-gradient(to bottom, rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-y) / 8px))), transparent 1.25%),
+    /* All-sides reconnect pulse driven by --pulse. */
+    linear-gradient(to left,   rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
+    linear-gradient(to right,  rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
+    linear-gradient(to top,    rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
+    linear-gradient(to bottom, rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%);
+}
+
+/* Disconnected: fade the board, disable the reset button. Keyboard input
+   is gated in script.js; pointer input is gated by pointer-events:none. */
+body[data-conn="down"] #board-wrap {
+  opacity: 0.35;
+  pointer-events: none;
+}
+body[data-conn="down"] button {
+  opacity: 0.4;
+  pointer-events: none;
+}
+#board-wrap, button { transition: opacity 320ms ease; }
+
+/* Reconnect: a brief all-sides glow flash. */
+body.reconnect-pulse { animation: reconnect-pulse 600ms ease-out; }
+@keyframes reconnect-pulse {
+  0%   { --pulse: 0; }
+  20%  { --pulse: 1; }
+  100% { --pulse: 0; }
+}
+
+/* Failed-move flash: brief red wash across the whole page. */
+body.flash-red { animation: flash-red 300ms ease; }
+@keyframes flash-red {
+  0%, 100% { background: var(--bg); }
+  50%      { background: #e05252; }
+}
+
+#board {
+  touch-action: none;
+  transform: scale(var(--board-scale));
+  transform-origin: top left;
+}
+/* Lean the value tiles (not the empty background cells) during a swipe.
+   Divide by scale so the lean reads as viewport pixels at any board scale. */
+#board > .tile {
+  transform: translate(
+    calc(var(--tilt-x) / var(--board-scale)),
+    calc(var(--tilt-y) / var(--board-scale))
+  );
+}
+
+/* Tight viewports (landscape phones): hide the hint, give more to the board. */
+@media (max-height: 600px) {
+  :root {
+    --board-scale: min(
+      calc((100dvw - 24px) / var(--board-size)),
+      calc((100dvh - 110px) / var(--board-size)),
+      1
+    );
+  }
+  p.hint { display: none; }
+  h1 { font-size: 20px; }
+}
+
+::view-transition-group(*) {
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* :only-child fires when there's no paired old pseudo -- a fresh tile. */
+::view-transition-new(*):only-child {
+  animation: tile-spawn 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes tile-spawn {
+  0%   { transform: scale(0.2); opacity: 0; }
+  60%  { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+footer {
+  font-size: 14px;
+  align-self: stretch;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+footer #rtt { font-variant-numeric: tabular-nums; opacity: 0.7; }
+footer .status, footer .credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+footer .mascot {
+  width: 27px;
+  height: 14px;
+  max-width: 27px;
+  max-height: 14px;
+  object-fit: contain;
+  vertical-align: -2px;
+}
+footer #conn {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-press);  /* default: down */
+  transition: background 200ms;
+}
+body[data-conn="ok"] footer #conn { background: #2a9d4a; }
+footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--light);
+  background: var(--brand);
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: background 120ms;
+}
+footer a:hover { background: var(--brand-hover); }

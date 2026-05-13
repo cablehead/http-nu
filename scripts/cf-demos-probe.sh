@@ -18,7 +18,6 @@ DEMOS=(
   datastar-counter
   datastar-sdk
   datastar-sdk-test
-  generate-test
   mermaid-editor
   templates
   quotes

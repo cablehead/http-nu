@@ -7,6 +7,9 @@
 #   - stor      : `stor *` family unported to wasm
 #   - templates : `.append` cross-stream not ported
 #   - quotes    : `.last --follow` cross-stream not ported
+#   - 2048      : `.append` (cross-stream backend in upstream serve.nu).
+#                 Local-bus variant `2048-animation` also blocked
+#                 (`.bus pub/sub` not yet ported to wasm).
 #   - tao       : top-level `let slides = open data.json` -- needs
 #                 assets seeded BEFORE the hub parses. Use the
 #                 standalone task `mise run ex:cf:tao` + `DEMO=tao
@@ -14,7 +17,7 @@
 #   - cargo-docs: same -- standalone via `mise run ex:cf:cargo-docs`
 #                 + `mise run cf:seed:cargo-docs`.
 #
-# Track xs ports in src/cf/nu/nu_command/xs/PLAN.md.
+# Track xs / bus port in src/cf/nu/nu_command/xs/PLAN.md.
 #
 # Run on CF: mise run cf:dev:hub
 # Bundler:   scripts/bundle-cf-handler.nu (inlines `source X.nu`).
@@ -27,8 +30,6 @@ let counter = source datastar-counter/serve.nu
 let sdk = source datastar-sdk/serve.nu
 let mermaid = source mermaid-editor/serve.nu
 let blog = source blog/serve.nu
-let game_2048 = source 2048/serve.nu
-let generate_test = source generate-test/serve.nu
 let sdk_test = source datastar-sdk-test/serve.nu
 
 def example-link [href: string label: string desc: string] {
@@ -50,16 +51,14 @@ li { margin: 0.5rem 0; }
     (H1 "http-nu examples (CF)")
     (P "Demos verified on local wrangler dev + Cloudflare Workers.")
     (UL
-    (example-link "./basic/" "basic" "minimal routes, JSON. AVOID /basic/time -- sleep is a no-op on CF, the generate loop will spin until the worker dies")
+    (example-link "./basic/" "basic" "minimal routes, JSON (AVOID /basic/time: sleep is no-op on CF, generate-loop dies)")
     (example-link "./datastar-counter/" "datastar-counter" "reactive counter")
     (example-link "./datastar-sdk/" "datastar-sdk" "SDK feature demo")
     (example-link "./datastar-sdk-test/" "datastar-sdk-test" "SDK test runner (POST /test)")
-    (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
-    (example-link "./generate-test/" "generate-test" "stock `generate` exercise")
-    (example-link "./blog/" "blog" "routing, layouts, HTML composition")
-    (example-link "./2048/" "2048" "solo 2048 (home only; gameplay needs .bus sub)"))
+    (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor (seed: DEMO=mermaid-editor mise run cf:seed:demo)")
+    (example-link "./blog/" "blog" "routing, layouts, HTML composition"))
     (P {class: "skipped"} "Standalone-only (need pre-seeded assets): tao, cargo-docs. Run via mise run ex:cf:tao or ex:cf:cargo-docs.")
-    (P {class: "skipped"} "Blocked on xs/stor port (see src/cf/nu/nu_command/xs/PLAN.md): stor, templates, quotes."))
+    (P {class: "skipped"} "Blocked on cross-stream / bus / stor port (see src/cf/nu/nu_command/xs/PLAN.md): 2048, 2048-animation, stor, templates, quotes."))
   })
 
   (mount "/basic" $basic)
@@ -67,9 +66,7 @@ li { margin: 0.5rem 0; }
   (mount "/datastar-sdk" $sdk)
   (mount "/datastar-sdk-test" $sdk_test)
   (mount "/mermaid-editor" $mermaid)
-  (mount "/generate-test" $generate_test)
   (mount "/blog" $blog)
-  (mount "/2048" $game_2048)
 ]
 
 {|req|

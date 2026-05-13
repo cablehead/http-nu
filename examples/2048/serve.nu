@@ -3,6 +3,7 @@ use http-nu/datastar *
 use http-nu/html *
 
 const SCRIPT_DIR = path self | path dirname
+const STATIC_DIR = $SCRIPT_DIR | path join "static"
 
 # 2048 over the Local Bus, with View Transition tile slides.
 #
@@ -10,29 +11,38 @@ const SCRIPT_DIR = path self | path dirname
 # tile keeps a stable identity across moves. Render emits each tile as an
 # absolutely-positioned div with `view-transition-name: tile-<id>`. When the
 # board re-renders, the browser pairs old and new snapshots by name and
-# animates the position interpolation for free, giving the classic "tiles
-# slide in the direction of motion" feel.
+# animates the position interpolation for free.
 
 # --- game logic -----------------------------------------------------------
 
 def initial-state []: nothing -> record {
-  let s0 = {tiles: [] next_id: 1 score: 0 game_over: false}
-  $s0 | spawn-tile | spawn-tile
+  let s1 = fresh-spawn-seeds
+  let s2 = fresh-spawn-seeds
+  {tiles: [] next_id: 1 score: 0 game_over: false}
+  | spawn-tile $s1.idx $s1.value
+  | spawn-tile $s2.idx $s2.value
 }
 
-# Drop a 2 (90%) or 4 (10%) into a random empty cell. Assigns a fresh id.
-def spawn-tile []: record -> record {
+# Drop a 2 (90%) or 4 (10%) into an empty cell, picking via the supplied
+# seeds. Seeds are generated at POST time and recorded in the move frame so
+# that replay reproduces the exact same board.
+def spawn-tile [idx_seed: int, value_seed: int]: record -> record {
   let s = $in
   let occupied = $s.tiles | each {|t| {r: $t.r c: $t.c} }
   let empties = 0..3 | each {|r|
       0..3 | each {|c| {r: $r c: $c} }
     } | flatten | where {|cell| $cell not-in $occupied }
   if ($empties | is-empty) { return $s }
-  let pick = $empties | get (random int 0..(($empties | length) - 1))
-  let value = if (random int 0..9) == 0 { 4 } else { 2 }
+  let pick = $empties | get ($idx_seed mod ($empties | length))
+  let value = if ($value_seed == 0) { 4 } else { 2 }
   $s
   | update tiles { append {id: $s.next_id r: $pick.r c: $pick.c value: $value} }
   | update next_id { $in + 1 }
+}
+
+# Helper for callers that just want fresh randomness (route /, /move).
+def fresh-spawn-seeds []: nothing -> record {
+  {idx: (random int 0..999999), value: (random int 0..9)}
 }
 
 # Slide one row left, preserving tile identity. When two adjacent tiles merge,
@@ -67,7 +77,10 @@ def slide-row-tiles [row_idx: int]: list -> record {
 def slide-tiles-left []: list -> record {
   let tiles = $in
   let rows = 0..3 | each {|r| $tiles | slide-row-tiles $r }
-  {tiles: ($rows | each {|r| $r.tiles } | flatten) score: ($rows | each {|r| $r.score } | math sum)}
+  {
+    tiles: ($rows | each {|r| $r.tiles } | flatten)
+    score: ($rows | each {|r| $r.score } | math sum)
+  }
 }
 
 # Reflect tiles over the vertical axis (c -> 3 - c).
@@ -75,11 +88,13 @@ def reflect-cols []: list -> list {
   $in | each {|t| $t | upsert c (3 - $t.c) }
 }
 
-# Swap r and c (transpose tiles over the diagonal).
+# Swap r and c (transpose over the diagonal).
 def transpose-tiles []: list -> list {
   $in | each {|t| $t | upsert r $t.c | upsert c $t.r }
 }
 
+# All four directions reuse `slide-tiles-left` by reflecting/transposing in
+# and back out -- so the merge logic lives in exactly one place.
 def slide-tiles [dir: string]: list -> record {
   let tiles = $in
   match $dir {
@@ -108,14 +123,14 @@ def is-game-over []: record -> bool {
   let s = $in
   if ($s.tiles | length) < 16 { return false }
   let mergeable = $s.tiles | any {|t|
-      let right_match = $t.c < 3 and ($s.tiles | where r == $t.r and c == ($t.c + 1) | first | get value) == $t.value
-      let down_match = $t.r < 3 and ($s.tiles | where r == ($t.r + 1) and c == $t.c | first | get value) == $t.value
-      $right_match or $down_match
+      let right = $t.c < 3 and ($s.tiles | where r == $t.r and c == ($t.c + 1) | first | get value) == $t.value
+      let down = $t.r < 3 and ($s.tiles | where r == ($t.r + 1) and c == $t.c | first | get value) == $t.value
+      $right or $down
     }
   not $mergeable
 }
 
-def apply-move [dir: string]: record -> record {
+def apply-move [dir: string, idx_seed: int, value_seed: int]: record -> record {
   let s = $in
   if $s.game_over { return $s }
   let r = $s.tiles | slide-tiles $dir
@@ -123,7 +138,7 @@ def apply-move [dir: string]: record -> record {
   let with_tile = ($s
   | update tiles { $r.tiles }
   | update score { $in + $r.score }
-  | spawn-tile)
+  | spawn-tile $idx_seed $value_seed)
   $with_tile | update game_over { $with_tile | is-game-over }
 }
 
@@ -151,60 +166,38 @@ const PAD = 15
 # inner = 4*CELL + 3*GAP = 430, total = inner + 2*PAD = 460
 const TOTAL = 460
 
-def cell-pos [n: int]: nothing -> int {
-  $PAD + $n * ($CELL + $GAP)
-}
+def cell-pos [n: int]: nothing -> int { $PAD + $n * ($CELL + $GAP) }
 
 def render-tile []: record -> record {
   let t = $in
-  (DIV {
-    style: {
-      position: absolute
-      left: $"(cell-pos $t.c)px"
-      top: $"(cell-pos $t.r)px"
-      width: $"($CELL)px"
-      height: $"($CELL)px"
-      display: flex
-      align-items: center
-      justify-content: center
-      background-color: (color-for $t.value)
-      color: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
-      font-size: (if $t.value >= 1024 { "24px" } else if $t.value >= 128 { "28px" } else { "32px" })
-      font-weight: "bold"
-      border-radius: "4px"
-      view-transition-name: $"tile-($t.id)"
-    }
-  } ($t.value | into string))
+  (DIV {class: "tile" style: {
+    position: absolute  left: $"(cell-pos $t.c)px"  top: $"(cell-pos $t.r)px"
+    width: $"($CELL)px"  height: $"($CELL)px"
+    display: flex  align-items: center  justify-content: center
+    background-color: (color-for $t.value)
+    color: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
+    font-size: (if $t.value >= 1024 { "24px" } else if $t.value >= 128 { "28px" } else { "32px" })
+    font-weight: "bold"  border-radius: "4px"
+    view-transition-name: $"tile-($t.id)"
+  }} ($t.value | into string))
 }
 
 def render-empty-cell [r: int c: int]: nothing -> record {
-  (DIV {
-    style: {
-      position: absolute
-      left: $"(cell-pos $c)px"
-      top: $"(cell-pos $r)px"
-      width: $"($CELL)px"
-      height: $"($CELL)px"
-      background: "#cdc1b4"
-      border-radius: "4px"
-    }
-  } "")
+  (DIV {style: {
+    position: absolute  left: $"(cell-pos $c)px"  top: $"(cell-pos $r)px"
+    width: $"($CELL)px"  height: $"($CELL)px"
+    background: "#cdc1b4"  border-radius: "4px"
+  }} "")
 }
 
 def render-board []: record -> record {
   let state = $in
   let bg = 0..3 | each {|r| 0..3 | each {|c| render-empty-cell $r $c } } | flatten
   let tiles = $state.tiles | each {|t| $t | render-tile }
-  (DIV {
-    id: "board"
-    style: {
-      position: relative
-      width: $"($TOTAL)px"
-      height: $"($TOTAL)px"
-      background: "#bbada0"
-      border-radius: "6px"
-    }
-  } $bg $tiles)
+  (DIV {id: "board" style: {
+    position: relative  width: $"($TOTAL)px"  height: $"($TOTAL)px"
+    background: "#bbada0"  border-radius: "6px"
+  }} $bg $tiles)
 }
 
 def render-status []: record -> record {
@@ -221,9 +214,48 @@ def render-status []: record -> record {
   } ([(SPAN $"Score: ($state.score)")] | append $tail))
 }
 
+def gear-button []: nothing -> record {
+  (BUTTON {class: "settings-toggle" type: "button" aria-label: "settings" "data-view-to": "settings"}
+    (ICONIFY "material-symbols:settings-outline-rounded" {width: "20" height: "20"}))
+}
+
+def close-button []: nothing -> record {
+  (BUTTON {class: "settings-toggle" type: "button" aria-label: "close" "data-view-to": "game"}
+    (ICONIFY "material-symbols:close-rounded" {width: "20" height: "20"}))
+}
+
 def render-game []: record -> record {
   let state = $in
-  (DIV {id: "game"} ($state | render-status) ($state | render-board))
+  # The edge-glow color rides the highest-value tile, pushed as an inline
+  # CSS variable so it cascades to #board-wrap and the ::after pseudo.
+  let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
+  # data-rev forces a unique attribute per render so datastar's morph always
+  # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
+  # fire a MutationObserver event and the RTT readout would never seed.
+  # data-view tells the client which mode the current render is in.
+  (DIV {id: "game" style: $"--glow: ($glow);" "data-rev": (random uuid) "data-view": "game"}
+    (gear-button)
+    ($state | render-status)
+    (DIV {id: "board-wrap"} ($state | render-board)))
+}
+
+def render-settings []: nothing -> record {
+  (DIV {id: "game" "data-rev": (random uuid) "data-view": "settings"}
+    (close-button)
+    (DIV {id: "settings-panel"}
+      (H2 "settings")
+      (P "more knobs soon.")))
+}
+
+# Pick the right render based on the per-tab mode. Same #game id either way
+# so datastar morphs the swap as a single replacement.
+def render-current [mode: string]: record -> record {
+  let state = $in
+  if $mode == "settings" {
+    render-settings
+  } else {
+    $state | render-game
+  }
 }
 
 # --- routes ---------------------------------------------------------------
@@ -231,60 +263,111 @@ def render-game []: record -> record {
 {|req|
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
+      # Append the move (with pre-computed spawn seeds so replay is
+      # deterministic) to the per-tab event log. Reset writes a fresh start
+      # frame so the log "rebases" from a new initial state.
       let signals = $in | from datastar-signals $req
-      let latency = $signals | get latency? | default 0
-      if $latency > 0 {
-        sleep ($latency * 1ms)
-      }
       let topic = $"game.($signals.tabId).move"
-      {intent: ($signals.intent? | default "")} | .bus pub $topic
+      let intent = $signals | get intent? | default ""
+      if $intent == "reset" {
+        null | .append $topic --meta {kind: "start" state: (initial-state)}
+      } else {
+        let seeds = fresh-spawn-seeds
+        null | .append $topic --meta {
+          intent: $intent
+          spawn_idx: $seeds.idx
+          spawn_value: $seeds.value
+        }
+      }
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: GET path: "/sse"} {|req ctx|
+      # Event-sourced game state. The per-tab topic carries (a) a single
+      # "start" frame seeded by route / and (b) a sequence of move frames
+      # written by POST /move. On every (re)connect we replay the whole log
+      # to build the current state, gated by xs.threshold so we don't push
+      # a flood of intermediate renders -- only the final post-replay state
+      # is sent, followed by per-move live patches.
       let signals = "" | from datastar-signals $req
       let tab_id = $signals | get tabId? | default "anon"
-      let pattern = $"game.($tab_id).*"
+      let topic = $"game.($tab_id).move"
 
-      # Each SSE event carries the full game state, base64-encoded, in its
-      # `id` field. The browser sends the last seen id back as
-      # `Last-Event-ID` on reconnect, so we can resume mid-game without any
-      # server-side persistence. Falls back to a fresh game if the header is
-      # absent or unparseable.
-      let init = try {
-        $req.headers | get last-event-id | decode base64 | decode utf-8 | from json
-      } catch {
-        initial-state
-      }
-
-      .bus sub $pattern
-      | prepend {topic: "init" value: {init: true}}
-      | generate {|impulse state|
-        let v = $impulse.value
-        let intent = $v | get intent? | default ""
-        let new_state = if ($v | get init? | default false) {
-          $state
-        } else if $intent == "reset" {
-          initial-state
-        } else if $intent != "" {
-          $state | apply-move $intent
+      .cat --follow
+      | where {|f| $f.topic == $topic or $f.topic == "xs.threshold"}
+      | generate {|frame s|
+        if $frame.topic == "xs.threshold" {
+          if $s.live {
+            return {next: $s}
+          }
+          return {
+            out: ($s.state | render-current $s.mode | to datastar-patch-elements --use-view-transition --id $frame.id)
+            next: ($s | upsert live true)
+          }
+        }
+        let kind = $frame.meta | get kind? | default "move"
+        let new_s = if $kind == "start" {
+          $s | upsert state $frame.meta.state
+        } else if $kind == "view" {
+          $s | upsert mode ($frame.meta | get mode? | default "game")
         } else {
-          $state
+          let intent = $frame.meta | get intent? | default ""
+          let idx = $frame.meta | get spawn_idx? | default 0
+          let val = $frame.meta | get spawn_value? | default 0
+          if $intent in [h j k l] {
+            $s | upsert state ($s.state | apply-move $intent $idx $val)
+          } else {
+            $s
+          }
         }
-        let id = $new_state | to json -r | encode base64
-        {
-          out: ($new_state | render-game | to datastar-patch-elements --use-view-transition --id $id)
-          next: $new_state
+        if $s.live {
+          return {
+            out: ($new_s.state | render-current $new_s.mode | to datastar-patch-elements --use-view-transition --id $frame.id)
+            next: $new_s
+          }
         }
-      } $init
+        {next: $new_s}
+      } {state: (initial-state), mode: "game", live: false}
       | to sse
+    })
+
+    (route {method: GET path: "/script.js"} {|req ctx|
+      .static $STATIC_DIR "/script.js"
+    })
+
+    (route {method: GET path: "/styles.css"} {|req ctx|
+      .static $STATIC_DIR "/styles.css"
+    })
+
+    (route {method: GET path: "/ellie.png"} {|req ctx|
+      .static $STATIC_DIR "/ellie.png"
     })
 
     (route {method: GET path: "/og.png"} {|req ctx|
       .static $SCRIPT_DIR "/og.png"
     })
 
+    (route {method: POST path: "/view"} {|req ctx|
+      # Switch the per-tab view between "game" and "settings". The change is
+      # an event on the same log as moves; the SSE generator picks it up and
+      # re-renders #game accordingly.
+      let signals = $in | from datastar-signals $req
+      let topic = $"game.($signals.tabId).move"
+      let mode = $signals | get mode? | default "game"
+      null | .append $topic --meta {kind: "view" mode: $mode}
+      null | metadata set { merge {'http.response': {status: 204}} }
+    })
+
     (route {method: GET path: "/"} {|req ctx|
+      let tab_id = random uuid
+      # Seed a "start" frame: the canonical initial state for this tab. Every
+      # subsequent /sse replays this plus the move log to recompute state, so
+      # the random tile placements are captured once and reproduced faithfully.
+      let initial = initial-state
+      null | .append $"game.($tab_id).move" --meta {kind: "start" state: $initial}
+      # Render the same state as a placeholder so the page is full-height
+      # before the first SSE patch lands (avoiding a layout jump).
+      let placeholder = $initial | render-game
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
@@ -293,151 +376,63 @@ def render-game []: record -> record {
       (HTML
       (HEAD
       (META {charset: "utf-8"})
+      (META {name: "viewport" content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"})
       (LINK {rel: "icon" href: "data:,"})
       (TITLE "2048 -- http-nu .bus demo")
       (META {property: "og:type" content: "website"})
-      (META {property: "og:title" content: "2048 over the http-nu Local Bus"})
-      (META {
-        property: "og:description"
-        content: "Solo-tab 2048 driven by .bus pub/sub with view-transition tile slides."
-      })
+      (META {property: "og:title" content: "2048.nu"})
+      (META {property: "og:description" content: "Solo-tab 2048 driven by .bus pub/sub with view-transition tile slides."})
       (META {property: "og:image" content: $og_image})
       (META {name: "twitter:card" content: "summary_large_image"})
       (META {name: "twitter:image" content: $og_image})
-      (STYLE {
-        __html: "
-            /* --- animation dials. tweak live in devtools to taste --- */
-            :root {
-              --lead-scale: 0.94;       /* how much tiles contract on press   */
-              --lead-offset: 9px;       /* how far they drift in press dir    */
-              --lead-duration: 1000ms;  /* breath loop while waiting          */
-              --slide-duration: 280ms;  /* view-transition (tile slide) time  */
-              --spawn-duration: 360ms;  /* new-tile pop duration              */
-              --spawn-from: 0.2;        /* new-tile starting scale            */
-              --spawn-overshoot: 1.25;  /* new-tile peak scale before settle  */
-            }
-            * { box-sizing: border-box; margin: 0; }
-            body { display: flex; flex-direction: column; align-items: center;
-                   padding: 32px; gap: 20px;
-                   background: #faf8ef; color: #776e65; font-family: sans-serif; }
-            aside { width: 460px; padding: 16px 20px;
-                    background: #eee4da; border-radius: 8px; font-size: 14px; }
-            aside hr { border: 0; border-top: 1px solid #d8cfc4; margin: 14px 0; }
-            aside dl { display: grid; grid-template-columns: auto 1fr;
-                       gap: 10px 14px; align-items: center; }
-            aside dd { display: flex; gap: 10px; align-items: center;
-                       font-variant-numeric: tabular-nums; }
-            aside dd input[type=range] { flex: 1; accent-color: #f59563; }
-            aside dt { font-weight: 600; }
-            article { width: 460px; font-size: 15px; line-height: 1.55; }
-            article p + p { margin-top: 0.8em; }
-            article strong { color: #5a4f43; }
-            kbd { background: #faf8ef; padding: 1px 6px; border-radius: 3px;
-                  font-family: inherit; font-size: 13px; }
-            #board > div:not(:empty) { transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1); }
-            #board.pending > div:not(:empty) { animation: pending-breathe var(--lead-duration) ease-in-out infinite; }
-            #board.pending.dir-h > div:not(:empty) { animation: lean-h var(--lead-duration) ease-in-out infinite; }
-            #board.pending.dir-l > div:not(:empty) { animation: lean-l var(--lead-duration) ease-in-out infinite; }
-            #board.pending.dir-k > div:not(:empty) { animation: lean-k var(--lead-duration) ease-in-out infinite; }
-            #board.pending.dir-j > div:not(:empty) { animation: lean-j var(--lead-duration) ease-in-out infinite; }
-            @keyframes pending-breathe {
-              0%, 100% { transform: scale(var(--lead-scale)); }
-              50%      { transform: scale(calc(var(--lead-scale) - 0.04)); }
-            }
-            @keyframes lean-h {
-              0%, 100% { transform: scale(var(--lead-scale)) translateX(0); }
-              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateX(calc(-1 * var(--lead-offset))); }
-            }
-            @keyframes lean-l {
-              0%, 100% { transform: scale(var(--lead-scale)) translateX(0); }
-              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateX(var(--lead-offset)); }
-            }
-            @keyframes lean-k {
-              0%, 100% { transform: scale(var(--lead-scale)) translateY(0); }
-              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateY(calc(-1 * var(--lead-offset))); }
-            }
-            @keyframes lean-j {
-              0%, 100% { transform: scale(var(--lead-scale)) translateY(0); }
-              50%      { transform: scale(calc(var(--lead-scale) - 0.02)) translateY(var(--lead-offset)); }
-            }
-            ::view-transition-group(*) {
-              animation-duration: var(--slide-duration);
-              animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
-            }
-            /* Unpaired new pseudos -- truly new elements -- get a pop-in.
-               :only-child fires when no ::view-transition-old(name) sibling
-               exists, i.e. there's no old counterpart to slide from. */
-            ::view-transition-new(*):only-child {
-              animation: tile-spawn var(--spawn-duration) cubic-bezier(0.34, 1.56, 0.64, 1);
-            }
-            @keyframes tile-spawn {
-              0%   { transform: scale(var(--spawn-from)); opacity: 0; }
-              60%  { transform: scale(var(--spawn-overshoot)); opacity: 1; }
-              100% { transform: scale(1); opacity: 1; }
-            }
-          "
-      })
-      (SCRIPT {type: "module" src: $DATASTAR_JS_PATH}))
+      (LINK {rel: "stylesheet" href: ($req | href "/styles.css")})
+      (SCRIPT-ICONIFY)
+      (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
+      (SCRIPT {src: ($req | href "/script.js") defer: true}))
       (BODY {
-        "data-signals": "{tabId: crypto.randomUUID(), latency: 0, leadScale: 0.94, leadOffset: 9, leadDuration: 1000}"
-        "data-style:--lead-scale": "$leadScale"
-        "data-style:--lead-offset": "$leadOffset + 'px'"
-        "data-style:--lead-duration": "$leadDuration + 'ms'"
-        "data-on:keydown__window": ("
-            const m = {h:'h', ArrowLeft:'h', j:'j', ArrowDown:'j', k:'k', ArrowUp:'k', l:'l', ArrowRight:'l'};
-            const intent = m[evt.key] || (evt.key === 'r' ? 'reset' : '');
-            if (intent) {
-              const board = document.getElementById('board');
-              ['dir-h','dir-j','dir-k','dir-l'].forEach(c => board.classList.remove(c));
-              board.classList.add('pending');
-              if (m[evt.key]) board.classList.add('dir-' + intent);
-              const t0 = performance.now();
-              fetch('" + ($req | href "/move") + "', {
-                method: 'POST',
-                headers: {'content-type': 'application/json'},
-                body: JSON.stringify({tabId: $tabId, intent, latency: $latency}),
-              }).then(() => {
-                document.getElementById('rtt').textContent = Math.round(performance.now() - t0) + 'ms';
-              });
-              evt.preventDefault();
-            }
-          ")
+        # tabId is generated server-side per page load so datastar's @get URL
+        # and the input handlers in script.js share one id.
+        "data-tab-id": $tab_id
+        "data-move-url": ($req | href "/move")
+        "data-view-url": ($req | href "/view")
+        "data-signals": $"{tabId: '($tab_id)'}"
+        # Mirror datastar's $connected signal (set by data-indicator on #game)
+        # into a data-attr CSS can react to.
+        "data-attr:data-conn": "$connected ? 'ok' : 'down'"
       }
-      (H1 "2048")
-      (DIV {id: "game" "data-init": ("@get('" + ($req | href "/sse") + "')")} "")
-      (ASIDE
-      (P "Move with " (KBD "h j k l") " or arrows. " (KBD "r") " resets.")
-      (HR)
-      (DL
-      (DT "Latency")
-      (DD
-      (INPUT {type: "range" min: "0" max: "1000" step: "10" value: "0" "data-bind:latency": true})
-      (OUTPUT {"data-text": "$latency + 'ms'"} "0ms"))
-      (DT "RTT")
-      (DD (OUTPUT {id: "rtt"} "0ms"))
-      (DT "Contract")
-      (DD
-      (INPUT {type: "range" min: "0.5" max: "1" step: "0.01" value: "0.94" "data-bind:lead-scale": true})
-      (OUTPUT {"data-text": "$leadScale"} "0.94"))
-      (DT "Drift")
-      (DD
-      (INPUT {type: "range" min: "0" max: "30" step: "1" value: "9" "data-bind:lead-offset": true})
-      (OUTPUT {"data-text": "$leadOffset + 'px'"} "9px"))
-      (DT "Breath")
-      (DD
-      (INPUT {type: "range" min: "200" max: "2000" step: "50" value: "1000" "data-bind:lead-duration": true})
-      (OUTPUT {"data-text": "$leadDuration + 'ms'"} "1000ms"))))
-      (ARTICLE
-      (P "Each keypress fires a fetch to http-nu, which publishes through "
-      "an in-process pub/sub bus; a long-lived SSE connection picks the "
-      "message up and patches the board.")
-      (P (STRONG "Latency") " adds server-side sleep; "
-      (STRONG "RTT") " is the round-trip you actually experienced.")
-      (P "While the wait runs, tiles squeeze and lean toward the press "
-      "direction. "
-      (STRONG "Contract") " sets the squeeze depth, "
-      (STRONG "Drift") " how far they lean, "
-      (STRONG "Breath") " the cycle period."))))
+      (H1 (A {
+        href: "https://github.com/cablehead/http-nu/blob/main/examples/2048/serve.nu"
+      } "2048.nu"))
+      (P {class: "hint"}
+        "Letter or arrow keys "
+        (KBD "h \u{2190}") " "
+        (KBD "j \u{2193}") " "
+        (KBD "k \u{2191}") " "
+        (KBD "l \u{2192}")
+        ", or swipe. Reset: "
+        (BUTTON {type: "button"} "r"))
+      # data-init and data-indicator live on .column (which is never patched)
+      # so the SSE fetch + connection signal survive the wholesale replacement
+      # of #game's contents on every server patch.
+      (DIV {
+        class: "column"
+        # data-indicator MUST come before data-init so the signal exists when
+        # the fetch fires.
+        "data-indicator": "connected"
+        "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always'})")
+      }
+        # #game is the single view; SSE patches morph it between the game
+        # board render and the settings panel render based on per-tab mode
+        # in the event log.
+        $placeholder
+        (FOOTER
+          (SPAN {class: "status"}
+            (SPAN {id: "conn" title: "SSE connection"})
+            (SPAN {id: "rtt"} "\u{2014}ms"))
+          (SPAN {class: "credit"}
+            (A {href: "https://http-nu.cross.stream"}
+              "served by http-nu "
+              (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))))
     })
   ]
 }

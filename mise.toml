@@ -329,11 +329,6 @@ description = "examples/stor on CF -- in-memory SQLite via stor commands (NOT wa
 dir = "{{config_root}}"
 run = "CF_HANDLER_PATH=../../examples/stor.nu mise run cf:dev"
 
-[tasks."ex:cf:generate-test"]
-description = "examples/generate-test on CF -- exercise of the `generate` command"
-dir = "{{config_root}}"
-run = "CF_HANDLER_PATH=../../examples/generate-test/serve.nu mise run cf:dev"
-
 [tasks."ex:cf:datastar-sdk-test"]
 description = "examples/datastar-sdk-test on CF -- Datastar SDK test runner"
 dir = "{{config_root}}"
@@ -341,25 +336,23 @@ run = "CF_HANDLER_PATH=../../examples/datastar-sdk-test/serve.nu mise run cf:dev
 
 
 # ============================================================================
-# CF hub -- ALL desktop demos under one wrangler dev
+# CF hub -- wasm-clean desktop demos under one wrangler dev
 # ============================================================================
-# Mirror of the desktop `ex:hub` flow on Workers. ONE worker bundle, ONE
-# wrangler dev, all demos under `/demos/<demo-name>/...`.
-#
-# Demo assets (templates, static files, .nu sub-scripts) need to be in the
-# Workspace before requests hit them -- that's what `cf:seed` does.
+# CF analogue of the desktop `ex:hub` flow. One worker bundle, one wrangler
+# dev, all wasm-clean demos under /<demo-name>/...  Default DO unless URL
+# uses /u/<user>/  (see CLOUDFLARE.md routing).
 #
 # Iteration loop:
-#   mise run cf:dev:hub      # one terminal -- ~45s first build, then live
-#   mise run cf:seed         # other terminal -- ~2s to upload all assets
-#   # iterate; re-seed only when assets change (Nu script changes hot-reload)
+#   mise run cf:dev:hub          # terminal 1 -- ~30s first build, then live
+#   mise run cf:rebuild:hub      # terminal 2 -- ~5-15s incremental, wrangler hot-reloads
+#   DEMO=mermaid-editor mise run cf:seed:demo    # for asset-dependent demos
 #
-# Known limitations today:
-# - `source X.nu` in the hub is resolved at parse time by nu-parser; on wasm
-#   that has no fs, so sub-demos that the hub `source`s won't parse. Tracked
-#   for the cf-handler-bundler work (resolve sources at build time).
-# - Demos using `sleep`, `generate`, `.bus sub`, or other unported commands
-#   still fail at runtime. See CLOUDFLARE_STATUS.md.
+# Known limitations:
+# - `source X.nu` is resolved at Nu parse time and can't see std::fs on wasm,
+#   so we run the hub through scripts/bundle-cf-handler.nu which textually
+#   inlines source directives recursively.
+# - Demos that need `.bus sub`, `.append`/`.last`, or `stor *` aren't in the
+#   hub -- see src/cf/nu/nu_command/xs/PLAN.md.
 
 [tasks."cf:bundle:hub"]
 description = "Pre-resolve `source X.nu` directives in examples/serve-cf.nu so the result is self-contained. Nu's parser resolves source via std::fs which doesn't exist on wasm; this textual inline lets the hub work as the CF handler. serve-cf.nu is the CF-tailored hub -- mounts only demos that work on wasm (skips stor / templates / quotes pending xs port). Desktop hub remains examples/serve.nu."
@@ -372,7 +365,7 @@ nu scripts/bundle-cf-handler.nu examples/serve-cf.nu > target/cf-hub.nu
 '''
 
 [tasks."cf:dev:hub"]
-description = "Run the examples hub on CF (bundled examples/serve-cf.nu, all `source`s inlined). All wasm-clean demos under /alice/<demo>/... -- seed per-demo assets via `DEMO=<name> mise run cf:seed:demo`. Iteration: keep this running, then in another terminal `CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build` -- wrangler dev hot-reloads on wasm changes (~10s)."
+description = "Run the wasm-clean examples hub on CF (bundled examples/serve-cf.nu). All demos under /<demo-name>/... at the default DO. Iteration: keep this running, run `mise run cf:rebuild:hub` in another terminal -- wrangler hot-reloads on wasm changes (~10s). Seed asset-dependent demos via `DEMO=<name> mise run cf:seed:demo`."
 dir = "{{config_root}}"
 depends = ["cf:bundle:hub"]
 # Inline-export rather than `env = {}` -- mise's task-table env does NOT
@@ -500,47 +493,6 @@ cargo doc --workspace --no-deps --quiet
 SRC=target/doc DEST=/target/doc mise run cf:upload
 '''
 
-[tasks."cf:seed"]
-description = "Upload every file under examples/ into the local wrangler dev's Workspace (default DO unless WS_USER set). Run AFTER `cf:dev:hub` is listening on :8787. Use `cf:seed:demo <name>` for per-demo seeding instead, this one is for full-tree dumps."
-dir = "{{config_root}}"
-shell = "bash -c"
-run = '''
-set -euo pipefail
-BASE="${BASE:-http://127.0.0.1:8787}"
-WS_USER="${WS_USER:-}"
-PREFIX=""
-[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
-
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
-  echo "✗ $BASE not reachable -- start mise run cf:dev:hub first" >&2
-  exit 1
-fi
-
-count=0
-fail=0
-while IFS= read -r -d "" file; do
-  rel="${file#examples/}"
-  mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
-  url="$BASE$PREFIX/_workspace/put?path=/$rel"
-  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST \
-    -H "Content-Type: $mime" \
-    --data-binary "@$file" \
-    "$url")
-  if [ "$http_code" = "200" ]; then
-    count=$((count + 1))
-  else
-    echo "✗ $rel ($http_code)" >&2
-    fail=$((fail + 1))
-  fi
-done < <(find examples -type f -print0)
-
-echo "✓ uploaded $count files to $BASE$PREFIX/"
-if [ "$fail" -gt 0 ]; then
-  echo "✗ $fail failed -- see above" >&2
-  exit 1
-fi
-'''
 
 
 # ============================================================================

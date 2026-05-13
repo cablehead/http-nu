@@ -6,8 +6,8 @@ unblock the rest. The durable design narrative (merge story, xs
 split, Vfs symmetry, handler lifecycle) lives in
 [`CLOUDFLARE.md`](CLOUDFLARE.md).
 
-**Live:** https://http-nu-cf.gedw99.workers.dev (serves
-`examples/cf-workspace-browser`)
+**Live:** https://http-nu-cf.gedw99.workers.dev (serves the CF hub --
+all wasm-clean demos at the default DO under `/<demo>/...`).
 
 Per-subsystem ledgers, also running state:
 
@@ -37,7 +37,9 @@ Per-subsystem ledgers, also running state:
   fires `onChange` on the user's Workspace, the next request notices
   the flag and re-parses through the cached engine. CF equivalent of
   desktop `--watch`, with Workspace as the transport.
-- **Debug routes** `/<user>/_workspace/{ls,stat,cat,put,rm,mkdir,conformance}`.
+- **Debug routes** `/_workspace/{ls,stat,cat,put,rm,mkdir,conformance}`
+  on the default DO; add a `/u/<user>/` prefix to target a specific
+  user's DO instead.
   The `conformance` route runs `cloudflare_shell::conformance`'s
   generic `<F: FileSystem>` suite against the real `Workspace`. `200`
   + `<n> passed` body means every assertion holds; `500` + backtrace
@@ -46,19 +48,19 @@ Per-subsystem ledgers, also running state:
   SQLite + R2 backend matches the trait contract.
 
 ```bash
-# read alice's workspace
-curl https://http-nu-cf.gedw99.workers.dev/alice/_workspace/ls?path=/
+# read the default DO's workspace
+curl https://http-nu-cf.gedw99.workers.dev/_workspace/ls?path=/
 
-# write a file
+# write a file (default DO)
 curl -X POST --data-binary @notes.md \
-  https://http-nu-cf.gedw99.workers.dev/alice/file?path=/notes.md
+  "https://http-nu-cf.gedw99.workers.dev/_workspace/put?path=/notes.md"
 
-# read it back through Nu's shadowed `open`
-curl https://http-nu-cf.gedw99.workers.dev/alice/file?path=/notes.md
+# same operation against a specific user
+curl "https://http-nu-cf.gedw99.workers.dev/u/alice/_workspace/ls?path=/"
 
-# upload a custom handler for this user
+# upload a custom handler for a specific user
 curl -X PUT --data-binary @serve.nu \
-  https://http-nu-cf.gedw99.workers.dev/alice/admin/handler
+  https://http-nu-cf.gedw99.workers.dev/u/alice/admin/handler
 ```
 
 ## Build / CI status
@@ -80,7 +82,7 @@ curl -X PUT --data-binary @serve.nu \
 
 ## Example status on CF (local wrangler dev)
 
-Method: `mise run ex:cf:<name>` -> `curl http://127.0.0.1:8787/alice/...`.
+Method: `mise run ex:cf:<name>` -> `curl http://127.0.0.1:8787/...` (default DO).
 Demos with non-Nu assets (templates, static files, JSON) need
 `DEMO=<name> mise run cf:seed:demo` to upload those to the workspace
 first. Last full sweep: see `scripts/cf-demos-probe.sh`.
@@ -94,14 +96,13 @@ first. Last full sweep: see `scripts/cf-demos-probe.sh`.
 | `datastar-counter` | ✅ works | Reactive counter, SSE round-trip. |
 | `datastar-sdk` | ✅ works | SDK feature demo. |
 | `datastar-sdk-test` | ✅ works | `/test` route requires a POST body (also true on desktop -- not a CF gap). |
-| `generate-test` | ✅ works | Exercises stock `generate`. |
 | `mermaid-editor` | ✅ works | Live editor; `source` was a non-issue in practice. |
 | `tao` | ✅ works | Needs `DEMO=tao mise run cf:seed:demo` so `open data.json` / `.static /static/...` find content. Page renders styled with the demo's CSS. |
-| `cargo-docs` | ✅ works | `mise run cf:seed:cargo-docs` runs `cargo doc --workspace --no-deps` then uploads target/doc to /alice/target/doc. Index page + per-crate rustdoc pages render. Needed an index.html fallback in `.static` for directory-style requests (now in handler.rs). |
+| `cargo-docs` | ✅ works | `mise run cf:seed:cargo-docs` runs `cargo doc --workspace --no-deps` then uploads target/doc to /target/doc in the default DO's workspace. Index page + per-crate rustdoc pages render. Needed an index.html fallback in `.static` for directory-style requests (now in handler.rs). |
 | `templates` | ❌ blocked | Top-level `.append page.html` (cross-stream). Needs xs CF backend before this parses. |
 | `quotes` | ❌ blocked | `.last quotes --follow` / `.append quotes` (cross-stream). Same blocker as templates. |
 | `stor` | ❌ blocked | `stor *` family unported to wasm. Port plan in [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md). |
-| `hub` (`examples/serve-cf.nu`) | ✅ works | CF-tailored hub at `examples/serve-cf.nu` -- same shape as desktop `examples/serve.nu` but only `source`s the 11 wasm-clean demos. `mise run cf:dev:hub` builds the bundled handler via `scripts/bundle-cf-handler.nu`. All 10 mounted sub-demos return 200 on `GET /alice/<demo>/...`. Per-demo asset routes (tao's CSS, cargo-docs's per-crate pages) still expect root-relative URLs and won't traverse the mount prefix; that's a separate per-demo `$req.mount_prefix` adoption. |
+| `hub` (`examples/serve-cf.nu`) | ✅ works | CF-tailored hub -- mounts only demos that load fresh without seeding. `mise run cf:dev:hub` bundles via `scripts/bundle-cf-handler.nu` and builds. Demos with asset/data dependencies (tao, cargo-docs, mermaid-editor static, cf-workspace-browser) run standalone via their `ex:cf:*` task + `cf:seed:demo`. |
 
 **Summary: 11 demos verified working on local wrangler dev. 2048 home + assets work; gameplay (`.bus sub`) needs streaming bridge. 3 demos (templates / quotes / stor) blocked on cross-stream / stor wasm ports.**
 
