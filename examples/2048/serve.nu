@@ -233,17 +233,18 @@ def close-button []: nothing -> record {
     (ICONIFY "material-symbols:close-rounded" {width: "20" height: "20"}))
 }
 
-def render-game [direction?: string]: record -> record {
+def render-game [direction?: string, changed?: bool]: record -> record {
   let state = $in
   # The edge-glow color rides the highest-value tile, pushed as an inline
   # CSS variable so it cascades to #board-wrap and the ::after pseudo.
   let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
   let dir = $direction | default ""
+  let did_change = $changed | default false
   # A fresh edge-flash element per patch (unique id forces morphdom to
   # destroy/recreate, so its CSS animation re-fires every step -- including
-  # each step of a shift sequence). When no direction (initial render),
-  # element is omitted entirely.
-  let wrap_children = if ($dir != "" and $dir in [h j k l]) {
+  # each step of a shift sequence). When the move did not change the board
+  # (slide had no effect), skip the flash.
+  let wrap_children = if ($did_change and $dir in [h j k l]) {
     [
       ($state | render-board)
       (DIV {id: $"flash-(random uuid)" class: "edge-flash" "data-dir": $dir} "")
@@ -255,6 +256,8 @@ def render-game [direction?: string]: record -> record {
   # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
   # fire a MutationObserver event and the RTT readout would never seed.
   # data-view tells the client which mode the current render is in.
+  # data-changed signals to the client whether the board state actually
+  # moved (vs a no-op direction press); used to gate haptics + edge flash.
   # view-transition-name: per-mode so a game<->settings switch becomes an
   # UNPAIRED pseudo (game->game stays paired and cross-fades as usual).
   (DIV {
@@ -262,6 +265,8 @@ def render-game [direction?: string]: record -> record {
     style: $"--glow: ($glow); view-transition-name: view-game;"
     "data-rev": (random uuid)
     "data-view": "game"
+    "data-from": $dir
+    "data-changed": (if $did_change { "1" } else { "" })
   }
     (gear-button)
     ($state | render-status)
@@ -283,12 +288,12 @@ def render-settings []: nothing -> record {
 
 # Pick the right render based on the per-tab mode. Same #game id either way
 # so datastar morphs the swap as a single replacement.
-def render-current [mode: string, direction?: string]: record -> record {
+def render-current [mode: string, direction?: string, changed?: bool]: record -> record {
   let state = $in
   if $mode == "settings" {
     render-settings
   } else {
-    $state | render-game $direction
+    $state | render-game $direction $changed
   }
 }
 
@@ -323,7 +328,8 @@ def impulses-to-states [initial: record] {
       let idx = $frame.meta | get spawn_idx? | default 0
       let val = $frame.meta | get spawn_value? | default 0
       let new_state = $s.state | apply-move $intent $idx $val
-      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, threshold: false}], next: ($s | upsert state $new_state)}
+      let changed = not (tiles-equal $s.state.tiles $new_state.tiles)
+      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, threshold: false}], next: ($s | upsert state $new_state)}
     }
     if ($intent | str starts-with "shift-") {
       let dir = $intent | str substring 6..
@@ -335,7 +341,7 @@ def impulses-to-states [initial: record] {
           $acc | upsert stopped true
         } else {
           $acc | update state $nxt | update yields {
-            append {state: $nxt, mode: $s.mode, direction: $dir, threshold: false, paced: true}
+            append {state: $nxt, mode: $s.mode, direction: $dir, changed: true, threshold: false, paced: true}
           }
         }
       }
@@ -370,7 +376,7 @@ def threshold-gate-states [] {
 # Box C. Pure rendering. State -> datastar patch event.
 def states-to-patches [] {
   each {|s|
-    $s.state | render-current $s.mode ($s.direction? | default "")
+    $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false)
     | to datastar-patch-elements --use-view-transition --id (random uuid)
   }
 }

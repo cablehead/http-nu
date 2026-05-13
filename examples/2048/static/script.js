@@ -136,16 +136,23 @@ document.addEventListener("click", (e) => {
 const DAMP = 0.45;
 const CAP = 26;
 const AXIS_LOCK = 8;  // once you move this far on one axis, the other locks
+const HOLD_FOR_SHIFT_MS = 1000;  // hold after the swipe for this long -> shift
 let start = null;
 let wrap = null;
 let axis = null;
+let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
+let holdShiftTimer = null;   // fires shift-<dir> if the user keeps holding
+
 addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#board")) { start = null; return; }
   start = [e.clientX, e.clientY];
   axis = null;
+  committedDir = null;
+  if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
   wrap = document.querySelector("#board-wrap");
   wrap?.classList.remove("snap", "decay");
 });
+
 addEventListener("pointermove", (e) => {
   if (!start || !wrap) return;
   let dx = e.clientX - start[0];
@@ -161,30 +168,37 @@ addEventListener("pointermove", (e) => {
   wrap.style.setProperty("--tilt-y", `${ty}px`);
   wrap.style.setProperty("--glow-x", `${tx}px`);
   wrap.style.setProperty("--glow-y", `${ty}px`);
+  // Commit on first threshold crossing -- single impulse fires immediately.
+  // Then arm a hold timer: if the user keeps the finger down for
+  // HOLD_FOR_SHIFT_MS, fire shift-<dir> to keep sliding until settled.
+  if (!committedDir && Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
+    committedDir = Math.abs(dx) > Math.abs(dy)
+      ? (dx > 0 ? "l" : "h")
+      : (dy > 0 ? "j" : "k");
+    move(committedDir);
+    holdShiftTimer = setTimeout(() => {
+      holdShiftTimer = null;
+      move(`shift-${committedDir}`);
+    }, HOLD_FOR_SHIFT_MS);
+  }
 });
-addEventListener("pointerup", (e) => {
+
+addEventListener("pointerup", () => {
   if (!start) return;
-  const dx = e.clientX - start[0];
-  const dy = e.clientY - start[1];
   start = null;
   wrap?.style.setProperty("--tilt-x", "0px");
   wrap?.style.setProperty("--tilt-y", "0px");
-  if (Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
-    // Commit: tiles ease through zero with overshoot, but --glow-x/--glow-y
-    // are left at peak -- the edge stays lit until the SSE patch arrives and
-    // the view-transition cross-fade carries it away.
+  if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
+  if (committedDir) {
+    // Single swipe committed during pointermove; just ease the tilt back.
     wrap?.classList.add("decay");
     setTimeout(() => wrap?.classList.remove("decay"), 1300);
-    move(
-      Math.abs(dx) > Math.abs(dy)
-        ? dx > 0 ? "l" : "h"
-        : dy > 0 ? "j" : "k",
-    );
   } else {
-    // Cancel: tilt and glow both spring back together.
+    // Below threshold: cancel, spring tilt + glow back to rest.
     wrap?.style.setProperty("--glow-x", "0px");
     wrap?.style.setProperty("--glow-y", "0px");
     wrap?.classList.add("snap");
     setTimeout(() => wrap?.classList.remove("snap"), 260);
   }
+  committedDir = null;
 });
