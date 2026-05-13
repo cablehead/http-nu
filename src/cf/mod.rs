@@ -83,53 +83,66 @@ static HANDLER_RELOAD_PENDING: AtomicBool = AtomicBool::new(false);
 // isolate caches alice's engine, bob's caches bob's. Until the handler
 // becomes user-specific we still share one HANDLER_SCRIPT, but state
 // the engine builds up (parsed AST, plugin signatures) is isolated.
+//
+// Init can fail in three places: Engine::new (rare), add_commands (rare),
+// parse_closure on HANDLER_SCRIPT (common -- bad demos, missing commands,
+// etc). We don't want any of those to panic the wasm isolate -- they
+// should surface as readable HTTP 500s. So engine() returns Result and
+// the cache is populated only on success. On failure each request retries
+// and returns a fresh error body; cheap to keep retrying because the
+// failure is deterministic (same embedded handler) and parse is the
+// expensive bit anyway.
 static ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
 
-/// Lazily build the cached engine + parse the embedded handler. Panics
-/// on first-use if engine init or handler parsing fails;
-/// console_error_panic_hook surfaces a readable error to wrangler logs.
+/// Lazily build the cached engine + parse the embedded handler. Returns
+/// `Err(message)` if init or parse fails; the caller turns that into a
+/// 500 response so wrangler dev / live workers don't crash on a bad
+/// embedded handler.
 ///
-/// Workspace shadow commands (ls, open, save) are added LAST so they
-/// take priority over Nu's stock declarations during eval.
-pub(super) fn engine() -> &'static Mutex<Engine> {
-    ENGINE.get_or_init(|| {
-        let mut engine = Engine::new().expect("Engine::new failed");
-        engine
-            .add_custom_commands()
-            .expect("add_custom_commands failed");
-        engine
-            .add_commands(vec![
-                Box::new(nu_command::VfsLs),
-                Box::new(nu_command::VfsOpen),
-                Box::new(nu_command::VfsSave),
-                Box::new(nu_command::VfsPathExists),
-                Box::new(nu_command::VfsMkdir),
-                Box::new(nu_command::VfsRm),
-                Box::new(nu_command::VfsCp),
-                Box::new(nu_command::VfsMv),
-                Box::new(nu_command::VfsGlob),
-                // `path self` shadowed because the stock impl needs a
-                // working std::Path::is_absolute, which wasm32 lacks.
-                Box::new(nu_command::VfsPathSelf),
-                // `sleep` is the only os-gated command we shadow -- the
-                // others (date now, format date, random integer, ...)
-                // come from stock nu-command with `nu-command/js`
-                // enabled (Cargo.toml `cloudflare` feature).
-                Box::new(nu_command::Sleep),
-            ])
-            .expect("add_commands (vfs shadows) failed");
-        // Set $HTTP_NU const so stdlib modules (http, datastar, ...)
-        // can reference $HTTP_NU.dev / .store / .topic at parse time.
-        // Desktop sets this from CLI flags in src/main.rs; on CF the
-        // defaults are correct (no --dev, no --store, no --topic).
-        engine
-            .set_http_nu_const(&crate::engine::HttpNuOptions::default())
-            .expect("set_http_nu_const failed");
-        engine
-            .parse_closure(HANDLER_SCRIPT, None)
-            .expect("handler failed to parse");
-        Mutex::new(engine)
-    })
+/// Workspace shadow commands (ls, open, save, ...) are added LAST so
+/// they take priority over Nu's stock declarations during eval.
+pub(super) fn engine() -> std::result::Result<&'static Mutex<Engine>, String> {
+    if let Some(e) = ENGINE.get() {
+        return Ok(e);
+    }
+    let mut engine = Engine::new().map_err(|e| format!("Engine::new: {e}"))?;
+    engine
+        .add_custom_commands()
+        .map_err(|e| format!("add_custom_commands: {e}"))?;
+    engine
+        .add_commands(vec![
+            Box::new(nu_command::VfsLs),
+            Box::new(nu_command::VfsOpen),
+            Box::new(nu_command::VfsSave),
+            Box::new(nu_command::VfsPathExists),
+            Box::new(nu_command::VfsMkdir),
+            Box::new(nu_command::VfsRm),
+            Box::new(nu_command::VfsCp),
+            Box::new(nu_command::VfsMv),
+            Box::new(nu_command::VfsGlob),
+            // `path self` shadowed because the stock impl needs a
+            // working std::Path::is_absolute, which wasm32 lacks.
+            Box::new(nu_command::VfsPathSelf),
+            // `sleep` is the only os-gated command we shadow -- the
+            // others (date now, format date, random integer, ...)
+            // come from stock nu-command with `nu-command/js`
+            // enabled (Cargo.toml `cloudflare` feature).
+            Box::new(nu_command::Sleep),
+        ])
+        .map_err(|e| format!("add_commands (vfs shadows): {e}"))?;
+    // Set $HTTP_NU const so stdlib modules (http, datastar, ...) can
+    // reference $HTTP_NU.dev / .store / .topic at parse time. Desktop
+    // sets this from CLI flags in src/main.rs; on CF the defaults are
+    // correct (no --dev, no --store, no --topic).
+    engine
+        .set_http_nu_const(&crate::engine::HttpNuOptions::default())
+        .map_err(|e| format!("set_http_nu_const: {e}"))?;
+    engine
+        .parse_closure(HANDLER_SCRIPT, None)
+        .map_err(|e| format!("handler failed to parse:\n{e}"))?;
+    // Race-tolerant: if another request initialised in parallel, drop
+    // ours and return theirs. OnceLock guarantees only one ever wins.
+    Ok(ENGINE.get_or_init(|| Mutex::new(engine)))
 }
 
 /// One Durable Object instance per user. The DO's storage.sql() backs a
@@ -284,7 +297,14 @@ impl UserSpace {
                 return;
             }
         };
-        let mut engine_guard = match engine().lock() {
+        let engine_handle = match engine() {
+            Ok(e) => e,
+            Err(e) => {
+                worker::console_warn!("handler reload: engine init failed: {e}");
+                return;
+            }
+        };
+        let mut engine_guard = match engine_handle.lock() {
             Ok(g) => g,
             Err(_) => {
                 worker::console_warn!("handler reload: engine mutex poisoned");

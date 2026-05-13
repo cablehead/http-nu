@@ -87,7 +87,7 @@ pub(super) async fn handle(req: &mut WorkerRequest) -> Result<Response> {
 }
 
 fn swap_handler(script: &str) -> std::result::Result<Response, String> {
-    let mut engine = super::engine()
+    let mut engine = super::engine()?
         .lock()
         .map_err(|_| "engine mutex poisoned".to_string())?;
     engine
@@ -118,7 +118,7 @@ fn run_closure(req: &WorkerRequest, body: Vec<u8>) -> std::result::Result<Respon
     // build the response. Streams returned by run_closure carry their
     // own 'static iterator, so they're valid after the lock is released.
     let pd_result = {
-        let engine = super::engine()
+        let engine = super::engine()?
             .lock()
             .map_err(|_| "engine mutex poisoned".to_string())?;
         let req_struct = worker_request_to_http_nu(req)?;
