@@ -20,7 +20,7 @@
 //!     surface (which is all `Promise<T>`).
 //!   - ENOENT semantics: methods that look up a path return `Ok(None)`
 //!     when the path doesn't exist. Callers that need ENOENT-as-error
-//!     wrap in their own adapter (e.g. crate::cf::vfs's SnapshotVfs).
+//!     wrap in their own adapter (e.g. crate::cf::snapshot_vfs's SnapshotVfs).
 //!
 //! Lives at `src/cf/shell/filesystem.rs` for now; intended to extract
 //! to its own crate (`cf-shell`) once stable so yoke + xs + future
@@ -767,7 +767,7 @@ impl Workspace {
 
     /// Port-only public helper. Upstream resolves symlinks inline inside
     /// methods that need it (e.g. `stat`, `readFile`); we surface it
-    /// because callers (e.g. `crate::cf::vfs::SnapshotVfs`) want the
+    /// because callers (e.g. `crate::cf::snapshot_vfs::SnapshotVfs`) want the
     /// resolved path directly.
     pub async fn realpath(&self, path: &str) -> Result<Option<String>> {
         let p = normalize_path(path)?;

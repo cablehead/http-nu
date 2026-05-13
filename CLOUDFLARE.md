@@ -312,9 +312,12 @@ you cannot give Nushell the POSIX-like `stat` / `readdir` semantics
 its fs commands actually call. Workspace provides a real FS index (DO
 SQLite) with R2 for blob storage.
 
-The `Vfs` trait lives at `src/cf/vfs.rs` for now (CF-only). Promote to
-top-level `src/vfs.rs` only when desktop actually opts into the same
-shadow surface.
+The `Vfs` trait now lives at `src/vfs.rs` (top-level). Desktop and
+wasm both call `crate::vfs::with_vfs(...)` and get the right impl:
+`OsVfs` (in `src/vfs.rs`, gated `#[cfg(feature = "desktop")]`) wraps
+`std::fs::*`; `SnapshotVfs` (in `src/cf/snapshot_vfs.rs`, wasm only)
+is the per-request preload from Workspace. Same split as the shell
+port (`crate::shell::FileSystem` trait + desktop+wasm impls).
 
 ### Still to build
 

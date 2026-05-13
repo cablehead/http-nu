@@ -46,9 +46,10 @@ mod nu;
 mod request;
 mod response;
 pub mod shell;
-pub mod vfs;
+mod snapshot_vfs;
 
 use nu::nu_command;
+use snapshot_vfs::SnapshotVfs;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -59,8 +60,6 @@ use worker::{
 };
 
 use crate::engine::Engine;
-use vfs::SnapshotVfs;
-use crate::vfs as top_vfs;
 
 const HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
 
@@ -169,11 +168,11 @@ impl DurableObject for UserSpace {
 
         // Preload the per-request snapshot from Workspace. Nu shadow
         // commands (ls/open/save/...) read it sync during eval through
-        // the cf::vfs::Vfs trait. We keep our own Rc-clone of the
+        // the crate::vfs::Vfs trait. We keep our own Rc-clone of the
         // SnapshotVfs so we can drain pending writes/ops after eval.
         let ws = self.open_workspace()?;
         let snapshot = SnapshotVfs::load_from_workspace(&ws, 4, 1_500_000).await?;
-        top_vfs::install_vfs(Box::new(snapshot.clone()));
+        crate::vfs::install_vfs(Box::new(snapshot.clone()));
 
         let response = handler::handle(&mut req).await;
 
@@ -184,7 +183,7 @@ impl DurableObject for UserSpace {
         let writes = snapshot.drain_pending_writes();
         let ops = snapshot.drain_pending_ops();
         for op in &ops {
-            if let vfs::PendingOp::Mkdir(path) = op {
+            if let snapshot_vfs::PendingOp::Mkdir(path) = op {
                 let p = path.to_string_lossy().to_string();
                 if let Err(e) = ws
                     .mkdir(&p, shell::MkdirOptions { recursive: true })
@@ -204,7 +203,7 @@ impl DurableObject for UserSpace {
             }
         }
         for op in ops {
-            if let vfs::PendingOp::Rm(path) = op {
+            if let snapshot_vfs::PendingOp::Rm(path) = op {
                 let p = path.to_string_lossy().to_string();
                 if let Err(e) = ws
                     .rm(
@@ -220,7 +219,7 @@ impl DurableObject for UserSpace {
                 }
             }
         }
-        top_vfs::drop_vfs();
+        crate::vfs::drop_vfs();
         response
     }
 }
@@ -383,10 +382,15 @@ impl UserSpace {
     }
 }
 
+/// Strip `/<user_id>` from the URL path so closures see paths mounted
+/// at root, matching desktop. Used by `fetch` (for debug-route
+/// dispatch) and by `cf::request::worker_request_to_http_nu` (for
+/// `Request.path` population).
+///
 /// "/alice/foo"          -> "/foo"
 /// "/alice"              -> "/"
 /// "/"                   -> "/"
-fn strip_user_prefix(path: &str) -> String {
+pub(super) fn strip_user_prefix(path: &str) -> String {
     let mut parts = path.splitn(3, '/');
     parts.next(); // empty before leading /
     parts.next(); // user_id

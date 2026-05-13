@@ -7,7 +7,7 @@
 //!
 //! - `OsVfs` (this file, `#[cfg(feature = "desktop")]`) -- thin wrapper
 //!   over `std::fs::*`.
-//! - `crate::cf::vfs::SnapshotVfs` (CF only) -- per-request preload of
+//! - `crate::cf::snapshot_vfs::SnapshotVfs` (CF only) -- per-request preload of
 //!   the user's Workspace, drained back after eval.
 //!
 //! On desktop, `with_vfs` returns `OsVfs` as a default when nothing is

@@ -12,7 +12,7 @@
 //! or move the equivalent file here in the same relative path. Process
 //! discipline; the compiler doesn't enforce it.
 //!
-//! All filesystem shadows route through `crate::cf::vfs::Vfs`. Stock
+//! All filesystem shadows route through `crate::vfs::Vfs`. Stock
 //! `date now` / `format date` / `random integer` are NOT shadowed --
 //! they come from `nu-command` with the `js` feature enabled
 //! (Cargo.toml `cloudflare` feature).

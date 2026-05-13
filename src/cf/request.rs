@@ -52,21 +52,7 @@ pub(super) fn worker_request_to_http_nu(
         // (`/<user>/_workspace/*`) and the admin handler upload are
         // handled by `cf::mod.rs::fetch` BEFORE the closure runs,
         // so this strip is only applied to real handler invocations.
-        path: strip_user_prefix(url.path()),
+        path: super::strip_user_prefix(url.path()),
         query,
     })
-}
-
-/// "/alice/foo/bar" -> "/foo/bar"
-/// "/alice/"        -> "/"
-/// "/alice"         -> "/"
-/// "/"              -> "/"
-fn strip_user_prefix(path: &str) -> String {
-    let mut parts = path.splitn(3, '/');
-    parts.next(); // leading empty
-    parts.next(); // user_id
-    match parts.next() {
-        Some(rest) if !rest.is_empty() => format!("/{rest}"),
-        _ => "/".to_string(),
-    }
 }

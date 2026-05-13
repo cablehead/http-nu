@@ -95,7 +95,7 @@ A shadow goes in this directory only if **both** are true:
 
 2. **Structural reason** stock can't handle it on wasm. Exactly one of:
    - **vfs** -- command touches `std::fs`; route through
-     `crate::cf::vfs::Vfs` (Workers has no disk).
+     `crate::vfs::Vfs` (Workers has no disk).
    - **wasm** -- stock parse-errors or panics on wasm32 (e.g. `path
      self` calls `Path::is_absolute()`, always false on wasm). Cite
      the failing call in the module doc.
@@ -184,7 +184,7 @@ delete it.
 
 In this directory, `std::fs::*` is banned. All filesystem reads/writes
 go through `crate::cf::nu::nu_command::shared::require_vfs` (which calls
-`crate::cf::vfs::with_vfs`). The Vfs is installed per request in
+`crate::vfs::with_vfs`). The Vfs is installed per request in
 `cf::mod.rs::fetch`; commands that need it MUST handle the
 "no Vfs installed" case via `require_vfs` (returns a `ShellError` with
 the standard "Workspace not loaded" message).
