@@ -349,7 +349,7 @@ def impulses-to-states [initial: record] {
       return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, threshold: false}], next: ($s | update stack $new_stack)}
     }
     if ($intent | str starts-with "slam-") {
-      let dir = $intent | str substring 6..
+      let dir = $intent | str substring 5..
       let seeds = $frame.meta | get seeds? | default []
       let result = $seeds | reduce --fold {state: $cur, stopped: false, yields: []} {|seed acc|
         if $acc.stopped { return $acc }
