@@ -1,0 +1,27 @@
+[package]
+name = "cloudflare-shell-rpc-client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+description = "Rust client wrapper for the cloudflare-shell-rpc Worker. Hand-written wasm-bindgen extern + typed async-trait so Rust Workers can bind to cloudflare-shell-rpc via a service binding and call FS methods (readFile / writeFile / stat / mkdir / rm / list) with proper Rust types."
+license = "MIT"
+repository = "https://github.com/joeblew999/http-nu"
+homepage = "https://github.com/joeblew999/http-nu/tree/joeblew999/crates/cloudflare-shell-rpc/client"
+readme = "README.md"
+keywords = ["cloudflare", "workers", "rpc", "filesystem", "wasm"]
+categories = ["wasm", "filesystem"]
+
+# wasm-only -- worker = "0.8" is wasm-only at the binding level.
+[package.metadata.docs.rs]
+targets = ["wasm32-unknown-unknown"]
+
+[dependencies]
+cloudflare-shell-rpc-types = { version = "0.1.0", path = "../types" }
+worker.workspace = true
+serde.workspace = true
+serde-wasm-bindgen.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+base64.workspace = true
+js-sys = "0.3"
+async-trait = "0.1"

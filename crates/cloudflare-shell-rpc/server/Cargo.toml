@@ -1,0 +1,32 @@
+[package]
+name = "cloudflare-shell-rpc-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+description = "Cloudflare Worker exposing the cloudflare-shell FileSystem trait (DO SQLite + R2) as a Worker RPC binding. Bind to it from any other Worker on your account (JS or Rust) and call read_file / write_file / stat / mkdir / rm / list directly -- no HTTP round-trip."
+license = "MIT"
+repository = "https://github.com/joeblew999/http-nu"
+homepage = "https://github.com/joeblew999/http-nu/tree/joeblew999/crates/cloudflare-shell-rpc/server"
+readme = "README.md"
+keywords = ["cloudflare", "workers", "rpc", "filesystem", "wasm"]
+categories = ["wasm", "filesystem"]
+
+[package.metadata.docs.rs]
+targets = ["wasm32-unknown-unknown"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cloudflare-shell-rpc-types = { version = "0.1.0", path = "../types" }
+cloudflare-shell = { version = "0.1.0", path = "../../cloudflare-shell", features = ["workers"] }
+cloudflare-shell-workspace = { version = "0.1.0", path = "../../cloudflare-shell-workspace" }
+worker.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-wasm-bindgen.workspace = true
+base64.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+console_error_panic_hook.workspace = true
+percent-encoding = "2"

@@ -1,0 +1,30 @@
+name = "cloudflare-shell-rpc"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-05-01"
+workers_dev = true
+
+# Build is driven by `mise run cf:fs:build` from the repo root. The
+# pipeline:
+#   1. CUSTOM_SHIM points worker-build at ./shim.js (our hand-written
+#      WorkerEntrypoint that owns RPC method dispatch and injects
+#      this.env). See ./shim.js for why -- workaround for worker-rs
+#      0.8 not auto-passing env to non-fetch wasm_bindgen exports.
+#   2. worker-build runs wasm-bindgen + esbuild to produce
+#      build/worker/shim.mjs (the bundled entry) + build/index.wasm.
+#   3. wrangler loads build/worker/shim.mjs as `main`.
+
+# One DO instance per namespace (first arg of every RPC method). The
+# DO holds the user's Workspace (DO SQLite + R2). SQLite-backed.
+[[durable_objects.bindings]]
+name = "SHELL_FS_DO"
+class_name = "ShellFsDo"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ShellFsDo"]
+
+# Per-Workspace R2 spillover. Files > 1.5MB get stored as R2 objects.
+# Key prefix matches @cloudflare/shell: `${namespace}/${namespace}<path>`.
+[[r2_buckets]]
+binding = "SHELL_FS_FILES"
+bucket_name = "cloudflare-shell-rpc-files"

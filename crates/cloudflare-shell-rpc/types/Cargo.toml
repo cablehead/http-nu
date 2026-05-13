@@ -1,0 +1,18 @@
+[package]
+name = "cloudflare-shell-rpc-types"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+description = "Wire types (serde structs) for the cloudflare-shell-rpc Worker. Shared by the server (cloudflare-shell-rpc, wasm) and the Rust client wrapper (cloudflare-shell-rpc-client, wasm). Pure Rust -- no `worker` dependency, compiles on any target."
+license = "MIT"
+repository = "https://github.com/joeblew999/http-nu"
+homepage = "https://github.com/joeblew999/http-nu/tree/joeblew999/crates/cloudflare-shell-rpc/types"
+readme = "README.md"
+keywords = ["cloudflare", "workers", "rpc", "filesystem", "wasm"]
+categories = ["wasm", "filesystem"]
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

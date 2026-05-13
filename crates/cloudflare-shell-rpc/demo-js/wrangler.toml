@@ -1,0 +1,12 @@
+name = "cloudflare-shell-rpc-demo-js"
+main = "index.js"
+compatibility_date = "2026-05-01"
+workers_dev = true
+
+# Service binding to the FS-RPC server Worker. The `service` name must
+# match the server Worker's `name` in
+# ../server/wrangler.toml (cloudflare-shell-rpc). Calls land on the
+# WorkerEntrypoint methods defined in ../server/shim.js.
+services = [
+  { binding = "SHELL_FS", service = "cloudflare-shell-rpc" }
+]

@@ -38,6 +38,16 @@ canonical**; don't restate contents here, point at them:
     [`PORT_STATUS.md`](crates/cloudflare-shell-workspace/PORT_STATUS.md).
     `PORT_STATUS.md` is the upstream coverage ledger spanning BOTH
     crates.
+- **`cloudflare-shell-rpc`** (standalone Worker, independent of
+  http-nu). Exposes the `cloudflare-shell` FileSystem as a Worker RPC
+  binding so JS or Rust Workers on the same account can call
+  `readFile / writeFile / stat / mkdir / rm / list` directly. Lives
+  under [`crates/cloudflare-shell-rpc/`](crates/cloudflare-shell-rpc/)
+  with four subdirs: `types/` (wire structs), `server/` (the Worker
+  + custom shim.js -- see its README for the env-injection workaround),
+  `client/` (typed Rust client wrapper), `demo-js/` + `demo-rust/`
+  (consumer references / smoke-test harness). Build / run via
+  `mise run cf:fs:*`; smoke via `cf:fs:smoke` (JS) or `cf:fs:smoke:rust`.
 
 For running state at the project level (live worker, example matrix,
 build/CI green checks, unblock tracks):
@@ -123,28 +133,48 @@ string). Anything else: parity.
 src/                              cablehead/http-nu's tree (byte-identical
                                   layout; we add #[cfg(feature = "desktop")]
                                   gates inline where targets differ)
+src/vfs.rs                        Vfs trait + OsVfs (desktop impl) -- shared
+src/template_loader.rs            Vfs-aware minijinja loader (shared)
 src/cf/                           CF-only code we own (never upstream)
-  mod.rs                          #[event(fetch)] entrypoint + engine cache
-  request.rs                      mirrors src/request.rs (worker::Request adapter)
-  response.rs                     mirrors src/response.rs (PipelineData -> Response,
+  mod.rs                          #[event(fetch)] entrypoint + engine cache,
+                                  per-user routing via /u/<name>/ prefix
+  handler.rs                      request lifecycle, .static short-circuit,
+                                  RESPONSE_TX wiring for early responses
+  request.rs                      worker::Request -> http_nu::Request adapter
+  response.rs                     PipelineData -> worker::Response (incl.
                                   streaming via worker::Response::from_stream)
-  nu/                             Nushell-side ports / shadows for the CF target.
-                                  Mirrors `.src/nushell/crates/` -- one folder
-                                  per nu-* crate (snake-case for Rust modules).
-    nu_command/                   Mirrors `nu-command`. Nu shadow commands
-                                  (filesystem, path, platform). See its
-                                  README/CLAUDE/PORT_STATUS for the layout
-                                  rule, contributor checklist, and current
-                                  shadow table.
-  shell/                          Rust port of @cloudflare/shell. See its
-                                  README/CLAUDE/PORT_STATUS for upstream mapping,
-                                  schema interop contract, and porting ledger.
-  vfs.rs                          Vfs trait + SnapshotVfs (sync view for Nu eval)
+  snapshot_vfs.rs                 Vfs impl: per-request preload from Workspace
+  nu/nu_command/                  Nu shadow commands (filesystem/path/platform)
+                                  mirror nu-command/src/<cat>/<name>.rs
+                                  path-for-path. See its README/CLAUDE/PORT_STATUS.
+  nu/xs/                          (planned) Nu shadow commands mirroring
+                                  xs/src/nu/ -- .append, .cat, .last, etc.
+                                  Plan: src/cf/nu/xs/PLAN.md.
   wrangler.toml                   Workers config
+
+crates/cloudflare-shell/          Backend-agnostic FileSystem trait + types
+crates/cloudflare-shell-workspace/ DurableObject SQLite + R2 impl
+                                   of cloudflare_shell::FileSystem
+crates/cloudflare-shell-rpc/      Standalone Worker exposing the FileSystem
+                                   as a Worker RPC binding (JS + Rust
+                                   consumers). Independent of http-nu;
+                                   own DO + R2 bindings.
+  types/                          Wire structs (pure Rust, no `worker` dep)
+  server/                         The Worker (wasm + custom shim.js)
+  client/                         Typed Rust client wrapper (wasm-only lib)
+  demo-js/                        JS Worker consumer reference
+  demo-rust/                      Rust Worker demo + integration test for client/
+  smoke/                          End-to-end smoke test (run.nu)
+  bench/                          oha bench (run.nu + matrix.nu + report.nu)
+
 build/                            worker-build output (gitignored)
-mise.toml                         tasks, including cf:build/cf:dev/cf:deploy
-Cargo.toml                        single manifest with `desktop` (default),
-                                  `cloudflare`, `cross-stream` features
+mise.toml                         tasks: cf:build/cf:dev/cf:deploy/cf:dev:hub/
+                                  cf:rebuild:hub/cf:seed:demo/cf:bench:*/...
+Cargo.toml                        workspace root: http-nu + the two cloudflare-*
+                                  crates + tests/test_plugin. `desktop`
+                                  (default), `cloudflare`, `cross-stream` features
+benchmarks/bench-cf/              URL-driven oha benchmark (local + remote).
+                                  Results -> results.nuon -> REPORT.md
 ```
 
 ### File-layout rule
@@ -158,7 +188,7 @@ rather than a hunt across the tree.
 |---|---|
 | Helper used by *both* targets | upstream file (`src/<x>.rs`); both targets call it. Example: `src/response.rs::infer_content_type` is shared by `src/worker.rs` (desktop) and `src/cf/response.rs` (wasm). |
 | CF adapter for a desktop concern | `src/cf/<same_name>.rs` (mirrors upstream filename) |
-| Genuinely CF-only primitive (BusDO bridge, Vfs over `@cloudflare/shell`) | `src/cf/<descriptive>.rs` with a comment explaining why no upstream sibling |
+| Genuinely CF-only primitive (BusDO bridge, `SnapshotVfs` preload) | `src/cf/<descriptive>.rs` with a comment explaining why no upstream sibling. Example: `src/cf/snapshot_vfs.rs` implements `crate::vfs::Vfs` (the top-level trait) but has no desktop counterpart -- `OsVfs` lives in `src/vfs.rs` because it's the simpler half. |
 | Desktop concern with no CF analog (e.g. `listener.rs` -- Workers invokes us, no listener) | upstream file gated `#[cfg(feature = "desktop")]`; *no* `src/cf/<same_name>.rs` |
 
 When a CF helper *and* a desktop helper end up doing the same job, the
@@ -183,18 +213,20 @@ splits cleanly along the same dependency line:
   short-circuit, streaming bridges, BusDO for `.bus sub`, Vfs trait for
   `.static`. Anything that's about *serving HTTP from Nu closures* on
   Workers lives here, mostly under `src/cf/`.
-- **xs repo -- storage/persistence CF backend:** swapping `fjall` (LSM
-  index) for DO SQLite, swapping `cacache` (CAS) for R2. The xs::store
-  / xs::api / xs::processor surfaces stay the same; what changes is
-  the backend. `--topic`-loaded handlers, `.cat` / `.append` / `.cas`,
-  and `--store`-using examples (quotes, templates) only work on CF
-  once xs has that backend.
-- **What lives at the seam:** in this repo, `src/store.rs` (and a
-  future `src/cf/store.rs`) wires CF Workers' bindings through to xs.
-  The actual storage code is xs's; we're the consumer.
-- **Today:** no CF work has touched xs. The work in this repo so far
-  is purely HTTP-server-side. xs's repo does not need a single edit
-  for that surface to be done.
+- **xs surface on CF -- mirrored, not ported:** xs upstream uses `fjall`
+  (LSM kv) + `cacache` (CAS), neither of which compiles to wasm. Rather
+  than port xs's storage backend, we mirror xs's `src/nu/` Nu-command
+  layout path-for-path at `src/cf/nu/xs/` and back it by our existing
+  Workspace (DO SQLite + R2). xs frames become files at
+  `/.xs/<topic>/<scru128>.json` -- one storage primitive across the
+  whole CF target, not a parallel SQL/R2 layer. Full plan:
+  [`src/cf/nu/xs/PLAN.md`](src/cf/nu/xs/PLAN.md). Unblocks `.cat` /
+  `.append` / `.last` -- and the `quotes`, `templates`, `2048-gameplay`
+  demos that depend on them.
+- **What lives at the seam:** desktop builds depend on xs as a normal
+  crate (`src/store.rs`). On wasm we never compile xs upstream; the
+  `src/cf/nu/xs/store.rs` shim exposes the same `Store` method names
+  but is Workspace-backed. xs's repo needs no edits for CF.
 
 **This file is the canonical CF design doc** for the joint http-nu +
 xs CF effort. xs's repo has a one-line pointer back here -- when CF
@@ -261,16 +293,16 @@ ships on the next deploy.
 
 Live edit, two paths today:
 
-1. **`PUT /<user>/admin/handler`** -- worker accepts the script as
-   request body, re-parses the closure directly into that user's DO
-   engine cache. ~50 lines, exactly the desktop `ArcSwap<Engine>`
-   pattern adapted per-user.
-2. **Workspace write to `/serve.nu`** -- the user's `Workspace`
-   `onChange` fires; an `AtomicBool` flag flips; the next request
-   reads `/serve.nu` from Workspace and re-parses into the engine
-   cache. This is the *event-driven* path; any write source (Nu
-   shadow `save`, debug `/_workspace/put`, future `git pull` once
-   the git/ port lands) goes through the same signal.
+1. **`PUT /admin/handler`** (default DO) or **`PUT /u/<user>/admin/handler`**
+   (per-user DO) -- worker accepts the script as request body, re-parses
+   the closure directly into that DO's engine cache. ~50 lines, exactly
+   the desktop `ArcSwap<Engine>` pattern adapted per-DO.
+2. **Workspace write to `/serve.nu`** -- the DO's `Workspace` `onChange`
+   fires; an `AtomicBool` flag flips; the next request reads `/serve.nu`
+   from Workspace and re-parses into the engine cache. This is the
+   *event-driven* path; any write source (Nu shadow `save`, debug
+   `/_workspace/put`, future `git pull` once the git/ port lands) goes
+   through the same signal.
 
 The two paths cooperate: PUT/admin/handler is the "tell me explicitly"
 shape; the Workspace-write path is the "I'll notice on my own" shape.
@@ -323,17 +355,23 @@ port (`cloudflare_shell::FileSystem` trait + the
 
 ### Still to build
 
-- **BusBridge** for `.bus sub` -- desktop uses thread + tokio runtime
-  (gated); CF will use a Durable Object with WebSocket Hibernation.
-  Both emit the same record stream.
+- **xs port** -- shadows `.append`, `.cat`, `.last` backed by Workspace
+  file paths (no parallel SQL/R2 layer). Plan:
+  [`src/cf/nu/xs/PLAN.md`](src/cf/nu/xs/PLAN.md). Unblocks templates,
+  quotes, and 2048-gameplay. ~half day for templates entry point.
+- **`.bus sub` for wasm** -- desktop bridges async broadcast -> sync
+  Nu pipeline via `std::thread::spawn`; wasm has no thread, so
+  `.bus sub` errors today (defensive stub). Real path: either
+  WebSocket Hibernation in a DurableObject, OR reuse the xs Workspace
+  on_change listener pattern from the xs port.
+- **Stor port** -- `stor *` family as direct `worker::SqlStorage`
+  passthrough. Plan:
+  [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md).
 - **Async eval refactor.** `Engine::run_closure` is sync. On Workers,
-  long evals hold the isolate; SSE handlers have to yield. Probably
-  means rewriting `src/worker.rs`'s eval loop (gated as desktop today)
-  to an async variant for CF.
-- **Storage primitives mapping** -- xs's `fjall` log + `cacache` CAS
-  map ~1:1 to DO SQLite + R2 via `@cloudflare/shell`'s `Workspace`.
-  The eventual `--store` story on CF reuses that. Lives in the xs
-  repo, not here.
+  long-running streaming evals can't yield to the runtime. Today
+  bounded by the sleep cap (`src/cf/nu/nu_command/platform/sleep.rs`)
+  -- 64 sleep calls per request. Real fix: async eval path so
+  generators yield naturally.
 
 ## Acknowledgements
 

@@ -49,8 +49,9 @@ here. Line numbers are anchors for side-by-side review.
 
 | Method (TS / Rust)                            | TS L | Rust L | Status / deviation                                              |
 |-----------------------------------------------|------|--------|-----------------------------------------------------------------|
-| `constructor` / `new`                         | 237  | 110    | done. Takes `(sql, r2, namespace)` instead of `WorkspaceOptions`; option bag pared back. |
-| -- / `default`                                | -    | 126    | port-only convenience; uses `DEFAULT_NAMESPACE = "default"`.    |
+| `constructor` / `new`                         | 237  | 110    | done. Takes `(sql, r2, namespace)` instead of `WorkspaceOptions`; option bag pared back. Mirrors upstream's `VALID_NAMESPACE` (filesystem.ts:189) -- rejects anything not matching `/^[a-zA-Z][a-zA-Z0-9_]*$/`. Required: the namespace lands in `format!("cf_workspace_{ns}")` inline in SQL DDL/queries (SqlStorage can't parameterise table names), so this validation is the only line of defence against namespace-as-injection. |
+| -- / `is_valid_namespace`                     | 189  | (helper) | port-only helper. Iterative ASCII check (no `regex` dep). Tests: `valid_namespaces_accepted`, `invalid_namespaces_rejected`. |
+| -- / `default`                                | -    | 144    | port-only convenience; uses `DEFAULT_NAMESPACE = "default"`.    |
 | `exists`                                      | 1028 | 153    | done.                                                           |
 | `fileExists`                                  | 1017 | -      | not ported. Use `exists` + `stat`.                              |
 | `stat`                                        | 500  | 164    | done. Returns `Ok(None)` on ENOENT (TS: `Promise<FileStat \| null>`). |

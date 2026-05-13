@@ -1,0 +1,11 @@
+name = "cloudflare-shell-rpc-demo-rust"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-05-01"
+workers_dev = true
+
+# Service binding to the FS-RPC server. Calls land on the WorkerEntrypoint
+# methods defined in ../server/shim.js; cloudflare-shell-rpc-client wraps
+# them as typed Rust methods.
+services = [
+  { binding = "SHELL_FS", service = "cloudflare-shell-rpc" }
+]

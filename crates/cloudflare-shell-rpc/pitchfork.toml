@@ -1,0 +1,27 @@
+# Daemon definitions for the three Workers in this subsystem.
+# Brought up via `mise run cf:fs:up`, torn down via `cf:fs:down`.
+#
+# Daemons share readiness checks (ready_http) so `pitchfork start`
+# only returns once each Worker actually answers HTTP. `depends` lets
+# the demo Workers wait for the server -- their service binding
+# resolution depends on the server being on wrangler's local registry
+# first.
+#
+# IDs are prefixed `cf-fs-` to avoid colliding with daemon names from
+# other repos on the same machine (a global `~/.config/pitchfork/config.toml`
+# might define `server` or `demo-js`). The mise tasks reference these
+# exact IDs.
+
+[daemons.cf-fs-server]
+run = "mise run cf:fs:dev"
+ready_http = "http://127.0.0.1:8788/"
+
+[daemons.cf-fs-demo-js]
+run = "mise run cf:fs:demo:dev"
+ready_http = "http://127.0.0.1:8789/"
+depends = ["cf-fs-server"]
+
+[daemons.cf-fs-demo-rust]
+run = "mise run cf:fs:demo:rust:dev"
+ready_http = "http://127.0.0.1:8790/"
+depends = ["cf-fs-server"]

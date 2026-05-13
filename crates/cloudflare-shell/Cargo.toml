@@ -19,4 +19,4 @@ default = []
 workers = ["dep:worker"]
 
 [dependencies]
-worker = { version = "0.8", optional = true }
+worker = { workspace = true, optional = true }

@@ -35,10 +35,13 @@ use cloudflare_shell::conformance as suite;
 
 use crate::Workspace;
 
-const CONFORMANCE_NAMESPACE: &str = "__conformance";
+// `Workspace::new` rejects leading-underscore names (mirrors
+// upstream's VALID_NAMESPACE = /^[a-zA-Z][a-zA-Z0-9_]*$/). Stays
+// isolated from real data by name choice + `wipe_root` between fns.
+const CONFORMANCE_NAMESPACE: &str = "conformance";
 
 /// Drive every `cloudflare_shell::conformance` function against a
-/// fresh `Workspace` under namespace `__conformance`. Returns
+/// fresh `Workspace` under namespace `conformance`. Returns
 /// `200 OK` + `"<n> passed"` on success; panics propagate (turn into
 /// a `500` if `console_error_panic_hook` is installed).
 pub async fn run_conformance(sql: SqlStorage, r2: Option<Bucket>) -> Result<Response> {

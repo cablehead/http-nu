@@ -21,6 +21,6 @@ all-features = true
 
 [dependencies]
 cloudflare-shell = { version = "0.1.0", path = "../cloudflare-shell", features = ["workers"] }
-worker = "0.8"
-serde = { version = "1", features = ["derive"] }
-base64 = "0.22"
+worker.workspace = true
+serde.workspace = true
+base64.workspace = true

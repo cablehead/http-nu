@@ -67,11 +67,44 @@ pub struct Workspace {
     on_change: std::sync::Mutex<Option<OnChange>>,
 }
 
+/// Upstream: filesystem.ts:189 `const VALID_NAMESPACE = /^[a-zA-Z][a-zA-Z0-9_]*$/`.
+///
+/// The namespace flows directly into table/index identifiers via
+/// `format!("cf_workspace_{namespace}")` and `format!("idx_..._...")`,
+/// which means SqlStorage's parameter-binding can't help us -- the
+/// only correct defense is to refuse anything that isn't a plain SQL
+/// identifier suffix. Anything else is a code-injection vector
+/// (e.g. a namespace of `x; DROP TABLE cf_workspace_default; --`
+/// would break out of the table-name position in CREATE / SELECT /
+/// DELETE statements).
+fn is_valid_namespace(s: &str) -> bool {
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 impl Workspace {
     /// Upstream: filesystem.ts:237 `constructor(options: WorkspaceOptions)`.
     /// We take `(sql, r2, namespace)` instead of an options bag --
     /// `onChange` callback (TS L108) is not yet wired.
+    ///
+    /// Rejects namespaces that don't match
+    /// `/^[a-zA-Z][a-zA-Z0-9_]*$/` (upstream's `VALID_NAMESPACE`).
+    /// The check is non-negotiable: this string ends up inline in
+    /// CREATE TABLE / SELECT statements, so anything weaker is a SQL
+    /// injection vector. See `is_valid_namespace`'s doc for why
+    /// parameter binding isn't an option here.
     pub fn new(sql: SqlStorage, r2: Option<Bucket>, namespace: &str) -> Result<Self> {
+        if !is_valid_namespace(namespace) {
+            return Err(FsError::Other(format!(
+                "invalid workspace namespace \"{namespace}\": must start with a letter and contain only alphanumeric characters or underscores"
+            )));
+        }
         let table = format!("cf_workspace_{namespace}");
         let index = format!("idx_{table}_parent_path");
         let r2_prefix = namespace.to_string();
@@ -1010,5 +1043,35 @@ impl FileSystem for Workspace {
 
     async fn glob(&self, pattern: &str) -> Result<Vec<String>> {
         Workspace::glob(self, pattern).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_namespace;
+
+    #[test]
+    fn valid_namespaces_accepted() {
+        for ns in ["a", "default", "user1", "User_2", "x__y__z", "z9"] {
+            assert!(is_valid_namespace(ns), "expected valid: {ns:?}");
+        }
+    }
+
+    #[test]
+    fn invalid_namespaces_rejected() {
+        // Leading non-letter, special chars, empty, SQL-injection shapes.
+        for ns in [
+            "",
+            "1abc",                                 // starts with digit
+            "_underscore",                          // starts with underscore
+            "with-hyphen",                          // hyphen
+            "with space",                           // whitespace
+            "x.y",                                  // dot
+            "x;DROP TABLE cf_workspace_default;--", // classic injection
+            "unicode\u{00e9}",                      // non-ascii
+            "\"quoted\"",                           // quotes
+        ] {
+            assert!(!is_valid_namespace(ns), "expected invalid: {ns:?}");
+        }
     }
 }

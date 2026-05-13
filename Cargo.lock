@@ -910,6 +910,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "cloudflare-shell-rpc-client"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "cloudflare-shell-rpc-types",
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "worker",
+]
+
+[[package]]
+name = "cloudflare-shell-rpc-demo-rust"
+version = "0.1.0"
+dependencies = [
+ "cloudflare-shell-rpc-client",
+ "cloudflare-shell-rpc-types",
+ "console_error_panic_hook",
+ "percent-encoding",
+ "serde_json",
+ "worker",
+]
+
+[[package]]
+name = "cloudflare-shell-rpc-server"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "cloudflare-shell",
+ "cloudflare-shell-rpc-types",
+ "cloudflare-shell-workspace",
+ "console_error_panic_hook",
+ "percent-encoding",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "worker",
+]
+
+[[package]]
+name = "cloudflare-shell-rpc-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cloudflare-shell-workspace"
 version = "0.1.0"
 dependencies = [

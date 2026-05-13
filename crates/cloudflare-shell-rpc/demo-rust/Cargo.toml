@@ -1,0 +1,22 @@
+[package]
+name = "cloudflare-shell-rpc-demo-rust"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+description = "Rust Worker demo for cloudflare-shell-rpc. Consumes the SHELL_FS service binding via cloudflare-shell-rpc-client and exposes HTTP routes that exercise every FS method. Serves as the integration test for the client crate."
+license = "MIT"
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["wasm32-unknown-unknown"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cloudflare-shell-rpc-client = { version = "0.1.0", path = "../client" }
+cloudflare-shell-rpc-types  = { version = "0.1.0", path = "../types" }
+worker.workspace = true
+serde_json.workspace = true
+console_error_panic_hook.workspace = true
+percent-encoding = "2"
