@@ -333,23 +333,29 @@ body.flash-red { animation: flash-red 300ms ease; }
 
 /* Touch dot: spawned under the finger on swipe-commit, grows over the charge
    window so the user has a tactile sense of charging the cascade. Removed
-   on hold-fire or early release. */
-.touch-dot {
+   on hold-fire or early release.
+   Split into pos (translate, updated per pointermove) and dot (scale anim)
+   so the per-frame position update doesn't fight the keyframe transform. */
+.touch-dot-pos {
   position: fixed;
-  width: 16px;
-  height: 16px;
-  margin: -8px 0 0 -8px;
-  border-radius: 50%;
-  background: rgb(from var(--glow) r g b / 0.85);
+  top: 0;
+  left: 0;
   pointer-events: none;
   z-index: 10;
-  transform: scale(0.2);
-  opacity: 0.6;
+  will-change: transform;
+}
+.touch-dot {
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  background: rgb(from var(--glow) r g b / 0.5);
   animation: touch-dot-grow 750ms ease-in forwards;
+  will-change: transform, opacity;
 }
 @keyframes touch-dot-grow {
-  from { transform: scale(0.2); opacity: 0.6; }
-  to   { transform: scale(3.5); opacity: 0.95; }
+  from { transform: scale(1);   opacity: 0.45; }
+  to   { transform: scale(2.4); opacity: 0.9; }
 }
 
 /* Edge flash: server emits a fresh .edge-flash element with a unique id per

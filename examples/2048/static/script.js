@@ -63,6 +63,9 @@ new MutationObserver(() => {
   const w = document.querySelector("#board-wrap");
   w?.style.setProperty("--glow-x", "0px");
   w?.style.setProperty("--glow-y", "0px");
+  // If the user is still holding after the impulse confirmed, now is when
+  // the charge-up begins -- not at commit time.
+  startChargeUp();
   document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();
@@ -150,14 +153,40 @@ let axis = null;
 let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
 let holdShiftTimer = null;   // fires shift-<dir> if the user keeps holding
 let touchDot = null;         // visual dot under the finger during charge-up
+let lastClientX = 0, lastClientY = 0;  // tracked so charge-up spawns under finger
 
 const removeTouchDot = () => {
   if (touchDot) { touchDot.remove(); touchDot = null; }
 };
 
+// Called when the first SSE patch lands after a swipe commits. If the user is
+// still holding, start the charge-up: spawn the dot at the current finger
+// position, light the board edge, and arm the hold timer.
+const startChargeUp = () => {
+  if (!start || !committedDir || holdShiftTimer || touchDot || !wrap) return;
+  touchDot = document.createElement("div");
+  touchDot.className = "touch-dot-pos";
+  touchDot.style.transform = `translate3d(${lastClientX}px, ${lastClientY}px, 0)`;
+  const inner = document.createElement("div");
+  inner.className = "touch-dot";
+  touchDot.appendChild(inner);
+  document.body.appendChild(touchDot);
+  wrap.dataset.charge = committedDir;
+  wrap.classList.add("charging");
+  holdShiftTimer = setTimeout(() => {
+    holdShiftTimer = null;
+    wrap?.classList.remove("charging");
+    delete wrap?.dataset.charge;
+    removeTouchDot();
+    move(`shift-${committedDir}`);
+  }, HOLD_FOR_SHIFT_MS);
+};
+
 addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#board")) { start = null; return; }
   start = [e.clientX, e.clientY];
+  lastClientX = e.clientX;
+  lastClientY = e.clientY;
   axis = null;
   committedDir = null;
   if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
@@ -169,6 +198,8 @@ addEventListener("pointerdown", (e) => {
 
 addEventListener("pointermove", (e) => {
   if (!start || !wrap) return;
+  lastClientX = e.clientX;
+  lastClientY = e.clientY;
   let dx = e.clientX - start[0];
   let dy = e.clientY - start[1];
   if (!axis && Math.max(Math.abs(dx), Math.abs(dy)) >= AXIS_LOCK) {
@@ -177,8 +208,14 @@ addEventListener("pointermove", (e) => {
   if (axis === "h") dy = 0;
   if (axis === "v") dx = 0;
   // Once committed, freeze the tilt and let the board settle -- subsequent
-  // pointermoves don't keep "holding" the board at the lean.
-  if (committedDir) return;
+  // pointermoves don't keep "holding" the board at the lean. The touch-dot
+  // still tracks the finger so the charge-up visual stays under it.
+  if (committedDir) {
+    if (touchDot) {
+      touchDot.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+    }
+    return;
+  }
   const tx = Math.max(-CAP, Math.min(CAP, dx * DAMP));
   const ty = Math.max(-CAP, Math.min(CAP, dy * DAMP));
   wrap.style.setProperty("--tilt-x", `${tx}px`);
@@ -209,25 +246,9 @@ addEventListener("pointermove", (e) => {
       committedDir === "j" ? `${LIT}px` :
       committedDir === "k" ? `${-LIT}px` : "0px");
     wrap.classList.add("decay");
-    // Spawn a dot under the finger that grows over HOLD_FOR_SHIFT_MS.
-    removeTouchDot();
-    touchDot = document.createElement("div");
-    touchDot.className = "touch-dot";
-    touchDot.style.left = `${e.clientX}px`;
-    touchDot.style.top = `${e.clientY}px`;
-    document.body.appendChild(touchDot);
-    // Begin charging up: gradient builds in the press direction over
-    // HOLD_FOR_SHIFT_MS. Timer fires shift on completion; pointerup
-    // cancels both.
-    wrap.dataset.charge = committedDir;
-    wrap.classList.add("charging");
-    holdShiftTimer = setTimeout(() => {
-      holdShiftTimer = null;
-      wrap?.classList.remove("charging");
-      delete wrap?.dataset.charge;
-      removeTouchDot();
-      move(`shift-${committedDir}`);
-    }, HOLD_FOR_SHIFT_MS);
+    // Charge-up doesn't start here -- the observer triggers startChargeUp()
+    // once the impulse SSE patch lands, so the user sees the board respond
+    // before the cascade visual begins.
   }
 });
 

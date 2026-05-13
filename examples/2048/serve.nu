@@ -347,7 +347,10 @@ def impulses-to-states [initial: record] {
       }
       return {out: $result.yields, next: ($s | upsert state $result.state)}
     }
-    {next: $s}
+    # Any other intent (empty ping, unrecognised) still emits a no-op state
+    # echo. The client uses the resulting mutation to measure RTT and to
+    # clear the "lit edge" -- if the edge stays lit, the server is slow.
+    return {out: [{state: $s.state, mode: $s.mode, threshold: false}], next: $s}
   } $initial
   | flatten
   | generate {|item state = {prev_paced: false}|
