@@ -2,27 +2,15 @@
 //!
 //! # Why this exists
 //!
-//! `InMemoryFs` is a *behavioural double* for `Workspace`. The danger
-//! of behavioural doubles is they drift: the in-memory impl gets
-//! "convenient" semantics that diverge from the real impl, tests pass
-//! against the double, then production breaks against the real backend.
-//! That's a worse failure mode than no tests at all -- it ships false
-//! confidence.
+//! Test code exercising FS behaviour belongs here, written against
+//! `<F: FileSystem>`, so the same assertions can run against any impl.
+//! Today the only impl is `Workspace`, which is wasm-only; the wasm
+//! harness at `src/cf/conformance.rs` invokes these functions against
+//! a real DurableObject + R2 backend, exposed as
+//! `GET /<user>/_workspace/conformance`.
 //!
-//! The defence is **discipline**: tests that exercise FS behaviour
-//! belong here, written against `<F: FileSystem>`. Each function is
-//! then run twice:
-//!
-//! 1. **Against `InMemoryFs`** in the unit-test module of
-//!    `in_memory_fs.rs`. Runs under `cargo test` on desktop.
-//! 2. **Against `Workspace`** via `mise run cf:dev` + an integration
-//!    harness inside a DurableObject. (Today this step is manual
-//!    curl-based; the harness can be automated later.)
-//!
-//! If a conformance assertion passes against the double but fails
-//! against the real backend, the assertion is wrong -- not the
-//! backend. Fix the conformance test to express the *real* invariant,
-//! then make both impls satisfy it.
+//! If a second `FileSystem` impl is added later, every function here
+//! works against it unchanged.
 //!
 //! # What belongs here
 //!
@@ -40,11 +28,10 @@
 //!
 //! - "Files larger than 1.5MB spill to R2" -- Workspace-only.
 //! - "Tests survive DurableObject eviction" -- Workspace-only.
-//! - "Lookups are O(1)" -- InMemoryFs-only.
 //!
 //! Backend-specific tests live next to their impl, not here.
 
-use crate::shell::{
+use crate::{
     error::FsError, CpOptions, EntryType, FileSystem, MkdirOptions, OnChange, RmOptions,
     WorkspaceChangeType, MAX_PATH_LENGTH,
 };
@@ -137,7 +124,15 @@ pub async fn cp_preserves_mime<F: FileSystem>(fs: &F) {
     assert_eq!(dst_stat.kind, EntryType::File);
 }
 
-pub async fn on_change_emits_create_then_update_then_delete<F: FileSystem + 'static>(fs: &F) {
+/// Conformance fn for change-listener wiring. `set_on_change` isn't on
+/// the `FileSystem` trait (impls that don't support listeners
+/// shouldn't be forced to stub it), so the harness passes the setter
+/// in as a closure. Workspace's call site:
+/// `|ws, cb| ws.set_on_change(cb)`.
+pub async fn on_change_emits_create_then_update_then_delete<F: FileSystem>(
+    fs: &F,
+    set_on_change: impl FnOnce(&F, OnChange),
+) {
     let events: Arc<Mutex<Vec<(WorkspaceChangeType, String, EntryType)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let events_for_cb = events.clone();
@@ -157,20 +152,29 @@ pub async fn on_change_emits_create_then_update_then_delete<F: FileSystem + 'sta
     assert_eq!(
         got,
         vec![
-            (WorkspaceChangeType::Create, "/x.txt".to_string(), EntryType::File),
-            (WorkspaceChangeType::Update, "/x.txt".to_string(), EntryType::File),
-            (WorkspaceChangeType::Delete, "/x.txt".to_string(), EntryType::File),
+            (
+                WorkspaceChangeType::Create,
+                "/x.txt".to_string(),
+                EntryType::File
+            ),
+            (
+                WorkspaceChangeType::Update,
+                "/x.txt".to_string(),
+                EntryType::File
+            ),
+            (
+                WorkspaceChangeType::Delete,
+                "/x.txt".to_string(),
+                EntryType::File
+            ),
         ]
     );
 }
 
-/// Wipe every entry under `/`. Each conformance fn assumes a fresh
-/// filesystem; harnesses call this between fns when reusing one
-/// backend instance. Desktop tests construct a fresh `InMemoryFs` per
-/// fn so they don't need it; the wasm harness in
-/// `crate::cf::conformance` does, because `Workspace` (DO SQLite + R2)
-/// persists.
-pub async fn wipe_root<F: FileSystem>(fs: &F) -> crate::shell::Result<()> {
+/// Wipe every entry under `/`. The wasm harness in
+/// `crate::cf::conformance` calls this between fns because `Workspace`
+/// (DO SQLite + R2) persists -- each fn assumes a fresh filesystem.
+pub async fn wipe_root<F: FileSystem>(fs: &F) -> crate::Result<()> {
     let entries = fs.read_dir_with_file_types("/").await?.unwrap_or_default();
     for e in entries {
         let path = format!("/{}", e.name);
@@ -184,29 +188,4 @@ pub async fn wipe_root<F: FileSystem>(fs: &F) -> crate::shell::Result<()> {
         .await?;
     }
     Ok(())
-}
-
-/// Per-backend `set_on_change` wrapper. The trait can't carry it --
-/// not every future `FileSystem` impl should be forced to support
-/// listeners, and the trait's `&self` receivers don't combine with a
-/// `&mut self` setter. The downcast keeps the trait minimal while
-/// letting the conformance suite verify listener behavior.
-///
-/// When adding a new `FileSystem` backend that supports listeners,
-/// add a downcast arm here.
-fn set_on_change<F: FileSystem + 'static>(fs: &F, cb: OnChange) {
-    let any = fs as &dyn std::any::Any;
-    if let Some(fs) = any.downcast_ref::<crate::shell::InMemoryFs>() {
-        fs.set_on_change(cb);
-        return;
-    }
-    #[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
-    if let Some(fs) = any.downcast_ref::<crate::cf::shell::Workspace>() {
-        fs.set_on_change(cb);
-        return;
-    }
-    panic!(
-        "conformance::set_on_change: backend doesn't have a known setter. \
-         Add a downcast arm here for your FileSystem impl."
-    );
 }

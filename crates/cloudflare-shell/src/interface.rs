@@ -2,13 +2,13 @@
 //! `.src/agents/packages/shell/src/fs/interface.ts` plus the type
 //! exports at the top of `.src/agents/packages/shell/src/filesystem.ts`.
 //!
-//! Both `crate::shell::InMemoryFs` (desktop+wasm) and
-//! `crate::cf::shell::Workspace` (wasm only) implement this trait. The
-//! whole point of having the trait is so test code can be
-//! parameterised over `<F: FileSystem>` and run against either backend.
-//! See [`crate::shell::conformance`] for the discipline.
+//! The reference impl lives in the
+//! [`cloudflare-shell-workspace`](https://docs.rs/cloudflare-shell-workspace)
+//! crate (`Workspace`, backed by DO SQLite + R2). The conformance
+//! suite in [`crate::conformance`] is generic over `<F: FileSystem>`
+//! so any custom impl can run the same assertions.
 
-use crate::shell::error::Result;
+use crate::error::Result;
 
 /// Upstream: filesystem.ts:120 `EntryType`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,7 +19,9 @@ pub enum EntryType {
 }
 
 impl EntryType {
-    pub(crate) fn as_str(self) -> &'static str {
+    /// SQL `type` column value for this entry kind. Matches upstream's
+    /// inline string literals at filesystem.ts:340-345.
+    pub fn as_str(self) -> &'static str {
         match self {
             EntryType::File => "file",
             EntryType::Directory => "directory",
@@ -27,7 +29,9 @@ impl EntryType {
         }
     }
 
-    pub(crate) fn parse(s: &str) -> Option<EntryType> {
+    /// Inverse of [`as_str`](Self::as_str). Returns `None` for unknown
+    /// strings (matches upstream's `parseEntryType` which throws).
+    pub fn parse(s: &str) -> Option<EntryType> {
         match s {
             "file" => Some(EntryType::File),
             "directory" => Some(EntryType::Directory),
@@ -116,7 +120,7 @@ pub const MAX_PATH_LENGTH: usize = 4096;
 pub const MAX_SYMLINK_DEPTH: u32 = 40;
 
 /// Upstream: fs/path-utils.ts:8-10. POSIX-style mode bits surfaced on
-/// `Stat`. Workspace and InMemoryFs both compute these at read time.
+/// `Stat`, computed at read time from `EntryType`.
 pub const DEFAULT_FILE_MODE: u32 = 0o644;
 pub const DEFAULT_DIR_MODE: u32 = 0o755;
 pub const SYMLINK_MODE: u32 = 0o777;
@@ -135,7 +139,7 @@ pub const DEFAULT_BYTES_MIME: &str = "application/octet-stream";
 ///     (`stat`, `lstat`, `read_file*`, `readlink`, `read_dir*`,
 ///     `realpath`) return `Ok(None)` when the path doesn't exist;
 ///     EISDIR / ENOTDIR / etc. still return `Err(...)`. Upstream throws
-///     in all cases. Documented in `src/shell/CLAUDE.md`.
+///     in all cases. Documented in this crate's `CLAUDE.md`.
 ///   - **`mime_type: Option<&str>` on writes.** Matches the upstream
 ///     positional `mimeType` default ("text/plain" / "application/octet-stream"
 ///     when `None`).
@@ -154,8 +158,7 @@ pub trait FileSystem {
     fn lstat(&self, path: &str) -> impl std::future::Future<Output = Result<Option<Stat>>>;
 
     /// Upstream: `readFile()` -- filesystem.ts:526 / in-memory-fs.ts:212.
-    fn read_file(&self, path: &str)
-        -> impl std::future::Future<Output = Result<Option<String>>>;
+    fn read_file(&self, path: &str) -> impl std::future::Future<Output = Result<Option<String>>>;
 
     /// Upstream: `readFileBytes()` -- filesystem.ts:569 / in-memory-fs.ts:219.
     /// `EISDIR` on dir; `Ok(None)` on ENOENT.
@@ -188,8 +191,10 @@ pub trait FileSystem {
     ) -> impl std::future::Future<Output = Result<()>>;
 
     /// Upstream: `readdir()`.
-    fn read_dir(&self, path: &str)
-        -> impl std::future::Future<Output = Result<Option<Vec<String>>>>;
+    fn read_dir(
+        &self,
+        path: &str,
+    ) -> impl std::future::Future<Output = Result<Option<Vec<String>>>>;
 
     /// Upstream: `readdirWithFileTypes()`.
     fn read_dir_with_file_types(
@@ -226,12 +231,10 @@ pub trait FileSystem {
     ) -> impl std::future::Future<Output = Result<()>>;
 
     /// Upstream: `readlink()`. `Ok(None)` if path isn't a symlink.
-    fn readlink(&self, path: &str)
-        -> impl std::future::Future<Output = Result<Option<String>>>;
+    fn readlink(&self, path: &str) -> impl std::future::Future<Output = Result<Option<String>>>;
 
     /// Upstream: `realpath()`. Resolves symlinks.
-    fn realpath(&self, path: &str)
-        -> impl std::future::Future<Output = Result<Option<String>>>;
+    fn realpath(&self, path: &str) -> impl std::future::Future<Output = Result<Option<String>>>;
 
     /// Upstream: `glob()`. Returns absolute paths, sorted.
     fn glob(&self, pattern: &str) -> impl std::future::Future<Output = Result<Vec<String>>>;

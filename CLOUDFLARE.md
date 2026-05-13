@@ -25,18 +25,19 @@ canonical**; don't restate contents here, point at them:
   Vfs-only rule),
   [`src/cf/nu/nu_command/PORT_STATUS.md`](src/cf/nu/nu_command/PORT_STATUS.md)
   for the running shadow table.
-- **`@cloudflare/shell` Rust port.** Two directories:
-  - **Backend-agnostic layer** (FileSystem trait, InMemoryFs, FsError,
-    path_utils, conformance tests) -- compiles on desktop AND wasm.
-    See [`src/shell/README.md`](src/shell/README.md) /
-    [`CLAUDE.md`](src/shell/CLAUDE.md). Includes a hard
-    mock-divergence rule: tests live in `src/shell/conformance.rs`
-    against `<F: FileSystem>` and run against EVERY impl.
-  - **Wasm-only `Workspace` impl** (DO SQLite + R2 spill + schema) --
-    see [`src/cf/shell/README.md`](src/cf/shell/README.md) /
-    [`CLAUDE.md`](src/cf/shell/CLAUDE.md) /
-    [`PORT_STATUS.md`](src/cf/shell/PORT_STATUS.md). `PORT_STATUS.md`
-    is the upstream coverage ledger spanning BOTH directories.
+- **`@cloudflare/shell` Rust port.** Two workspace crates:
+  - **`cloudflare-shell`** (backend-agnostic: FileSystem trait,
+    FsError, path_utils, generic conformance suite) -- reusable from
+    any Rust project. See
+    [`crates/cloudflare-shell/README.md`](crates/cloudflare-shell/README.md)
+    / [`CLAUDE.md`](crates/cloudflare-shell/CLAUDE.md).
+  - **`cloudflare-shell-workspace`** (wasm-only Workspace impl: DO
+    SQLite + R2 spill + schema). See
+    [`crates/cloudflare-shell-workspace/README.md`](crates/cloudflare-shell-workspace/README.md)
+    / [`CLAUDE.md`](crates/cloudflare-shell-workspace/CLAUDE.md) /
+    [`PORT_STATUS.md`](crates/cloudflare-shell-workspace/PORT_STATUS.md).
+    `PORT_STATUS.md` is the upstream coverage ledger spanning BOTH
+    crates.
 
 For running state at the project level (live worker, example matrix,
 build/CI green checks, unblock tracks):
@@ -317,7 +318,8 @@ wasm both call `crate::vfs::with_vfs(...)` and get the right impl:
 `OsVfs` (in `src/vfs.rs`, gated `#[cfg(feature = "desktop")]`) wraps
 `std::fs::*`; `SnapshotVfs` (in `src/cf/snapshot_vfs.rs`, wasm only)
 is the per-request preload from Workspace. Same split as the shell
-port (`crate::shell::FileSystem` trait + desktop+wasm impls).
+port (`cloudflare_shell::FileSystem` trait + the
+`cloudflare-shell-workspace` impl).
 
 ### Still to build
 

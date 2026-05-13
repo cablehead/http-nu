@@ -5,7 +5,7 @@ compile to `wasm32-unknown-unknown`, can't reach a real filesystem under
 Workers, or need to be redirected through the workspace `Vfs` instead of
 `std::fs`.
 
-Same concept as `src/cf/shell/` -- but for Nu, not `@cloudflare/shell`.
+Same concept as `crates/cloudflare-shell-workspace/` -- but for Nu, not `@cloudflare/shell`.
 The shell port is a Rust translation of a JS package; this directory is a
 set of Nu `Command` impls that *replace* upstream Nu commands at engine
 init time. Different mechanic, same discipline: file-for-file parity with
@@ -152,7 +152,7 @@ upstream sibling and (if relevant) explaining the deviation:
 ```
 
 Open the upstream file at the cited path and diff. Same review
-experience as `src/cf/shell/`.
+experience as `crates/cloudflare-shell-workspace/`.
 
 ## Build / test
 

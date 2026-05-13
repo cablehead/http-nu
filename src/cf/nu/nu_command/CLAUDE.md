@@ -12,7 +12,7 @@ exists to keep that property.
 A shadow is structurally identical to a *mock* of stock `nu-command`:
 same name, same intent, separate implementation. So it has the same
 failure mode the FileSystem port did (see
-[`src/shell/CLAUDE.md`](../../../shell/CLAUDE.md)) -- silent drift:
+[`crates/cloudflare-shell/CLAUDE.md`](../../../../crates/cloudflare-shell/CLAUDE.md)) -- silent drift:
 
 1. Stock `ls` on desktop supports `--all`, `--long`, sort flags, etc.
 2. Our shadow `ls` on CF supports only `path`.
@@ -67,7 +67,7 @@ nu-command 0.112.1.` Lying is worse than admitting a gap.
 
 ### Defence 3 (future): Nu-script conformance suite
 
-Same shape as `src/shell/conformance.rs`: a directory of `.nu` test
+Same shape as `cloudflare-shell::conformance`: a directory of `.nu` test
 scripts that run against BOTH desktop (stock) and CF (shadow) and
 diff outputs. Not built today; tracked under "Gaps" in
 `PORT_STATUS.md`. The per-demo parity check in CLOUDFLARE.md is the
@@ -134,8 +134,8 @@ stack splits into three layers and **we only own the bottom one**:
 out in full. **This is the strategy that makes the demand map short
 -- don't forget it.**
 
-Same principle holds for `src/cf/shell/` (port only what http-nu
-calls; see [`src/shell/CLAUDE.md`](../../../shell/CLAUDE.md)).
+Same principle holds for `crates/cloudflare-shell-workspace/` (port
+only what http-nu calls; see [`crates/cloudflare-shell/CLAUDE.md`](../../../../crates/cloudflare-shell/CLAUDE.md)).
 
 ## 2. File layout mirrors `nu-command/src/`, path-for-path
 
@@ -221,7 +221,7 @@ Nu engine, not the worker handler. Use the helpers in `shared.rs`:
   no-vfs error handling.
 
 The Vfs itself emits POSIX-prefixed error strings (`ENOENT:`, `EISDIR:`,
-etc., per `src/cf/shell/CLAUDE.md`); when surfacing those through a
+etc., per `crates/cloudflare-shell-workspace/CLAUDE.md`); when surfacing those through a
 shadow, pass the Vfs error string into `vfs_err`'s `error` field
 unchanged so callers downstream of `do $closure` can still
 pattern-match on the prefix.

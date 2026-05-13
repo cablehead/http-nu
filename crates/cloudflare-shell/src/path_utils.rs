@@ -6,7 +6,7 @@
 //! entry point (matches upstream's inline `MAX_PATH_LENGTH` check at
 //! filesystem.ts:1584).
 
-use crate::shell::{FsError, Result, MAX_PATH_LENGTH};
+use crate::{FsError, Result, MAX_PATH_LENGTH};
 
 /// Upstream: `fs/path-utils.ts:13` `normalizePath()`. Collapse `.`,
 /// `..`, and double slashes; force a leading `/`. Result is always

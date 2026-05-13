@@ -34,7 +34,14 @@ HTTP_NU = "./target/debug/http-nu"
 
 [tasks.build]
 description = "Build debug binary"
-sources = ["src/**/*.rs", "build.rs", "Cargo.toml", "Cargo.lock"]
+sources = [
+  "src/**/*.rs",
+  "crates/*/src/**/*.rs",
+  "crates/*/Cargo.toml",
+  "build.rs",
+  "Cargo.toml",
+  "Cargo.lock",
+]
 outputs = ["target/debug/http-nu"]
 run = "cargo build"
 
@@ -67,9 +74,9 @@ run = "cargo clippy --locked --workspace --all-targets --all-features -- -D warn
 # ============================================================================
 
 [tasks.test]
-description = "Run cargo test"
+description = "Run cargo test across the whole workspace (http-nu + cloudflare-shell + cloudflare-shell-workspace + test plugin)"
 depends = ["build:plugin"]
-run = "cargo test"
+run = "cargo test --workspace"
 
 [tasks."test:nu"]
 description = "Run nushell test scripts (router, html, datastar)"
@@ -84,6 +91,10 @@ run = [
 description = "Run the Tao eval test"
 depends = ["build"]
 run = "$HTTP_NU eval examples/tao/test.nu"
+
+[tasks."publish:check"]
+description = "Dry-run cargo publish for cloudflare-shell -- catches missing metadata, unused features, path-dep issues before crates.io. cloudflare-shell-workspace can't dry-run until cloudflare-shell is actually published (cargo strips path deps and looks them up in the registry); add it here after the first publish."
+run = "cargo publish --dry-run -p cloudflare-shell --allow-dirty"
 
 [tasks.ci]
 description = "CI aggregator — what the .github/workflows/mise.yaml workflow runs"

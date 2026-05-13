@@ -12,21 +12,23 @@ interop: data written from either side is readable by the other.
 
 The port is split between two Rust crates' worth of code:
 
-- **`src/shell/`** -- backend-agnostic: `FileSystem` trait, shared
-  types, `FsError`, `InMemoryFs`, `path_utils`, conformance tests.
-  Compiles on desktop AND wasm.
-- **`src/cf/shell/`** -- wasm-only: `Workspace` impl (DO SQLite + R2)
-  + its `schema`. Implements `crate::shell::FileSystem`.
+- **`cloudflare-shell`** (`crates/cloudflare-shell/`) -- backend-agnostic:
+  `FileSystem` trait, shared types, `FsError`, `path_utils`, generic
+  conformance suite. Independent crate; could be published or
+  upstreamed to `workers-rs`.
+- **`cloudflare-shell-workspace`** (this crate) -- wasm-only:
+  `Workspace` impl (DO SQLite + R2) + its `schema`. Implements
+  `cloudflare_shell::FileSystem`.
 
-| Upstream (`.src/agents/packages/shell/src/`) | Here                                  | Status                                                                                            |
-|----------------------------------------------|---------------------------------------|---------------------------------------------------------------------------------------------------|
-| `fs/interface.ts`                            | `src/shell/interface.rs`              | done -- `FileSystem` trait + Stat / EntryType / option types / WorkspaceChange* / constants       |
-| `fs/path-utils.ts`                           | `src/shell/path_utils.rs`             | done + `normalize_path` validator (length check)                                                  |
-| `fs/in-memory-fs.ts` (744 lines)             | `src/shell/in_memory_fs.rs`           | partial -- core FS methods + `impl FileSystem`; lazy entries / `chmod` / `utimes` / `link` deferred |
-| (port-only)                                  | `src/shell/error.rs`                  | done -- `FsError` enum w/ POSIX-prefixed `Display`; `From<worker::Error>` on wasm                  |
-| (port-only)                                  | `src/shell/conformance.rs`            | done -- generic `<F: FileSystem>` tests; the keystone of the mock-divergence defence              |
-| `filesystem.ts` (1837 lines)                 | `src/cf/shell/filesystem.rs`          | partial -- `Workspace` + `impl FileSystem for Workspace`; see method table                        |
-| (inlined in `filesystem.ts`)                 | `src/cf/shell/schema.rs`              | done -- SQL DDL extracted for Rust separation                                                     |
+| Upstream (`.src/agents/packages/shell/src/`) | Here                                                  | Status                                                                                            |
+|----------------------------------------------|-------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `fs/interface.ts`                            | `cloudflare-shell/src/interface.rs`                   | done -- `FileSystem` trait + Stat / EntryType / option types / WorkspaceChange* / constants       |
+| `fs/path-utils.ts`                           | `cloudflare-shell/src/path_utils.rs`                  | done + `normalize_path` validator (length check)                                                  |
+| `fs/in-memory-fs.ts` (744 lines)             | -                                                     | skip -- a desktop-only double would only catch divergence from itself, not from `Workspace`       |
+| (port-only)                                  | `cloudflare-shell/src/error.rs`                       | done -- `FsError` enum w/ POSIX-prefixed `Display`; `From<worker::Error>` behind `workers` feature |
+| (port-only)                                  | `cloudflare-shell/src/conformance.rs`                 | done -- generic `<F: FileSystem>` tests; run against `Workspace` via the consumer's harness        |
+| `filesystem.ts` (1837 lines)                 | `cloudflare-shell-workspace/src/filesystem.rs`        | partial -- `Workspace` + `impl FileSystem for Workspace`; see method table                        |
+| (inlined in `filesystem.ts`)                 | `cloudflare-shell-workspace/src/schema.rs`            | done -- SQL DDL extracted for Rust separation                                                     |
 | `fs/encoding.ts`                             | -                                     | TBD                                                                                               |
 | `backend.ts` (`StateBackend`)                | -                                     | skip unless agents-SDK integration                                                                |
 | `memory.ts` (`FileSystemStateBackend`)       | -                                     | skip unless agents-SDK integration                                                                |
@@ -193,32 +195,24 @@ No worker-rs gaps blocked the port. The sync `SqlStorage::exec` API is
 what makes the bridge possible from inside a DO without an async
 runtime.
 
-## `InMemoryFs` port notes
+## `InMemoryFs`: not ported (deliberate)
 
-Implemented as a drop-in alternative to `Workspace` for tests / scratch
-buffers. Same method surface (`read_file*`, `write_file*`,
-`append_file`, `stat`, `lstat`, `exists`, `mkdir`, `read_dir*`, `rm`,
-`cp`, `mv`, `symlink`, `readlink`, `realpath`, `glob`), same
-`Ok(None)`-on-ENOENT convention, same `Stat` / `DirEntry` / option
-types, same `set_on_change` listener wiring (port-only -- upstream
-`InMemoryFs` does not emit; we add it for API symmetry with `Workspace`
-so test code can subscribe regardless of backend).
+Upstream ships `fs/in-memory-fs.ts` as a desktop-side double of
+`Workspace` for tests / scratch buffers. We don't carry that here.
+The reasons:
 
-Storage is a flat `HashMap<String, Node>` keyed by absolute path rather
-than upstream's `VDirNode` tree. Semantic parity, simpler representation
-(`read_dir` becomes a prefix filter on the map; lookups are O(1)).
+1. A desktop double tests itself, not `Workspace`. The conformance
+   suite (`cloudflare_shell::conformance`) is generic over
+   `<F: FileSystem>`; it must run against the real backend (DO
+   SQLite + R2) to catch divergence. `cloudflare_shell_workspace::
+   run_conformance` does exactly that.
+2. Maintaining a 1500-line double in lockstep with `Workspace` is a
+   permanent tax. We'd rather automate the wasm conformance route
+   into CI than pretend a double provides parity.
 
-**Not ported** (deferred -- track here):
-- **Lazy file entries** (`LazyFileProvider`, `forceLazy`). Useful for
-  test fixtures that compute content on demand; not on our critical
-  path.
-- **Sync helpers** (`writeFileSync`, `mkdirSync`, `writeFileLazy`). Our
-  `async fn` surface covers the same ground.
-- **`chmod` / `utimes` / `link`**. Modes are computed at read time
-  (matches upstream `Workspace`); explicit chmod/utimes aren't used by
-  any caller yet.
-- **`InitialFiles` constructor option**. `new()` returns an empty FS;
-  callers chain `write_file_bytes(...)` to seed.
+If a second `FileSystem` impl becomes useful later (a JS-side Workers
+shim, an R2-only impl), the generic conformance functions are ready
+for it without modification.
 
 ## Next port targets (ranked)
 

@@ -25,6 +25,7 @@
 
 use nu_engine::command_prelude::*;
 use nu_protocol::engine::StateWorkingSet;
+use nu_protocol::shell_error::generic::GenericError;
 
 #[derive(Clone, Default)]
 pub struct VfsPathSelf;
@@ -63,13 +64,14 @@ impl Command for VfsPathSelf {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
-        Err(ShellError::GenericError {
-            msg: "path self can only run at parse time".into(),
-            error: "wrap in a `const` binding".into(),
-            span: Some(call.head),
-            help: Some("e.g. `const here = path self`".into()),
-            inner: Vec::new(),
-        })
+        Err(ShellError::Generic(
+            GenericError::new(
+                "path self can only run at parse time",
+                "wrap in a `const` binding",
+                call.head,
+            )
+            .with_help("e.g. `const here = path self`"),
+        ))
     }
 
     fn run_const(

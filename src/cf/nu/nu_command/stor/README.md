@@ -129,7 +129,7 @@ full chain above OR don't ship.
 ## Implementation spec
 
 The closest in-repo pattern is
-[`src/cf/shell/filesystem.rs::Workspace::write_inner`](../../../shell/filesystem.rs)
+[`cloudflare-shell-workspace::filesystem::Workspace::write_inner`](../../../../../crates/cloudflare-shell-workspace/src/filesystem.rs)
 -- same sync `SqlStorage::exec()` call shape, same Value <-> SQL row
 concerns. Lift from there.
 
@@ -174,7 +174,7 @@ When porting:
   executes against `worker::SqlStorage` and produces correct output.
 - **Do not** copy `nu-command::database`'s table abstractions
   wholesale -- they assume `rusqlite::Connection`. Use the
-  `worker::SqlStorage` shape from `src/cf/shell/filesystem.rs`
+  `worker::SqlStorage` shape from `crates/cloudflare-shell-workspace/src/filesystem.rs`
   directly.
 
 ## Status until the port lands

@@ -195,7 +195,7 @@ work that doesn't add a new shadow but matters:
    shadow's `signature()` and marking "yes" / "no with reason" /
    implementing it -- maybe an hour total; reduces silent-drift risk.
 2. **Nu-script conformance suite.** Same shape as
-   `src/shell/conformance.rs`: `.nu` scripts that run against BOTH
+   `cloudflare-shell::conformance`: `.nu` scripts that run against BOTH
    stock (desktop) and shadow (CF) and diff stdout. The divergence
    tables are documentation; this is enforcement.
    - `tests/nu_conformance/<command>/<case>.nu` (script taking a

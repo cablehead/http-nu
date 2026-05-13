@@ -8,18 +8,23 @@ pub mod request;
 pub mod response;
 pub mod stdlib;
 
-// Backend-agnostic FS abstraction (FileSystem trait, InMemoryFs, FsError,
-// shared types). Reachable from BOTH desktop and wasm so InMemoryFs-backed
-// unit tests run under `cargo test` and conformance tests can exercise the
-// same code against either backend. The wasm-only Workspace impl lives
-// under src/cf/shell/ and `impl crate::shell::FileSystem for Workspace`.
-pub mod shell;
+// Backend-agnostic FS abstraction (`FileSystem` trait + types + conformance)
+// lives in the `cloudflare-shell` crate (`crates/cloudflare-shell/`).
+// The wasm-only Workspace impl lives in `cloudflare-shell-workspace`
+// (`crates/cloudflare-shell-workspace/`). Both are workspace path deps;
+// the cf module pulls them with `use cloudflare_shell{,_workspace}` directly.
 
 // Filesystem-call abstraction shared by desktop and wasm. `Vfs` trait +
 // per-thread install/with hooks let upstream files do FS ops without
 // cfg gates at the call site -- they call `crate::vfs::with_vfs(...)`
 // and get `OsVfs` on desktop, `SnapshotVfs` on CF. See `src/vfs.rs`.
 pub mod vfs;
+
+// Vfs-aware minijinja template loader. Kept in its own file (not in
+// upstream `src/commands.rs`) so the upstream callsite stays a
+// one-liner -- every modified line in upstream files is a future
+// merge cost against cablehead/http-nu.
+pub mod template_loader;
 
 // Cloudflare Workers entrypoint. Additive: lives in src/cf/, never imported
 // on desktop, never modifies upstream files in this directory. Gated to

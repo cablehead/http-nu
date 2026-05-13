@@ -12,7 +12,7 @@ split, Vfs symmetry, handler lifecycle) lives in
 Per-subsystem ledgers, also running state:
 
 - Nu shadow commands: [`src/cf/nu/nu_command/PORT_STATUS.md`](src/cf/nu/nu_command/PORT_STATUS.md)
-- `@cloudflare/shell` Rust port: [`src/cf/shell/PORT_STATUS.md`](src/cf/shell/PORT_STATUS.md)
+- `@cloudflare/shell` Rust port: [`crates/cloudflare-shell-workspace/PORT_STATUS.md`](crates/cloudflare-shell-workspace/PORT_STATUS.md)
 
 ## What works on the live worker
 
@@ -20,7 +20,7 @@ Per-subsystem ledgers, also running state:
   lands in alice's DurableObject, `/bob/...` lands in bob's.
 - **Per-user FS** backed by DO SQLite + R2 spill, via the
   `@cloudflare/shell` Rust port at
-  [`src/cf/shell/`](src/cf/shell/README.md). R2 spill at 1.5MB
+  [`crates/cloudflare-shell-workspace/`](crates/cloudflare-shell-workspace/README.md). R2 spill at 1.5MB
   (verified live with a 2MB file round-trip).
 - **Nu shadow commands** read/write the per-request snapshot via the
   `Vfs` trait. Pending writes async-flush after eval. The current
@@ -34,12 +34,12 @@ Per-subsystem ledgers, also running state:
   the flag and re-parses through the cached engine. CF equivalent of
   desktop `--watch`, with Workspace as the transport.
 - **Debug routes** `/<user>/_workspace/{ls,stat,cat,put,rm,mkdir,conformance}`.
-  The `conformance` route runs `crate::shell::conformance`'s generic
-  `FileSystem` suite against the real `Workspace`. `200` + `<n> passed`
-  body means every assertion holds; `500` + backtrace means the first
-  assertion that failed. This is the wasm-side leg of the mock-divergence
-  defence -- the InMemoryFs desktop tests + this route together prove
-  the two backends agree.
+  The `conformance` route runs `cloudflare_shell::conformance`'s
+  generic `<F: FileSystem>` suite against the real `Workspace`. `200`
+  + `<n> passed` body means every assertion holds; `500` + backtrace
+  means the first assertion that failed. This is the only leg of the
+  parity check (no desktop double); the route verifies the real DO
+  SQLite + R2 backend matches the trait contract.
 
 ```bash
 # read alice's workspace

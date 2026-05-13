@@ -40,14 +40,16 @@
 //! reload mechanism plugs into the same `Mutex<Engine>` here and stays
 //! invisible to the closure-author.
 
-mod conformance;
 mod handler;
 mod nu;
 mod request;
 mod response;
-pub mod shell;
 mod snapshot_vfs;
 
+use cloudflare_shell::{
+    EntryType, MkdirOptions, OnChange, RmOptions, WorkspaceChangeEvent, WorkspaceChangeType,
+};
+use cloudflare_shell_workspace::Workspace;
 use nu::nu_command;
 use snapshot_vfs::SnapshotVfs;
 
@@ -131,7 +133,7 @@ pub(super) fn engine() -> &'static Mutex<Engine> {
 }
 
 /// One Durable Object instance per user. The DO's storage.sql() backs a
-/// per-user Workspace (crate::cf::shell::Workspace, our Rust port of
+/// per-user Workspace (cloudflare_shell_workspace::Workspace, our Rust port of
 /// @cloudflare/shell's filesystem.ts).
 ///
 /// Routing:
@@ -185,10 +187,7 @@ impl DurableObject for UserSpace {
         for op in &ops {
             if let snapshot_vfs::PendingOp::Mkdir(path) = op {
                 let p = path.to_string_lossy().to_string();
-                if let Err(e) = ws
-                    .mkdir(&p, shell::MkdirOptions { recursive: true })
-                    .await
-                {
+                if let Err(e) = ws.mkdir(&p, MkdirOptions { recursive: true }).await {
                     worker::console_log!("flush mkdir {p} failed: {e:?}");
                 }
             }
@@ -208,7 +207,7 @@ impl DurableObject for UserSpace {
                 if let Err(e) = ws
                     .rm(
                         &p,
-                        shell::RmOptions {
+                        RmOptions {
                             recursive: true,
                             force: true,
                         },
@@ -228,22 +227,22 @@ impl DurableObject for UserSpace {
 /// the handler script gets written or updated. Pure flag flip -- the
 /// actual read+parse is async and happens at the start of the next
 /// request (see `UserSpace::maybe_reload_handler`).
-fn handler_reload_listener(event: shell::WorkspaceChangeEvent) {
-    use crate::shell::WorkspaceChangeType::*;
+fn handler_reload_listener(event: WorkspaceChangeEvent) {
+    use WorkspaceChangeType::*;
     if event.path == HANDLER_SCRIPT_PATH && matches!(event.kind, Create | Update) {
         HANDLER_RELOAD_PENDING.store(true, Ordering::SeqCst);
     }
 }
 
 impl UserSpace {
-    fn open_workspace(&self) -> Result<shell::Workspace> {
+    fn open_workspace(&self) -> Result<Workspace> {
         let sql = self.state.storage().sql();
         let r2 = self.env.bucket("WORKSPACE_FILES").ok();
-        let ws = shell::Workspace::default(sql, r2)?;
+        let ws = Workspace::default(sql, r2)?;
         // Every Workspace this DO mints carries the reload listener, so
         // ALL write paths -- snapshot drain, debug PUT, future routes --
         // funnel through the same hot-reload signal.
-        let cb: shell::OnChange = Arc::new(handler_reload_listener);
+        let cb: OnChange = Arc::new(handler_reload_listener);
         ws.set_on_change(cb);
         Ok(ws)
     }
@@ -261,7 +260,7 @@ impl UserSpace {
         // listener install also avoids any future cross-talk.
         let sql = self.state.storage().sql();
         let r2 = self.env.bucket("WORKSPACE_FILES").ok();
-        let ws = match shell::Workspace::default(sql, r2) {
+        let ws = match Workspace::default(sql, r2) {
             Ok(ws) => ws,
             Err(e) => {
                 worker::console_warn!("handler reload: open_workspace failed: {e:?}");
@@ -319,9 +318,9 @@ impl UserSpace {
                     Some(s) => format!(
                         r#"{{"kind":"{kind}","size":{size},"modified_at":{mt},"mime_type":"{mt2}"}}"#,
                         kind = match s.kind {
-                            shell::EntryType::File => "file",
-                            shell::EntryType::Directory => "directory",
-                            shell::EntryType::Symlink => "symlink",
+                            EntryType::File => "file",
+                            EntryType::Directory => "directory",
+                            EntryType::Symlink => "symlink",
                         },
                         size = s.size,
                         mt = s.modified_at,
@@ -342,11 +341,7 @@ impl UserSpace {
                 // browser uploads land in Workspace with the right
                 // `mime_type` (and serve back via `.static` with the
                 // correct Content-Type).
-                let mime = req
-                    .headers()
-                    .get("Content-Type")
-                    .ok()
-                    .flatten();
+                let mime = req.headers().get("Content-Type").ok().flatten();
                 let body = req.bytes().await.unwrap_or_default();
                 ws.write_file_bytes(&path_param, &body, mime.as_deref())
                     .await?;
@@ -355,7 +350,7 @@ impl UserSpace {
             "/_workspace/rm" => {
                 ws.rm(
                     &path_param,
-                    shell::RmOptions {
+                    RmOptions {
                         recursive: true,
                         force: true,
                     },
@@ -364,18 +359,14 @@ impl UserSpace {
                 Response::ok("ok")
             }
             "/_workspace/mkdir" => {
-                ws.mkdir(&path_param, shell::MkdirOptions { recursive: true })
+                ws.mkdir(&path_param, MkdirOptions { recursive: true })
                     .await?;
                 Response::ok("ok")
             }
             "/_workspace/conformance" => {
-                // Wasm-side leg of the FileSystem conformance suite.
-                // See src/cf/conformance.rs and src/shell/CLAUDE.md.
-                // Uses its own Workspace under namespace `__conformance`
-                // so this user's real workspace stays untouched.
                 let sql = self.state.storage().sql();
                 let r2 = self.env.bucket("WORKSPACE_FILES").ok();
-                conformance::run(sql, r2).await
+                cloudflare_shell_workspace::run_conformance(sql, r2).await
             }
             _ => Response::error(format!("unknown debug route: {suffix}"), 404),
         }

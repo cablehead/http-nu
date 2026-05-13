@@ -1,6 +1,7 @@
 //! Shared helpers for the Vfs-backed shadow commands.
 
 use nu_engine::command_prelude::*;
+use nu_protocol::shell_error::generic::GenericError;
 
 use crate::vfs::{with_vfs, Vfs};
 
@@ -22,13 +23,7 @@ pub fn vfs_err(
     msg: impl Into<String>,
     error: impl Into<String>,
 ) -> ShellError {
-    ShellError::GenericError {
-        msg: msg.into(),
-        error: error.into(),
-        span: Some(span),
-        help: None,
-        inner: Vec::new(),
-    }
+    ShellError::Generic(GenericError::new(msg.into(), error.into(), span))
 }
 
 pub fn no_vfs(span: nu_protocol::Span) -> ShellError {

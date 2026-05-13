@@ -85,6 +85,45 @@ pub fn resolve_relative(path: &Path) -> PathBuf {
     }
 }
 
+// ── Free-function shortcuts ──────────────────────────────────────────
+//
+// These wrap `with_vfs` for the common case of "call one method on the
+// active Vfs, propagate io::Error if no Vfs is installed". Existing
+// `with_vfs(|v| ...)` call sites can use these to keep the diff tight
+// against upstream (one call instead of a multi-line closure).
+
+fn no_vfs_err() -> io::Error {
+    io::Error::other("no Vfs installed")
+}
+
+pub fn read_to_string(path: &Path) -> io::Result<String> {
+    with_vfs(|maybe| match maybe {
+        Some(v) => v.read_to_string(path),
+        None => Err(no_vfs_err()),
+    })
+}
+
+pub fn read_bytes(path: &Path) -> io::Result<Vec<u8>> {
+    with_vfs(|maybe| match maybe {
+        Some(v) => v.read_bytes(path),
+        None => Err(no_vfs_err()),
+    })
+}
+
+pub fn write(path: &Path, data: &[u8]) -> io::Result<()> {
+    with_vfs(|maybe| match maybe {
+        Some(v) => v.write(path, data),
+        None => Err(no_vfs_err()),
+    })
+}
+
+pub fn exists(path: &Path) -> bool {
+    with_vfs(|maybe| match maybe {
+        Some(v) => v.exists(path),
+        None => false,
+    })
+}
+
 pub fn drop_vfs() {
     VFS_HANDLE.with(|cell| *cell.borrow_mut() = None);
 }

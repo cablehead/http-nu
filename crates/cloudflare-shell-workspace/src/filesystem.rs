@@ -20,16 +20,12 @@
 //!     surface (which is all `Promise<T>`).
 //!   - ENOENT semantics: methods that look up a path return `Ok(None)`
 //!     when the path doesn't exist. Callers that need ENOENT-as-error
-//!     wrap in their own adapter (e.g. crate::cf::snapshot_vfs's SnapshotVfs).
-//!
-//! Lives at `src/cf/shell/filesystem.rs` for now; intended to extract
-//! to its own crate (`cf-shell`) once stable so yoke + xs + future
-//! Rust-on-CF projects can depend on it directly.
+//!     wrap in their own adapter.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use worker::{Bucket, SqlStorage};
 
-use crate::shell::{
+use cloudflare_shell::{
     error::FsError,
     interface::{
         CpOptions, DirEntry, EntryType, FileSystem, MkdirOptions, OnChange, RmOptions, Stat,
@@ -40,12 +36,11 @@ use crate::shell::{
     Result,
 };
 
-use super::schema;
+use crate::schema;
 
 /// R2 spill threshold. Files larger than this go to R2; smaller stay
 /// inline in the SQL row. Matches `@cloudflare/shell`'s
-/// `inlineThreshold` default. Stays here because it's Workspace-specific
-/// (InMemoryFs has no R2).
+/// `inlineThreshold` default.
 const R2_SPILL_THRESHOLD: usize = 1_500_000;
 
 /// One Workspace = one user's filesystem. Cheap to construct;
@@ -65,10 +60,10 @@ pub struct Workspace {
     /// @cloudflare/shell's resolveR2Prefix(): final key is
     /// `${r2_prefix}/${namespace}<path>`.
     r2_prefix: String,
-    /// Upstream: filesystem.ts:232 `private readonly onChange`. Per-instance
-    /// listener fired after every successful mutation. Wrapped in `Mutex`
-    /// so `set_on_change` can take `&self` (matches `InMemoryFs`'s API
-    /// and lets the conformance harness call it through a `&F` reference).
+    /// Upstream: filesystem.ts:232 `private readonly onChange`.
+    /// Per-instance listener fired after every successful mutation.
+    /// Wrapped in `Mutex` so `set_on_change` can take `&self`, letting
+    /// the conformance harness call it through a `&F` reference.
     on_change: std::sync::Mutex<Option<OnChange>>,
 }
 
@@ -232,27 +227,26 @@ impl Workspace {
             None => return Ok(None),
         };
         if row.r#type != "file" {
-            return Err(FsError::IsDir(format!("{resolved} is a {}",
-                row.r#type
-            )));
+            return Err(FsError::IsDir(format!("{resolved} is a {}", row.r#type)));
         }
         let bytes = if row.storage_backend == "r2" {
             let Some(r2) = &self.r2 else {
-                return Err(FsError::Io(format!("readFileBytes {resolved} is R2-backed but no R2 bucket bound"
+                return Err(FsError::Io(format!(
+                    "readFileBytes {resolved} is R2-backed but no R2 bucket bound"
                 )));
             };
             let Some(key) = row.r2_key else {
-                return Err(FsError::Io(format!("readFileBytes {resolved} storage_backend=r2 but r2_key is NULL"
+                return Err(FsError::Io(format!(
+                    "readFileBytes {resolved} storage_backend=r2 but r2_key is NULL"
                 )));
             };
             let obj = match r2.get(&key).execute().await? {
                 Some(o) => o,
                 None => return Ok(None),
             };
-            let body = obj.body().ok_or_else(|| {
-                FsError::Io(format!("readFileBytes R2 object {key} has no body"
-                ))
-            })?;
+            let body = obj
+                .body()
+                .ok_or_else(|| FsError::Io(format!("readFileBytes R2 object {key} has no body")))?;
             body.bytes().await?
         } else {
             // Inline. content_encoding='base64' for binary, anything else
@@ -503,7 +497,8 @@ impl Workspace {
                 Some(vec![parent.clone().into()]),
             )? == 0
         {
-            return Err(FsError::NotFound(format!("mkdir parent {parent} does not exist"
+            return Err(FsError::NotFound(format!(
+                "mkdir parent {parent} does not exist"
             )));
         }
         self.insert_dir(&p)
@@ -578,7 +573,8 @@ impl Workspace {
                         Some(vec![p.clone().into()]),
                     )?;
                     if n > 0 {
-                        return Err(FsError::NotEmpty(format!("rm {p} is non-empty and recursive=false"
+                        return Err(FsError::NotEmpty(format!(
+                            "rm {p} is non-empty and recursive=false"
                         )));
                     }
                 }
@@ -647,7 +643,8 @@ impl Workspace {
         let src = normalize_path(src)?;
         let dst = normalize_path(dst)?;
         let Some(src_stat) = self.lstat(&src).await? else {
-            return Err(FsError::NotFound(format!("no such file or directory: {src}"
+            return Err(FsError::NotFound(format!(
+                "no such file or directory: {src}"
             )));
         };
         match src_stat.kind {
@@ -664,7 +661,8 @@ impl Workspace {
             }
             EntryType::Directory => {
                 if !opts.recursive {
-                    return Err(FsError::IsDir(format!("cannot copy directory without recursive: {src}"
+                    return Err(FsError::IsDir(format!(
+                        "cannot copy directory without recursive: {src}"
                     )));
                 }
                 self.mkdir(&dst, MkdirOptions { recursive: true }).await?;
@@ -687,7 +685,8 @@ impl Workspace {
         let src = normalize_path(src)?;
         let dst = normalize_path(dst)?;
         let Some(src_stat) = self.lstat(&src).await? else {
-            return Err(FsError::NotFound(format!("no such file or directory: {src}"
+            return Err(FsError::NotFound(format!(
+                "no such file or directory: {src}"
             )));
         };
         match src_stat.kind {
@@ -715,7 +714,8 @@ impl Workspace {
     /// Upstream: filesystem.ts:415 `symlink()`. `MAX_SYMLINK_DEPTH = 40`.
     pub async fn symlink(&self, target: &str, link_path: &str) -> Result<()> {
         if target.len() > MAX_PATH_LENGTH {
-            return Err(FsError::NameTooLong(format!("symlink target length {} exceeds {MAX_PATH_LENGTH}",
+            return Err(FsError::NameTooLong(format!(
+                "symlink target length {} exceeds {MAX_PATH_LENGTH}",
                 target.len()
             )));
         }
@@ -797,7 +797,8 @@ impl Workspace {
     /// on ENOENT anywhere in the chain.
     async fn resolve_symlinks(&self, path: &str, depth: u32) -> Result<Option<String>> {
         if depth > MAX_SYMLINK_DEPTH {
-            return Err(FsError::SymlinkLoop(format!("too many symbolic links (>{MAX_SYMLINK_DEPTH}) resolving {path}"
+            return Err(FsError::SymlinkLoop(format!(
+                "too many symbolic links (>{MAX_SYMLINK_DEPTH}) resolving {path}"
             )));
         }
         let cursor = self.sql.exec(
@@ -924,23 +925,14 @@ struct R2RefRow {
     r2_key: Option<String>,
 }
 
-// Keep EntryType::as_str linkable even when only the constructors are
-// used externally; future code that builds INSERT statements from an
-// EntryType value will want it.
-#[allow(dead_code)]
-fn _entry_type_kept_for_completeness(e: EntryType) -> &'static str {
-    e.as_str()
-}
-
 // ── impl FileSystem ──────────────────────────────────────────────────
 //
 // Workspace's inherent methods already have the right signatures and
 // semantics; this impl block exists so callers can be polymorphic via
 // `<F: FileSystem>` and so the conformance suite in
-// `crate::shell::conformance` can run against the real DO-backed FS in
-// the same way it runs against `InMemoryFs`. Each method delegates
-// straight to the inherent fn -- no behavioural divergence between the
-// trait route and the inherent route.
+// `cloudflare_shell::conformance` can run against the real DO-backed FS.
+// Each method delegates straight to the inherent fn -- no behavioural
+// divergence between the trait route and the inherent route.
 
 impl FileSystem for Workspace {
     async fn exists(&self, path: &str) -> Result<bool> {

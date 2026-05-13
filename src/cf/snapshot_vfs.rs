@@ -23,9 +23,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use super::shell::Workspace;
-use crate::shell::EntryType;
 use crate::vfs::{Stat, StatKind, Vfs};
+use cloudflare_shell::EntryType;
+use cloudflare_shell_workspace::Workspace;
 
 #[derive(Default, Debug)]
 struct SnapshotInner {
@@ -90,8 +90,7 @@ impl SnapshotVfs {
                 match e.kind {
                     EntryType::File => {
                         if let Some(stat) = ws.lstat(&child).await? {
-                            let mut inner = snap.inner.borrow_mut();
-                            inner.stats.insert(
+                            snap.inner.borrow_mut().stats.insert(
                                 PathBuf::from(&child),
                                 Stat {
                                     kind: StatKind::File,
@@ -99,7 +98,6 @@ impl SnapshotVfs {
                                 },
                             );
                             if stat.size <= inline_limit {
-                                drop(inner);
                                 if let Some(bytes) = ws.read_file_bytes(&child).await? {
                                     snap.inner
                                         .borrow_mut()

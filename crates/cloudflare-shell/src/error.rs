@@ -6,8 +6,10 @@
 //! Display impls preserve the POSIX-style error-prefix convention used
 //! upstream (`ENOENT:`, `EISDIR:`, etc.).
 //!
-//! On wasm32 + cloudflare, `From<worker::Error>` converts boundary
-//! errors from `worker::SqlStorage` / `worker::Bucket` into `Io`.
+//! With the `workers` feature on (wasm32 only), `From<worker::Error>`
+//! converts boundary errors from `worker::SqlStorage` / `worker::Bucket`
+//! into `Io`, and `From<FsError> for worker::Error` round-trips them
+//! back through the worker fetch error path.
 
 use std::fmt;
 
@@ -59,7 +61,7 @@ impl std::error::Error for FsError {}
 /// `Result` alias used across the shell surface.
 pub type Result<T> = std::result::Result<T, FsError>;
 
-#[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
+#[cfg(feature = "workers")]
 impl From<worker::Error> for FsError {
     fn from(e: worker::Error) -> Self {
         // Errors raised by SqlStorage / Bucket / R2 bubble up as `Io`.
@@ -69,7 +71,7 @@ impl From<worker::Error> for FsError {
     }
 }
 
-#[cfg(all(feature = "cloudflare", target_arch = "wasm32"))]
+#[cfg(feature = "workers")]
 impl From<FsError> for worker::Error {
     fn from(e: FsError) -> Self {
         // Surface to the worker fetch error path. The Display impl

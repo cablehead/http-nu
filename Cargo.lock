@@ -903,6 +903,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cloudflare-shell"
+version = "0.1.0"
+dependencies = [
+ "worker",
+]
+
+[[package]]
+name = "cloudflare-shell-workspace"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "cloudflare-shell",
+ "serde",
+ "worker",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2587,12 +2604,13 @@ version = "0.16.1-dev"
 dependencies = [
  "arc-swap",
  "assert_cmd",
- "base64 0.22.1",
  "brotli",
  "bytes",
  "cargo_metadata",
  "chrono",
  "clap",
+ "cloudflare-shell",
+ "cloudflare-shell-workspace",
  "console_error_panic_hook",
  "cross-stream",
  "crossterm",

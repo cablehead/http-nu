@@ -36,29 +36,14 @@ fn hash_source_and_path(source: &str, base_dir: &std::path::Path) -> u128 {
     xxhash_rust::xxh3::xxh3_128(&data)
 }
 
-/// Compile template and insert into cache. Returns hash. Reads
-/// transitive `{% include %}` / `{% extends %}` targets through the
-/// active `crate::vfs::Vfs` -- works on desktop (`OsVfs`) and CF
-/// (`SnapshotVfs`) without target-specific code paths.
+/// Compile template and insert into cache. Returns hash. Transitive
+/// `{% include %}` / `{% extends %}` reads go through `crate::vfs::Vfs`.
 fn compile_template(source: &str, base_dir: &std::path::Path) -> Result<u128, minijinja::Error> {
-    let base = base_dir.to_path_buf();
-    compile_template_with_loader(source, base_dir, move |name: &str| {
-        let p = base.join(name);
-        crate::vfs::with_vfs(|maybe_vfs| match maybe_vfs {
-            Some(v) => match v.read_to_string(&p) {
-                Ok(s) => Ok(Some(s)),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err(minijinja::Error::new(
-                    minijinja::ErrorKind::SyntaxError,
-                    format!("template loader: {e}"),
-                )),
-            },
-            None => Err(minijinja::Error::new(
-                minijinja::ErrorKind::SyntaxError,
-                "no Vfs installed",
-            )),
-        })
-    })
+    compile_template_with_loader(
+        source,
+        base_dir,
+        crate::template_loader::vfs(base_dir.to_path_buf()),
+    )
 }
 
 /// Compile template with a custom loader and insert into cache. Returns hash.
@@ -704,33 +689,10 @@ impl Command for MjCommand {
         let mut env = Environment::new();
         env.set_auto_escape_callback(|_| AutoEscape::Html);
         let tmpl = if let Some(ref path) = file {
-            // File mode: resolve through the active Vfs. Target-agnostic:
-            // on desktop `crate::vfs::resolve_relative` falls back to
-            // `current_dir()`; on CF it treats relative paths as
-            // workspace-rooted. The loader reads via `Vfs::read_to_string`
-            // (OsVfs on desktop, SnapshotVfs on CF) so transitive
-            // includes also stay on the right backend.
             let path = std::path::Path::new(path);
             let abs_path = crate::vfs::resolve_relative(path);
             if let Some(parent) = abs_path.parent() {
-                let base = parent.to_path_buf();
-                env.set_loader(move |name: &str| {
-                    let p = base.join(name);
-                    crate::vfs::with_vfs(|maybe_vfs| match maybe_vfs {
-                        Some(v) => match v.read_to_string(&p) {
-                            Ok(s) => Ok(Some(s)),
-                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-                            Err(e) => Err(minijinja::Error::new(
-                                minijinja::ErrorKind::SyntaxError,
-                                format!("template loader: {e}"),
-                            )),
-                        },
-                        None => Err(minijinja::Error::new(
-                            minijinja::ErrorKind::SyntaxError,
-                            "no Vfs installed",
-                        )),
-                    })
-                });
+                env.set_loader(crate::template_loader::vfs(parent.to_path_buf()));
             }
             let name = abs_path
                 .file_name()
@@ -949,32 +911,15 @@ impl Command for MjCompileCommand {
         }
 
         let hash = if let Some(ref path) = file {
-            // File mode: read template via the active Vfs. Target-agnostic:
-            // on desktop `crate::vfs::with_vfs` falls back to `OsVfs`
-            // (`std::fs`); on CF the request handler installs a
-            // `SnapshotVfs` over the user's Workspace before the engine
-            // runs, so top-level `.mj compile` evaluation sees it.
-            // `resolve_relative` gives the right "absolute" semantics
-            // per target -- cwd-based on desktop, workspace-rooted on
-            // wasm. `compile_template` itself uses a Vfs-aware loader
-            // so `{% include %}` / `{% extends %}` also stay on the
-            // active backend.
             let path = std::path::Path::new(path);
             let abs_path = crate::vfs::resolve_relative(path);
             let base_dir = abs_path.parent().unwrap_or(&abs_path).to_path_buf();
-            let source = crate::vfs::with_vfs(|maybe_vfs| match maybe_vfs {
-                Some(v) => v.read_to_string(&abs_path).map_err(|e| {
-                    ShellError::Generic(GenericError::new(
-                        format!("Failed to read template file: {e}"),
-                        "could not read file",
-                        head,
-                    ))
-                }),
-                None => Err(ShellError::Generic(GenericError::new(
-                    "No Vfs available".to_string(),
-                    "`.mj compile` needs an active Vfs (per-request on CF)",
+            let source = crate::vfs::read_to_string(&abs_path).map_err(|e| {
+                ShellError::Generic(GenericError::new(
+                    format!("Failed to read template file: {e}"),
+                    "could not read file",
                     head,
-                ))),
+                ))
             })?;
             compile_template(&source, &base_dir)
         } else if let Some(ref topic_name) = topic {

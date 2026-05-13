@@ -1,5 +1,10 @@
 [workspace]
-members = [".", "tests/test_plugin"]
+members = [
+    ".",
+    "tests/test_plugin",
+    "crates/cloudflare-shell",
+    "crates/cloudflare-shell-workspace",
+]
 
 [package]
 name = "http-nu"
@@ -87,9 +92,12 @@ notify = { version = "8", optional = true }
 
 # CF Workers runtime (gated by the `cloudflare` feature)
 worker = { version = "0.8", optional = true }
-# base64 used by the Workspace port for binary content encoding (matches
-# @cloudflare/shell's content_encoding='base64' rows).
-base64 = "0.22"
+# Backend-agnostic FileSystem trait + types. Path dep today; could
+# move to a registry version if we publish it. Optional because
+# desktop builds don't need it.
+cloudflare-shell = { version = "0.1.0", path = "crates/cloudflare-shell", features = ["workers"], optional = true }
+# DurableObject + R2 impl of cloudflare-shell::FileSystem. Wasm-only
+# (depends on `worker` unconditionally); gated by target_arch below.
 
 [dependencies.cross-stream]
 version = "0.12.0"
@@ -106,7 +114,7 @@ optional = true
 # nu-command/sqlite is NOT here -- libsqlite3-sys needs a C toolchain
 # we don't have for wasm32. `stor` examples need a CF-side shadow over
 # ctx.storage.sql; tracked in the gap list below.
-cloudflare = ["dep:worker", "nu-command/js"]
+cloudflare = ["dep:worker", "dep:cloudflare-shell", "nu-command/js"]
 # `desktop` cascades the nu-* feature set that http-nu has always used.
 # Splitting it out lets a future `cloudflare` feature opt out of `os` (which
 # pulls os_pipe, no wasm32 support) and opt into `js` for nu-command.
@@ -150,6 +158,10 @@ win_uds = "=0.2.2"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
 console_error_panic_hook = "0.1"
+# Workspace impl. Pulled only on wasm because it depends unconditionally
+# on `worker` (which is itself wasm-only). The actual gate that decides
+# whether to USE it lives on `feature = "cloudflare"` at the call sites.
+cloudflare-shell-workspace = { version = "0.1.0", path = "crates/cloudflare-shell-workspace" }
 
 [build-dependencies]
 syntect = "5.3.0"
