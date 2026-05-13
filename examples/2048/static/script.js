@@ -10,8 +10,15 @@ let pending = null;
 const rtts = [];
 const RTT_HISTORY = 5;
 const game = document.getElementById("game");
-// If #game already has children when this script runs, SSE init beat us here.
-let initSeen = game.childElementCount > 0;
+// Always wait for the first mutation -- it's the SSE init replacing the
+// server-rendered placeholder. After that, ping for an RTT seed.
+let initSeen = false;
+
+const flashRed = () => {
+  document.body.classList.remove("flash-red");
+  void document.body.offsetWidth;  // force reflow so animation restarts
+  document.body.classList.add("flash-red");
+};
 
 const move = (intent) => {
   pending = performance.now();
@@ -19,6 +26,11 @@ const move = (intent) => {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ tabId, intent }),
+  }).then((r) => {
+    if (!r.ok) { pending = null; flashRed(); }
+  }).catch(() => {
+    pending = null;
+    flashRed();
   });
 };
 
@@ -49,13 +61,13 @@ new MutationObserver(() => {
   document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();
+  // The spring curve peaks around 40% through the animation. To make that
+  // peak land near (or just past) SSE arrival, target ~2x mean RTT so the
+  // overshoot bounce is still playing when view-transition picks up.
   const mean = rtts.reduce((a, b) => a + b, 0) / rtts.length;
-  const decay = Math.max(350, Math.min(900, Math.round(mean) + 150));
+  const decay = Math.max(400, Math.min(1200, Math.round(mean * 2)));
   document.documentElement.style.setProperty("--decay-duration", `${decay}ms`);
-}).observe(game, { childList: true, subtree: true });
-
-// In case SSE init beat the observer setup, ping immediately.
-if (initSeen) move("");
+}).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
 
 // Keyboard: hjkl + arrows + r-to-reset.
 const keymap = {
@@ -129,7 +141,7 @@ addEventListener("pointerup", (e) => {
     // are left at peak -- the edge stays lit until the SSE patch arrives and
     // the view-transition cross-fade carries it away.
     wrap?.classList.add("decay");
-    setTimeout(() => wrap?.classList.remove("decay"), 1000);
+    setTimeout(() => wrap?.classList.remove("decay"), 1300);
     move(
       Math.abs(dx) > Math.abs(dy)
         ? dx > 0 ? "l" : "h"

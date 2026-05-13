@@ -2,7 +2,8 @@ use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
 
-const STATIC_DIR = path self | path dirname | path join "static"
+const SCRIPT_DIR = path self | path dirname
+const STATIC_DIR = $SCRIPT_DIR | path join "static"
 
 # 2048 over the Local Bus, with View Transition tile slides.
 #
@@ -15,23 +16,33 @@ const STATIC_DIR = path self | path dirname | path join "static"
 # --- game logic -----------------------------------------------------------
 
 def initial-state []: nothing -> record {
+  let s1 = fresh-spawn-seeds
+  let s2 = fresh-spawn-seeds
   {tiles: [] next_id: 1 score: 0 game_over: false}
-  | spawn-tile | spawn-tile
+  | spawn-tile $s1.idx $s1.value
+  | spawn-tile $s2.idx $s2.value
 }
 
-# Drop a 2 (90%) or 4 (10%) into a random empty cell. Assigns a fresh id.
-def spawn-tile []: record -> record {
+# Drop a 2 (90%) or 4 (10%) into an empty cell, picking via the supplied
+# seeds. Seeds are generated at POST time and recorded in the move frame so
+# that replay reproduces the exact same board.
+def spawn-tile [idx_seed: int, value_seed: int]: record -> record {
   let s = $in
   let occupied = $s.tiles | each {|t| {r: $t.r c: $t.c} }
   let empties = 0..3 | each {|r|
       0..3 | each {|c| {r: $r c: $c} }
     } | flatten | where {|cell| $cell not-in $occupied }
   if ($empties | is-empty) { return $s }
-  let pick = $empties | get (random int 0..(($empties | length) - 1))
-  let value = if (random int 0..9) == 0 { 4 } else { 2 }
+  let pick = $empties | get ($idx_seed mod ($empties | length))
+  let value = if ($value_seed == 0) { 4 } else { 2 }
   $s
   | update tiles { append {id: $s.next_id r: $pick.r c: $pick.c value: $value} }
   | update next_id { $in + 1 }
+}
+
+# Helper for callers that just want fresh randomness (route /, /move).
+def fresh-spawn-seeds []: nothing -> record {
+  {idx: (random int 0..999999), value: (random int 0..9)}
 }
 
 # Slide one row left, preserving tile identity. When two adjacent tiles merge,
@@ -119,7 +130,7 @@ def is-game-over []: record -> bool {
   not $mergeable
 }
 
-def apply-move [dir: string]: record -> record {
+def apply-move [dir: string, idx_seed: int, value_seed: int]: record -> record {
   let s = $in
   if $s.game_over { return $s }
   let r = $s.tiles | slide-tiles $dir
@@ -127,7 +138,7 @@ def apply-move [dir: string]: record -> record {
   let with_tile = ($s
   | update tiles { $r.tiles }
   | update score { $in + $r.score }
-  | spawn-tile)
+  | spawn-tile $idx_seed $value_seed)
   $with_tile | update game_over { $with_tile | is-game-over }
 }
 
@@ -207,10 +218,13 @@ def render-game []: record -> record {
   let state = $in
   # The edge-glow color rides the highest-value tile, pushed as an inline
   # CSS variable so it cascades to #board-wrap and the ::after pseudo.
-  let glow = color-for ($state.tiles | get value | math max)
+  let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
   # board sits inside a scaled wrap so the page can fit any viewport without
   # touching the board's internal 460px coordinate system.
-  (DIV {id: "game" style: $"--glow: ($glow);"}
+  # data-rev forces a unique attribute per render so datastar's morph always
+  # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
+  # fire a MutationObserver event and the RTT readout would never seed.
+  (DIV {id: "game" style: $"--glow: ($glow);" "data-rev": (random uuid)}
     ($state | render-status)
     (DIV {id: "board-wrap"} ($state | render-board)))
 }
@@ -220,42 +234,69 @@ def render-game []: record -> record {
 {|req|
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
+      # Append the move (with pre-computed spawn seeds so replay is
+      # deterministic) to the per-tab event log. Reset writes a fresh start
+      # frame so the log "rebases" from a new initial state.
       let signals = $in | from datastar-signals $req
       let topic = $"game.($signals.tabId).move"
-      {intent: ($signals.intent? | default "")} | .bus pub $topic
+      let intent = $signals | get intent? | default ""
+      if $intent == "reset" {
+        null | .append $topic --meta {kind: "start" state: (initial-state)}
+      } else {
+        let seeds = fresh-spawn-seeds
+        null | .append $topic --meta {
+          intent: $intent
+          spawn_idx: $seeds.idx
+          spawn_value: $seeds.value
+        }
+      }
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: GET path: "/sse"} {|req ctx|
+      # Event-sourced game state. The per-tab topic carries (a) a single
+      # "start" frame seeded by route / and (b) a sequence of move frames
+      # written by POST /move. On every (re)connect we replay the whole log
+      # to build the current state, gated by xs.threshold so we don't push
+      # a flood of intermediate renders -- only the final post-replay state
+      # is sent, followed by per-move live patches.
       let signals = "" | from datastar-signals $req
       let tab_id = $signals | get tabId? | default "anon"
-      let pattern = $"game.($tab_id).*"
+      let topic = $"game.($tab_id).move"
 
-      # Each SSE event carries the full game state, base64-encoded, in its
-      # `id` field. On reconnect the browser sends the last id back as
-      # `Last-Event-ID`, so we resume mid-game with no server-side
-      # persistence. Falls back to a fresh game if absent or unparseable.
-      let init = try {
-        $req.headers | get last-event-id | decode base64 | decode utf-8 | from json
-      } catch {
-        initial-state
-      }
-
-      .bus sub $pattern
-      | prepend {topic: "init" value: {init: true}}
-      | generate {|impulse state|
-        let v = $impulse.value
-        let intent = $v | get intent? | default ""
-        let new_state = if ($v | get init? | default false) { $state
-        } else if $intent == "reset" { initial-state
-        } else if $intent != "" { $state | apply-move $intent
-        } else { $state }
-        let id = $new_state | to json -r | encode base64
-        {
-          out: ($new_state | render-game | to datastar-patch-elements --use-view-transition --id $id)
-          next: $new_state
+      .cat --follow
+      | where {|f| $f.topic == $topic or $f.topic == "xs.threshold"}
+      | generate {|frame s|
+        if $frame.topic == "xs.threshold" {
+          if $s.live {
+            return {next: $s}
+          }
+          return {
+            out: ($s.state | render-game | to datastar-patch-elements --use-view-transition --id $frame.id)
+            next: {state: $s.state, live: true}
+          }
         }
-      } $init
+        let kind = $frame.meta | get kind? | default "move"
+        let new_state = if $kind == "start" {
+          $frame.meta.state
+        } else {
+          let intent = $frame.meta | get intent? | default ""
+          let idx = $frame.meta | get spawn_idx? | default 0
+          let val = $frame.meta | get spawn_value? | default 0
+          if $intent in [h j k l] {
+            $s.state | apply-move $intent $idx $val
+          } else {
+            $s.state
+          }
+        }
+        if $s.live {
+          return {
+            out: ($new_state | render-game | to datastar-patch-elements --use-view-transition --id $frame.id)
+            next: {state: $new_state, live: true}
+          }
+        }
+        {next: {state: $new_state, live: false}}
+      } {state: (initial-state), live: false}
       | to sse
     })
 
@@ -267,14 +308,41 @@ def render-game []: record -> record {
       .static $STATIC_DIR "/styles.css"
     })
 
+    (route {method: GET path: "/ellie.png"} {|req ctx|
+      .static $STATIC_DIR "/ellie.png"
+    })
+
+    (route {method: GET path: "/og.png"} {|req ctx|
+      .static $SCRIPT_DIR "/og.png"
+    })
+
     (route {method: GET path: "/"} {|req ctx|
       let tab_id = random uuid
+      # Seed a "start" frame: the canonical initial state for this tab. Every
+      # subsequent /sse replays this plus the move log to recompute state, so
+      # the random tile placements are captured once and reproduced faithfully.
+      let initial = initial-state
+      null | .append $"game.($tab_id).move" --meta {kind: "start" state: $initial}
+      # Render the same state as a placeholder so the page is full-height
+      # before the first SSE patch lands (avoiding a layout jump).
+      let placeholder = $initial | render-game
+      let scheme = $req.headers
+        | get x-forwarded-proto?
+        | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
+      let host = $req.headers | get host? | default "localhost"
+      let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
       (HTML
       (HEAD
       (META {charset: "utf-8"})
       (META {name: "viewport" content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"})
       (LINK {rel: "icon" href: "data:,"})
       (TITLE "2048 -- http-nu .bus demo")
+      (META {property: "og:type" content: "website"})
+      (META {property: "og:title" content: "2048.nu"})
+      (META {property: "og:description" content: "Solo-tab 2048 driven by .bus pub/sub with view-transition tile slides."})
+      (META {property: "og:image" content: $og_image})
+      (META {name: "twitter:card" content: "summary_large_image"})
+      (META {name: "twitter:image" content: $og_image})
       (LINK {rel: "stylesheet" href: ($req | href "/styles.css")})
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
       (SCRIPT {src: ($req | href "/script.js") defer: true}))
@@ -309,11 +377,15 @@ def render-game []: record -> record {
         "data-indicator": "connected"
         "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always'})")
       }
-        (DIV {id: "game"} "")
+        $placeholder
         (FOOTER
-          (SPAN {id: "conn" title: "SSE connection"})
-          (SPAN {id: "rtt"} "0ms") " "
-          "served by " (A {href: "https://http-nu.cross.stream"} "http-nu")))))
+          (SPAN {class: "status"}
+            (SPAN {id: "conn" title: "SSE connection"})
+            (SPAN {id: "rtt"} "\u{2014}ms"))
+          (SPAN {class: "credit"}
+            (A {href: "https://http-nu.cross.stream"}
+              "served by http-nu "
+              (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))))
     })
   ]
 }

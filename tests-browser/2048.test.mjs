@@ -14,9 +14,11 @@ import { spawn } from "node:child_process";
 
 const PORT = 39200;
 const BASE = `http://127.0.0.1:${PORT}`;
+// Each test run gets a fresh ephemeral xs store so the event log starts empty.
+const STORE = `/tmp/2048-test-${process.pid}-${Date.now()}`;
 const srv = spawn(
   "./target/debug/http-nu",
-  ["--datastar", `127.0.0.1:${PORT}`, "examples/2048/serve.nu"],
+  ["--datastar", "--store", STORE, `127.0.0.1:${PORT}`, "examples/2048/serve.nu"],
   { stdio: "ignore" },
 );
 const cleanup = () => { try { srv.kill("SIGTERM"); } catch {} };
@@ -75,7 +77,8 @@ async function waitFor(predicate, timeoutMs = 3000) {
   return snap;
 }
 
-const initial = await snapshot();
+// Wait for the SSE init patch to replace the server-rendered empty placeholder.
+const initial = await waitFor((s) => s.tiles.length === 2);
 check("initial board has 16 background + 2 tiles", initial.children === 18, JSON.stringify(initial));
 check("initial board has 2 numeric tiles", initial.tiles.length === 2);
 

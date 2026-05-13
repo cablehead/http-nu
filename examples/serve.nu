@@ -49,7 +49,7 @@ li { margin: 0.5rem 0; }
     (example-link "./templates/" "templates" ".mj template modes")
     (example-link "./quotes/" "quotes" "live quotes board" --disabled=(not $has_store))
     (example-link "./blog/" "blog" "routing, layouts, HTML composition")
-    (example-link "./2048/" "2048" "solo game over the local bus")
+    (example-link "./2048/" "2048" "solo game, event-sourced over xs" --disabled=(not $has_store))
     (example-link "./2048-animation/" "2048-animation" "same game, with latency + animation dials")))
   })
 
@@ -60,11 +60,13 @@ li { margin: 0.5rem 0; }
   (mount "/mermaid-editor" $mermaid)
   (mount "/templates" $templates)
   (mount "/blog" $blog)
-  (mount "/2048" $game_2048)
   (mount "/2048-animation" $game_2048_animation)
   ...(
     if $has_store {
-      [(mount "/quotes" $quotes)]
+      [
+        (mount "/quotes" $quotes)
+        (mount "/2048" $game_2048)
+      ]
     } else {
       []
     }

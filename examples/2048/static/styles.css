@@ -58,6 +58,10 @@ html, body {
   height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
+  /* Stop iOS/Android from inflating text on narrow viewports, which would
+     scale up em-sized children (like the footer mascot) unexpectedly. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -182,6 +186,13 @@ body.reconnect-pulse { animation: reconnect-pulse 600ms ease-out; }
   100% { --pulse: 0; }
 }
 
+/* Failed-move flash: brief red wash across the whole page. */
+body.flash-red { animation: flash-red 300ms ease; }
+@keyframes flash-red {
+  0%, 100% { background: var(--bg); }
+  50%      { background: #e05252; }
+}
+
 #board {
   touch-action: none;
   transform: scale(var(--board-scale));
@@ -233,6 +244,19 @@ footer {
   margin-top: 4px;
 }
 footer #rtt { font-variant-numeric: tabular-nums; opacity: 0.7; }
+footer .status, footer .credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+footer .mascot {
+  width: 27px;
+  height: 14px;
+  max-width: 27px;
+  max-height: 14px;
+  object-fit: contain;
+  vertical-align: -2px;
+}
 footer #conn {
   display: inline-block;
   width: 8px;
@@ -243,12 +267,14 @@ footer #conn {
 }
 body[data-conn="ok"] footer #conn { background: #2a9d4a; }
 footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--light);
   background: var(--brand);
   padding: 4px 10px;
   border-radius: var(--radius);
   text-decoration: none;
-  font-weight: bold;
   transition: background 120ms;
 }
 footer a:hover { background: var(--brand-hover); }
