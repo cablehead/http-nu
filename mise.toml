@@ -424,6 +424,53 @@ echo "✓ seeded $count files from $SRC into $BASE/$USER_NS/"
 [ "$fail" -eq 0 ]
 '''
 
+[tasks."cf:upload"]
+description = "Generic: upload SRC (a directory) into the local wrangler dev's Workspace under DEST. Usage: SRC=target/doc DEST=/target/doc mise run cf:upload. Defaults: BASE=http://127.0.0.1:8787, WS_USER=alice."
+dir = "{{config_root}}"
+shell = "bash -c"
+run = '''
+set -euo pipefail
+SRC="${SRC:?usage: SRC=<local-dir> DEST=<workspace-path> mise run cf:upload}"
+DEST="${DEST:?usage: SRC=<local-dir> DEST=<workspace-path> mise run cf:upload}"
+BASE="${BASE:-http://127.0.0.1:8787}"
+USER_NS="${WS_USER:-alice}"
+
+if [ ! -d "$SRC" ]; then echo "✗ $SRC not found" >&2; exit 1; fi
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
+  echo "✗ $BASE not reachable -- start a wrangler dev first" >&2; exit 1
+fi
+# Normalise DEST: leading /, no trailing /.
+DEST="/${DEST#/}"; DEST="${DEST%/}"
+
+count=0; fail=0
+while IFS= read -r -d "" file; do
+  rel="${file#$SRC/}"
+  mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
+  url="$BASE/$USER_NS/_workspace/put?path=$DEST/$rel"
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST -H "Content-Type: $mime" --data-binary "@$file" "$url")
+  if [ "$http_code" = "200" ]; then
+    count=$((count + 1))
+  else
+    echo "✗ $rel ($http_code)" >&2; fail=$((fail + 1))
+  fi
+done < <(find "$SRC" -type f -print0)
+
+echo "✓ uploaded $count files from $SRC -> $BASE/$USER_NS$DEST/"
+[ "$fail" -eq 0 ]
+'''
+
+[tasks."cf:seed:cargo-docs"]
+description = "Build cargo doc for this workspace + upload target/doc/ to /target/doc/ in the local wrangler dev's Workspace. Pair with `mise run ex:cf:cargo-docs`."
+dir = "{{config_root}}"
+shell = "bash -c"
+run = '''
+set -euo pipefail
+echo "→ cargo doc --workspace --no-deps"
+cargo doc --workspace --no-deps --quiet
+SRC=target/doc DEST=/target/doc mise run cf:upload
+'''
+
 [tasks."cf:seed"]
 description = "Upload every file under examples/ to /demos/<path>/ in the local wrangler dev's Workspace. Run AFTER `cf:dev:hub` is listening on :8787. Use `cf:seed:demo <name>` for per-demo seeding."
 dir = "{{config_root}}"

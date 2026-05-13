@@ -93,13 +93,13 @@ first. Last full sweep: see `scripts/cf-demos-probe.sh`.
 | `generate-test` | ✅ works | Exercises stock `generate`. |
 | `mermaid-editor` | ✅ works | Live editor; `source` was a non-issue in practice. |
 | `tao` | ✅ works | Needs `DEMO=tao mise run cf:seed:demo` so `open data.json` / `.static /static/...` find content. Page renders styled with the demo's CSS. |
-| `cargo-docs` | 🟡 code works | Returns 500 with `ls /target/doc: not found` until you seed cargo doc output into the workspace. The Nu code is fine; it's a data-prep gap. |
+| `cargo-docs` | ✅ works | `mise run cf:seed:cargo-docs` runs `cargo doc --workspace --no-deps` then uploads target/doc to /alice/target/doc. Index page + per-crate rustdoc pages render. Needed an index.html fallback in `.static` for directory-style requests (now in handler.rs). |
 | `templates` | ❌ blocked | Top-level `.append page.html` (cross-stream). Needs xs CF backend before this parses. |
 | `quotes` | ❌ blocked | `.last quotes --follow` / `.append quotes` (cross-stream). Same blocker as templates. |
 | `stor` | ❌ blocked | `stor *` family unported to wasm. Port plan in [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md). |
 | `hub` (`examples/serve.nu`) | 🟡 bundler works | `scripts/bundle-cf-handler.nu` inlines `source X.nu` directives recursively (works -- bundled hub parses on desktop). Second blocker on CF: "External calls are not supported" because the bundled script references commands not registered on wasm. Untangling is the per-demo work above; once all demos are wasm-clean, the hub should follow. |
 
-**Summary: 10 demos verified working on local wrangler dev; 1 (cargo-docs) needs data; 1 (2048) is partial; 3 (templates / quotes / stor) blocked on cross-stream / stor wasm ports.**
+**Summary: 11 demos verified working on local wrangler dev (cargo-docs needs `cf:seed:cargo-docs`); 1 (2048) is partial; 3 (templates / quotes / stor) blocked on cross-stream / stor wasm ports.**
 
 ## What it would take to unblock the rest
 

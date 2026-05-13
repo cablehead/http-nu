@@ -241,6 +241,25 @@ fn serve_static_from_snapshot(
     if let Some(b) = primary {
         return Ok(b);
     }
+    // Directory-style request: GET /foo/ or extension-less path. Try
+    // `<full>/index.html` (typical static-site server behaviour).
+    let looks_like_dir = full.ends_with('/')
+        || !std::path::Path::new(&full)
+            .file_name()
+            .map(|n| n.to_string_lossy().contains('.'))
+            .unwrap_or(false);
+    if looks_like_dir {
+        let index = if full.ends_with('/') {
+            format!("{full}index.html")
+        } else {
+            format!("{full}/index.html")
+        };
+        if let Some(b) =
+            with_vfs(|v| v.and_then(|v| v.read_bytes(std::path::Path::new(&index)).ok()))
+        {
+            return Ok(b);
+        }
+    }
     if let Some(fb) = fallback {
         let fb_path = if fb.starts_with('/') {
             fb.to_string()
