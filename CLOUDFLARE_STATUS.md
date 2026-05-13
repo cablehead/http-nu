@@ -9,6 +9,9 @@ split, Vfs symmetry, handler lifecycle) lives in
 **Live:** https://http-nu-cf.gedw99.workers.dev (serves the CF hub --
 all wasm-clean demos at the default DO under `/<demo>/...`).
 
+**Measured performance:** [`benchmarks/bench-cf/REPORT.md`](benchmarks/bench-cf/REPORT.md)
+(auto-regenerated via `mise run cf:bench:report` from `results.nuon`).
+
 Per-subsystem ledgers, also running state:
 
 - Nu shadow commands: [`src/cf/nu/nu_command/PORT_STATUS.md`](src/cf/nu/nu_command/PORT_STATUS.md)

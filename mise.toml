@@ -376,6 +376,11 @@ nu benchmarks/bench-cf/run.nu \
   --save
 '''
 
+[tasks."cf:bench:report"]
+description = "Regenerate benchmarks/bench-cf/REPORT.md from results.nuon. Shows latest snapshot, rolling averages, and last 20 runs."
+dir = "{{config_root}}"
+run = "nu benchmarks/bench-cf/report.nu --save"
+
 [tasks."cf:bench:remote"]
 description = "Benchmark the live worker with oha. Hits https://http-nu-cf.gedw99.workers.dev by default; set LIVE_BASE=... to point elsewhere. Override: PATH=/basic/hello DURATION=30s CONNECTIONS=100 mise run cf:bench:remote."
 dir = "{{config_root}}"
