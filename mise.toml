@@ -358,6 +358,43 @@ depends = ["cf:bundle:hub"]
 # propagate to depended-on tasks (cf:build sees its own fallback otherwise).
 run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:dev"
 
+[tasks."cf:bench:local"]
+description = "Benchmark the local wrangler dev (must be running) with oha. Defaults to the hub home (10s, 50 connections). Override: PATH=/basic/hello DURATION=30s CONNECTIONS=100 mise run cf:bench:local."
+dir = "{{config_root}}"
+tools = { "cargo:oha" = "1.10" }
+run = '''
+set -euo pipefail
+PATH_ARG="${PATH_ARG:-/}"
+DURATION="${DURATION:-10s}"
+CONNECTIONS="${CONNECTIONS:-50}"
+nu benchmarks/bench-cf/run.nu \
+  --url "http://127.0.0.1:8787" \
+  --path "$PATH_ARG" \
+  --duration "$DURATION" \
+  --connections "$CONNECTIONS" \
+  --label "local: $PATH_ARG" \
+  --save
+'''
+
+[tasks."cf:bench:remote"]
+description = "Benchmark the live worker with oha. Hits https://http-nu-cf.gedw99.workers.dev by default; set LIVE_BASE=... to point elsewhere. Override: PATH=/basic/hello DURATION=30s CONNECTIONS=100 mise run cf:bench:remote."
+dir = "{{config_root}}"
+tools = { "cargo:oha" = "1.10" }
+run = '''
+set -euo pipefail
+LIVE_BASE="${LIVE_BASE:-https://http-nu-cf.gedw99.workers.dev}"
+PATH_ARG="${PATH_ARG:-/}"
+DURATION="${DURATION:-10s}"
+CONNECTIONS="${CONNECTIONS:-50}"
+nu benchmarks/bench-cf/run.nu \
+  --url "$LIVE_BASE" \
+  --path "$PATH_ARG" \
+  --duration "$DURATION" \
+  --connections "$CONNECTIONS" \
+  --label "remote: $PATH_ARG" \
+  --save
+'''
+
 [tasks."cf:rebuild:hub"]
 description = "Re-bundle examples/serve-cf.nu + rebuild wasm (dev mode). Use this from a second terminal while `cf:dev:hub` is running -- wrangler dev hot-reloads when the wasm changes. ~5-15s typical (incremental cargo rebuild)."
 dir = "{{config_root}}"
