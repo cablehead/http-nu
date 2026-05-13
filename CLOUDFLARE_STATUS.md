@@ -74,27 +74,32 @@ curl -X PUT --data-binary @serve.nu \
   above). Filed [workers-rs#998](https://github.com/cloudflare/workers-rs/issues/998)
   asking Cloudflare to upstream it.
 
-## Example status on CF (verified)
+## Example status on CF (local wrangler dev)
 
-`mise run cf:deploy` with `CF_HANDLER_PATH=examples/<name>/serve.nu`,
-then curl-tested. **Verified** means deployed + GET / returns 200 with
-expected body shape; not a deep functional test.
+Method: `mise run ex:cf:<name>` -> `curl http://127.0.0.1:8787/alice/...`.
+Demos with non-Nu assets (templates, static files, JSON) need
+`DEMO=<name> mise run cf:seed:demo` to upload those to the workspace
+first. Last full sweep: see `scripts/cf-demos-probe.sh`.
 
 | Example | Status | Notes |
 |---|---|---|
-| `blog` | ✅ verified | Router DSL + HTML DSL. |
-| `cf-workspace-browser` | ✅ verified | Uses the shadow command set. R2 spill verified with 2MB file. |
-| `datastar-counter` | ✅ verified | Datastar JS + Nu state. |
-| `datastar-sdk` | ✅ verified | Datastar SDK demo. |
-| `basic` | ✅ verified | `/`, `/hello`, `/json`, `/info` all 200 with correct content. `/time` would spin (uses `generate { sleep 1sec ...}` and sleep is a CF no-op). Unblocked by the path-strip patch + the demonstrated fact that `generate` / `date now` / `format date` work via stock + `nu-command/js`. |
-| `cargo-docs` | ✅ parse-verified, needs files | Parses + serves a 500 when `target/doc/*` is empty -- expected behaviour. Upload doc files via `/<user>/_workspace/put` (no bundled tool yet) and the index page renders. Strategy works; just needs content. |
-| `mermaid-editor` | ❌ blocked at parse | Uses `source` -> Nu resolves at parse time against the host filesystem (Vfs hookup needed in upstream Nu parser). |
-| `2048` | ❌ blocked at parse | `fetch` (async-only on Workers, sync Nu can't call it). `sleep` is a CF no-op, would spin. |
-| `tao` | ⚠️ partially unblocked | Path-strip + `$HTTP_NU` const set fixed parse for `use http-nu/router *` / `http *`. Files uploaded to workspace (`data.json`, `page.html`) via `_workspace/put`. NEW remaining blocker: `.mj compile` (http-nu's MJML custom command) reads template via `std::fs::read_to_string` instead of Vfs. CF-fixable: cfg-gate the file read in `src/commands.rs` to route through `crate::cf::vfs::with_vfs` on wasm. |
-| `stor` | ❌ blocked at parse | `stor *` family absent on wasm (`nu-command/sqlite` off because `rusqlite` won't compile). Port plan + backend tradeoff in [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md). |
-| `templates` | ❌ blocked at parse | Same `.append` xs blocker as quotes; even when gated by `if $HTTP_NU.store != null`, Nu parses the body. |
-| `quotes` | ❌ blocked at parse | `.last` xs streaming command. Needs xs CF backend (xs repo). |
-| `hub` (`examples/serve.nu`) | ❌ blocked at parse | Uses Nu `source basic.nu` -> `SourcedFileNotFound`. Nu resolves `source` at parse time against the host filesystem. |
+| `blog` | ✅ works | Router DSL + HTML DSL. Self-contained, no seeding. |
+| `basic` | ✅ works | All routes including `/time` (sleep is a no-op on CF; still streams). |
+| `2048` | 🟡 partial | Home page renders correct HTML. Status code leaks 501 from `.static` (small bug). Gameplay over `.bus sub` blocked on cross-stream port. |
+| `workspace-browser` | ✅ works | Designed for CF; R2 spill verified with 2MB file. |
+| `datastar-counter` | ✅ works | Reactive counter, SSE round-trip. |
+| `datastar-sdk` | ✅ works | SDK feature demo. |
+| `datastar-sdk-test` | ✅ works | `/test` route requires a POST body (also true on desktop -- not a CF gap). |
+| `generate-test` | ✅ works | Exercises stock `generate`. |
+| `mermaid-editor` | ✅ works | Live editor; `source` was a non-issue in practice. |
+| `tao` | ✅ works | Needs `DEMO=tao mise run cf:seed:demo` so `open data.json` / `.static /static/...` find content. Page renders styled with the demo's CSS. |
+| `cargo-docs` | 🟡 code works | Returns 500 with `ls /target/doc: not found` until you seed cargo doc output into the workspace. The Nu code is fine; it's a data-prep gap. |
+| `templates` | ❌ blocked | Top-level `.append page.html` (cross-stream). Needs xs CF backend before this parses. |
+| `quotes` | ❌ blocked | `.last quotes --follow` / `.append quotes` (cross-stream). Same blocker as templates. |
+| `stor` | ❌ blocked | `stor *` family unported to wasm. Port plan in [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md). |
+| `hub` (`examples/serve.nu`) | 🟡 bundler works | `scripts/bundle-cf-handler.nu` inlines `source X.nu` directives recursively (works -- bundled hub parses on desktop). Second blocker on CF: "External calls are not supported" because the bundled script references commands not registered on wasm. Untangling is the per-demo work above; once all demos are wasm-clean, the hub should follow. |
+
+**Summary: 10 demos verified working on local wrangler dev; 1 (cargo-docs) needs data; 1 (2048) is partial; 3 (templates / quotes / stor) blocked on cross-stream / stor wasm ports.**
 
 ## What it would take to unblock the rest
 

@@ -384,8 +384,48 @@ done
 echo "✓ wiped /demos/*"
 '''
 
+[tasks."cf:seed:demo"]
+description = "Upload one demo's assets to /<user>/<rel>/ in the local wrangler dev's Workspace. Usage: DEMO=tao mise run cf:seed:demo (or DEMO=tao WS_USER=bob ...). Use this AFTER `mise run ex:cf:<demo>` is listening on :8787. Skips *.nu (already in wasm). Defaults: BASE=http://127.0.0.1:8787, WS_USER=alice. (WS_USER, not USER -- the OS already sets that.)"
+dir = "{{config_root}}"
+shell = "bash -c"
+run = '''
+set -euo pipefail
+DEMO="${DEMO:?usage: DEMO=<demo-name> mise run cf:seed:demo}"
+BASE="${BASE:-http://127.0.0.1:8787}"
+USER_NS="${WS_USER:-alice}"
+SRC="examples/$DEMO"
+
+if [ ! -d "$SRC" ]; then
+  echo "✗ $SRC not found" >&2; exit 1
+fi
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
+  echo "✗ $BASE not reachable -- start mise run ex:cf:$DEMO first" >&2
+  exit 1
+fi
+
+count=0
+fail=0
+while IFS= read -r -d "" file; do
+  # Skip nu sources -- the handler is already in the wasm.
+  case "$file" in *.nu) continue ;; esac
+  rel="${file#$SRC/}"
+  mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
+  url="$BASE/$USER_NS/_workspace/put?path=/$rel"
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST -H "Content-Type: $mime" --data-binary "@$file" "$url")
+  if [ "$http_code" = "200" ]; then
+    count=$((count + 1))
+  else
+    echo "✗ $rel ($http_code)" >&2; fail=$((fail + 1))
+  fi
+done < <(find "$SRC" -type f -print0)
+
+echo "✓ seeded $count files from $SRC into $BASE/$USER_NS/"
+[ "$fail" -eq 0 ]
+'''
+
 [tasks."cf:seed"]
-description = "Upload every file under examples/ to /demos/<path>/ in the local wrangler dev's Workspace. Run AFTER `cf:dev:hub` is listening on :8787."
+description = "Upload every file under examples/ to /demos/<path>/ in the local wrangler dev's Workspace. Run AFTER `cf:dev:hub` is listening on :8787. Use `cf:seed:demo <name>` for per-demo seeding."
 dir = "{{config_root}}"
 run = '''
 set -euo pipefail
