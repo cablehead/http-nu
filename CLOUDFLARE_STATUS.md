@@ -85,7 +85,7 @@ first. Last full sweep: see `scripts/cf-demos-probe.sh`.
 |---|---|---|
 | `blog` | ✅ works | Router DSL + HTML DSL. Self-contained, no seeding. |
 | `basic` | ✅ works | All routes including `/time` (sleep is a no-op on CF; still streams). |
-| `2048` | 🟡 partial | Home page renders correct HTML. Status code leaks 501 from `.static` (small bug). Gameplay over `.bus sub` blocked on cross-stream port. |
+| `2048` | 🟡 partial | Home page + `/og.png` both GET 200 with correct content (after `DEMO=2048 mise run cf:seed:demo`). Earlier 501 reports were `curl -I` (HEAD) artifacts -- routes declare `method: GET`, so HEAD legitimately 501s. Gameplay over `.bus sub` is the real CF blocker. |
 | `workspace-browser` | ✅ works | Designed for CF; R2 spill verified with 2MB file. |
 | `datastar-counter` | ✅ works | Reactive counter, SSE round-trip. |
 | `datastar-sdk` | ✅ works | SDK feature demo. |
@@ -99,7 +99,7 @@ first. Last full sweep: see `scripts/cf-demos-probe.sh`.
 | `stor` | ❌ blocked | `stor *` family unported to wasm. Port plan in [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md). |
 | `hub` (`examples/serve.nu`) | 🟡 bundler works | `scripts/bundle-cf-handler.nu` inlines `source X.nu` directives recursively (works -- bundled hub parses on desktop). Second blocker on CF: "External calls are not supported" because the bundled script references commands not registered on wasm. Untangling is the per-demo work above; once all demos are wasm-clean, the hub should follow. |
 
-**Summary: 11 demos verified working on local wrangler dev (cargo-docs needs `cf:seed:cargo-docs`); 1 (2048) is partial; 3 (templates / quotes / stor) blocked on cross-stream / stor wasm ports.**
+**Summary: 11 demos verified working on local wrangler dev. 2048 home + assets work; gameplay (`.bus sub`) needs streaming bridge. 3 demos (templates / quotes / stor) blocked on cross-stream / stor wasm ports.**
 
 ## What it would take to unblock the rest
 
