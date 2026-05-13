@@ -185,6 +185,11 @@ pub fn value_to_bytes(value: Value) -> Vec<u8> {
             .unwrap_or_else(|_| String::new())
             .into_bytes(),
 
+        // Error variants -- emit the formatted message and let the stream
+        // close gracefully. Previously this hit a todo!() which panicked
+        // mid-stream and left the chunked response hanging.
+        Value::Error { error, .. } => format!("[error] {}\n", error).into_bytes(),
+
         _ => todo!("value_to_bytes: {:?}", value),
     }
 }
