@@ -20,8 +20,16 @@ const flashRed = () => {
   document.body.classList.add("flash-red");
 };
 
+const rttEl = () => document.querySelector("#rtt");
+const tickRtt = () => {
+  if (pending == null) return;
+  rttEl()?.replaceChildren(`${Math.round(performance.now() - pending)}ms`);
+  requestAnimationFrame(tickRtt);
+};
+
 const move = (intent) => {
   pending = performance.now();
+  requestAnimationFrame(tickRtt);  // live-tick the RTT indicator while in flight
   return fetch(moveUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -63,9 +71,6 @@ new MutationObserver(() => {
   const w = document.querySelector("#board-wrap");
   w?.style.setProperty("--glow-x", "0px");
   w?.style.setProperty("--glow-y", "0px");
-  // If the user is still holding after the impulse confirmed, now is when
-  // the charge-up begins -- not at commit time.
-  startChargeUp();
   document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();
@@ -153,15 +158,22 @@ let axis = null;
 let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
 let holdShiftTimer = null;   // fires shift-<dir> if the user keeps holding
 let touchDot = null;         // visual dot under the finger during charge-up
+let settleTimer = null;      // fires startChargeUp once the finger stops moving
 let lastClientX = 0, lastClientY = 0;  // tracked so charge-up spawns under finger
+const SETTLE_MS = 120;       // idle this long after commit -> swipe is done
 
 const removeTouchDot = () => {
   if (touchDot) { touchDot.remove(); touchDot = null; }
 };
 
-// Called when the first SSE patch lands after a swipe commits. If the user is
-// still holding, start the charge-up: spawn the dot at the current finger
-// position, light the board edge, and arm the hold timer.
+const armSettleTimer = () => {
+  if (settleTimer) clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => { settleTimer = null; startChargeUp(); }, SETTLE_MS);
+};
+
+// Called once the finger has been still for SETTLE_MS after a swipe commits.
+// Spawns the dot at the current finger position, lights the board edge, and
+// arms the hold timer.
 const startChargeUp = () => {
   if (!start || !committedDir || holdShiftTimer || touchDot || !wrap) return;
   touchDot = document.createElement("div");
@@ -190,6 +202,7 @@ addEventListener("pointerdown", (e) => {
   axis = null;
   committedDir = null;
   if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
+  if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
   removeTouchDot();
   wrap = document.querySelector("#board-wrap");
   wrap?.classList.remove("snap", "decay", "charging");
@@ -213,6 +226,9 @@ addEventListener("pointermove", (e) => {
   if (committedDir) {
     if (touchDot) {
       touchDot.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
+    } else if (settleTimer) {
+      // Still moving -- defer charge-up until the finger settles.
+      armSettleTimer();
     }
     return;
   }
@@ -246,9 +262,9 @@ addEventListener("pointermove", (e) => {
       committedDir === "j" ? `${LIT}px` :
       committedDir === "k" ? `${-LIT}px` : "0px");
     wrap.classList.add("decay");
-    // Charge-up doesn't start here -- the observer triggers startChargeUp()
-    // once the impulse SSE patch lands, so the user sees the board respond
-    // before the cascade visual begins.
+    // Don't start the charge-up while the finger is still completing the
+    // swipe gesture -- arm a settle timer that fires once movement stops.
+    armSettleTimer();
   }
 });
 
@@ -256,6 +272,7 @@ addEventListener("pointerup", () => {
   if (!start) return;
   start = null;
   if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
+  if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
   // Cancel charge-up if user released before it fired.
   wrap?.classList.remove("charging");
   delete wrap?.dataset.charge;

@@ -355,7 +355,7 @@ def impulses-to-states [initial: record] {
   | flatten
   | generate {|item state = {prev_paced: false}|
     # Pace consecutive paced items 100ms apart so each shift step animates.
-    if (($item.paced? | default false) and $state.prev_paced) { sleep 100ms }
+    if (($item.paced? | default false) and $state.prev_paced) { sleep 175ms }
     {out: $item, next: {prev_paced: ($item.paced? | default false)}}
   }
 }
