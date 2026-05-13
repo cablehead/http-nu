@@ -309,25 +309,15 @@ description = "examples/mermaid-editor on CF -- live Mermaid diagram editor"
 dir = "{{config_root}}"
 run = "CF_HANDLER_PATH=../../examples/mermaid-editor/serve.nu mise run cf:dev"
 
-[tasks."ex:cf:templates"]
-description = "examples/templates on CF -- .mj template modes (needs store on desktop; CF has no store yet)"
-dir = "{{config_root}}"
-run = "CF_HANDLER_PATH=../../examples/templates/serve.nu mise run cf:dev"
-
-[tasks."ex:cf:quotes"]
-description = "examples/quotes on CF -- live quotes board with SSE (needs store on desktop; CF has no store yet)"
-dir = "{{config_root}}"
-run = "CF_HANDLER_PATH=../../examples/quotes/serve.nu mise run cf:dev"
-
 [tasks."ex:cf:tao"]
-description = "examples/tao on CF -- The Tao of Datastar (large + uses --dev + -w on desktop)"
+description = "examples/tao on CF -- The Tao of Datastar (needs `DEMO=tao mise run cf:seed:demo` for data.json + page.html + static)"
 dir = "{{config_root}}"
 run = "CF_HANDLER_PATH=../../examples/tao/serve.nu mise run cf:dev"
 
-[tasks."ex:cf:stor"]
-description = "examples/stor on CF -- in-memory SQLite via stor commands (NOT wasm-ported yet)"
-dir = "{{config_root}}"
-run = "CF_HANDLER_PATH=../../examples/stor.nu mise run cf:dev"
+# ex:cf:{templates,quotes,stor} -- omitted: their handlers reference
+# commands not yet ported to wasm (.append/.last for templates+quotes,
+# `stor *` for stor). See src/cf/nu/nu_command/xs/PLAN.md. Add them
+# back here once the relevant ports land.
 
 [tasks."ex:cf:datastar-sdk-test"]
 description = "examples/datastar-sdk-test on CF -- Datastar SDK test runner"
@@ -379,20 +369,16 @@ depends = ["cf:bundle:hub"]
 run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build"
 
 [tasks."cf:deploy:hub"]
-description = "Deploy the CF hub (bundled examples/serve-cf.nu) to the live worker AND seed asset-dependent demos. Forces release-mode build. Requires CLOUDFLARE_API_TOKEN (pulled from fnox). Live URL: https://http-nu-cf.gedw99.workers.dev/"
+description = "Deploy the CF hub to the live worker AND seed asset-dependent demos. Wraps `cf:deploy` with hub-specific bundling + post-deploy seeding. Live URL: https://http-nu-cf.gedw99.workers.dev/"
 dir = "{{config_root}}"
-depends = ["cf:bundle:hub", "cf:token-check"]
-tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+depends = ["cf:bundle:hub"]
 shell = "bash -c"
 run = '''
 set -euo pipefail
-export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
-CF_HANDLER_PATH=../../target/cf-hub.nu CF_BUILD_MODE=release mise run cf:build
-(cd src/cf && wrangler deploy)
+CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:deploy
 
-# Seed asset-dependent demos against the live worker so visitors hitting
-# `/mermaid-editor/` etc. get a working page on first request without
-# needing the operator to remember to seed manually.
+# Seed asset-dependent demos against the live worker so first-time
+# visitors get a working page without manual seeding.
 LIVE_BASE="${LIVE_BASE:-https://http-nu-cf.gedw99.workers.dev}"
 for d in mermaid-editor; do
   echo "→ seeding $d into $LIVE_BASE"
