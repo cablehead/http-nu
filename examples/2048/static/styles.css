@@ -122,6 +122,45 @@ button:active {
 }
 .column { width: calc(var(--board-size) * var(--board-scale)); }
 
+/* The gear / close button overlays the #game container's top-right corner.
+   Server renders the right icon for the current mode (gear in game, close
+   in settings). */
+#game { position: relative; }
+.settings-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.settings-toggle:hover { background: rgba(0, 0, 0, 0.05); }
+.settings-toggle:active { background: rgba(0, 0, 0, 0.12); transform: none; }
+
+#settings-panel {
+  width: calc(var(--board-size) * var(--board-scale));
+  min-height: calc(var(--board-size) * var(--board-scale));
+  background: var(--tile);
+  border-radius: 6px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--fg);
+}
+
 #board-wrap {
   position: relative;
   width: calc(var(--board-size) * var(--board-scale));

@@ -214,19 +214,48 @@ def render-status []: record -> record {
   } ([(SPAN $"Score: ($state.score)")] | append $tail))
 }
 
+def gear-button []: nothing -> record {
+  (BUTTON {class: "settings-toggle" type: "button" aria-label: "settings" "data-view-to": "settings"}
+    (ICONIFY "material-symbols:settings-outline-rounded" {width: "20" height: "20"}))
+}
+
+def close-button []: nothing -> record {
+  (BUTTON {class: "settings-toggle" type: "button" aria-label: "close" "data-view-to": "game"}
+    (ICONIFY "material-symbols:close-rounded" {width: "20" height: "20"}))
+}
+
 def render-game []: record -> record {
   let state = $in
   # The edge-glow color rides the highest-value tile, pushed as an inline
   # CSS variable so it cascades to #board-wrap and the ::after pseudo.
   let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
-  # board sits inside a scaled wrap so the page can fit any viewport without
-  # touching the board's internal 460px coordinate system.
   # data-rev forces a unique attribute per render so datastar's morph always
   # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
   # fire a MutationObserver event and the RTT readout would never seed.
-  (DIV {id: "game" style: $"--glow: ($glow);" "data-rev": (random uuid)}
+  # data-view tells the client which mode the current render is in.
+  (DIV {id: "game" style: $"--glow: ($glow);" "data-rev": (random uuid) "data-view": "game"}
+    (gear-button)
     ($state | render-status)
     (DIV {id: "board-wrap"} ($state | render-board)))
+}
+
+def render-settings []: nothing -> record {
+  (DIV {id: "game" "data-rev": (random uuid) "data-view": "settings"}
+    (close-button)
+    (DIV {id: "settings-panel"}
+      (H2 "settings")
+      (P "more knobs soon.")))
+}
+
+# Pick the right render based on the per-tab mode. Same #game id either way
+# so datastar morphs the swap as a single replacement.
+def render-current [mode: string]: record -> record {
+  let state = $in
+  if $mode == "settings" {
+    render-settings
+  } else {
+    $state | render-game
+  }
 }
 
 # --- routes ---------------------------------------------------------------
@@ -272,31 +301,33 @@ def render-game []: record -> record {
             return {next: $s}
           }
           return {
-            out: ($s.state | render-game | to datastar-patch-elements --use-view-transition --id $frame.id)
-            next: {state: $s.state, live: true}
+            out: ($s.state | render-current $s.mode | to datastar-patch-elements --use-view-transition --id $frame.id)
+            next: ($s | upsert live true)
           }
         }
         let kind = $frame.meta | get kind? | default "move"
-        let new_state = if $kind == "start" {
-          $frame.meta.state
+        let new_s = if $kind == "start" {
+          $s | upsert state $frame.meta.state
+        } else if $kind == "view" {
+          $s | upsert mode ($frame.meta | get mode? | default "game")
         } else {
           let intent = $frame.meta | get intent? | default ""
           let idx = $frame.meta | get spawn_idx? | default 0
           let val = $frame.meta | get spawn_value? | default 0
           if $intent in [h j k l] {
-            $s.state | apply-move $intent $idx $val
+            $s | upsert state ($s.state | apply-move $intent $idx $val)
           } else {
-            $s.state
+            $s
           }
         }
         if $s.live {
           return {
-            out: ($new_state | render-game | to datastar-patch-elements --use-view-transition --id $frame.id)
-            next: {state: $new_state, live: true}
+            out: ($new_s.state | render-current $new_s.mode | to datastar-patch-elements --use-view-transition --id $frame.id)
+            next: $new_s
           }
         }
-        {next: {state: $new_state, live: false}}
-      } {state: (initial-state), live: false}
+        {next: $new_s}
+      } {state: (initial-state), mode: "game", live: false}
       | to sse
     })
 
@@ -314,6 +345,17 @@ def render-game []: record -> record {
 
     (route {method: GET path: "/og.png"} {|req ctx|
       .static $SCRIPT_DIR "/og.png"
+    })
+
+    (route {method: POST path: "/view"} {|req ctx|
+      # Switch the per-tab view between "game" and "settings". The change is
+      # an event on the same log as moves; the SSE generator picks it up and
+      # re-renders #game accordingly.
+      let signals = $in | from datastar-signals $req
+      let topic = $"game.($signals.tabId).move"
+      let mode = $signals | get mode? | default "game"
+      null | .append $topic --meta {kind: "view" mode: $mode}
+      null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: GET path: "/"} {|req ctx|
@@ -344,6 +386,7 @@ def render-game []: record -> record {
       (META {name: "twitter:card" content: "summary_large_image"})
       (META {name: "twitter:image" content: $og_image})
       (LINK {rel: "stylesheet" href: ($req | href "/styles.css")})
+      (SCRIPT-ICONIFY)
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
       (SCRIPT {src: ($req | href "/script.js") defer: true}))
       (BODY {
@@ -351,6 +394,7 @@ def render-game []: record -> record {
         # and the input handlers in script.js share one id.
         "data-tab-id": $tab_id
         "data-move-url": ($req | href "/move")
+        "data-view-url": ($req | href "/view")
         "data-signals": $"{tabId: '($tab_id)'}"
         # Mirror datastar's $connected signal (set by data-indicator on #game)
         # into a data-attr CSS can react to.
@@ -377,6 +421,9 @@ def render-game []: record -> record {
         "data-indicator": "connected"
         "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always'})")
       }
+        # #game is the single view; SSE patches morph it between the game
+        # board render and the settings panel render based on per-tab mode
+        # in the event log.
         $placeholder
         (FOOTER
           (SPAN {class: "status"}

@@ -82,6 +82,7 @@ const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32
 const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 addEventListener("keydown", (e) => {
   if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
+  if (document.getElementById("game")?.dataset.view !== "game") return;  // settings shown
   const intent = keymap[e.key] || (e.key === "r" ? "reset" : "");
   if (intent) {
     if (glowFor[intent]) {
@@ -105,8 +106,20 @@ addEventListener("keydown", (e) => {
   }
 });
 
-// Reset button (visible tap target for touch users).
-document.querySelector("button")?.addEventListener("click", () => move("reset"));
+// Reset button lives in the hint paragraph (static); the settings toggle
+// lives inside #game and gets morphed in/out -- delegated handler catches
+// both via event bubbling.
+document.querySelector("p.hint button")?.addEventListener("click", () => move("reset"));
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-view-to]");
+  if (!t) return;
+  fetch(document.body.dataset.viewUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tabId, mode: t.dataset.viewTo }),
+  });
+});
 
 
 // Swipe with anticipation: while dragging, lean the tiles toward the gesture
