@@ -378,6 +378,18 @@ dir = "{{config_root}}"
 depends = ["cf:bundle:hub"]
 run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build"
 
+[tasks."cf:deploy:hub"]
+description = "Deploy the CF hub (bundled examples/serve-cf.nu) to the live worker. Forces release-mode build via cf:build's CF_BUILD_MODE env. Requires CLOUDFLARE_API_TOKEN (pulled from fnox)."
+dir = "{{config_root}}"
+depends = ["cf:bundle:hub", "cf:token-check"]
+tools = { "npm:wrangler" = "4", node = "22", "github:jdx/fnox" = "1.24" }
+run = '''
+set -euo pipefail
+export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
+CF_HANDLER_PATH=../../target/cf-hub.nu CF_BUILD_MODE=release mise run cf:build
+cd src/cf && wrangler deploy
+'''
+
 [tasks."cf:wipe"]
 description = "Wipe the local wrangler dev's Workspace (the default DO unless WS_USER=<user> selects a per-user DO via /u/<user>/). Useful when re-seeding or recovering."
 dir = "{{config_root}}"
