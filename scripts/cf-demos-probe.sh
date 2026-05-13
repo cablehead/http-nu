@@ -58,7 +58,7 @@ probe_demo() {
     return
   fi
 
-  # Probe /alice/ on the worker.
+  # Probe / on the worker (default DO).
   local probe="$out_dir/probe.txt"
   curl -s -o "$probe" -w "%{http_code}" --max-time 5 "$BASE/" > "$out_dir/status_code" || echo "TIMEOUT" > "$out_dir/status_code"
   local code
