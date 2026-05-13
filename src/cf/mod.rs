@@ -168,6 +168,10 @@ impl DurableObject for UserSpace {
             return self.workspace_debug(&suffix, &mut req).await;
         }
 
+        // Reset per-request budgets before eval. Today: the sleep
+        // call counter (CF defensive cap; see platform/sleep.rs).
+        nu::nu_command::platform::sleep::reset_sleep_budget();
+
         // Preload the per-request snapshot from Workspace. Nu shadow
         // commands (ls/open/save/...) read it sync during eval through
         // the crate::vfs::Vfs trait. We keep our own Rc-clone of the

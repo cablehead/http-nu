@@ -84,7 +84,7 @@ first. Last full sweep: see `scripts/cf-demos-probe.sh`.
 | Example | Status | Notes |
 |---|---|---|
 | `blog` | ✅ works | Router DSL + HTML DSL. Self-contained, no seeding. |
-| `basic` | ✅ works | All routes including `/time` (sleep is a no-op on CF; still streams). |
+| `basic` | 🟡 partial | `/`, `/hello`, `/json`, `/echo`, `/info` all work. `/time` is BROKEN on CF: it uses `generate { sleep 1sec ... } true` which never terminates because our `sleep` shadow is a no-op. Spin-loops until the Worker hits its CPU budget and wrangler dies. Needs async Nu eval to fix properly; for now, avoid the route. |
 | `2048` | 🟡 partial | Home page + `/og.png` both GET 200 with correct content (after `DEMO=2048 mise run cf:seed:demo`). Earlier 501 reports were `curl -I` (HEAD) artifacts -- routes declare `method: GET`, so HEAD legitimately 501s. Gameplay over `.bus sub` is the real CF blocker. |
 | `workspace-browser` | ✅ works | Designed for CF; R2 spill verified with 2MB file. |
 | `datastar-counter` | ✅ works | Reactive counter, SSE round-trip. |

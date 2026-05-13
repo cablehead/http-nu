@@ -44,7 +44,7 @@ li { margin: 0.5rem 0; }
     (H1 "http-nu examples (CF)")
     (P "Demos verified on local wrangler dev + Cloudflare Workers.")
     (UL
-    (example-link "./basic/" "basic" "minimal routes, JSON, streaming")
+    (example-link "./basic/" "basic" "minimal routes, JSON. AVOID /basic/time -- sleep is a no-op on CF, the generate loop will spin until the worker dies")
     (example-link "./datastar-counter/" "datastar-counter" "reactive counter")
     (example-link "./datastar-sdk/" "datastar-sdk" "SDK feature demo")
     (example-link "./datastar-sdk-test/" "datastar-sdk-test" "SDK test runner (POST /test)")

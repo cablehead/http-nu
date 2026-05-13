@@ -1,5 +1,5 @@
 //! Platform shadow commands. Mirrors `nu-command/src/platform/`.
 
-mod sleep;
+pub mod sleep;
 
 pub use sleep::Sleep;
