@@ -233,7 +233,7 @@ def close-button []: nothing -> record {
     (ICONIFY "material-symbols:close-rounded" {width: "20" height: "20"}))
 }
 
-def render-game []: record -> record {
+def render-game [direction?: string]: record -> record {
   let state = $in
   # The edge-glow color rides the highest-value tile, pushed as an inline
   # CSS variable so it cascades to #board-wrap and the ::after pseudo.
@@ -242,6 +242,9 @@ def render-game []: record -> record {
   # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
   # fire a MutationObserver event and the RTT readout would never seed.
   # data-view tells the client which mode the current render is in.
+  # data-from carries the direction the move came from (h/j/k/l), so the
+  # client can flash the edge glow on each patch (shift mode produces a
+  # sequence of these and each step gets its pulse).
   # view-transition-name: per-mode so a game<->settings switch becomes an
   # UNPAIRED pseudo (game->game stays paired and cross-fades as usual).
   (DIV {
@@ -249,6 +252,7 @@ def render-game []: record -> record {
     style: $"--glow: ($glow); view-transition-name: view-game;"
     "data-rev": (random uuid)
     "data-view": "game"
+    "data-from": ($direction | default "")
   }
     (gear-button)
     ($state | render-status)
@@ -270,12 +274,95 @@ def render-settings []: nothing -> record {
 
 # Pick the right render based on the per-tab mode. Same #game id either way
 # so datastar morphs the swap as a single replacement.
-def render-current [mode: string]: record -> record {
+def render-current [mode: string, direction?: string]: record -> record {
   let state = $in
   if $mode == "settings" {
     render-settings
   } else {
-    $state | render-game
+    $state | render-game $direction
+  }
+}
+
+# --- pipeline boxes ------------------------------------------------------
+# The SSE handler is a tight composition of:
+#   .cat --follow -> impulses-to-states -> threshold-gate -> states-to-patches -> to sse
+# Each stage has one job.
+
+# Box A. Takes xs frames, yields {state, mode, threshold?} records. A normal
+# move yields one record; a shift-intent runs apply-move until the board
+# settles and yields one record per successful step, paced 50ms apart so the
+# client sees each step animate. Pacing lives here because this is the box
+# that knows the difference between a one-shot move and a multi-step shift.
+def impulses-to-states [initial: record] {
+  generate {|frame s|
+    if $frame.topic == "xs.threshold" {
+      return {out: [{state: $s.state, mode: $s.mode, threshold: true}], next: $s}
+    }
+    let kind = $frame.meta | get kind? | default "move"
+    if $kind == "start" {
+      let new_state = $frame.meta.state
+      return {out: [{state: $new_state, mode: $s.mode, threshold: false}], next: ($s | upsert state $new_state)}
+    }
+    if $kind == "view" {
+      # Ephemeral (ttl=ephemeral): only arrives live, never during replay,
+      # so mode resets to game on reconnect.
+      let new_s = $s | upsert mode ($frame.meta | get mode? | default "game")
+      return {out: [{state: $new_s.state, mode: $new_s.mode, threshold: false}], next: $new_s}
+    }
+    let intent = $frame.meta | get intent? | default ""
+    if $intent in [h j k l] {
+      let idx = $frame.meta | get spawn_idx? | default 0
+      let val = $frame.meta | get spawn_value? | default 0
+      let new_state = $s.state | apply-move $intent $idx $val
+      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, threshold: false}], next: ($s | upsert state $new_state)}
+    }
+    if ($intent | str starts-with "shift-") {
+      let dir = $intent | str substring 6..
+      let seeds = $frame.meta | get seeds? | default []
+      let result = $seeds | reduce --fold {state: $s.state, stopped: false, yields: []} {|seed acc|
+        if $acc.stopped { return $acc }
+        let nxt = $acc.state | apply-move $dir $seed.idx $seed.value
+        if (tiles-equal $acc.state.tiles $nxt.tiles) {
+          $acc | upsert stopped true
+        } else {
+          $acc | update state $nxt | update yields {
+            append {state: $nxt, mode: $s.mode, direction: $dir, threshold: false, paced: true}
+          }
+        }
+      }
+      return {out: $result.yields, next: ($s | upsert state $result.state)}
+    }
+    {next: $s}
+  } $initial
+  | flatten
+  | generate {|item state = {prev_paced: false}|
+    # Pace consecutive paced items 100ms apart so each shift step animates.
+    if (($item.paced? | default false) and $state.prev_paced) { sleep 100ms }
+    {out: $item, next: {prev_paced: ($item.paced? | default false)}}
+  }
+}
+
+# Box B. Buffers states pre-threshold (only the last is retained); on
+# threshold marker emits the last buffered state; then forwards everything.
+# Same pattern as examples/quotes/serve.nu's threshold-once-gate, but
+# operating on state records instead of raw xs frames.
+def threshold-gate-states [] {
+  generate {|item state = {}|
+    if ($item.threshold? | default false) {
+      return {out: $state.last?, next: {reached: true}}
+    }
+    if ("reached" in $state) {
+      return {out: $item, next: $state}
+    }
+    {next: ($state | upsert last $item)}
+  }
+}
+
+# Box C. Pure rendering. State -> datastar patch event.
+def states-to-patches [] {
+  each {|s|
+    $s.state | render-current $s.mode ($s.direction? | default "")
+    | to datastar-patch-elements --use-view-transition --id (random uuid)
   }
 }
 
@@ -284,14 +371,17 @@ def render-current [mode: string]: record -> record {
 {|req|
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
-      # Append the move (with pre-computed spawn seeds so replay is
-      # deterministic) to the per-tab event log. Reset writes a fresh start
-      # frame so the log "rebases" from a new initial state.
+      # One frame per request. The state machine in /sse handles whatever
+      # the intent demands -- shift-intents replay deterministically from
+      # the bundled seeds.
       let signals = $in | from datastar-signals $req
       let topic = $"game.($signals.tabId).move"
       let intent = $signals | get intent? | default ""
       if $intent == "reset" {
         null | .append $topic --meta {kind: "start" state: (initial-state)}
+      } else if ($intent | str starts-with "shift-") {
+        let seeds = 0..15 | each {|_| fresh-spawn-seeds}
+        null | .append $topic --meta {intent: $intent seeds: $seeds}
       } else {
         let seeds = fresh-spawn-seeds
         null | .append $topic --meta {
@@ -304,53 +394,15 @@ def render-current [mode: string]: record -> record {
     })
 
     (route {method: GET path: "/sse"} {|req ctx|
-      # Event-sourced game state. The per-tab topic carries (a) a single
-      # "start" frame seeded by route / and (b) a sequence of move frames
-      # written by POST /move. On every (re)connect we replay the whole log
-      # to build the current state, gated by xs.threshold so we don't push
-      # a flood of intermediate renders -- only the final post-replay state
-      # is sent, followed by per-move live patches.
       let signals = "" | from datastar-signals $req
       let tab_id = $signals | get tabId? | default "anon"
       let topic = $"game.($tab_id).move"
 
       .cat --follow
       | where {|f| $f.topic == $topic or $f.topic == "xs.threshold"}
-      | generate {|frame s|
-        if $frame.topic == "xs.threshold" {
-          if $s.live {
-            return {next: $s}
-          }
-          return {
-            out: ($s.state | render-current $s.mode | to datastar-patch-elements --use-view-transition --id $frame.id)
-            next: ($s | upsert live true)
-          }
-        }
-        let kind = $frame.meta | get kind? | default "move"
-        let new_s = if $kind == "start" {
-          $s | upsert state $frame.meta.state
-        } else if $kind == "view" {
-          # Ephemeral (ttl=ephemeral on append): only arrives live, never
-          # during replay -- so mode always resets to game on reconnect.
-          $s | upsert mode ($frame.meta | get mode? | default "game")
-        } else {
-          let intent = $frame.meta | get intent? | default ""
-          let idx = $frame.meta | get spawn_idx? | default 0
-          let val = $frame.meta | get spawn_value? | default 0
-          if $intent in [h j k l] {
-            $s | upsert state ($s.state | apply-move $intent $idx $val)
-          } else {
-            $s
-          }
-        }
-        if $s.live {
-          return {
-            out: ($new_s.state | render-current $new_s.mode | to datastar-patch-elements --use-view-transition --id $frame.id)
-            next: $new_s
-          }
-        }
-        {next: $new_s}
-      } {state: (initial-state), mode: "game", live: false}
+      | impulses-to-states {state: (initial-state), mode: "game"}
+      | threshold-gate-states
+      | states-to-patches
       | to sse
     })
 
@@ -388,9 +440,12 @@ def render-current [mode: string]: record -> record {
       # the random tile placements are captured once and reproduced faithfully.
       let initial = initial-state
       null | .append $"game.($tab_id).move" --meta {kind: "start" state: $initial}
-      # Render the same state as a placeholder so the page is full-height
-      # before the first SSE patch lands (avoiding a layout jump).
-      let placeholder = $initial | render-game
+      # Render an EMPTY board as the placeholder: same dimensions (grid cells
+      # fill it) so no layout jump, but no tiles in the DOM yet. When the SSE
+      # init patch arrives with the real tiles, they're unpaired (:only-child)
+      # which fires the spawn pop-in -- otherwise paired tiles would just
+      # cross-fade with no animation.
+      let placeholder = $initial | upsert tiles [] | render-game
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
