@@ -60,6 +60,26 @@ def main [
     {label: "server list",                     url: $url_server, path: $"/list/($ns_server)/", path_for_seed: $"/fs/($ns_server)/payload.bin"}
     {label: "demo-js list",                    url: $url_js,     path: $"/list/($ns_js)/",     path_for_seed: $"/fs/($ns_js)/payload.bin"}
     {label: "demo-rust list",                  url: $url_rust,   path: $"/list/($ns_rust)/",   path_for_seed: $"/fs/($ns_rust)/payload.bin"}
+
+    # `exists` -- cheap presence probe. One row from index lookup; the
+    # baseline against which fancier reads (glob, info) can be compared.
+    {label: "server exists",                   url: $url_server, path: $"/exists/($ns_server)/payload.bin", path_for_seed: $"/fs/($ns_server)/payload.bin"}
+    {label: "demo-js exists",                  url: $url_js,     path: $"/exists/($ns_js)/payload.bin",     path_for_seed: $"/fs/($ns_js)/payload.bin"}
+    {label: "demo-rust exists",                url: $url_rust,   path: $"/exists/($ns_rust)/payload.bin",   path_for_seed: $"/fs/($ns_rust)/payload.bin"}
+
+    # `glob` -- LIKE-pattern scan over the namespace's index. With one
+    # seeded file the pattern matches one row, so this measures the
+    # scan + serialize floor (cf the full-table scan in `info`).
+    {label: "server glob",                     url: $url_server, path: $"/glob/($ns_server)?pattern=/*.bin", path_for_seed: $"/fs/($ns_server)/payload.bin"}
+    {label: "demo-js glob",                    url: $url_js,     path: $"/glob/($ns_js)?pattern=/*.bin",     path_for_seed: $"/fs/($ns_js)/payload.bin"}
+    {label: "demo-rust glob",                  url: $url_rust,   path: $"/glob/($ns_rust)?pattern=/*.bin",   path_for_seed: $"/fs/($ns_rust)/payload.bin"}
+
+    # `info` -- workspace aggregate. Single SUM(CASE...) over every
+    # row, no path lookup. Tells you the cost ceiling of full-table
+    # scans in this DO SQLite setup.
+    {label: "server info",                     url: $url_server, path: $"/info/($ns_server)", path_for_seed: $"/fs/($ns_server)/payload.bin"}
+    {label: "demo-js info",                    url: $url_js,     path: $"/info/($ns_js)",     path_for_seed: $"/fs/($ns_js)/payload.bin"}
+    {label: "demo-rust info",                  url: $url_rust,   path: $"/info/($ns_rust)",   path_for_seed: $"/fs/($ns_rust)/payload.bin"}
   ]
 
   for row in $matrix {

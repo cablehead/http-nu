@@ -390,6 +390,7 @@ const INDEX_HTML = `<!doctype html>
 <header>
   <h1>cloudflare-shell-rpc <span class="sub">· demo-js</span></h1>
   <span class="pill" id="connstate">connecting…</span>
+  <span class="pill" id="ws-info" title="workspace_info">·</span>
   <span class="grow"></span>
   <span style="color: var(--muted);">namespace:</span>
   <input id="ns-input" value="demo" spellcheck="false" style="width: 160px;">
@@ -403,6 +404,8 @@ const INDEX_HTML = `<!doctype html>
       <button id="up-btn" disabled>↑ up</button>
       <button id="refresh-btn">↻</button>
       <button id="mkdir-btn">+ folder</button>
+      <input id="glob-input" placeholder="glob (e.g. **/*.md)" spellcheck="false" style="flex: 1; min-width: 100px;">
+      <button id="glob-btn" title="glob (clears with ↻)">find</button>
     </div>
     <div class="crumb" id="crumb">/</div>
     <ul class="entries" id="entries"><li class="empty">loading…</li></ul>
@@ -413,6 +416,7 @@ const INDEX_HTML = `<!doctype html>
     <div class="toolbar">
       <span id="viewer-path" style="font-family: var(--mono); color: var(--muted);">no file selected</span>
       <span class="grow"></span>
+      <button id="rename-btn" disabled title="mv">rename</button>
       <button id="download-btn" disabled>download</button>
       <button id="delete-btn" class="danger" disabled>delete</button>
     </div>
@@ -438,7 +442,8 @@ const ENTRIES = $("entries"), CRUMB = $("crumb");
 const UP_BTN = $("up-btn"), REFRESH = $("refresh-btn"), MKDIR = $("mkdir-btn");
 const NS_INPUT = $("ns-input"), NS_SWITCH = $("ns-switch");
 const VPATH = $("viewer-path"), VSTAT = $("viewer-stat"), VCONTENT = $("viewer-content");
-const DOWNLOAD = $("download-btn"), DELETE = $("delete-btn");
+const DOWNLOAD = $("download-btn"), DELETE = $("delete-btn"), RENAME = $("rename-btn");
+const GLOB_INPUT = $("glob-input"), GLOB_BTN = $("glob-btn"), WS_INFO = $("ws-info");
 const DROP = $("drop"), TOAST = $("toast"), CONN = $("connstate");
 
 function toast(msg, kind = "error") {
@@ -517,6 +522,7 @@ async function openFile(fullPath) {
   VSTAT.style.display = "flex";
   DOWNLOAD.disabled = false;
   DELETE.disabled = false;
+  RENAME.disabled = false;
   VCONTENT.classList.remove("empty");
 
   try {
@@ -596,7 +602,40 @@ UP_BTN.addEventListener("click", () => {
   clearViewer();
 });
 
-REFRESH.addEventListener("click", refreshTree);
+REFRESH.addEventListener("click", () => {
+  // Clearing the glob input alongside a refresh -- otherwise a stale
+  // pattern silently filters the tree the next time refreshTree() runs
+  // (we leave applyGlob in charge of the entries list when active).
+  GLOB_INPUT.value = "";
+  refreshTree();
+});
+
+// glob filter -- hits GET /glob/<ns>?pattern=... and renders the
+// resulting flat list in place of the directory tree. Refresh (↻)
+// clears the pattern and restores the tree.
+async function applyGlob() {
+  const pattern = GLOB_INPUT.value.trim();
+  if (!pattern) { refreshTree(); return; }
+  try {
+    const resp = await api("GET", \`/glob/\${state.ns}?pattern=\${encodeURIComponent(pattern)}\`);
+    const body = await resp.json();
+    const paths = body.paths ?? [];
+    CRUMB.innerHTML = \`<b>glob</b> · pattern <b>\${pattern}</b> · \${paths.length} match\${paths.length === 1 ? "" : "es"}\`;
+    UP_BTN.disabled = true;
+    if (paths.length === 0) {
+      ENTRIES.innerHTML = '<li class="empty">(no matches)</li>';
+    } else {
+      ENTRIES.innerHTML = paths.map((p) => {
+        const name = p.split("/").pop() || p;
+        return \`<li data-glob-path="\${p}"><span class="ico">🔎</span>\${name} <span class="size">\${p}</span></li>\`;
+      }).join("");
+    }
+    setConn("connected");
+  } catch (e) { toast(e.message); }
+}
+
+GLOB_BTN.addEventListener("click", applyGlob);
+GLOB_INPUT.addEventListener("keydown", (e) => { if (e.key === "Enter") applyGlob(); });
 
 MKDIR.addEventListener("click", async () => {
   const name = prompt("new folder name (under " + state.path + "):");
@@ -617,8 +656,37 @@ DELETE.addEventListener("click", async () => {
     toast("deleted", "ok");
     clearViewer();
     refreshTree();
+    refreshInfo();
   } catch (e) { toast(e.message); }
 });
+
+RENAME.addEventListener("click", async () => {
+  if (!state.selected) return;
+  const dst = prompt("rename " + state.selected + " to:", state.selected);
+  if (!dst || dst === state.selected) return;
+  try {
+    await api("POST", \`/mv/\${state.ns}\${state.selected}?dst=\${encodeURIComponent(dst)}\`);
+    toast("renamed -> " + dst, "ok");
+    state.selected = dst;
+    refreshTree();
+    refreshInfo();
+  } catch (e) { toast(e.message); }
+});
+
+// workspace_info -- aggregate counts for the current namespace.
+// Refreshed on namespace switch and after every mutation so the
+// header pill reflects whatever the server actually has.
+async function refreshInfo() {
+  try {
+    const resp = await api("GET", \`/info/\${state.ns}\`);
+    const info = (await resp.json()).info;
+    WS_INFO.textContent = \`\${info.fileCount}f · \${info.directoryCount}d · \${fmtSize(info.totalBytes)}\`;
+    WS_INFO.classList.add("good");
+  } catch (e) {
+    WS_INFO.textContent = "info error";
+    WS_INFO.classList.remove("good");
+  }
+}
 
 DOWNLOAD.addEventListener("click", () => {
   if (!state.selected) return;
@@ -637,8 +705,10 @@ function switchNs() {
   state.ns = v;
   state.path = "/";
   state.selected = null;
+  GLOB_INPUT.value = "";
   clearViewer();
   refreshTree();
+  refreshInfo();
 }
 
 function clearViewer() {
@@ -648,6 +718,7 @@ function clearViewer() {
   VCONTENT.textContent = "Click a file in the tree to view its contents.";
   DOWNLOAD.disabled = true;
   DELETE.disabled = true;
+  RENAME.disabled = true;
 }
 
 // Drag-drop upload
@@ -673,9 +744,11 @@ DROP.addEventListener("drop", async (e) => {
     }
   }
   refreshTree();
+  refreshInfo();
 });
 
 refreshTree();
+refreshInfo();
 </script>
 </body>
 </html>`;
