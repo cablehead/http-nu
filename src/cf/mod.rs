@@ -45,8 +45,8 @@ mod handler;
 mod nu;
 mod request;
 mod response;
-mod vfs;
 pub mod shell;
+pub mod vfs;
 
 use nu::nu_command;
 
@@ -60,6 +60,7 @@ use worker::{
 
 use crate::engine::Engine;
 use vfs::SnapshotVfs;
+use crate::vfs as top_vfs;
 
 const HANDLER_SCRIPT: &str = include_str!(env!("CF_HANDLER_PATH"));
 
@@ -172,7 +173,7 @@ impl DurableObject for UserSpace {
         // SnapshotVfs so we can drain pending writes/ops after eval.
         let ws = self.open_workspace()?;
         let snapshot = SnapshotVfs::load_from_workspace(&ws, 4, 1_500_000).await?;
-        vfs::install_vfs(Box::new(snapshot.clone()));
+        top_vfs::install_vfs(Box::new(snapshot.clone()));
 
         let response = handler::handle(&mut req).await;
 
@@ -219,7 +220,7 @@ impl DurableObject for UserSpace {
                 }
             }
         }
-        vfs::drop_vfs();
+        top_vfs::drop_vfs();
         response
     }
 }

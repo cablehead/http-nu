@@ -16,7 +16,7 @@ use crate::response::{
 
 use super::request::worker_request_to_http_nu;
 use super::response::{body_to_pipeline, build_response};
-use super::vfs::with_vfs;
+use crate::vfs::with_vfs;
 
 // Datastar JS bundle, embedded the same way desktop does in src/handler.rs.
 // Workers gzip/brotli is applied transparently by the runtime so we serve

@@ -911,20 +911,27 @@ impl Command for MjCompileCommand {
         }
 
         let hash = if let Some(ref path) = file {
-            // File mode: filesystem only
+            // File mode: read template via the active Vfs. Target-agnostic:
+            // on desktop `crate::vfs::with_vfs` falls back to `OsVfs`
+            // (`std::fs`); on CF the request handler installs a
+            // `SnapshotVfs` over the user's Workspace before the engine
+            // runs, so top-level `.mj compile` evaluation sees it.
             let path = std::path::Path::new(path);
-            let abs_path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                std::env::current_dir().unwrap_or_default().join(path)
-            };
+            let abs_path = path.to_path_buf();
             let base_dir = abs_path.parent().unwrap_or(&abs_path).to_path_buf();
-            let source = std::fs::read_to_string(&abs_path).map_err(|e| {
-                ShellError::Generic(GenericError::new(
-                    format!("Failed to read template file: {e}"),
-                    "could not read file",
+            let source = crate::vfs::with_vfs(|maybe_vfs| match maybe_vfs {
+                Some(v) => v.read_to_string(&abs_path).map_err(|e| {
+                    ShellError::Generic(GenericError::new(
+                        format!("Failed to read template file: {e}"),
+                        "could not read file",
+                        head,
+                    ))
+                }),
+                None => Err(ShellError::Generic(GenericError::new(
+                    "No Vfs available".to_string(),
+                    "`.mj compile` needs an active Vfs (per-request on CF)",
                     head,
-                ))
+                ))),
             })?;
             compile_template(&source, &base_dir)
         } else if let Some(ref topic_name) = topic {

@@ -1,21 +1,21 @@
-//! Vfs trait + SnapshotVfs impl for the CF target.
+//! `SnapshotVfs` -- the CF (wasm-only) `Vfs` impl.
 //!
-//! Lives entirely under `src/cf/` (never touches upstream files) so a
-//! cablehead/http-nu merge doesn't conflict with our additions. If
-//! desktop ever wants the same shadow-command surface (route Nu fs ops
-//! through a Workspace-style trait), the trait promotes to a top-level
-//! `src/vfs.rs` then -- not now.
+//! The `Vfs` trait + `StatKind` / `Stat` + the thread-local +
+//! `install_vfs` / `drop_vfs` / `with_vfs` live at the top level in
+//! [`crate::vfs`] so desktop and wasm both reach them through the same
+//! API. This module just provides the wasm-side impl that's backed by
+//! `@cloudflare/shell`'s `Workspace`.
 //!
-//! Nu commands run synchronously; @cloudflare/shell's Workspace ops are
-//! async (R2 spillover etc.). The CF handler preloads a snapshot from
-//! Workspace before invoking the closure -- async preload happens here,
-//! sync reads happen inside the Nu eval.
+//! Nu commands run synchronously; Workspace ops are async (R2 spillover
+//! etc.). The CF handler preloads a snapshot from Workspace before
+//! invoking the closure -- async preload happens here, sync reads
+//! happen inside the Nu eval.
 //!
 //! Storage shape: `Rc<RefCell<SnapshotInner>>`. The CF handler creates
 //! a `SnapshotVfs` (cheap Rc clone) and installs a boxed clone via
-//! `install_vfs` for Nu commands to see. Both handles reference the
-//! same `SnapshotInner`, so pending writes queued from inside Nu show
-//! up when the handler drains afterward.
+//! `crate::vfs::install_vfs` for Nu commands to see. Both handles
+//! reference the same `SnapshotInner`, so pending writes queued from
+//! inside Nu show up when the handler drains afterward.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -25,57 +25,7 @@ use std::rc::Rc;
 
 use super::shell::Workspace;
 use crate::shell::EntryType;
-
-// ── trait + types ───────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StatKind {
-    File,
-    Dir,
-    Symlink,
-}
-
-#[derive(Debug, Clone)]
-pub struct Stat {
-    pub kind: StatKind,
-    pub size: u64,
-}
-
-pub trait Vfs {
-    fn read_to_string(&self, path: &Path) -> io::Result<String>;
-    fn read_bytes(&self, path: &Path) -> io::Result<Vec<u8>>;
-    fn write(&self, path: &Path, data: &[u8]) -> io::Result<()>;
-    fn exists(&self, path: &Path) -> bool;
-    fn read_dir(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
-    fn stat(&self, path: &Path) -> io::Result<Stat>;
-    fn mkdir(&self, path: &Path) -> io::Result<()>;
-    fn rm(&self, path: &Path) -> io::Result<()>;
-    fn for_each_path(&self, f: &mut dyn FnMut(&str));
-}
-
-thread_local! {
-    /// The active Vfs for the current request. Per-DO-isolate. The CF
-    /// handler installs a SnapshotVfs before invoking the closure and
-    /// clears it after.
-    pub static VFS_HANDLE: RefCell<Option<Box<dyn Vfs>>> = const { RefCell::new(None) };
-}
-
-pub fn install_vfs(v: Box<dyn Vfs>) {
-    VFS_HANDLE.with(|cell| *cell.borrow_mut() = Some(v));
-}
-
-pub fn drop_vfs() {
-    VFS_HANDLE.with(|cell| *cell.borrow_mut() = None);
-}
-
-pub fn with_vfs<F, R>(f: F) -> R
-where
-    F: FnOnce(Option<&dyn Vfs>) -> R,
-{
-    VFS_HANDLE.with(|cell| f(cell.borrow().as_deref()))
-}
-
-// ── SnapshotVfs (current impl, unchanged below) ──────────────────────
+use crate::vfs::{Stat, StatKind, Vfs};
 
 #[derive(Default, Debug)]
 struct SnapshotInner {

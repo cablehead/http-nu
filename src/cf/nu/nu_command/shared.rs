@@ -2,7 +2,7 @@
 
 use nu_engine::command_prelude::*;
 
-use crate::cf::vfs::{with_vfs, Vfs};
+use crate::vfs::{with_vfs, Vfs};
 
 /// "."/""/"./" -> "/"; bare names get a leading slash. Workspace paths
 /// are absolute by convention.

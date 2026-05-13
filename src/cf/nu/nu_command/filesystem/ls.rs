@@ -23,7 +23,7 @@ use std::path::Path;
 use nu_engine::command_prelude::*;
 
 use crate::cf::nu::nu_command::shared::{normalise_input, require_vfs, vfs_err};
-use crate::cf::vfs::StatKind;
+use crate::vfs::StatKind;
 
 #[derive(Clone, Default)]
 pub struct VfsLs;

@@ -53,10 +53,16 @@ Use `/release [version]` command to execute the automated release workflow. See
 2. **Grep `.src/` BEFORE writing new wasm/CF code.** Local clones of
    prior art (nushell, nu-on-web, @cloudflare/shell, workers-rs, ...);
    see `CLOUDFLARE.md` Acknowledgements for what each provides.
-3. **All CF-only code lives under `src/cf/`.** Never edit `src/*.rs`
-   (lib, handler, commands, response, ...) for CF reasons -- use
-   `#[cfg(feature = "desktop")]` gates in place. The `Vfs` trait stays
-   at `src/cf/vfs.rs` until desktop actually opts in.
+3. **CF-only code lives under `src/cf/`. For shared concerns spanning
+   desktop AND wasm, prefer a top-level abstraction over cfg gates in
+   upstream files.** Pattern: define a trait at `src/<thing>.rs`,
+   provide a desktop impl there (`#[cfg(feature = "desktop")]`) and a
+   wasm impl under `src/cf/<thing>.rs` (`impl crate::<thing>::Trait
+   for ...`). Upstream files then call the trait unconditionally --
+   no per-call-site cfg gates. Today this applies to
+   `crate::shell::FileSystem` and `crate::vfs::Vfs`. Cfg gates remain
+   appropriate ONLY for things without a useful abstraction
+   (`notify` vs DO alarm, etc.).
 4. **Shadow commands mirror Nu's source tree path-for-path:**
    `src/cf/nu/nu_command/<cat>/<name>.rs` <-> `nu-command/src/<cat>/<name>.rs`.
    Check whether a `nu-command` feature would register the stock

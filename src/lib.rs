@@ -15,6 +15,12 @@ pub mod stdlib;
 // under src/cf/shell/ and `impl crate::shell::FileSystem for Workspace`.
 pub mod shell;
 
+// Filesystem-call abstraction shared by desktop and wasm. `Vfs` trait +
+// per-thread install/with hooks let upstream files do FS ops without
+// cfg gates at the call site -- they call `crate::vfs::with_vfs(...)`
+// and get `OsVfs` on desktop, `SnapshotVfs` on CF. See `src/vfs.rs`.
+pub mod vfs;
+
 // Cloudflare Workers entrypoint. Additive: lives in src/cf/, never imported
 // on desktop, never modifies upstream files in this directory. Gated to
 // wasm32 so a host-target build with `--all-features` (e.g. clippy) skips it.

@@ -14,7 +14,7 @@ use std::path::Path;
 use nu_engine::command_prelude::*;
 
 use crate::cf::nu::nu_command::shared::normalise_input;
-use crate::cf::vfs::with_vfs;
+use crate::vfs::with_vfs;
 
 #[derive(Clone, Default)]
 pub struct VfsPathExists;
