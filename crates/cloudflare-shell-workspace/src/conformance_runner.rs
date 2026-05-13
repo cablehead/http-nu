@@ -1,11 +1,23 @@
-//! Conformance harness: run `cloudflare_shell::conformance`'s generic
-//! `<F: FileSystem>` suite against a real `Workspace` and return the
-//! result as a `worker::Response`.
+//! Conformance **runner**: drives `cloudflare_shell::conformance`'s
+//! generic `<F: FileSystem>` test suite against a real `Workspace`
+//! (DO SQLite + R2) and returns the result as a `worker::Response`.
+//!
+//! Two modules, same word, different jobs -- the source of perennial
+//! confusion when reading this crate:
+//!
+//! | Module | What it is |
+//! |---|---|
+//! | [`cloudflare_shell::conformance`] | the **suite** -- generic `<F: FileSystem>` test functions. Pure, backend-agnostic. |
+//! | `cloudflare_shell_workspace::conformance_runner` (this file) | the **runner** -- constructs a real `Workspace`, calls each suite function against it, wraps it in HTTP response shape. wasm-only. |
 //!
 //! Wire this up from any `worker::Route` (or any handler that has the
 //! caller's `SqlStorage` + `Bucket` in hand) to prove the DO SQLite +
 //! R2 backend matches the trait contract. Useful for CI smoke tests
 //! and for catching schema-compat regressions before they hit users.
+//!
+//! Today, two callers use it: http-nu's `src/cf/mod.rs` (serves it at
+//! `GET /<user>/_workspace/conformance`) and any future Worker that
+//! embeds `Workspace`.
 //!
 //! Example:
 //!
@@ -25,9 +37,9 @@
 //! `console_error_panic_hook` so it returns `500` with a readable
 //! backtrace.
 //!
-//! State: each fn assumes a fresh filesystem, so the harness calls
-//! `wipe_root` between fns. It uses namespace `__conformance` to keep
-//! its state segregated from the user's real workspace.
+//! State: each fn assumes a fresh filesystem, so the runner calls
+//! `wipe_root` between fns. It uses namespace `conformance` (valid
+//! per `VALID_NAMESPACE`) to keep its state segregated from real data.
 
 use worker::{Bucket, Response, Result, SqlStorage};
 

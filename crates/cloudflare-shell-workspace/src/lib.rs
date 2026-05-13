@@ -36,11 +36,11 @@
 //! See `PORT_STATUS.md` (in the crate root) for the running coverage
 //! ledger and method-by-method mapping back to upstream.
 
-pub mod conformance;
+pub mod conformance_runner;
 pub mod filesystem;
 mod schema;
 
-pub use conformance::run_conformance;
+pub use conformance_runner::run_conformance;
 pub use filesystem::Workspace;
 pub use schema::DEFAULT_NAMESPACE;
 

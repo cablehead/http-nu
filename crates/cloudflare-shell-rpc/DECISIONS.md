@@ -204,6 +204,37 @@ becomes redundant for in-account callers.
 
 ---
 
+## D8. Conformance "suite" vs "runner" split
+
+**Decision:** Two files named *conformance* something live in two
+different crates:
+
+| Crate | File | Role |
+|---|---|---|
+| `cloudflare-shell` | `src/conformance.rs` | the **suite** -- generic `<F: FileSystem>` test functions. Pure, backend-agnostic. |
+| `cloudflare-shell-workspace` | `src/conformance_runner.rs` | the **runner** -- constructs a real `Workspace`, calls each suite function against it, returns a `worker::Response`. wasm-only. |
+
+**Why:** the trait contract is testable independently of any backend
+(the suite). Running those tests against a real DO + R2 backend
+requires wasm, a `Workspace`, and a `worker::Response` shape (the
+runner). Splitting along the crate boundary keeps the suite reusable
+for any future `FileSystem` impl, while the runner stays close to the
+impl it drives.
+
+**Trade-off:** Two modules whose names share the word *conformance*
+are easy to confuse. The runner used to be named `conformance.rs`
+which made the suite-vs-runner distinction invisible. Renamed to
+`conformance_runner.rs`; the public function stays
+`cloudflare_shell_workspace::run_conformance` (called by http-nu's
+`/_workspace/conformance` route, no breaking change).
+
+**Revisit when:** A second `FileSystem` impl arrives that wants its
+own runner. At that point either the runner shape itself becomes a
+reusable abstraction (extract into a third "runner-trait" module) or
+each impl ships its own `*_conformance_runner.rs` -- both are fine.
+
+---
+
 ## Out of scope (intentional non-decisions)
 
 - **WIT codegen for the Rust client.** The hand-written `extern "C"`
