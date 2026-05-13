@@ -66,6 +66,25 @@ pub fn install_vfs(v: Box<dyn Vfs>) {
     VFS_HANDLE.with(|cell| *cell.borrow_mut() = Some(v));
 }
 
+/// Resolve `path` to absolute. If already absolute, returns as-is.
+/// On desktop, falls back to `std::env::current_dir()`; on wasm, treats
+/// relative paths as workspace-rooted (`/path`). Use this anywhere
+/// upstream code wants "the absolute path, however that means on this
+/// target" -- avoids per-call-site `cfg` gates.
+pub fn resolve_relative(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    #[cfg(feature = "desktop")]
+    {
+        std::env::current_dir().unwrap_or_default().join(path)
+    }
+    #[cfg(not(feature = "desktop"))]
+    {
+        PathBuf::from("/").join(path)
+    }
+}
+
 pub fn drop_vfs() {
     VFS_HANDLE.with(|cell| *cell.borrow_mut() = None);
 }
