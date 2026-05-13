@@ -520,7 +520,7 @@ def states-to-patches [] {
         # data-indicator MUST come before data-init so the signal exists when
         # the fetch fires.
         "data-indicator": "connected"
-        "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always'})")
+        "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
       }
         # #game is the single view; SSE patches morph it between the game
         # board render and the settings panel render based on per-tab mode
