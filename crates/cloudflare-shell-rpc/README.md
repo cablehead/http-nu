@@ -23,12 +23,16 @@ server/        The Worker. wasm-only. `#[wasm_bindgen]` async methods
                stub keyed by namespace; the DO holds a `Workspace`.
 client/        Typed Rust wrapper for binding consumers. Hand-written
                wasm-bindgen extern + async-trait. Depends on `types`.
-demo-js/       Plain JS Worker (wrangler.toml + index.js). Proves the
-               JS consumer story and provides curl-able HTTP routes
-               for the smoke test.
-demo-rust/     wasm Rust Worker. Depends on `client`. Proves the Rust
-               consumer story and serves as the integration test for
-               the `client` crate.
+demo-js/       JS Worker (wrangler.toml + index.js). Two faces:
+               GET / serves an interactive file-browser UI (vanilla
+               HTML/CSS/JS, ~470 lines, no build step) with tree view,
+               file viewer (text/JSON/hex), drag-drop upload,
+               namespace switcher. Other routes are curl-able HTTP for
+               the smoke test + JS-consumer reference.
+demo-rust/     wasm Rust Worker. Depends on `client`. Mirrors demo-js's
+               curl-able HTTP routes (no UI) so the smoke + bench can
+               run identically against both consumers; that's how we
+               isolate the typed Rust client wrapper's cost.
 smoke/         End-to-end smoke test (`run.nu`). Drives the demo's
                curl-able HTTP surface; verifies round-trip + the
                bad-namespace rejection path. Run via `cf:fs:smoke{,:rust,:all}`.
@@ -67,8 +71,14 @@ cloudflare-shell-rpc-types  = { version = "0.1" }
 ```
 
 ```rust
-use cloudflare_shell_rpc_client::ShellFs;
-let fs: cloudflare_shell_rpc_client::ShellFsService = env.service("SHELL_FS")?.into();
+use cloudflare_shell_rpc_client::{ShellFs, ShellFsService};
+
+// no-auth (server has no SHELL_FS_TOKEN set):
+let fs: ShellFsService = env.service("SHELL_FS")?.into();
+
+// with auth (server has SHELL_FS_TOKEN set; consumer needs a matching secret):
+let fs: ShellFsService = env.service("SHELL_FS")?.into().with_auth(env.secret("SHELL_FS_TOKEN")?.to_string());
+
 let bytes = fs.read_file("alice", "/notes.md").await?;
 ```
 
@@ -80,12 +90,6 @@ The shared serde structs are in `types/`. The wire is JSON-shaped
 JS objects across the Worker RPC boundary (Cap'N Proto under the
 hood; both sides use serde-wasm-bindgen / JSON respectively). Bytes
 go base64-encoded so the JSON shape stays JS-friendly.
-
-## Status
-
-Bootstrapping. See the parent repo's
-[`CLOUDFLARE_STATUS.md`](../../CLOUDFLARE_STATUS.md) for the running
-state of CF work.
 
 ## Live demo
 
@@ -155,7 +159,7 @@ mise run cf:fs:status      # see daemon states
 mise run cf:fs:logs WHICH=demo-js   # tail one (server | demo-js | demo-rust)
 mise run cf:fs:down        # stop all three
 
-mise run cf:fs:smoke:all   # bring up, smoke both demos, bring down
+mise run cf:fs:smoke:all   # bring up, smoke all three tiers, bring down
 ```
 
 Pitchfork is pinned to v2.10.0 from `github:endevco/pitchfork`.
