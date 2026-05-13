@@ -27,16 +27,20 @@ maintain.
 **Revisit when:** worker-rs releases a version that uses
 `wasm-bindgen` PR
 [#4757](https://github.com/rustwasm/wasm-bindgen/pull/4757)
-(**already merged upstream as of 2025-10-28**, and wasm-bindgen-cli
-0.2.100+ ships the feature). The remaining blocker is worker-rs
-itself: as of v0.8.3, `worker-build/src/main.rs:191` still carries
-the literal TODO "Switch these over to PR 4757". When the worker-rs
-release that flips that branch lands, non-fetch exports get
-auto-env-injection and the custom shim becomes unnecessary. Plan:
-delete `shim.js`, delete `build.rs`, remove `CUSTOM_SHIM` from the
-`cf:fs:build` mise task, point `wrangler.toml`'s `main` at
-worker-build's default output, re-run smoke + bench, confirm zero
-behavior change.
+("classless this type", **merged upstream 2025-10-28**, ships in
+wasm-bindgen-cli 0.2.100+). As of worker-rs v0.8.3,
+`worker-build/src/main.rs:191` still carries the literal TODO
+"Switch these over to PR 4757" -- but the workers-rs team is
+**actively coordinating with the wasm-bindgen team** on the rollout,
+not stuck. Two pieces need to land in worker-rs before our shim can
+go: (1) flip the existing fetch/queue/scheduled wrapper to use the
+new feature, (2) extend env injection to arbitrary `#[wasm_bindgen]`
+exports so consumer Workers' RPC methods get this.env. Neither
+needs an issue from us; just watch the worker-rs changelog. When the
+release lands: delete `shim.js`, delete `build.rs`, remove
+`CUSTOM_SHIM` from the `cf:fs:build` mise task, point
+`wrangler.toml`'s `main` at worker-build's default output, re-run
+smoke + bench, confirm zero behavior change.
 
 ---
 
