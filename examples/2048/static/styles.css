@@ -304,6 +304,30 @@ body.flash-red { animation: flash-red 300ms ease; }
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* Edge flash: server emits a fresh .edge-flash element with a unique id per
+   patch (whenever the patch carries a direction). Morphdom recreates the
+   element, so its CSS animation re-fires each step -- including each step
+   of a shift sequence. The keyframes start near-invisible so the snapshot
+   captured during the view-transition doesn't show a "stuck" glow, then
+   ramps to peak around the time view-transition completes, then fades. */
+.edge-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 6px;
+  opacity: 0;
+  animation: edge-flash 500ms ease-out forwards;
+}
+.edge-flash[data-dir="l"] { background: linear-gradient(to left,   rgb(from var(--glow) r g b / 0.85), transparent 8%); }
+.edge-flash[data-dir="h"] { background: linear-gradient(to right,  rgb(from var(--glow) r g b / 0.85), transparent 8%); }
+.edge-flash[data-dir="k"] { background: linear-gradient(to bottom, rgb(from var(--glow) r g b / 0.85), transparent 8%); }
+.edge-flash[data-dir="j"] { background: linear-gradient(to top,    rgb(from var(--glow) r g b / 0.85), transparent 8%); }
+@keyframes edge-flash {
+  0%   { opacity: 0; }
+  40%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* View-mode flip. Game and settings each have their own view-transition-name
    so a switch produces UNPAIRED pseudos (the :only-child guard); same-name
    renders (game move) stay paired and cross-fade. perspective() inlined in

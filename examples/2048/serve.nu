@@ -238,13 +238,23 @@ def render-game [direction?: string]: record -> record {
   # The edge-glow color rides the highest-value tile, pushed as an inline
   # CSS variable so it cascades to #board-wrap and the ::after pseudo.
   let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
+  let dir = $direction | default ""
+  # A fresh edge-flash element per patch (unique id forces morphdom to
+  # destroy/recreate, so its CSS animation re-fires every step -- including
+  # each step of a shift sequence). When no direction (initial render),
+  # element is omitted entirely.
+  let wrap_children = if ($dir != "" and $dir in [h j k l]) {
+    [
+      ($state | render-board)
+      (DIV {id: $"flash-(random uuid)" class: "edge-flash" "data-dir": $dir} "")
+    ]
+  } else {
+    [($state | render-board)]
+  }
   # data-rev forces a unique attribute per render so datastar's morph always
   # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
   # fire a MutationObserver event and the RTT readout would never seed.
   # data-view tells the client which mode the current render is in.
-  # data-from carries the direction the move came from (h/j/k/l), so the
-  # client can flash the edge glow on each patch (shift mode produces a
-  # sequence of these and each step gets its pulse).
   # view-transition-name: per-mode so a game<->settings switch becomes an
   # UNPAIRED pseudo (game->game stays paired and cross-fades as usual).
   (DIV {
@@ -252,11 +262,10 @@ def render-game [direction?: string]: record -> record {
     style: $"--glow: ($glow); view-transition-name: view-game;"
     "data-rev": (random uuid)
     "data-view": "game"
-    "data-from": ($direction | default "")
   }
     (gear-button)
     ($state | render-status)
-    (DIV {id: "board-wrap"} ($state | render-board)))
+    (DIV {id: "board-wrap"} ...$wrap_children))
 }
 
 def render-settings []: nothing -> record {

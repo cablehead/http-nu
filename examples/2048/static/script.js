@@ -47,20 +47,6 @@ new MutationObserver(() => {
   prevConn = conn;
 }).observe(document.body, { attributes: true, attributeFilter: ["data-conn"] });
 
-// Per-direction edge-glow flash on each patch. Bumps --glow-x / --glow-y to
-// a peak then back to zero, producing a brief pulse on the edge the move
-// came from. Fires once per render, so a shift sequence produces a flash
-// per step.
-const flashGlowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
-const flashEdge = (dir) => {
-  if (!flashGlowFor[dir]) return;
-  const [prop, val] = flashGlowFor[dir];
-  const w = document.querySelector("#board-wrap");
-  if (!w) return;
-  w.style.setProperty(prop, `${val}px`);
-  setTimeout(() => w.style.setProperty(prop, "0px"), 200);
-};
-
 new MutationObserver(() => {
   if (!initSeen) {
     // First mutation is the SSE init render. Now that the stream's open,
@@ -81,8 +67,6 @@ new MutationObserver(() => {
   const mean = rtts.reduce((a, b) => a + b, 0) / rtts.length;
   const decay = Math.max(400, Math.min(1200, Math.round(mean * 2)));
   document.documentElement.style.setProperty("--decay-duration", `${decay}ms`);
-  // Pulse the edge in whatever direction this patch came from.
-  flashEdge(document.getElementById("game")?.dataset.from);
 }).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
 
 // Keyboard: hjkl + arrows + r-to-reset.
