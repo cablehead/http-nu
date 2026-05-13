@@ -11,8 +11,8 @@
 
 Auto-generated from `crates/cloudflare-shell-rpc/bench/results.nuon`. Regenerate via `mise run cf:fs:bench:report`.
 
-- Latest run captured: `2026-05-13T16:54:23`
-- Total runs recorded: 55
+- Latest run captured: `2026-05-13T17:05:39`
+- Total runs recorded: 79
 
 ## Latest snapshot per label
 
@@ -34,23 +34,32 @@ Auto-generated from `crates/cloudflare-shell-rpc/bench/results.nuon`. Regenerate
 | demo-rust glob | 1328.09 | 15.09 | 12.24 | 53.69 | 3970 | 0 | 2026-05-13T16:54:10 |
 | server info | 1250.62 | 16.03 | 14.1 | 47.16 | 3735 | 0 | 2026-05-13T16:54:14 |
 | server list | 1200.01 | 16.71 | 14 | 70.3 | 3582 | 0 | 2026-05-13T16:53:36 |
+| server banner (no binding) (remote) | 1123.86 | 44.58 | 43.54 | 70.21 | 11194 | 0 | 2026-05-13T17:01:46 |
+| demo-rust banner (remote) | 1071.09 | 46.77 | 45.91 | 60.76 | 10667 | 0 | 2026-05-13T17:02:08 |
+| demo-js banner (remote) | 1005.2 | 49.35 | 48.02 | 82.28 | 10005 | 0 | 2026-05-13T17:01:57 |
 | demo-js glob | 896.26 | 30.7 | 11.92 | 138.19 | 1210 | 270 | 2026-05-13T16:54:05 |
 | demo-rust info | 894.68 | 0 | 0 | 0 | 0 | 0 | 2026-05-13T16:54:23 |
 | demo-rust exists | 871.63 | 57.61 | 58.96 | 109.02 | 50 | 580 | 2026-05-13T16:53:57 |
 | demo-js list | 756.56 | 26.45 | 15.82 | 77.05 | 1300 | 952 | 2026-05-13T16:53:40 |
+| server exists (remote) | 741.29 | 67.52 | 68.09 | 139.08 | 7367 | 0 | 2026-05-13T17:04:06 |
 | demo-rust stat | 737.83 | 27.3 | 26.37 | 60.74 | 1984 | 212 | 2026-05-13T16:53:31 |
-| server banner (no binding) (remote) | 434.35 | 46.19 | 43.27 | 129.04 | 1285 | 0 | 2026-05-13T15:08:13 |
-| demo-js banner (remote) | 425.69 | 47.32 | 45.33 | 131.29 | 1259 | 0 | 2026-05-13T15:08:17 |
-| demo-rust banner (remote) | 422.15 | 47.72 | 45.44 | 136.07 | 1248 | 0 | 2026-05-13T15:08:21 |
-| server list (remote) | 350.5 | 57.59 | 53.83 | 145.84 | 1033 | 0 | 2026-05-13T15:08:57 |
-| demo-js stat (remote) | 321.55 | 63.05 | 58.12 | 144.49 | 946 | 0 | 2026-05-13T15:08:48 |
-| server stat (remote) | 312.05 | 64.77 | 56.4 | 164.24 | 917 | 0 | 2026-05-13T15:08:43 |
-| demo-js list (remote) | 306.52 | 65.93 | 61.11 | 146.69 | 901 | 0 | 2026-05-13T15:09:02 |
-| demo-rust list (remote) | 298.91 | 67.6 | 62.5 | 156.67 | 878 | 0 | 2026-05-13T15:09:06 |
-| demo-rust read 1024B (remote) | 284.33 | 71.18 | 58.11 | 603.07 | 834 | 0 | 2026-05-13T15:08:38 |
-| server read 1024B (remote) | 282.98 | 71.59 | 55.19 | 652.02 | 830 | 0 | 2026-05-13T15:08:27 |
-| demo-js read 1024B (remote) | 273.31 | 74.09 | 59.87 | 614.13 | 801 | 0 | 2026-05-13T15:08:33 |
-| demo-rust stat (remote) | 267.26 | 75.15 | 60.74 | 377.96 | 783 | 0 | 2026-05-13T15:08:53 |
+| demo-rust exists (remote) | 712.67 | 70.33 | 70.68 | 137.21 | 7081 | 0 | 2026-05-13T17:04:29 |
+| demo-rust info (remote) | 685.55 | 73.35 | 75.17 | 121.48 | 6808 | 0 | 2026-05-13T17:05:39 |
+| demo-js exists (remote) | 684.42 | 73.39 | 73.76 | 159.29 | 6797 | 0 | 2026-05-13T17:04:18 |
+| server glob (remote) | 679.35 | 72.9 | 73.86 | 128.93 | 6746 | 0 | 2026-05-13T17:04:41 |
+| server info (remote) | 676.78 | 74.16 | 74.57 | 144.84 | 6722 | 0 | 2026-05-13T17:05:15 |
+| demo-rust glob (remote) | 672.27 | 74.6 | 74.78 | 164.78 | 6676 | 0 | 2026-05-13T17:05:04 |
+| demo-rust read 1024B (remote) | 661.66 | 76 | 77.55 | 140.03 | 6570 | 0 | 2026-05-13T17:02:45 |
+| server list (remote) | 656.32 | 76.56 | 77.53 | 117.51 | 6517 | 0 | 2026-05-13T17:03:31 |
+| demo-rust stat (remote) | 654.9 | 75.69 | 76.76 | 150.72 | 6501 | 0 | 2026-05-13T17:03:19 |
+| demo-rust list (remote) | 647.51 | 77.2 | 78.79 | 128.69 | 6428 | 0 | 2026-05-13T17:03:54 |
+| demo-js list (remote) | 637.83 | 78.88 | 80.04 | 130 | 6331 | 0 | 2026-05-13T17:03:43 |
+| demo-js glob (remote) | 637.02 | 78.9 | 78.84 | 132.14 | 6323 | 0 | 2026-05-13T17:04:52 |
+| server stat (remote) | 636.12 | 78.99 | 78.47 | 150.02 | 6315 | 0 | 2026-05-13T17:02:56 |
+| server read 1024B (remote) | 634.55 | 79.21 | 78.37 | 155.44 | 6299 | 0 | 2026-05-13T17:02:20 |
+| demo-js info (remote) | 624.19 | 80.36 | 78.98 | 179.19 | 6194 | 1 | 2026-05-13T17:05:27 |
+| demo-js stat (remote) | 619.63 | 81.15 | 81.51 | 168.83 | 6149 | 0 | 2026-05-13T17:03:08 |
+| demo-js read 1024B (remote) | 599.14 | 84.03 | 83.31 | 165.89 | 5944 | 0 | 2026-05-13T17:02:32 |
 
 ## Three-tier comparison (latest per op)
 
@@ -71,30 +80,33 @@ the typed Rust client wrapper specifically.
 | op | server_rps | js_rps | rust_rps | js_vs_server_pct | rust_vs_js_pct |
 | --- | --- | --- | --- | --- | --- |
 | exists | 1992.69 | 1492.52 | 871.63 | -25.1 | -41.6 |
+| exists (remote) | 741.29 | 684.42 | 712.67 | -7.7 | 4.1 |
 | glob | 1575.94 | 896.26 | 1328.09 | -43.1 | 48.2 |
+| glob (remote) | 679.35 | 637.02 | 672.27 | -6.2 | 5.5 |
 | info | 1250.62 | 1654.34 | 894.68 | 32.3 | -45.9 |
+| info (remote) | 676.78 | 624.19 | 685.55 | -7.8 | 9.8 |
 | list | 1200.01 | 756.56 | 2080.44 | -37 | 175 |
-| list (remote) | 350.5 | 306.52 | 298.91 | -12.5 | -2.5 |
+| list (remote) | 656.32 | 637.83 | 647.51 | -2.8 | 1.5 |
 | read 1024B | 1441.23 | 1837.39 | 1676.65 | 27.5 | -8.7 |
-| read 1024B (remote) | 282.98 | 273.31 | 284.33 | -3.4 | 4 |
+| read 1024B (remote) | 634.55 | 599.14 | 661.66 | -5.6 | 10.4 |
 | stat | 1337.31 | 1816.53 | 737.83 | 35.8 | -59.4 |
-| stat (remote) | 312.05 | 321.55 | 267.26 | 3 | -16.9 |
+| stat (remote) | 636.12 | 619.63 | 654.9 | -2.6 | 5.7 |
 
 ## Analysis
 
 Headline takeaways from the latest data above. Numbers update automatically when `cf:fs:bench:report` runs.
 
-**Dev vs. real edge.** Local `wrangler dev` reports server-direct throughput around 1389.0 rps; the deployed Worker at the same op manages 312.0 rps -- the dev numbers are ~4.5x higher because wrangler dev runs on your laptop without real network RTT. Quote remote rows when comparing to production; quote local rows only for relative deltas and regression-spotting.
+**Dev vs. real edge.** Local `wrangler dev` reports server-direct throughput around 1389.0 rps; the deployed Worker at the same op manages 667.0 rps -- the dev numbers are ~2.1x higher because wrangler dev runs on your laptop without real network RTT. Quote remote rows when comparing to production; quote local rows only for relative deltas and regression-spotting.
 
 **Binding + RPC overhead.** `demo-js` vs `server` measures the cost of going through a service-binding RPC instead of hitting the server's HTTP route directly. A small or negative number means the binding hop is essentially free.
 - Local-dev median: **+1.2%**.
-- Real edge median: **-3.4%**.
+- Real edge median: **-5.9%**.
 
 If the local and remote numbers disagree wildly (e.g. local shows -60% on list, remote shows -12%), trust the remote -- local-dev's binding implementation is single-process workerd-on-Node, not what production runs.
 
 **Typed Rust client cost.** `demo-rust` vs `demo-js` isolates the `cloudflare-shell-rpc-client` wrapper (hand-written wasm-bindgen extern + `serde-wasm-bindgen` round-trip). Positive = Rust faster, negative = the wrapper is overhead.
 - Local-dev median: **-25.2%**.
-- Real edge median: **-2.5%**.
+- Real edge median: **+5.6%**.
 
 The wrapper is essentially free for primitives. On big-response ops (`stat` / `list` with non-trivial JSON), the JS-side parses native; the Rust side does an extra `serde_wasm_bindgen::from_value`. Worth re-measuring if it ever pushes past ~30%.
 
@@ -144,47 +156,56 @@ How each label performs across every run we've captured.
 | demo-rust list | 2 | 1217.8 | 5.95 | 53.02 |
 | server list | 2 | 1057.74 | 7 | 35.15 |
 | demo-js glob | 1 | 896.26 | 11.92 | 138.19 |
+| server banner (no binding) (remote) | 3 | 894.83 | 43.41 | 86.48 |
 | demo-rust info | 1 | 894.68 | 0 | 0 |
 | demo-rust exists | 1 | 871.63 | 58.96 | 109.02 |
+| demo-js banner (remote) | 3 | 817.49 | 47.16 | 92.76 |
+| demo-rust banner (remote) | 3 | 779.45 | 30.47 | 65.66 |
+| server exists (remote) | 1 | 741.29 | 68.09 | 139.08 |
+| demo-rust exists (remote) | 1 | 712.67 | 70.68 | 137.21 |
 | demo-rust stat | 2 | 704.97 | 13.19 | 30.37 |
+| demo-rust info (remote) | 1 | 685.55 | 75.17 | 121.48 |
+| demo-js exists (remote) | 1 | 684.42 | 73.76 | 159.29 |
+| server glob (remote) | 1 | 679.35 | 73.86 | 128.93 |
+| server info (remote) | 1 | 676.78 | 74.57 | 144.84 |
+| demo-rust glob (remote) | 1 | 672.27 | 74.78 | 164.78 |
+| demo-js glob (remote) | 1 | 637.02 | 78.84 | 132.14 |
+| demo-js info (remote) | 1 | 624.19 | 78.98 | 179.19 |
 | demo-js list | 2 | 555.19 | 37.96 | 90.28 |
-| server banner (no binding) (remote) | 1 | 434.35 | 43.27 | 129.04 |
-| demo-js banner (remote) | 1 | 425.69 | 45.33 | 131.29 |
-| demo-rust banner (remote) | 1 | 422.15 | 45.44 | 136.07 |
-| server list (remote) | 1 | 350.5 | 53.83 | 145.84 |
-| demo-js stat (remote) | 1 | 321.55 | 58.12 | 144.49 |
-| server stat (remote) | 1 | 312.05 | 56.4 | 164.24 |
-| demo-js list (remote) | 1 | 306.52 | 61.11 | 146.69 |
-| demo-rust list (remote) | 1 | 298.91 | 62.5 | 156.67 |
-| demo-rust read 1024B (remote) | 1 | 284.33 | 58.11 | 603.07 |
-| server read 1024B (remote) | 1 | 282.98 | 55.19 | 652.02 |
-| demo-js read 1024B (remote) | 1 | 273.31 | 59.87 | 614.13 |
-| demo-rust stat (remote) | 1 | 267.26 | 60.74 | 377.96 |
+| server list (remote) | 2 | 503.41 | 65.68 | 131.68 |
+| server stat (remote) | 2 | 474.09 | 67.44 | 157.13 |
+| demo-rust list (remote) | 2 | 473.21 | 70.65 | 142.68 |
+| demo-rust read 1024B (remote) | 2 | 473 | 67.83 | 371.55 |
+| demo-js list (remote) | 2 | 472.18 | 70.58 | 138.35 |
+| demo-js stat (remote) | 2 | 470.59 | 69.82 | 156.66 |
+| demo-rust stat (remote) | 2 | 461.08 | 68.75 | 264.34 |
+| server read 1024B (remote) | 2 | 458.77 | 66.78 | 403.73 |
+| demo-js read 1024B (remote) | 2 | 436.23 | 71.59 | 390.01 |
 
 ## Recent history -- last 20 rows
 
 | when | label | requests_per_sec | p50_ms | p99_ms | ok_count | err_count |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-05-13T16:54:23 | demo-rust info | 894.68 | 0 | 0 | 0 | 0 |
-| 2026-05-13T16:54:18 | demo-js info | 1654.34 | 9 | 60.31 | 4899 | 51 |
-| 2026-05-13T16:54:14 | server info | 1250.62 | 14.1 | 47.16 | 3735 | 0 |
-| 2026-05-13T16:54:10 | demo-rust glob | 1328.09 | 12.24 | 53.69 | 3970 | 0 |
-| 2026-05-13T16:54:05 | demo-js glob | 896.26 | 11.92 | 138.19 | 1210 | 270 |
-| 2026-05-13T16:54:01 | server glob | 1575.94 | 0 | 0 | 0 | 0 |
-| 2026-05-13T16:53:57 | demo-rust exists | 871.63 | 58.96 | 109.02 | 50 | 580 |
-| 2026-05-13T16:53:53 | demo-js exists | 1492.52 | 0.05 | 2.08 | 21 | 234 |
-| 2026-05-13T16:53:48 | server exists | 1992.69 | 0 | 0 | 0 | 0 |
-| 2026-05-13T16:53:44 | demo-rust list | 2080.44 | 0 | 0 | 0 | 0 |
-| 2026-05-13T16:53:40 | demo-js list | 756.56 | 15.82 | 77.05 | 1300 | 952 |
-| 2026-05-13T16:53:36 | server list | 1200.01 | 14 | 70.3 | 3582 | 0 |
-| 2026-05-13T16:53:31 | demo-rust stat | 737.83 | 26.37 | 60.74 | 1984 | 212 |
-| 2026-05-13T16:53:27 | demo-js stat | 1816.53 | 9.36 | 35 | 5435 | 0 |
-| 2026-05-13T16:53:23 | server stat | 1337.31 | 12.43 | 66.78 | 3996 | 0 |
-| 2026-05-13T16:53:18 | demo-rust read 1024B | 1676.65 | 10.62 | 37.59 | 5015 | 0 |
-| 2026-05-13T16:53:14 | demo-js read 1024B | 1837.39 | 9.71 | 31.08 | 5496 | 0 |
-| 2026-05-13T16:53:10 | server read 1024B | 1441.23 | 12.18 | 35.83 | 4309 | 0 |
-| 2026-05-13T16:53:06 | demo-rust banner | 3182.26 | 5.63 | 16.87 | 9535 | 0 |
-| 2026-05-13T16:53:01 | demo-js banner | 1913.6 | 10 | 18.3 | 5728 | 0 |
+| 2026-05-13T17:05:39 | demo-rust info (remote) | 685.55 | 75.17 | 121.48 | 6808 | 0 |
+| 2026-05-13T17:05:27 | demo-js info (remote) | 624.19 | 78.98 | 179.19 | 6194 | 1 |
+| 2026-05-13T17:05:15 | server info (remote) | 676.78 | 74.57 | 144.84 | 6722 | 0 |
+| 2026-05-13T17:05:04 | demo-rust glob (remote) | 672.27 | 74.78 | 164.78 | 6676 | 0 |
+| 2026-05-13T17:04:52 | demo-js glob (remote) | 637.02 | 78.84 | 132.14 | 6323 | 0 |
+| 2026-05-13T17:04:41 | server glob (remote) | 679.35 | 73.86 | 128.93 | 6746 | 0 |
+| 2026-05-13T17:04:29 | demo-rust exists (remote) | 712.67 | 70.68 | 137.21 | 7081 | 0 |
+| 2026-05-13T17:04:18 | demo-js exists (remote) | 684.42 | 73.76 | 159.29 | 6797 | 0 |
+| 2026-05-13T17:04:06 | server exists (remote) | 741.29 | 68.09 | 139.08 | 7367 | 0 |
+| 2026-05-13T17:03:54 | demo-rust list (remote) | 647.51 | 78.79 | 128.69 | 6428 | 0 |
+| 2026-05-13T17:03:43 | demo-js list (remote) | 637.83 | 80.04 | 130 | 6331 | 0 |
+| 2026-05-13T17:03:31 | server list (remote) | 656.32 | 77.53 | 117.51 | 6517 | 0 |
+| 2026-05-13T17:03:19 | demo-rust stat (remote) | 654.9 | 76.76 | 150.72 | 6501 | 0 |
+| 2026-05-13T17:03:08 | demo-js stat (remote) | 619.63 | 81.51 | 168.83 | 6149 | 0 |
+| 2026-05-13T17:02:56 | server stat (remote) | 636.12 | 78.47 | 150.02 | 6315 | 0 |
+| 2026-05-13T17:02:45 | demo-rust read 1024B (remote) | 661.66 | 77.55 | 140.03 | 6570 | 0 |
+| 2026-05-13T17:02:32 | demo-js read 1024B (remote) | 599.14 | 83.31 | 165.89 | 5944 | 0 |
+| 2026-05-13T17:02:20 | server read 1024B (remote) | 634.55 | 78.37 | 155.44 | 6299 | 0 |
+| 2026-05-13T17:02:08 | demo-rust banner (remote) | 1071.09 | 45.91 | 60.76 | 10667 | 0 |
+| 2026-05-13T17:01:57 | demo-js banner (remote) | 1005.2 | 48.02 | 82.28 | 10005 | 0 |
 
 ---
 
