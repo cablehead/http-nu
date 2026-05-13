@@ -4,6 +4,10 @@ use http-nu/html *
 
 const SCRIPT_DIR = path self | path dirname
 const STATIC_DIR = $SCRIPT_DIR | path join "static"
+# Cache-buster for static assets: fresh per server start, stable within one
+# session. Browsers cache /styles.css?v=<REV> across page loads but refetch
+# on the next server restart.
+let REV = random uuid | str substring 0..7
 
 # 2048 over the Local Bus, with View Transition tile slides.
 #
@@ -404,10 +408,10 @@ def render-current [mode: string]: record -> record {
       (META {property: "og:image" content: $og_image})
       (META {name: "twitter:card" content: "summary_large_image"})
       (META {name: "twitter:image" content: $og_image})
-      (LINK {rel: "stylesheet" href: ($req | href "/styles.css")})
+      (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")})
       (SCRIPT-ICONIFY)
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
-      (SCRIPT {src: ($req | href "/script.js") defer: true}))
+      (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true}))
       (BODY {
         # tabId is generated server-side per page load so datastar's @get URL
         # and the input handlers in script.js share one id.

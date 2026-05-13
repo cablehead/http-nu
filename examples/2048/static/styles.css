@@ -149,7 +149,10 @@ button:active {
 
 #settings-panel {
   width: calc(var(--board-size) * var(--board-scale));
-  min-height: calc(var(--board-size) * var(--board-scale));
+  /* Match the game's full height (board + status row + gap) so the cluster
+     stays the same height across modes -- otherwise body's justify-content
+     re-centers and the footer appears to jump during the flip. */
+  min-height: calc(var(--board-size) * var(--board-scale) + 38px);
   background: var(--tile);
   border-radius: 6px;
   padding: 24px;
@@ -301,25 +304,41 @@ body.flash-red { animation: flash-red 300ms ease; }
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* View-mode flip. Game and settings each have their own view-transition-name
-   so a switch produces UNPAIRED pseudos (the :only-child guard); same-name
-   renders (game move) stay paired and cross-fade. Old and new run SIMUL-
-   taneously across 180deg with backface-visibility:hidden, so each is only
-   visible during its front-facing half -- producing one continuous card-
-   flip illusion. perspective on the image-pair gives the rotation depth. */
+/* View-mode flip choreography. All rules scoped under html.view-flipping so
+   they only fire during a deliberate gear/close click (not regular moves).
+   Sequence (1300ms total, both directions):
+     0-300ms:    tiles pop out (game->settings) or nothing (settings has none)
+     300-800ms:  outgoing face flips out (rotateY 0 -> 180)
+     800-1300ms: incoming face flips in (rotateY -180 -> 0)
+     1300ms+:    tiles pop in (settings->game) via tile-spawn keyframes
+   backface-visibility:hidden + perspective gives the continuous-card feel. */
 ::view-transition-image-pair(view-game),
 ::view-transition-image-pair(view-settings) {
   perspective: 1200px;
 }
-::view-transition-old(view-game):only-child,
-::view-transition-old(view-settings):only-child {
-  animation: card-flip-out 1500ms ease-in-out forwards;
+html.view-flipping ::view-transition-old(*):only-child {
+  animation: tile-pop-out 300ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+html.view-flipping ::view-transition-old(view-game):only-child,
+html.view-flipping ::view-transition-old(view-settings):only-child {
+  animation: card-flip-out 500ms ease-in-out 300ms forwards;
   backface-visibility: hidden;
 }
-::view-transition-new(view-game):only-child,
-::view-transition-new(view-settings):only-child {
-  animation: card-flip-in 1500ms ease-in-out forwards;
+html.view-flipping ::view-transition-new(view-game):only-child,
+html.view-flipping ::view-transition-new(view-settings):only-child {
+  animation: card-flip-in 500ms ease-in-out 800ms forwards;
   backface-visibility: hidden;
+}
+html.view-flipping ::view-transition-new(*):only-child {
+  /* Override the default move-spawn rule so new tiles wait until the flip
+     finishes before popping in. `backwards` keeps tiles invisible until the
+     delay elapses. */
+  animation: tile-spawn 320ms cubic-bezier(0.34, 1.56, 0.64, 1) 1300ms backwards;
+}
+@keyframes tile-pop-out {
+  0%   { transform: scale(1); opacity: 1; }
+  40%  { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(0); opacity: 0; }
 }
 @keyframes card-flip-out {
   from { transform: rotateY(0deg); }

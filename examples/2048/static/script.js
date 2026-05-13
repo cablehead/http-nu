@@ -114,11 +114,16 @@ document.querySelector("p.hint button")?.addEventListener("click", () => move("r
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-view-to]");
   if (!t) return;
+  // Scope the view-flip animations: set the class BEFORE the patch lands so
+  // the view-transition snapshot uses the scoped CSS. Clear after the full
+  // choreography (1300ms flip + 320ms tile-spawn + buffer).
+  document.documentElement.classList.add("view-flipping");
   fetch(document.body.dataset.viewUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ tabId, mode: t.dataset.viewTo }),
   });
+  setTimeout(() => document.documentElement.classList.remove("view-flipping"), 1800);
 });
 
 
