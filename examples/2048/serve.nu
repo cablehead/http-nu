@@ -166,13 +166,12 @@ const PAD = 15
 # inner = 4*CELL + 3*GAP = 430, total = inner + 2*PAD = 460
 const TOTAL = 460
 
-def cell-pos [n: int]: nothing -> int { $PAD + $n * ($CELL + $GAP) }
-
 def render-tile []: record -> record {
   let t = $in
+  # Grid placement: column/row indices are 1-based in CSS Grid.
   (DIV {class: "tile" style: {
-    position: absolute  left: $"(cell-pos $t.c)px"  top: $"(cell-pos $t.r)px"
-    width: $"($CELL)px"  height: $"($CELL)px"
+    grid-column: ($t.c + 1 | into string)
+    grid-row: ($t.r + 1 | into string)
     display: flex  align-items: center  justify-content: center
     background-color: (color-for $t.value)
     color: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
@@ -184,8 +183,8 @@ def render-tile []: record -> record {
 
 def render-empty-cell [r: int c: int]: nothing -> record {
   (DIV {style: {
-    position: absolute  left: $"(cell-pos $c)px"  top: $"(cell-pos $r)px"
-    width: $"($CELL)px"  height: $"($CELL)px"
+    grid-column: ($c + 1 | into string)
+    grid-row: ($r + 1 | into string)
     background: "#cdc1b4"  border-radius: "4px"
   }} "")
 }
@@ -194,8 +193,14 @@ def render-board []: record -> record {
   let state = $in
   let bg = 0..3 | each {|r| 0..3 | each {|c| render-empty-cell $r $c } } | flatten
   let tiles = $state.tiles | each {|t| $t | render-tile }
+  # 4x4 grid; cells and tiles share placement via grid-column / grid-row.
   (DIV {id: "board" style: {
-    position: relative  width: $"($TOTAL)px"  height: $"($TOTAL)px"
+    display: grid
+    grid-template-columns: $"repeat\(4, ($CELL)px\)"
+    grid-template-rows: $"repeat\(4, ($CELL)px\)"
+    gap: $"($GAP)px"
+    padding: $"($PAD)px"
+    width: $"($TOTAL)px"  height: $"($TOTAL)px"
     background: "#bbada0"  border-radius: "6px"
   }} $bg $tiles)
 }
