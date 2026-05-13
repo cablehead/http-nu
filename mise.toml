@@ -386,40 +386,46 @@ depends = ["cf:bundle:hub"]
 run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build"
 
 [tasks."cf:wipe"]
-description = "Wipe /demos/* in the local wrangler dev's Workspace (the namespace cf:seed uploads to). Useful when re-seeding or recovering from a half-failed upload."
+description = "Wipe the local wrangler dev's Workspace (the default DO unless WS_USER=<user> selects a per-user DO via /u/<user>/). Useful when re-seeding or recovering."
 dir = "{{config_root}}"
+shell = "bash -c"
 run = '''
 set -euo pipefail
 BASE="${BASE:-http://127.0.0.1:8787}"
-USER_NS="demos"
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
-  echo "✗ $BASE not reachable -- start `mise run cf:dev:hub` first" >&2
+WS_USER="${WS_USER:-}"
+PREFIX=""
+[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
+
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
+  echo "✗ $BASE not reachable -- start mise run cf:dev:hub first" >&2
   exit 1
 fi
 # `_workspace/rm` is recursive + force. Wipe top-level entries (not / itself).
-ls=$(curl -fs "$BASE/$USER_NS/_workspace/ls?path=/" || echo '[]')
-echo "$ls" | python3 -c 'import json,sys; [print(p) for p in json.load(sys.stdin)]' | while read -r entry; do
+ls=$(curl -fs "$BASE$PREFIX/_workspace/ls?path=/" || echo "[]")
+echo "$ls" | python3 -c "import json,sys; [print(p) for p in json.load(sys.stdin)]" | while read -r entry; do
   echo "rm /$entry"
-  curl -fs -o /dev/null -X POST "$BASE/$USER_NS/_workspace/rm?path=/$entry"
+  curl -fs -o /dev/null -X POST "$BASE$PREFIX/_workspace/rm?path=/$entry"
 done
-echo "✓ wiped /demos/*"
+echo "✓ wiped $BASE$PREFIX/*"
 '''
 
 [tasks."cf:seed:demo"]
-description = "Upload one demo's assets to /<user>/<rel>/ in the local wrangler dev's Workspace. Usage: DEMO=tao mise run cf:seed:demo (or DEMO=tao WS_USER=bob ...). Use this AFTER `mise run ex:cf:<demo>` is listening on :8787. Skips *.nu (already in wasm). Defaults: BASE=http://127.0.0.1:8787, WS_USER=alice. (WS_USER, not USER -- the OS already sets that.)"
+description = "Upload one demo's assets into the local wrangler dev's default Workspace. Usage: DEMO=tao mise run cf:seed:demo (default DO). Set WS_USER=bob to seed a per-user DO via /u/bob/. Use this AFTER mise run ex:cf:<demo> is listening on :8787. Skips *.nu (already in wasm). BASE=http://127.0.0.1:8787 by default."
 dir = "{{config_root}}"
 shell = "bash -c"
 run = '''
 set -euo pipefail
 DEMO="${DEMO:?usage: DEMO=<demo-name> mise run cf:seed:demo}"
 BASE="${BASE:-http://127.0.0.1:8787}"
-USER_NS="${WS_USER:-alice}"
+WS_USER="${WS_USER:-}"
+PREFIX=""
+[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
 SRC="examples/$DEMO"
 
 if [ ! -d "$SRC" ]; then
   echo "✗ $SRC not found" >&2; exit 1
 fi
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
   echo "✗ $BASE not reachable -- start mise run ex:cf:$DEMO first" >&2
   exit 1
 fi
@@ -431,7 +437,7 @@ while IFS= read -r -d "" file; do
   case "$file" in *.nu) continue ;; esac
   rel="${file#$SRC/}"
   mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
-  url="$BASE/$USER_NS/_workspace/put?path=/$rel"
+  url="$BASE$PREFIX/_workspace/put?path=/$rel"
   http_code=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST -H "Content-Type: $mime" --data-binary "@$file" "$url")
   if [ "$http_code" = "200" ]; then
@@ -441,12 +447,12 @@ while IFS= read -r -d "" file; do
   fi
 done < <(find "$SRC" -type f -print0)
 
-echo "✓ seeded $count files from $SRC into $BASE/$USER_NS/"
+echo "✓ seeded $count files from $SRC into $BASE$PREFIX/"
 [ "$fail" -eq 0 ]
 '''
 
 [tasks."cf:upload"]
-description = "Generic: upload SRC (a directory) into the local wrangler dev's Workspace under DEST. Usage: SRC=target/doc DEST=/target/doc mise run cf:upload. Defaults: BASE=http://127.0.0.1:8787, WS_USER=alice."
+description = "Generic: upload SRC (a directory) into the local wrangler dev's Workspace under DEST. Usage: SRC=target/doc DEST=/target/doc mise run cf:upload. Defaults: BASE=http://127.0.0.1:8787, default DO (set WS_USER=name for per-user via /u/<name>)."
 dir = "{{config_root}}"
 shell = "bash -c"
 run = '''
@@ -454,10 +460,12 @@ set -euo pipefail
 SRC="${SRC:?usage: SRC=<local-dir> DEST=<workspace-path> mise run cf:upload}"
 DEST="${DEST:?usage: SRC=<local-dir> DEST=<workspace-path> mise run cf:upload}"
 BASE="${BASE:-http://127.0.0.1:8787}"
-USER_NS="${WS_USER:-alice}"
+WS_USER="${WS_USER:-}"
+PREFIX=""
+[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
 
 if [ ! -d "$SRC" ]; then echo "✗ $SRC not found" >&2; exit 1; fi
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
   echo "✗ $BASE not reachable -- start a wrangler dev first" >&2; exit 1
 fi
 # Normalise DEST: leading /, no trailing /.
@@ -467,7 +475,7 @@ count=0; fail=0
 while IFS= read -r -d "" file; do
   rel="${file#$SRC/}"
   mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
-  url="$BASE/$USER_NS/_workspace/put?path=$DEST/$rel"
+  url="$BASE$PREFIX/_workspace/put?path=$DEST/$rel"
   http_code=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST -H "Content-Type: $mime" --data-binary "@$file" "$url")
   if [ "$http_code" = "200" ]; then
@@ -477,7 +485,7 @@ while IFS= read -r -d "" file; do
   fi
 done < <(find "$SRC" -type f -print0)
 
-echo "✓ uploaded $count files from $SRC -> $BASE/$USER_NS$DEST/"
+echo "✓ uploaded $count files from $SRC -> $BASE$PREFIX$DEST/"
 [ "$fail" -eq 0 ]
 '''
 
@@ -493,25 +501,27 @@ SRC=target/doc DEST=/target/doc mise run cf:upload
 '''
 
 [tasks."cf:seed"]
-description = "Upload every file under examples/ to /demos/<path>/ in the local wrangler dev's Workspace. Run AFTER `cf:dev:hub` is listening on :8787. Use `cf:seed:demo <name>` for per-demo seeding."
+description = "Upload every file under examples/ into the local wrangler dev's Workspace (default DO unless WS_USER set). Run AFTER `cf:dev:hub` is listening on :8787. Use `cf:seed:demo <name>` for per-demo seeding instead, this one is for full-tree dumps."
 dir = "{{config_root}}"
+shell = "bash -c"
 run = '''
 set -euo pipefail
 BASE="${BASE:-http://127.0.0.1:8787}"
-USER_NS="demos"
+WS_USER="${WS_USER:-}"
+PREFIX=""
+[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
 
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE/$USER_NS/_workspace/ls?path=/"; then
-  echo "✗ $BASE not reachable -- start `mise run cf:dev:hub` first" >&2
+if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
+  echo "✗ $BASE not reachable -- start mise run cf:dev:hub first" >&2
   exit 1
 fi
 
 count=0
 fail=0
-# -print0 / read -d are POSIX-portable safe-for-spaces.
-while IFS= read -r -d '' file; do
+while IFS= read -r -d "" file; do
   rel="${file#examples/}"
   mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
-  url="$BASE/$USER_NS/_workspace/put?path=/$rel"
+  url="$BASE$PREFIX/_workspace/put?path=/$rel"
   http_code=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST \
     -H "Content-Type: $mime" \
@@ -525,7 +535,7 @@ while IFS= read -r -d '' file; do
   fi
 done < <(find examples -type f -print0)
 
-echo "✓ uploaded $count files to $BASE/$USER_NS/"
+echo "✓ uploaded $count files to $BASE$PREFIX/"
 if [ "$fail" -gt 0 ]; then
   echo "✗ $fail failed -- see above" >&2
   exit 1

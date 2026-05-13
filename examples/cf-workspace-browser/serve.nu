@@ -1,21 +1,23 @@
 # CF Workspace browser example.
 #
-# Each user (URL first path segment) gets their own isolated workspace,
-# backed by DO SQLite + R2 (1.5MB spill threshold) via the http-nu Rust
-# port of @cloudflare/shell.
+# Workspace lookup: the default DurableObject unless the URL uses an
+# explicit `/u/<user>/` prefix (then that user's DO is used and the
+# prefix is stripped before this handler sees the request).
 #
-# Routes (path is the full URL including the /{user}/ prefix):
+# Routes (default DO):
+#   GET  /                    -> file browser HTML
+#   GET  /file?path=X         -> read file content
+#   POST /file?path=X         -> write file (body is content)
+#   POST /mkdir?path=X        -> create directory (recursive)
+#   POST /rm?path=X           -> remove (recursive, force)
+#   POST /cp?path=A&dst=B     -> copy A to B
+#   POST /mv?path=A&dst=B     -> rename A to B
+#   GET  /exists?path=X       -> "true" / "false"
+#   GET  /static/<path>       -> serve from /assets/<path> with
+#                                Content-Type from extension
 #
-#   GET  /{user}/                    -> file browser HTML
-#   GET  /{user}/file?path=X         -> read file content
-#   POST /{user}/file?path=X         -> write file (body is content)
-#   POST /{user}/mkdir?path=X        -> create directory (recursive)
-#   POST /{user}/rm?path=X           -> remove (recursive, force)
-#   POST /{user}/cp?path=A&dst=B     -> copy A to B
-#   POST /{user}/mv?path=A&dst=B     -> rename A to B
-#   GET  /{user}/exists?path=X       -> "true" / "false"
-#   GET  /{user}/static/<path>       -> serve from /assets/<path> with
-#                                       Content-Type from extension
+# Per-user mode: prefix any URL with /u/<name>/, e.g.
+#   GET /u/alice/file?path=/note.txt
 #
 # Nu's `ls`, `open`, `save`, `path exists`, `mkdir`, `rm`, `cp`, `mv`,
 # `.static` are shadowed to the per-request Workspace snapshot.
@@ -23,17 +25,10 @@
 {|req|
   # Capture body first; subsequent pipelines might steal $in.
   let body = $in
-  let path = ($req.path? | default "/")
+  let route = ($req.path? | default "/")
   let method = ($req.method? | default "GET")
   let query = ($req.query? | default {})
   let qpath = ($query | get -i path | default "/note.txt")
-
-  let parts = ($path | split row "/" | skip 1)
-  let route = if (($parts | length) <= 1) {
-    "/"
-  } else {
-    "/" + ($parts | skip 1 | str join "/")
-  }
 
   # NOTE: no `return` -- it strips PipelineData metadata (e.g. the
   # Content-Type header .static attaches). Use if/else expressions
@@ -53,7 +48,7 @@
 <style>body{font-family:system-ui;max-width:800px;margin:2em auto;padding:0 1em}
 table{width:100%;border-collapse:collapse}td,th{padding:.4em;border-bottom:1px solid #eee;text-align:left}</style></head>
 <body><h1>Workspace</h1>
-<p>user: <code>($parts | get 0)</code></p>
+<p>Default DO. For per-user routing, use <code>/u/&lt;name&gt;/</code> URLs.</p>
 <table><thead><tr><th>name</th><th>type</th><th>size</th></tr></thead>
 <tbody>($rows)</tbody></table>
 </body></html>"}

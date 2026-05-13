@@ -1,15 +1,23 @@
 # http-nu examples hub -- CF target
 #
 # Same shape as examples/serve.nu (the desktop hub) but only mounts
-# demos that work on Cloudflare Workers today. Skipped on CF:
+# demos that work on Cloudflare Workers today.
+#
+# Excluded:
 #   - stor      : `stor *` family unported to wasm
-#   - templates : top-level `.append page.html` (cross-stream, no wasm port)
-#   - quotes    : `.last quotes --follow` (cross-stream)
-# Track all four ports in src/cf/nu/nu_command/xs/PLAN.md.
+#   - templates : `.append` cross-stream not ported
+#   - quotes    : `.last --follow` cross-stream not ported
+#   - tao       : top-level `let slides = open data.json` -- needs
+#                 assets seeded BEFORE the hub parses. Use the
+#                 standalone task `mise run ex:cf:tao` + `DEMO=tao
+#                 mise run cf:seed:demo` instead.
+#   - cargo-docs: same -- standalone via `mise run ex:cf:cargo-docs`
+#                 + `mise run cf:seed:cargo-docs`.
+#
+# Track xs ports in src/cf/nu/nu_command/xs/PLAN.md.
 #
 # Run on CF: mise run cf:dev:hub
 # Bundler:   scripts/bundle-cf-handler.nu (inlines `source X.nu`).
-# Seed assets: mise run cf:seed:demo  with DEMO=<demo-name>.
 
 use http-nu/router *
 use http-nu/html *
@@ -20,8 +28,6 @@ let sdk = source datastar-sdk/serve.nu
 let mermaid = source mermaid-editor/serve.nu
 let blog = source blog/serve.nu
 let game_2048 = source 2048/serve.nu
-let tao = source tao/serve.nu
-let cargo_docs = source cargo-docs/serve.nu
 let generate_test = source generate-test/serve.nu
 let sdk_test = source datastar-sdk-test/serve.nu
 
@@ -51,10 +57,9 @@ li { margin: 0.5rem 0; }
     (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
     (example-link "./generate-test/" "generate-test" "stock `generate` exercise")
     (example-link "./blog/" "blog" "routing, layouts, HTML composition")
-    (example-link "./tao/" "tao" "Tao of Datastar (seed: DEMO=tao mise run cf:seed:demo)")
-    (example-link "./cargo-docs/" "cargo-docs" "browse cargo docs (seed: mise run cf:seed:cargo-docs)")
     (example-link "./2048/" "2048" "solo 2048 (home only; gameplay needs .bus sub)"))
-    (P {class: "skipped"} "Skipped on CF (need xs / stor port -- see src/cf/nu/nu_command/xs/PLAN.md): stor, templates, quotes."))
+    (P {class: "skipped"} "Standalone-only (need pre-seeded assets): tao, cargo-docs. Run via mise run ex:cf:tao or ex:cf:cargo-docs.")
+    (P {class: "skipped"} "Blocked on xs/stor port (see src/cf/nu/nu_command/xs/PLAN.md): stor, templates, quotes."))
   })
 
   (mount "/basic" $basic)
@@ -64,8 +69,6 @@ li { margin: 0.5rem 0; }
   (mount "/mermaid-editor" $mermaid)
   (mount "/generate-test" $generate_test)
   (mount "/blog" $blog)
-  (mount "/tao" $tao)
-  (mount "/cargo-docs" $cargo_docs)
   (mount "/2048" $game_2048)
 ]
 

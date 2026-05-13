@@ -61,7 +61,7 @@ probe_demo() {
 
   # Probe /alice/ on the worker.
   local probe="$out_dir/probe.txt"
-  curl -s -o "$probe" -w "%{http_code}" --max-time 5 "$BASE/alice/" > "$out_dir/status_code" || echo "TIMEOUT" > "$out_dir/status_code"
+  curl -s -o "$probe" -w "%{http_code}" --max-time 5 "$BASE/" > "$out_dir/status_code" || echo "TIMEOUT" > "$out_dir/status_code"
   local code
   code="$(cat "$out_dir/status_code")"
   local note

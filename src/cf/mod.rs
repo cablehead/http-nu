@@ -382,33 +382,47 @@ impl UserSpace {
 /// dispatch) and by `cf::request::worker_request_to_http_nu` (for
 /// `Request.path` population).
 ///
-/// "/alice/foo"          -> "/foo"
-/// "/alice"              -> "/"
-/// "/"                   -> "/"
+/// Strip the explicit per-user prefix from a path so the handler sees a
+/// path that's identical whether or not the caller used per-user routing.
+///
+/// The CF target supports an optional `/u/<user>/` URL prefix for
+/// per-user DurableObject isolation. Everything else goes to the
+/// "default" DO, so root-relative URLs in demos (`/datastar@1.0.1.js`,
+/// `/static/...`, `/2048/move`) work like desktop -- no path mangling.
+///
+/// "/u/alice/foo"        -> "/foo"
+/// "/u/alice"             -> "/"
+/// "/foo"                 -> "/foo"   (default DO, no strip)
+/// "/"                    -> "/"
 pub(super) fn strip_user_prefix(path: &str) -> String {
-    let mut parts = path.splitn(3, '/');
-    parts.next(); // empty before leading /
-    parts.next(); // user_id
-    match parts.next() {
-        Some(rest) if !rest.is_empty() => format!("/{rest}"),
-        _ => "/".to_string(),
+    if let Some(after) = path.strip_prefix("/u/") {
+        let mut parts = after.splitn(2, '/');
+        let _user = parts.next();
+        match parts.next() {
+            Some(rest) if !rest.is_empty() => format!("/{rest}"),
+            _ => "/".to_string(),
+        }
+    } else {
+        path.to_string()
     }
 }
 
-/// Pull the user_id from the URL's first path segment.
+/// Pull the user_id from an explicit `/u/<user>/...` prefix, or fall
+/// back to `"default"` for the global namespace.
 ///
-/// "/alice/posts"       -> "alice"
-/// "/alice"             -> "alice"
-/// "/"                  -> "default"
-/// "/datastar@1.0.1.js" -> still maps to a user named "datastar@1.0.1.js"
-///   today; that's fine for the MVP because the segment is opaque and
-///   the per-isolate engine cache works either way. Future work moves
-///   well-known asset routes to a separate Worker namespace.
+/// `/u/alice/posts`     -> "alice"
+/// `/u/alice`           -> "alice"
+/// `/foo`               -> "default"
+/// `/`                  -> "default"
+/// `/datastar@1.0.1.js` -> "default"  (no longer mis-parsed as a user)
 fn user_id_from_path(path: &str) -> &str {
-    path.split('/')
-        .nth(1)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("default")
+    if let Some(after) = path.strip_prefix("/u/") {
+        let id = after.split('/').next().unwrap_or("");
+        if !id.is_empty() {
+            return id;
+        }
+    }
+    "default"
 }
 
 #[worker::event(fetch)]

@@ -16,8 +16,12 @@ Per-subsystem ledgers, also running state:
 
 ## What works on the live worker
 
-- **Per-user routing** via the URL's first path segment: `/alice/...`
-  lands in alice's DurableObject, `/bob/...` lands in bob's.
+- **Default + explicit per-user routing.** All URLs go to a single
+  "default" DurableObject unless they start with `/u/<name>/`. Examples:
+  `/basic/hello` -> default DO; `/u/alice/file?path=/notes.md` ->
+  alice's DO with path `/file?path=/notes.md`. This keeps demo URLs
+  identical to desktop (no `/alice/` prefix anywhere), and per-user
+  isolation is an explicit opt-in via `/u/<name>/`.
 - **Per-user FS** backed by DO SQLite + R2 spill, via the
   `@cloudflare/shell` Rust port at
   [`crates/cloudflare-shell-workspace/`](crates/cloudflare-shell-workspace/README.md). R2 spill at 1.5MB

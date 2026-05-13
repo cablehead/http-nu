@@ -33,7 +33,11 @@ thread_local! {
     static SLEEP_CALLS: Cell<u32> = const { Cell::new(0) };
 }
 
-const MAX_CALLS_PER_REQUEST: u32 = 1024;
+// Low cap so demos with infinite `generate { sleep 1sec ... } true`
+// loops return quickly instead of streaming for 8+ seconds. The first
+// few iterations are enough to demonstrate the streaming UX; anything
+// more is a CF demo author asking to be killed.
+const MAX_CALLS_PER_REQUEST: u32 = 64;
 
 /// Called by the CF fetch handler at the top of each request to reset
 /// the budget. Safe to call multiple times; idempotent.

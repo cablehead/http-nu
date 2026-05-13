@@ -33,18 +33,22 @@ const DATASTAR_JS: &[u8] = include_bytes!("../stdlib/datastar/datastar@1.0.1.js"
 //   curl -X PUT --data-binary @serve.nu https://.../<user>/admin/handler
 const ADMIN_HANDLER_SUFFIX: &str = "/admin/handler";
 
-/// Strip the leading `/<user>` from a path so we can match route
-/// suffixes uniformly regardless of which user's DO we're in.
-/// "/alice/admin/handler" -> "/admin/handler"
-/// "/alice"               -> "/"
-/// "/"                    -> "/"
+/// Strip the optional `/u/<user>/` per-user prefix so route matching is
+/// uniform whether or not the caller used per-user routing.
+/// "/u/alice/admin/handler" -> "/admin/handler"
+/// "/u/alice"               -> "/"
+/// "/admin/handler"         -> "/admin/handler" (default DO, no strip)
+/// "/"                      -> "/"
 fn route_suffix(path: &str) -> String {
-    let mut parts = path.splitn(3, '/');
-    parts.next(); // leading empty
-    parts.next(); // user_id
-    match parts.next() {
-        Some(rest) if !rest.is_empty() => format!("/{rest}"),
-        _ => "/".to_string(),
+    if let Some(after) = path.strip_prefix("/u/") {
+        let mut parts = after.splitn(2, '/');
+        let _user = parts.next();
+        match parts.next() {
+            Some(rest) if !rest.is_empty() => format!("/{rest}"),
+            _ => "/".to_string(),
+        }
+    } else {
+        path.to_string()
     }
 }
 
