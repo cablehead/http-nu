@@ -89,20 +89,23 @@ state of CF work.
 
 ## Live demo
 
-The subsystem is deployed on Cloudflare Workers:
+The subsystem is deployed on Cloudflare Workers. **Click the JS demo
+link first** -- it's an interactive file-browser UI built on the
+same routes the other demos expose:
 
-| Worker | URL |
-|---|---|
-| `cloudflare-shell-rpc` (the RPC server) | <https://cloudflare-shell-rpc.gedw99.workers.dev> |
-| `cloudflare-shell-rpc-demo-js` (JS consumer) | <https://cloudflare-shell-rpc-demo-js.gedw99.workers.dev> |
-| `cloudflare-shell-rpc-demo-rust` (Rust consumer via the client crate) | <https://cloudflare-shell-rpc-demo-rust.gedw99.workers.dev> |
+| Worker | URL | What you get in a browser |
+|---|---|---|
+| `cloudflare-shell-rpc-demo-js` (JS consumer + UI) | <https://cloudflare-shell-rpc-demo-js.gedw99.workers.dev> | Interactive file-browser UI: tree view, file viewer (text / JSON / hex), drag-drop upload, namespace switcher, mkdir + delete inline. Vanilla JS, no build step. |
+| `cloudflare-shell-rpc-demo-rust` (Rust consumer via the client crate) | <https://cloudflare-shell-rpc-demo-rust.gedw99.workers.dev> | Plain HTTP banner + JSON routes (no UI). Sibling to demo-js for benching the typed Rust client wrapper. |
+| `cloudflare-shell-rpc` (the RPC server) | <https://cloudflare-shell-rpc.gedw99.workers.dev> | Plain banner; FS routes require `Authorization: Bearer <token>`. |
 
-The server enforces token auth (`SHELL_FS_TOKEN`); demos handle it
-internally via their own secret, so the demo URLs are usable without
-a token. The server URL requires `Authorization: Bearer <token>` on
-every FS route -- root `/` is always open as a banner.
+**Try it now:** open the JS demo link, type any namespace name
+matching `[a-zA-Z][a-zA-Z0-9_]*`, drag a file onto the page. The
+file lands in a DurableObject SQLite row (or R2 if > 1.5MB). Switch
+to another namespace and it's isolated. Try `bad-ns` (hyphen) to see
+the server-side validator reject it.
 
-Try them with curl:
+For curl users:
 
 ```bash
 # JS demo -- write, then read, then stat
@@ -110,6 +113,10 @@ curl -X PUT --data hello https://cloudflare-shell-rpc-demo-js.gedw99.workers.dev
 curl https://cloudflare-shell-rpc-demo-js.gedw99.workers.dev/fs/alice/note.txt
 curl https://cloudflare-shell-rpc-demo-js.gedw99.workers.dev/stat/alice/note.txt
 ```
+
+Auth: server enforces `SHELL_FS_TOKEN` (sent as `Authorization:
+Bearer <token>` on HTTP, `auth:` field on RPC). Demos thread the
+token internally via their own secret, so demo URLs are open.
 
 Full lifecycle: `mise run cf:fs:deploy:all` (deploy + push secrets) /
 `mise run cf:fs:smoke:remote` (verify) / `mise run cf:fs:teardown`
