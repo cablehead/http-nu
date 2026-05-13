@@ -17,8 +17,11 @@
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use cloudflare_shell_rpc_types::{
-    DirEntry, ListReq, ListResp, MkdirReq, ReadFileReq, ReadFileResp, RmReq, Stat, StatReq,
-    StatResp, WriteFileReq,
+    Ack, AppendFileReq, CpReq, DeleteFileReq, DeleteFileResp, DirEntry, ExistsReq, ExistsResp,
+    FileExistsReq, FileExistsResp, GlobReq, GlobResp, ListReq, ListResp, LstatReq, LstatResp,
+    MkdirReq, MvReq, ReadFileReq, ReadFileResp, ReadlinkReq, ReadlinkResp, RealpathReq,
+    RealpathResp, RmReq, Stat, StatReq, StatResp, SymlinkReq, WorkspaceInfo, WorkspaceInfoReq,
+    WorkspaceInfoResp, WriteFileReq,
 };
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -44,6 +47,18 @@ pub trait ShellFs {
     async fn mkdir(&self, namespace: &str, path: &str, recursive: bool) -> Result<()>;
     async fn rm(&self, namespace: &str, path: &str, recursive: bool, force: bool) -> Result<()>;
     async fn list(&self, namespace: &str, path: &str) -> Result<Option<Vec<DirEntry>>>;
+    async fn exists(&self, namespace: &str, path: &str) -> Result<bool>;
+    async fn lstat(&self, namespace: &str, path: &str) -> Result<Option<Stat>>;
+    async fn append_file(&self, namespace: &str, path: &str, data: &[u8]) -> Result<()>;
+    async fn cp(&self, namespace: &str, src: &str, dst: &str, recursive: bool) -> Result<()>;
+    async fn mv(&self, namespace: &str, src: &str, dst: &str) -> Result<()>;
+    async fn symlink(&self, namespace: &str, target: &str, link_path: &str) -> Result<()>;
+    async fn readlink(&self, namespace: &str, path: &str) -> Result<Option<String>>;
+    async fn realpath(&self, namespace: &str, path: &str) -> Result<Option<String>>;
+    async fn glob(&self, namespace: &str, pattern: &str) -> Result<Vec<String>>;
+    async fn file_exists(&self, namespace: &str, path: &str) -> Result<bool>;
+    async fn delete_file(&self, namespace: &str, path: &str) -> Result<bool>;
+    async fn workspace_info(&self, namespace: &str) -> Result<WorkspaceInfo>;
 }
 
 /// Service-binding client. Obtain via `env.service("SHELL_FS")?.into()`
@@ -191,5 +206,129 @@ impl ShellFs for ShellFsService {
         };
         let resp: ListResp = self.invoke(&req, |s, a| s.list(a)).await?;
         Ok(resp.entries)
+    }
+
+    async fn exists(&self, namespace: &str, path: &str) -> Result<bool> {
+        let req = ExistsReq {
+            namespace: namespace.into(),
+            path: path.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: ExistsResp = self.invoke(&req, |s, a| s.exists(a)).await?;
+        Ok(resp.exists)
+    }
+
+    async fn lstat(&self, namespace: &str, path: &str) -> Result<Option<Stat>> {
+        let req = LstatReq {
+            namespace: namespace.into(),
+            path: path.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: LstatResp = self.invoke(&req, |s, a| s.lstat(a)).await?;
+        Ok(resp.stat)
+    }
+
+    async fn append_file(&self, namespace: &str, path: &str, data: &[u8]) -> Result<()> {
+        let req = AppendFileReq {
+            namespace: namespace.into(),
+            path: path.into(),
+            data: B64.encode(data),
+            auth: self.auth.clone(),
+        };
+        let _ack: Ack = self.invoke(&req, |s, a| s.append_file(a)).await?;
+        Ok(())
+    }
+
+    async fn cp(&self, namespace: &str, src: &str, dst: &str, recursive: bool) -> Result<()> {
+        let req = CpReq {
+            namespace: namespace.into(),
+            src: src.into(),
+            dst: dst.into(),
+            recursive,
+            auth: self.auth.clone(),
+        };
+        let _ack: Ack = self.invoke(&req, |s, a| s.cp(a)).await?;
+        Ok(())
+    }
+
+    async fn mv(&self, namespace: &str, src: &str, dst: &str) -> Result<()> {
+        let req = MvReq {
+            namespace: namespace.into(),
+            src: src.into(),
+            dst: dst.into(),
+            auth: self.auth.clone(),
+        };
+        let _ack: Ack = self.invoke(&req, |s, a| s.mv(a)).await?;
+        Ok(())
+    }
+
+    async fn symlink(&self, namespace: &str, target: &str, link_path: &str) -> Result<()> {
+        let req = SymlinkReq {
+            namespace: namespace.into(),
+            target: target.into(),
+            link_path: link_path.into(),
+            auth: self.auth.clone(),
+        };
+        let _ack: Ack = self.invoke(&req, |s, a| s.symlink(a)).await?;
+        Ok(())
+    }
+
+    async fn readlink(&self, namespace: &str, path: &str) -> Result<Option<String>> {
+        let req = ReadlinkReq {
+            namespace: namespace.into(),
+            path: path.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: ReadlinkResp = self.invoke(&req, |s, a| s.readlink(a)).await?;
+        Ok(resp.target)
+    }
+
+    async fn realpath(&self, namespace: &str, path: &str) -> Result<Option<String>> {
+        let req = RealpathReq {
+            namespace: namespace.into(),
+            path: path.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: RealpathResp = self.invoke(&req, |s, a| s.realpath(a)).await?;
+        Ok(resp.path)
+    }
+
+    async fn glob(&self, namespace: &str, pattern: &str) -> Result<Vec<String>> {
+        let req = GlobReq {
+            namespace: namespace.into(),
+            pattern: pattern.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: GlobResp = self.invoke(&req, |s, a| s.glob(a)).await?;
+        Ok(resp.paths)
+    }
+
+    async fn file_exists(&self, namespace: &str, path: &str) -> Result<bool> {
+        let req = FileExistsReq {
+            namespace: namespace.into(),
+            path: path.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: FileExistsResp = self.invoke(&req, |s, a| s.file_exists(a)).await?;
+        Ok(resp.exists)
+    }
+
+    async fn delete_file(&self, namespace: &str, path: &str) -> Result<bool> {
+        let req = DeleteFileReq {
+            namespace: namespace.into(),
+            path: path.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: DeleteFileResp = self.invoke(&req, |s, a| s.delete_file(a)).await?;
+        Ok(resp.removed)
+    }
+
+    async fn workspace_info(&self, namespace: &str) -> Result<WorkspaceInfo> {
+        let req = WorkspaceInfoReq {
+            namespace: namespace.into(),
+            auth: self.auth.clone(),
+        };
+        let resp: WorkspaceInfoResp = self.invoke(&req, |s, a| s.workspace_info(a)).await?;
+        Ok(resp.info)
     }
 }

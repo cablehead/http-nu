@@ -16,10 +16,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use cloudflare_shell::{FsError, MkdirOptions, RmOptions};
+use cloudflare_shell::{CpOptions, FsError, MkdirOptions, RmOptions};
 use cloudflare_shell_rpc_types::{
-    Ack, DirEntry as WireDirEntry, EntryType as WireEntryType, ListReq, ListResp, MkdirReq,
-    ReadFileReq, ReadFileResp, RmReq, Stat as WireStat, StatReq, StatResp, WriteFileReq,
+    Ack, AppendFileReq, CpReq, DeleteFileReq, DeleteFileResp, DirEntry as WireDirEntry,
+    EntryType as WireEntryType, ExistsReq, ExistsResp, FileExistsReq, FileExistsResp, GlobReq,
+    GlobResp, ListReq, ListResp, LstatReq, LstatResp, MkdirReq, MvReq, ReadFileReq, ReadFileResp,
+    ReadlinkReq, ReadlinkResp, RealpathReq, RealpathResp, RmReq, Stat as WireStat, StatReq,
+    StatResp, SymlinkReq, WorkspaceInfo as WireWorkspaceInfo, WorkspaceInfoReq, WorkspaceInfoResp,
+    WriteFileReq,
 };
 use cloudflare_shell_workspace::Workspace;
 use worker::{
@@ -66,6 +70,18 @@ impl DurableObject for ShellFsDo {
             "/mkdir" => self.handle_mkdir(&mut req).await,
             "/rm" => self.handle_rm(&mut req).await,
             "/list" => self.handle_list(&mut req).await,
+            "/exists" => self.handle_exists(&mut req).await,
+            "/lstat" => self.handle_lstat(&mut req).await,
+            "/append_file" => self.handle_append_file(&mut req).await,
+            "/cp" => self.handle_cp(&mut req).await,
+            "/mv" => self.handle_mv(&mut req).await,
+            "/symlink" => self.handle_symlink(&mut req).await,
+            "/readlink" => self.handle_readlink(&mut req).await,
+            "/realpath" => self.handle_realpath(&mut req).await,
+            "/glob" => self.handle_glob(&mut req).await,
+            "/file_exists" => self.handle_file_exists(&mut req).await,
+            "/delete_file" => self.handle_delete_file(&mut req).await,
+            "/workspace_info" => self.handle_workspace_info(&mut req).await,
             other => Response::error(format!("unknown internal route: {other}"), 404),
         }
     }
@@ -199,6 +215,140 @@ impl ShellFsDo {
         match ws.read_dir_with_file_types(&body.path).await {
             Ok(entries) => ok_response(&ListResp {
                 entries: entries.map(|v| v.into_iter().map(dir_entry_to_wire).collect()),
+            }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_exists(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: ExistsReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.exists(&body.path).await {
+            Ok(exists) => ok_response(&ExistsResp { exists }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_lstat(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: LstatReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.lstat(&body.path).await {
+            Ok(stat) => ok_response(&LstatResp {
+                stat: stat.map(stat_to_wire),
+            }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_append_file(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: AppendFileReq = req.json().await?;
+        let bytes = match B64.decode(body.data.as_bytes()) {
+            Ok(b) => b,
+            Err(e) => {
+                return err_response(cloudflare_shell_rpc_types::RpcError::InvalidUtf8(format!(
+                    "data is not valid base64: {e}"
+                )))
+            }
+        };
+        let ws = open_ws!(self, &body.namespace);
+        match ws.append_file(&body.path, &bytes).await {
+            Ok(()) => ok_response(&Ack::default()),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_cp(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: CpReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws
+            .cp(
+                &body.src,
+                &body.dst,
+                CpOptions {
+                    recursive: body.recursive,
+                },
+            )
+            .await
+        {
+            Ok(()) => ok_response(&Ack::default()),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_mv(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: MvReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.mv(&body.src, &body.dst).await {
+            Ok(()) => ok_response(&Ack::default()),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_symlink(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: SymlinkReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.symlink(&body.target, &body.link_path).await {
+            Ok(()) => ok_response(&Ack::default()),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_readlink(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: ReadlinkReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.readlink(&body.path).await {
+            Ok(target) => ok_response(&ReadlinkResp { target }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_realpath(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: RealpathReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.realpath(&body.path).await {
+            Ok(path) => ok_response(&RealpathResp { path }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_glob(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: GlobReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.glob(&body.pattern).await {
+            Ok(paths) => ok_response(&GlobResp { paths }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_file_exists(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: FileExistsReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.file_exists(&body.path).await {
+            Ok(exists) => ok_response(&FileExistsResp { exists }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_delete_file(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: DeleteFileReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.delete_file(&body.path).await {
+            Ok(removed) => ok_response(&DeleteFileResp { removed }),
+            Err(e) => err_response(fs_error_to_rpc(e)),
+        }
+    }
+
+    async fn handle_workspace_info(&self, req: &mut WorkerRequest) -> Result<Response> {
+        let body: WorkspaceInfoReq = req.json().await?;
+        let ws = open_ws!(self, &body.namespace);
+        match ws.get_workspace_info().await {
+            Ok(info) => ok_response(&WorkspaceInfoResp {
+                info: WireWorkspaceInfo {
+                    file_count: info.file_count,
+                    directory_count: info.directory_count,
+                    total_bytes: info.total_bytes,
+                    r2_file_count: info.r2_file_count,
+                },
             }),
             Err(e) => err_response(fs_error_to_rpc(e)),
         }

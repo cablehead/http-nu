@@ -21,7 +21,10 @@
 //! boundary; the caller (JS or Rust) sees them as a thrown / `Err`.
 
 use cloudflare_shell_rpc_types::{
-    ListReq, ListResp, MkdirReq, ReadFileReq, ReadFileResp, RmReq, StatReq, StatResp, WriteFileReq,
+    AppendFileReq, CpReq, DeleteFileReq, DeleteFileResp, ExistsReq, ExistsResp, FileExistsReq,
+    FileExistsResp, GlobReq, GlobResp, ListReq, ListResp, LstatReq, LstatResp, MkdirReq, MvReq,
+    ReadFileReq, ReadFileResp, ReadlinkReq, ReadlinkResp, RealpathReq, RealpathResp, RmReq,
+    StatReq, StatResp, SymlinkReq, WorkspaceInfoReq, WorkspaceInfoResp, WriteFileReq,
 };
 use serde::{de::DeserializeOwned, Serialize};
 use wasm_bindgen::prelude::*;
@@ -105,6 +108,18 @@ impl_auth_carrier!(StatReq);
 impl_auth_carrier!(MkdirReq);
 impl_auth_carrier!(RmReq);
 impl_auth_carrier!(ListReq);
+impl_auth_carrier!(ExistsReq);
+impl_auth_carrier!(LstatReq);
+impl_auth_carrier!(AppendFileReq);
+impl_auth_carrier!(CpReq);
+impl_auth_carrier!(MvReq);
+impl_auth_carrier!(SymlinkReq);
+impl_auth_carrier!(ReadlinkReq);
+impl_auth_carrier!(RealpathReq);
+impl_auth_carrier!(GlobReq);
+impl_auth_carrier!(FileExistsReq);
+impl_auth_carrier!(DeleteFileReq);
+impl_auth_carrier!(WorkspaceInfoReq);
 
 // ── #[wasm_bindgen] exports ───────────────────────────────────────────
 //
@@ -139,4 +154,64 @@ pub async fn rm(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = list)]
 pub async fn list(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
     dispatch::<ListReq, ListResp>(env, args, "/list").await
+}
+
+#[wasm_bindgen(js_name = exists)]
+pub async fn exists(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<ExistsReq, ExistsResp>(env, args, "/exists").await
+}
+
+#[wasm_bindgen(js_name = lstat)]
+pub async fn lstat(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<LstatReq, LstatResp>(env, args, "/lstat").await
+}
+
+#[wasm_bindgen(js_name = appendFile)]
+pub async fn append_file(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<AppendFileReq, cloudflare_shell_rpc_types::Ack>(env, args, "/append_file").await
+}
+
+#[wasm_bindgen(js_name = cp)]
+pub async fn cp(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<CpReq, cloudflare_shell_rpc_types::Ack>(env, args, "/cp").await
+}
+
+#[wasm_bindgen(js_name = mv)]
+pub async fn mv(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<MvReq, cloudflare_shell_rpc_types::Ack>(env, args, "/mv").await
+}
+
+#[wasm_bindgen(js_name = symlink)]
+pub async fn symlink(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<SymlinkReq, cloudflare_shell_rpc_types::Ack>(env, args, "/symlink").await
+}
+
+#[wasm_bindgen(js_name = readlink)]
+pub async fn readlink(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<ReadlinkReq, ReadlinkResp>(env, args, "/readlink").await
+}
+
+#[wasm_bindgen(js_name = realpath)]
+pub async fn realpath(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<RealpathReq, RealpathResp>(env, args, "/realpath").await
+}
+
+#[wasm_bindgen(js_name = glob)]
+pub async fn glob(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<GlobReq, GlobResp>(env, args, "/glob").await
+}
+
+#[wasm_bindgen(js_name = fileExists)]
+pub async fn file_exists(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<FileExistsReq, FileExistsResp>(env, args, "/file_exists").await
+}
+
+#[wasm_bindgen(js_name = deleteFile)]
+pub async fn delete_file(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<DeleteFileReq, DeleteFileResp>(env, args, "/delete_file").await
+}
+
+#[wasm_bindgen(js_name = workspaceInfo)]
+pub async fn workspace_info(env: Env, args: JsValue) -> Result<JsValue, JsValue> {
+    dispatch::<WorkspaceInfoReq, WorkspaceInfoResp>(env, args, "/workspace_info").await
 }

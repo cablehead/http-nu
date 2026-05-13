@@ -37,4 +37,40 @@ extern "C" {
 
     #[wasm_bindgen(method, catch, js_name = "list")]
     pub fn list(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "exists")]
+    pub fn exists(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "lstat")]
+    pub fn lstat(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "appendFile")]
+    pub fn append_file(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "cp")]
+    pub fn cp(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "mv")]
+    pub fn mv(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "symlink")]
+    pub fn symlink(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "readlink")]
+    pub fn readlink(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "realpath")]
+    pub fn realpath(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "glob")]
+    pub fn glob(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "fileExists")]
+    pub fn file_exists(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "deleteFile")]
+    pub fn delete_file(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = "workspaceInfo")]
+    pub fn workspace_info(this: &ShellFsSys, args: JsValue) -> Result<Promise, JsValue>;
 }

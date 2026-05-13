@@ -184,6 +184,188 @@ pub struct ListResp {
     pub entries: Option<Vec<DirEntry>>,
 }
 
+/// `exists(namespace, path)`. Cheap presence probe -- does not follow
+/// symlinks. Returns a plain `bool`; never `Ok(None)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExistsReq {
+    pub namespace: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExistsResp {
+    pub exists: bool,
+}
+
+/// `lstat(namespace, path)`. Same shape as `StatReq`/`StatResp` but
+/// does NOT follow the final symlink (matches Workspace::lstat).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LstatReq {
+    pub namespace: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LstatResp {
+    pub stat: Option<Stat>,
+}
+
+/// `append_file(namespace, path, data)`. Appends `data` (base64) onto
+/// `path`; preserves the existing entry's mime_type. Errors if `path`
+/// is a directory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppendFileReq {
+    pub namespace: String,
+    pub path: String,
+    /// Base64-encoded bytes to append.
+    pub data: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+/// `cp(namespace, src, dst, recursive)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CpReq {
+    pub namespace: String,
+    pub src: String,
+    pub dst: String,
+    #[serde(default)]
+    pub recursive: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+/// `mv(namespace, src, dst)`. Always behaves like `rename`; for
+/// directory targets see Workspace::mv semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MvReq {
+    pub namespace: String,
+    pub src: String,
+    pub dst: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+/// `symlink(namespace, target, link_path)`. Creates `link_path`
+/// pointing at `target`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SymlinkReq {
+    pub namespace: String,
+    pub target: String,
+    #[serde(rename = "linkPath")]
+    pub link_path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+/// `readlink(namespace, path)`. Returns the target string if `path`
+/// is a symlink; `Ok(None)` if `path` does not exist or is not a
+/// symlink.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadlinkReq {
+    pub namespace: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadlinkResp {
+    pub target: Option<String>,
+}
+
+/// `realpath(namespace, path)`. Resolves symlinks; returns the
+/// canonical path, or `Ok(None)` on ENOENT.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RealpathReq {
+    pub namespace: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RealpathResp {
+    pub path: Option<String>,
+}
+
+/// `glob(namespace, pattern)`. Returns absolute paths matching the
+/// glob, sorted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GlobReq {
+    pub namespace: String,
+    pub pattern: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GlobResp {
+    pub paths: Vec<String>,
+}
+
+/// `file_exists(namespace, path)`. Symlink-resolving; true only for
+/// files (not directories or symlinks-to-directories).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileExistsReq {
+    pub namespace: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileExistsResp {
+    pub exists: bool,
+}
+
+/// `delete_file(namespace, path)`. File/symlink only; errors with
+/// `IsDir` on a directory (use `rm` recursive instead). Returns
+/// `removed: false` on ENOENT, `true` after a successful delete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteFileReq {
+    pub namespace: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteFileResp {
+    pub removed: bool,
+}
+
+/// `get_workspace_info(namespace)`. No path -- aggregates across the
+/// whole namespace.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceInfoReq {
+    pub namespace: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth: Option<String>,
+}
+
+/// Mirror of `cloudflare_shell_workspace::WorkspaceInfo`. Wire shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WorkspaceInfo {
+    #[serde(rename = "fileCount")]
+    pub file_count: u64,
+    #[serde(rename = "directoryCount")]
+    pub directory_count: u64,
+    #[serde(rename = "totalBytes")]
+    pub total_bytes: u64,
+    #[serde(rename = "r2FileCount")]
+    pub r2_file_count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceInfoResp {
+    pub info: WorkspaceInfo,
+}
+
 /// Generic ack -- mutation methods return this on Ok.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Ack {}

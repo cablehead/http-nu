@@ -101,12 +101,139 @@ async fn dispatch(
         return Response::from_json(&serde_json::json!({ "ok": true }));
     }
 
+    if let Some(parsed) = parse("/lstat/", path) {
+        let stat = fs.lstat(&parsed.namespace, &parsed.path).await?;
+        let status = if stat.is_none() { 404 } else { 200 };
+        return Response::from_json(&serde_json::json!({ "stat": stat }))
+            .map(|r| r.with_status(status));
+    }
+
+    if let Some(parsed) = parse("/exists/", path) {
+        let exists = fs.exists(&parsed.namespace, &parsed.path).await?;
+        return Response::from_json(&serde_json::json!({ "exists": exists }));
+    }
+
+    if let Some(parsed) = parse("/file_exists/", path) {
+        let exists = fs.file_exists(&parsed.namespace, &parsed.path).await?;
+        return Response::from_json(&serde_json::json!({ "exists": exists }));
+    }
+
+    if let Some(parsed) = parse("/readlink/", path) {
+        let target = fs.readlink(&parsed.namespace, &parsed.path).await?;
+        let status = if target.is_none() { 404 } else { 200 };
+        return Response::from_json(&serde_json::json!({ "target": target }))
+            .map(|r| r.with_status(status));
+    }
+
+    if let Some(parsed) = parse("/realpath/", path) {
+        let resolved = fs.realpath(&parsed.namespace, &parsed.path).await?;
+        let status = if resolved.is_none() { 404 } else { 200 };
+        return Response::from_json(&serde_json::json!({ "path": resolved }))
+            .map(|r| r.with_status(status));
+    }
+
+    if let Some(parsed) = parse("/append/", path) {
+        if !matches!(method, Method::Post) {
+            return Response::error("append is POST", 405);
+        }
+        let body = req.bytes().await?;
+        fs.append_file(&parsed.namespace, &parsed.path, &body)
+            .await?;
+        return Response::from_json(&serde_json::json!({ "ok": true, "bytes": body.len() }));
+    }
+
+    if let Some(parsed) = parse("/delete_file/", path) {
+        if !matches!(method, Method::Post) {
+            return Response::error("delete_file is POST", 405);
+        }
+        let removed = fs.delete_file(&parsed.namespace, &parsed.path).await?;
+        let status = if removed { 200 } else { 404 };
+        return Response::from_json(&serde_json::json!({ "removed": removed }))
+            .map(|r| r.with_status(status));
+    }
+
+    if let Some(parsed) = parse("/cp/", path) {
+        if !matches!(method, Method::Post) {
+            return Response::error("cp is POST", 405);
+        }
+        let dst = url
+            .query_pairs()
+            .find(|(k, _)| k == "dst")
+            .map(|(_, v)| v.into_owned());
+        let Some(dst) = dst else {
+            return Response::error("cp requires ?dst=<path>", 400);
+        };
+        let recursive = url.query_pairs().any(|(k, _)| k == "recursive");
+        fs.cp(&parsed.namespace, &parsed.path, &dst, recursive)
+            .await?;
+        return Response::from_json(&serde_json::json!({ "ok": true }));
+    }
+
+    if let Some(parsed) = parse("/mv/", path) {
+        if !matches!(method, Method::Post) {
+            return Response::error("mv is POST", 405);
+        }
+        let dst = url
+            .query_pairs()
+            .find(|(k, _)| k == "dst")
+            .map(|(_, v)| v.into_owned());
+        let Some(dst) = dst else {
+            return Response::error("mv requires ?dst=<path>", 400);
+        };
+        fs.mv(&parsed.namespace, &parsed.path, &dst).await?;
+        return Response::from_json(&serde_json::json!({ "ok": true }));
+    }
+
+    if let Some(parsed) = parse("/symlink/", path) {
+        if !matches!(method, Method::Post) {
+            return Response::error("symlink is POST", 405);
+        }
+        let target = url
+            .query_pairs()
+            .find(|(k, _)| k == "target")
+            .map(|(_, v)| v.into_owned());
+        let Some(target) = target else {
+            return Response::error("symlink requires ?target=<path>", 400);
+        };
+        fs.symlink(&parsed.namespace, &target, &parsed.path).await?;
+        return Response::from_json(&serde_json::json!({ "ok": true }));
+    }
+
+    if let Some(ns) = parse_ns("/glob", path) {
+        let pattern = url
+            .query_pairs()
+            .find(|(k, _)| k == "pattern")
+            .map(|(_, v)| v.into_owned());
+        let Some(pattern) = pattern else {
+            return Response::error("glob requires ?pattern=<glob>", 400);
+        };
+        let paths = fs.glob(&ns, &pattern).await?;
+        return Response::from_json(&serde_json::json!({ "paths": paths }));
+    }
+
+    if let Some(ns) = parse_ns("/info", path) {
+        let info = fs.workspace_info(&ns).await?;
+        return Response::from_json(&serde_json::json!({ "info": info }));
+    }
+
     Response::error("not found", 404)
 }
 
 struct Parsed {
     namespace: String,
     path: String,
+}
+
+/// `parse` variant for routes that take a namespace but no FS path
+/// (today: `/glob/<ns>`, `/info/<ns>`). Accepts the prefix with or
+/// without a trailing slash. Returns the namespace.
+fn parse_ns(prefix: &str, path: &str) -> Option<String> {
+    let stripped = path.strip_prefix(prefix)?;
+    let ns = stripped.trim_start_matches('/').trim_end_matches('/');
+    if ns.is_empty() {
+        return None;
+    }
+    Some(ns.to_string())
 }
 
 fn parse(prefix: &str, path: &str) -> Option<Parsed> {
@@ -137,10 +264,22 @@ const BANNER: &str = "\
 cloudflare-shell-rpc-demo-rust
 
 Routes:
-  PUT    /fs/:ns/:path           -- write_file (raw body bytes)
-  GET    /fs/:ns/:path           -- read_file (raw bytes back)
-  DELETE /fs/:ns/:path           -- rm (?recursive=1&force=1)
-  GET    /stat/:ns/:path         -- stat
-  GET    /list/:ns/:path         -- list
-  POST   /mkdir/:ns/:path        -- mkdir (?recursive=1)
+  PUT    /fs/:ns/:path             -- write_file (raw body bytes)
+  GET    /fs/:ns/:path             -- read_file (raw bytes back)
+  DELETE /fs/:ns/:path             -- rm (?recursive=1&force=1)
+  POST   /append/:ns/:path         -- append_file (raw body bytes)
+  POST   /delete_file/:ns/:path    -- delete_file (file/symlink only)
+  GET    /stat/:ns/:path           -- stat (follows symlinks)
+  GET    /lstat/:ns/:path          -- lstat (no symlink follow)
+  GET    /exists/:ns/:path         -- exists
+  GET    /file_exists/:ns/:path    -- file_exists (symlink-resolving, file-only)
+  GET    /list/:ns/:path           -- list (read_dir)
+  POST   /mkdir/:ns/:path          -- mkdir (?recursive=1)
+  POST   /cp/:ns/:src?dst&recursive -- cp
+  POST   /mv/:ns/:src?dst          -- mv
+  POST   /symlink/:ns/:link?target -- symlink
+  GET    /readlink/:ns/:path       -- readlink
+  GET    /realpath/:ns/:path       -- realpath
+  GET    /glob/:ns?pattern         -- glob
+  GET    /info/:ns                 -- workspace_info
 ";

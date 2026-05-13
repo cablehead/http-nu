@@ -152,6 +152,129 @@ export default {
         return jsonResponse({ ok: true });
       }
 
+      // ── lstat / exists / file_exists / readlink / realpath ──────────
+      if (path.startsWith("/lstat/")) {
+        const parsed = parseFsPath(url, "/lstat/");
+        if (!parsed) return errResponse("usage: /lstat/<namespace>/<path>", 400);
+        const resp = await env.SHELL_FS.lstat({ ...parsed, auth });
+        return jsonResponse(resp, resp.stat == null ? 404 : 200);
+      }
+
+      if (path.startsWith("/exists/")) {
+        const parsed = parseFsPath(url, "/exists/");
+        if (!parsed) return errResponse("usage: /exists/<namespace>/<path>", 400);
+        const resp = await env.SHELL_FS.exists({ ...parsed, auth });
+        return jsonResponse(resp);
+      }
+
+      if (path.startsWith("/file_exists/")) {
+        const parsed = parseFsPath(url, "/file_exists/");
+        if (!parsed) return errResponse("usage: /file_exists/<namespace>/<path>", 400);
+        const resp = await env.SHELL_FS.fileExists({ ...parsed, auth });
+        return jsonResponse(resp);
+      }
+
+      if (path.startsWith("/readlink/")) {
+        const parsed = parseFsPath(url, "/readlink/");
+        if (!parsed) return errResponse("usage: /readlink/<namespace>/<path>", 400);
+        const resp = await env.SHELL_FS.readlink({ ...parsed, auth });
+        return jsonResponse(resp, resp.target == null ? 404 : 200);
+      }
+
+      if (path.startsWith("/realpath/")) {
+        const parsed = parseFsPath(url, "/realpath/");
+        if (!parsed) return errResponse("usage: /realpath/<namespace>/<path>", 400);
+        const resp = await env.SHELL_FS.realpath({ ...parsed, auth });
+        return jsonResponse(resp, resp.path == null ? 404 : 200);
+      }
+
+      // ── append / delete_file ────────────────────────────────────────
+      if (path.startsWith("/append/")) {
+        if (method !== "POST") return errResponse("append is POST", 405);
+        const parsed = parseFsPath(url, "/append/");
+        if (!parsed) return errResponse("usage: /append/<namespace>/<path>", 400);
+        const buf = new Uint8Array(await request.arrayBuffer());
+        await env.SHELL_FS.appendFile({
+          ...parsed,
+          data: bytesToBase64(buf),
+          auth,
+        });
+        return jsonResponse({ ok: true, bytes: buf.length });
+      }
+
+      if (path.startsWith("/delete_file/")) {
+        if (method !== "POST") return errResponse("delete_file is POST", 405);
+        const parsed = parseFsPath(url, "/delete_file/");
+        if (!parsed) return errResponse("usage: /delete_file/<namespace>/<path>", 400);
+        const resp = await env.SHELL_FS.deleteFile({ ...parsed, auth });
+        return jsonResponse(resp, resp.removed ? 200 : 404);
+      }
+
+      // ── cp / mv / symlink ───────────────────────────────────────────
+      if (path.startsWith("/cp/")) {
+        if (method !== "POST") return errResponse("cp is POST", 405);
+        const parsed = parseFsPath(url, "/cp/");
+        if (!parsed) return errResponse("usage: /cp/<namespace>/<src>?dst=<path>", 400);
+        const dst = url.searchParams.get("dst");
+        if (!dst) return errResponse("cp requires ?dst=<path>", 400);
+        const recursive = url.searchParams.has("recursive");
+        await env.SHELL_FS.cp({
+          namespace: parsed.namespace,
+          src: parsed.path,
+          dst,
+          recursive,
+          auth,
+        });
+        return jsonResponse({ ok: true });
+      }
+
+      if (path.startsWith("/mv/")) {
+        if (method !== "POST") return errResponse("mv is POST", 405);
+        const parsed = parseFsPath(url, "/mv/");
+        if (!parsed) return errResponse("usage: /mv/<namespace>/<src>?dst=<path>", 400);
+        const dst = url.searchParams.get("dst");
+        if (!dst) return errResponse("mv requires ?dst=<path>", 400);
+        await env.SHELL_FS.mv({
+          namespace: parsed.namespace,
+          src: parsed.path,
+          dst,
+          auth,
+        });
+        return jsonResponse({ ok: true });
+      }
+
+      if (path.startsWith("/symlink/")) {
+        if (method !== "POST") return errResponse("symlink is POST", 405);
+        const parsed = parseFsPath(url, "/symlink/");
+        if (!parsed) return errResponse("usage: /symlink/<namespace>/<linkPath>?target=<path>", 400);
+        const target = url.searchParams.get("target");
+        if (!target) return errResponse("symlink requires ?target=<path>", 400);
+        await env.SHELL_FS.symlink({
+          namespace: parsed.namespace,
+          target,
+          linkPath: parsed.path,
+          auth,
+        });
+        return jsonResponse({ ok: true });
+      }
+
+      // ── glob / info (namespace-only routes) ─────────────────────────
+      if (path === "/glob" || path.startsWith("/glob/")) {
+        const namespace = path.slice("/glob".length).replace(/^\/|\/$/g, "");
+        if (!namespace) return errResponse("usage: /glob/<namespace>?pattern=<glob>", 400);
+        const pattern = url.searchParams.get("pattern");
+        if (!pattern) return errResponse("glob requires ?pattern=<glob>", 400);
+        const resp = await env.SHELL_FS.glob({ namespace, pattern, auth });
+        return jsonResponse(resp);
+      }
+
+      if (path === "/info" || path.startsWith("/info/")) {
+        const namespace = path.slice("/info".length).replace(/^\/|\/$/g, "");
+        if (!namespace) return errResponse("usage: /info/<namespace>", 400);
+        const resp = await env.SHELL_FS.workspaceInfo({ namespace, auth });
+        return jsonResponse(resp);
+      }
+
       return new Response("not found\n", { status: 404 });
     } catch (e) {
       // Errors raised by the wasm-side RPC functions surface as thrown

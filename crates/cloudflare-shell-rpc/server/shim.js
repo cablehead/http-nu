@@ -54,12 +54,24 @@ class Entrypoint extends WorkerEntrypoint {
     }
 
     // RPC methods. Each forwards `(this.env, args)` to the wasm side.
-    async readFile(args)  { return await imports.readFile(this.env, args);  }
-    async writeFile(args) { return await imports.writeFile(this.env, args); }
-    async stat(args)      { return await imports.stat(this.env, args);      }
-    async mkdir(args)     { return await imports.mkdir(this.env, args);     }
-    async rm(args)        { return await imports.rm(this.env, args);        }
-    async list(args)      { return await imports.list(this.env, args);      }
+    async readFile(args)      { return await imports.readFile(this.env, args);      }
+    async writeFile(args)     { return await imports.writeFile(this.env, args);     }
+    async stat(args)          { return await imports.stat(this.env, args);          }
+    async mkdir(args)         { return await imports.mkdir(this.env, args);         }
+    async rm(args)            { return await imports.rm(this.env, args);            }
+    async list(args)          { return await imports.list(this.env, args);          }
+    async exists(args)        { return await imports.exists(this.env, args);        }
+    async lstat(args)         { return await imports.lstat(this.env, args);         }
+    async appendFile(args)    { return await imports.appendFile(this.env, args);    }
+    async cp(args)            { return await imports.cp(this.env, args);            }
+    async mv(args)            { return await imports.mv(this.env, args);            }
+    async symlink(args)       { return await imports.symlink(this.env, args);       }
+    async readlink(args)      { return await imports.readlink(this.env, args);      }
+    async realpath(args)      { return await imports.realpath(this.env, args);      }
+    async glob(args)          { return await imports.glob(this.env, args);          }
+    async fileExists(args)    { return await imports.fileExists(this.env, args);    }
+    async deleteFile(args)    { return await imports.deleteFile(this.env, args);    }
+    async workspaceInfo(args) { return await imports.workspaceInfo(this.env, args); }
 }
 
 export default Entrypoint;
