@@ -116,6 +116,13 @@ pub(super) fn engine() -> &'static Mutex<Engine> {
                 Box::new(nu_command::Sleep),
             ])
             .expect("add_commands (vfs shadows) failed");
+        // Set $HTTP_NU const so stdlib modules (http, datastar, ...)
+        // can reference $HTTP_NU.dev / .store / .topic at parse time.
+        // Desktop sets this from CLI flags in src/main.rs; on CF the
+        // defaults are correct (no --dev, no --store, no --topic).
+        engine
+            .set_http_nu_const(&crate::engine::HttpNuOptions::default())
+            .expect("set_http_nu_const failed");
         engine
             .parse_closure(HANDLER_SCRIPT, None)
             .expect("handler failed to parse");

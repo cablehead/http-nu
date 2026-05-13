@@ -86,44 +86,43 @@ expected body shape; not a deep functional test.
 | `cf-workspace-browser` | ✅ verified | Uses the shadow command set. R2 spill verified with 2MB file. |
 | `datastar-counter` | ✅ verified | Datastar JS + Nu state. |
 | `datastar-sdk` | ✅ verified | Datastar SDK demo. |
-| `mermaid-editor` | ❌ blocked at parse | Uses `path self` -> `$env.PWD is not an absolute path` (wasm runtime has no PWD). |
-| `cargo-docs` | ⚠️ untested | Should serve via `.static` over Workspace once doc files are uploaded into `/<user>/_workspace/put`. No bundled upload tool yet. |
-| `basic` | ❌ blocked at parse | `date now`, `format date`, `sleep`, `generate` are missing from the wasm Nu surface (`nu-command/os` is off). Nu treats them as external calls -> "External calls are not supported." |
-| `2048` | ❌ blocked at parse | `.bus sub` + `sleep` + `generate`. Needs BusDO with WS Hibernation + sleep/generate parity. |
-| `tao` | ❌ blocked | `--dev -w` watch mode. Needs DO alarm + Workspace change events. |
-| `stor` | ❌ blocked at parse | `stor` command from `nu-command/sqlite`, off on wasm. Could be added with `nu-command/sqlite` enabled on wasm (if it compiles) or a CF-side `stor` shadow over DO SQLite. |
-| `templates` | ❌ blocked | Uses `--store`, needs xs CF backend (xs repo, not http-nu). |
-| `quotes` | ❌ blocked | Same `--store` dependency as templates. |
-| `hub` (`examples/serve.nu`) | ❌ blocked at parse | Uses Nu `source basic.nu` -> `SourcedFileNotFound`. Nu resolves `source` at parse time against the host filesystem, which doesn't exist on wasm. |
+| `basic` | ✅ verified | `/`, `/hello`, `/json`, `/info` all 200 with correct content. `/time` would spin (uses `generate { sleep 1sec ...}` and sleep is a CF no-op). Unblocked by the path-strip patch + the demonstrated fact that `generate` / `date now` / `format date` work via stock + `nu-command/js`. |
+| `cargo-docs` | ✅ parse-verified, needs files | Parses + serves a 500 when `target/doc/*` is empty -- expected behaviour. Upload doc files via `/<user>/_workspace/put` (no bundled tool yet) and the index page renders. Strategy works; just needs content. |
+| `mermaid-editor` | ❌ blocked at parse | Uses `source` -> Nu resolves at parse time against the host filesystem (Vfs hookup needed in upstream Nu parser). |
+| `2048` | ❌ blocked at parse | `fetch` (async-only on Workers, sync Nu can't call it). `sleep` is a CF no-op, would spin. |
+| `tao` | ⚠️ partially unblocked | Path-strip + `$HTTP_NU` const set fixed parse for `use http-nu/router *` / `http *`. Files uploaded to workspace (`data.json`, `page.html`) via `_workspace/put`. NEW remaining blocker: `.mj compile` (http-nu's MJML custom command) reads template via `std::fs::read_to_string` instead of Vfs. CF-fixable: cfg-gate the file read in `src/commands.rs` to route through `crate::cf::vfs::with_vfs` on wasm. |
+| `stor` | ❌ blocked at parse | `stor *` family absent on wasm (`nu-command/sqlite` off because `rusqlite` won't compile). Port plan + backend tradeoff in [`src/cf/nu/nu_command/stor/README.md`](src/cf/nu/nu_command/stor/README.md). |
+| `templates` | ❌ blocked at parse | Same `.append` xs blocker as quotes; even when gated by `if $HTTP_NU.store != null`, Nu parses the body. |
+| `quotes` | ❌ blocked at parse | `.last` xs streaming command. Needs xs CF backend (xs repo). |
+| `hub` (`examples/serve.nu`) | ❌ blocked at parse | Uses Nu `source basic.nu` -> `SourcedFileNotFound`. Nu resolves `source` at parse time against the host filesystem. |
 
 ## What it would take to unblock the rest
 
 Independent tracks, mostly outside the FS work:
 
-1. **nu-command parity on wasm** -- `sleep`, `generate`, `date now`,
-   `format date`, etc. Either upstream Nu work or new shadows in
-   `src/cf/nu/nu_command/`. The shadow-side gaps (with reasons each one
-   would matter) are tracked in
-   [`src/cf/nu/nu_command/PORT_STATUS.md`](src/cf/nu/nu_command/PORT_STATUS.md)'s
-   "Gaps / next port targets" section. Unblocks `basic`,
-   `mermaid-editor` (partially), `2048` (partially).
-2. **`stor` on wasm** -- enable `nu-command/sqlite` on wasm if it
-   compiles, or shadow `stor` over the DO's `ctx.storage.sql` we
-   already use for Workspace. Unblocks `stor`, and is a primitive
-   `templates` / `quotes` could be ported onto if xs CF is delayed.
-3. **BusDO with WebSocket Hibernation** -- new DO class in `src/cf/`,
-   ~1-2 days. Unblocks `.bus sub`, the streaming half of `2048`.
-4. **xs CF backend** -- lives in the `xs` repo. Maps `fjall` (LSM log)
-   to DO SQLite and `cacache` (CAS) to R2. Days of work in that repo.
-   Unblocks `--store`, `--topic`, `.cat`, `.append`, `.cas`, the
-   `--watch` reload trigger on CF, and the `tao`/`quotes`/`templates`
-   examples.
-5. **`source` for hub** -- Nu's `source` resolves at parse time against
-   the OS filesystem. Three real fixes: (a) patch Nu's parser to
-   resolve `source` through a Vfs provider; (b) build-time preprocessor
-   that inlines `source` statements before `include_str!`; (c)
-   Workers-side bundler that pre-populates additional `include_str!`
-   constants for every `source` target.
+1. **`.mj` (and other http-nu custom commands) routed through Vfs.**
+   `.mj compile <path>` currently uses `std::fs::read_to_string` in
+   `src/commands.rs`. Cfg-gate that call to use
+   `crate::cf::vfs::with_vfs` on wasm. Unblocks `tao` and probably
+   `templates`. Small, in-place patch.
+2. **`stor` on wasm** -- port the `stor *` family + `query db` + the
+   `sqlite-in-memory` custom value type. Backend choice is DO SQLite vs
+   D1 (see `src/cf/nu/nu_command/stor/README.md`). Unblocks `stor`.
+3. **xs CF backend** -- lives in the `xs` repo. Maps `fjall` -> DO
+   SQLite, `cacache` -> R2. Unblocks `.bus`, `.cat`, `.append`, `.last`,
+   `--store`, `--topic`, `--watch` reload. Unblocks `quotes`,
+   `templates` (the `.append` path), and the streaming half of `2048`.
+4. **`fetch` / `http get` / `http post` on wasm** -- blocked by the
+   sync-Nu-eval / async-Workers-fetch mismatch. Same root as `sleep`.
+   Fixes: (a) async Nu eval refactor upstream, OR (b) a side-channel
+   `.fetch` custom command on the `RESPONSE_TX` pattern. Unblocks
+   `2048`.
+5. **`source` for hub / mermaid-editor** -- Nu's `source` resolves at
+   parse time against the OS filesystem. Three real fixes: (a) patch
+   Nu's parser to resolve `source` through a Vfs provider; (b)
+   build-time preprocessor that inlines `source` statements before
+   `include_str!`; (c) Workers-side bundler that pre-populates
+   additional `include_str!` constants for every `source` target.
 
 None of (1)-(5) are blocked by anything else; they're orthogonal work
 tracks. None are tiny.

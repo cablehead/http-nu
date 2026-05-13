@@ -73,18 +73,17 @@ before assuming continued coverage:
 - All pure-data ops (`from json`, `to json`, `where`, `sort-by`,
   `group-by`, `select`, `update`, `each`, `reduce`, string/math/list
   /record commands) -- no OS dependency.
+- `generate` -- verified on CF via
+  [`examples/generate-test/serve.nu`](../../../../examples/generate-test/serve.nu),
+  returns `1,1,2,3,5,8,13,21,34,55` end-to-end. The `generators/`
+  module isn't feature-gated upstream; works through stock with no
+  shadow needed.
 
 ### Used by examples but NOT shadowed -- shadow targets
 
-Each row lists the upstream location so the destination here is
-mechanically derived from the file-layout rule. **Three rows; each
-got real recon before shipping** (the strategy test in this section's
-history surfaced two non-obvious gotchas):
-
-| Command    | Used by examples | Upstream path                                       | Destination here                                | Status |
-|------------|------------------|-----------------------------------------------------|-------------------------------------------------|--------|
-| `generate` | `basic`, `2048`  | `nu-command/src/generators/generate.rs`             | (probably N/A) | **AUDIT** — likely already works on CF. Run [`examples/generate-test/serve.nu`](../../../../examples/generate-test/serve.nu) to confirm; recon notes in that file's header. If green, move this row to "Working without a shadow." |
-| `stor`     | `stor`           | `nu-command/src/stor/` -- 10 files (`stor_`, `create`, `delete`, `export`, `import`, `insert`, `open`, `reset`, `update`, `mod`) | `nu_command/stor/<subset>.rs` *(empty category dir reserved -- only [`stor/README.md`](stor/README.md) exists)* | **NOT STARTED. Open backend question + design plan only.** Stock requires `nu-command/sqlite` (`rusqlite` → C bindings → no wasm). CF has TWO candidate backends and the choice is non-trivial: **DO SQLite** (`worker::SqlStorage`, sync, per-DO, what Workspace uses) vs **D1** (`worker::D1Database`, async, cross-DO, durable). D1's async-only API hits the same Nu-sync-eval blocker as `fetch`/`sleep`; DO SQLite works today but persists across requests (stock is ephemeral). See `stor/README.md` for the full tradeoff table and the recommended-default rationale. **No `.rs` files exist** because a stub shadow is worse than no shadow at all -- the stock parse error tells the truth; a half-shadow lies. |
+| Command | Used by | Upstream path | Destination | Status |
+|---------|---------|---------------|-------------|--------|
+| `stor`  | `stor`  | `nu-command/src/stor/` (+ `database/query_db.rs` + the `sqlite-in-memory` custom value) | `nu_command/stor/<files>` + new `nu_command/database/query_db.rs` | **NOT STARTED.** Backend choice open: DO SQLite (sync, what Workspace uses) vs D1 (async, blocked by Nu-sync-eval). See [`stor/README.md`](stor/README.md). No `.rs` files yet — a stub would be a footgun. |
 
 ### Used by examples but BLOCKED by async Nu eval (not shadow material)
 
