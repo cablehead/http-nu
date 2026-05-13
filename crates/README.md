@@ -39,20 +39,45 @@ cloudflare-shell  (trait + types + generic conformance suite)
 
 ## Why two `cloudflare-shell-*` crates instead of one?
 
-Same pattern as `std::io::Read` (trait) and `std::fs::File` (one impl):
-the **interface** crate lets a future second backend plug in without
-churning the trait, lets desktop code reference the types without
-pulling in wasm-only deps, and hosts the generic conformance suite
-that any backend can run.
+**The second implementation isn't hypothetical -- it's the upstream
+JS one.** `@cloudflare/shell@0.3.6` ([cloudflare/agents
+`packages/shell/`](https://github.com/cloudflare/agents/tree/main/packages/shell))
+defines the `FileSystem` interface in `fs/interface.ts` and ships the
+`Workspace` class in `filesystem.ts`. Our Rust port splits along the
+same file boundary:
 
-Today there is exactly one real impl (`Workspace`). The split looks
-like ceremony because the abstraction-without-second-implementation
-always does -- but the JS upstream made the same split for the same
-reasons, and we mirror it for cross-language interop.
+```
+upstream (JS)                            this repo (Rust)
+─────────────                            ────────────────
+fs/interface.ts          ─port→          cloudflare-shell/src/interface.rs
+fs/path-utils.ts         ─port→          cloudflare-shell/src/path_utils.rs
+filesystem.ts (class)    ─port→          cloudflare-shell-workspace/src/filesystem.rs
+```
 
-If a second impl ever shows up (in-memory mock for tests, KV-only,
-R2-only, ...), it lives next to `cloudflare-shell-workspace` as a
-sibling crate and reuses the conformance suite verbatim.
+So **two real implementations** of one interface coexist *today*:
+
+1. **JS `Workspace`** (cloudflare/agents) -- runs in JS Workers.
+2. **Rust `Workspace`** (this repo) -- runs in Rust Workers.
+
+They share the same SQL table layout (`cf_workspace_<ns>`), same
+column types + CHECK constraints, same R2 key shape
+(`${prefix}/${ns}<path>`). A file written by one side is readable by
+the other in the same Cloudflare account. The schema *is* the
+interop contract; see
+[`cloudflare-shell-workspace/PORT_STATUS.md`](cloudflare-shell-workspace/PORT_STATUS.md)
+for the schema-compat table.
+
+That bidirectional interop is the load-bearing reason the split is
+real, not ceremony. The trait crate (`cloudflare-shell`) is the
+Rust-side type vocabulary that describes the contract both sides
+honour. If you flatten it into the impl crate, you can't talk about
+the trait from desktop code, the conformance suite gets pinned to
+wasm, and (more importantly) the fact that there's an *external*
+implementation worth tracking gets buried.
+
+Same shape as `std::io::Read` (trait) and `std::fs::File` (one impl)
+-- with the twist that the "other impl" already exists in a different
+language and we have to stay byte-compatible with it.
 
 ## Where each crate is consumed
 
