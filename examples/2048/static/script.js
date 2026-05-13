@@ -157,6 +157,7 @@ let wrap = null;
 let axis = null;
 let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
 let holdShiftTimer = null;   // fires shift-<dir> if the user keeps holding
+let blastFired = false;      // hold-timer already fired a shift -- skip single on release
 let touchDot = null;         // visual dot under the finger during charge-up
 let settleTimer = null;      // fires startChargeUp once the finger stops moving
 let lastClientX = 0, lastClientY = 0;  // tracked so charge-up spawns under finger
@@ -187,6 +188,7 @@ const startChargeUp = () => {
   wrap.classList.add("charging");
   holdShiftTimer = setTimeout(() => {
     holdShiftTimer = null;
+    blastFired = true;
     wrap?.classList.remove("charging");
     delete wrap?.dataset.charge;
     removeTouchDot();
@@ -211,6 +213,7 @@ addEventListener("pointerdown", (e) => {
   lastClientY = e.clientY;
   axis = null;
   committedDir = null;
+  blastFired = false;
   if (holdShiftTimer) { clearTimeout(holdShiftTimer); holdShiftTimer = null; }
   if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
   removeTouchDot();
@@ -257,11 +260,9 @@ addEventListener("pointermove", (e) => {
     committedDir = Math.abs(dx) > Math.abs(dy)
       ? (dx > 0 ? "l" : "h")
       : (dy > 0 ? "j" : "k");
-    move(committedDir);
-    // Release tilt to 0 with RTT-tuned decay so the spring overshoot is
-    // still in motion when the SSE patch lands. Hold a subtle "lit" glow
-    // on the committed edge -- not full peak -- until the patch arrives;
-    // the observer clears it on mutation, and .edge-flash takes over.
+    // Don't fire the impulse yet -- wait for release (single) or for the
+    // hold-timer to fire (blast). The lit edge below shows "armed", staying
+    // up until SSE clears it.
     wrap.style.setProperty("--tilt-x", "0px");
     wrap.style.setProperty("--tilt-y", "0px");
     const LIT = 5;  // alpha ~0.6 via /8 in the gradient
@@ -295,7 +296,11 @@ addEventListener("pointerup", () => {
     wrap?.style.setProperty("--glow-y", "0px");
     wrap?.classList.add("snap");
     setTimeout(() => wrap?.classList.remove("snap"), 260);
+  } else if (!blastFired) {
+    // Committed and released before the hold-timer fired -- send the
+    // single impulse now. Lit edge stays until SSE clears it.
+    move(committedDir);
   }
-  // If committed, the release already happened in pointermove on commit.
   committedDir = null;
+  blastFired = false;
 });
