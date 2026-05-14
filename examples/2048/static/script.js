@@ -1,6 +1,6 @@
-// Input handlers for 2048. Server embeds the tab id and the /move URL as
-// body data-* attributes so this file stays parameter-free and cacheable.
-const tabId = document.body.dataset.tabId;
+// Input handlers for 2048. Server embeds the player id and the /move URL
+// as body data-* attributes so this file stays parameter-free and cacheable.
+const playerId = document.body.dataset.playerId;
 const moveUrl = document.body.dataset.moveUrl;
 
 // End-to-end RTT: time from a move() call to the next DOM mutation in #game
@@ -33,7 +33,7 @@ const move = (intent) => {
   return fetch(moveUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ tabId, intent }),
+    body: JSON.stringify({ playerId, intent }),
   }).then((r) => {
     if (!r.ok) { pending = null; flashRed(); }
   }).catch(() => {
@@ -142,7 +142,7 @@ document.addEventListener("click", (e) => {
   fetch(document.body.dataset.viewUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ tabId, mode: t.dataset.viewTo }),
+    body: JSON.stringify({ playerId, mode: t.dataset.viewTo }),
   });
   setTimeout(() => document.documentElement.classList.remove("view-flipping"), 600);
 });

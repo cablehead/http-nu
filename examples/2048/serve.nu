@@ -1,6 +1,7 @@
 use http-nu/router *
 use http-nu/datastar *
 use http-nu/html *
+use http-nu/http *
 
 const SCRIPT_DIR = path self | path dirname
 const STATIC_DIR = $SCRIPT_DIR | path join "static"
@@ -19,34 +20,39 @@ let REV = random uuid | str substring 0..7
 
 # --- game logic -----------------------------------------------------------
 
-def initial-state []: nothing -> record {
-  let s1 = fresh-spawn-seeds
-  let s2 = fresh-spawn-seeds
-  {tiles: [] next_id: 1 score: 0 game_over: false}
-  | spawn-tile $s1.idx $s1.value
-  | spawn-tile $s2.idx $s2.value
+# Deterministic random "roll" -- a pure function of (game_id, state, key).
+# Same inputs always yield the same {idx, value}, so the whole game replays
+# identically and (undo + same direction) reproduces the original spawn.
+# Frames carry only the intent and game_id; replay re-derives every spawn.
+def roll [game_id: string, state: record, key: string]: nothing -> record {
+  let payload = $"($game_id)|($key)|" + ($state | to json --raw)
+  let h = $payload | hash sha256
+  {
+    idx: ($h | str substring 0..8 | into int --radix 16)
+    value: (($h | str substring 8..10 | into int --radix 16) mod 10)
+  }
 }
 
-# Drop a 2 (90%) or 4 (10%) into an empty cell, picking via the supplied
-# seeds. Seeds are generated at POST time and recorded in the move frame so
-# that replay reproduces the exact same board.
-def spawn-tile [idx_seed: int, value_seed: int]: record -> record {
+# Drop a 2 (90%) or 4 (10%) into an empty cell, picked by a roll.
+def spawn-tile [seeds: record]: record -> record {
   let s = $in
   let occupied = $s.tiles | each {|t| {r: $t.r c: $t.c} }
   let empties = 0..3 | each {|r|
       0..3 | each {|c| {r: $r c: $c} }
     } | flatten | where {|cell| $cell not-in $occupied }
   if ($empties | is-empty) { return $s }
-  let pick = $empties | get ($idx_seed mod ($empties | length))
-  let value = if ($value_seed == 0) { 4 } else { 2 }
+  let pick = $empties | get ($seeds.idx mod ($empties | length))
+  let value = if ($seeds.value == 0) { 4 } else { 2 }
   $s
   | update tiles { append {id: $s.next_id r: $pick.r c: $pick.c value: $value} }
   | update next_id { $in + 1 }
 }
 
-# Helper for callers that just want fresh randomness (route /, /move).
-def fresh-spawn-seeds []: nothing -> record {
-  {idx: (random int 0..999999), value: (random int 0..9)}
+# Initial board for a game. Two tiles spawned via roll() with key "@init".
+def initial-state [game_id: string]: nothing -> record {
+  let s0 = {tiles: [] next_id: 1 score: 0 game_over: false}
+  let s1 = $s0 | spawn-tile (roll $game_id $s0 "@init")
+  $s1 | spawn-tile (roll $game_id $s1 "@init")
 }
 
 # Slide one row left, preserving tile identity. When two adjacent tiles merge,
@@ -134,7 +140,7 @@ def is-game-over []: record -> bool {
   not $mergeable
 }
 
-def apply-move [dir: string, idx_seed: int, value_seed: int]: record -> record {
+def apply-move [dir: string, game_id: string]: record -> record {
   let s = $in
   if $s.game_over { return $s }
   let r = $s.tiles | slide-tiles $dir
@@ -142,7 +148,7 @@ def apply-move [dir: string, idx_seed: int, value_seed: int]: record -> record {
   let with_tile = ($s
   | update tiles { $r.tiles }
   | update score { $in + $r.score }
-  | spawn-tile $idx_seed $value_seed)
+  | spawn-tile (roll $game_id $s $dir))
   $with_tile | update game_over { $with_tile | is-game-over }
 }
 
@@ -308,11 +314,12 @@ def render-current [mode: string, direction?: string, changed?: bool]: record ->
 # client sees each step animate. Pacing lives here because this is the box
 # that knows the difference between a one-shot move and a multi-step slam.
 def impulses-to-states [initial: record] {
-  # s = {stack: [state, ...], mode: string}
+  # s = {stack: [state, ...], mode: string, game_id: string}
   # Stack discipline: every move that actually changes the board pushes the
   # resulting state. A slam counts as one undoable step (its final state).
   # An undo frame pops the top, exposing the previous state. The "current"
-  # state is always the top of the stack.
+  # state is always the top of the stack. game_id seeds spawn determinism so
+  # (state, dir) -> same spawn within a game; undo + same-dir = same outcome.
   generate {|frame s|
     let cur = $s.stack | last
     if $frame.topic == "xs.threshold" {
@@ -320,8 +327,10 @@ def impulses-to-states [initial: record] {
     }
     let kind = $frame.meta | get kind? | default "move"
     if $kind == "start" {
-      let new_state = $frame.meta.state
-      return {out: [{state: $new_state, mode: $s.mode, threshold: false}], next: ($s | update stack [$new_state])}
+      # Start frames carry only game_id; the initial board derives from it.
+      let new_game_id = $frame.meta | get game_id? | default ""
+      let new_state = initial-state $new_game_id
+      return {out: [{state: $new_state, mode: $s.mode, threshold: false}], next: ($s | update stack [$new_state] | upsert game_id $new_game_id)}
     }
     if $kind == "view" {
       # Ephemeral (ttl=ephemeral): only arrives live, never during replay,
@@ -340,9 +349,7 @@ def impulses-to-states [initial: record] {
     }
     let intent = $frame.meta | get intent? | default ""
     if $intent in [h j k l] {
-      let idx = $frame.meta | get spawn_idx? | default 0
-      let val = $frame.meta | get spawn_value? | default 0
-      let new_state = $cur | apply-move $intent $idx $val
+      let new_state = $cur | apply-move $intent $s.game_id
       let changed = not (tiles-equal $cur.tiles $new_state.tiles)
       # No-op moves don't push -- nothing to undo if the board didn't change.
       let new_stack = if $changed { $s.stack | append $new_state } else { $s.stack }
@@ -350,10 +357,12 @@ def impulses-to-states [initial: record] {
     }
     if ($intent | str starts-with "slam-") {
       let dir = $intent | str substring 5..
-      let seeds = $frame.meta | get seeds? | default []
-      let result = $seeds | reduce --fold {state: $cur, stopped: false, yields: []} {|seed acc|
+      # Iterate up to 32 steps or until the board stops changing. Each step
+      # derives its own spawn from the current state -- naturally distinct
+      # because each apply-move advances the state.
+      let result = 0..31 | reduce --fold {state: $cur, stopped: false, yields: []} {|_ acc|
         if $acc.stopped { return $acc }
-        let nxt = $acc.state | apply-move $dir $seed.idx $seed.value
+        let nxt = $acc.state | apply-move $dir $s.game_id
         if (tiles-equal $acc.state.tiles $nxt.tiles) {
           $acc | upsert stopped true
         } else {
@@ -419,38 +428,34 @@ def html-to-patches [] {
 {|req|
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
-      # One frame per request. The state machine in /sse handles whatever
-      # the intent demands -- slam-intents replay deterministically from
-      # the bundled seeds.
+      # One frame per request. The state machine in /sse derives spawns
+      # deterministically from (state, dir, game_id) -- no need to bake
+      # seeds into move/slam frames anymore.
       let signals = $in | from datastar-signals $req
-      let topic = $"game.($signals.tabId).move"
+      let topic = $"game.($signals.playerId).move"
       let intent = $signals | get intent? | default ""
       if $intent == "reset" {
-        null | .append $topic --meta {kind: "start" state: (initial-state)}
+        null | .append $topic --meta {kind: "start" game_id: (random uuid)}
       } else if $intent == "undo" {
         null | .append $topic --meta {kind: "undo"}
-      } else if ($intent | str starts-with "slam-") {
-        let seeds = 0..15 | each {|_| fresh-spawn-seeds}
-        null | .append $topic --meta {intent: $intent seeds: $seeds}
       } else {
-        let seeds = fresh-spawn-seeds
-        null | .append $topic --meta {
-          intent: $intent
-          spawn_idx: $seeds.idx
-          spawn_value: $seeds.value
-        }
+        # Covers h/j/k/l, slam-X, and empty-string ping.
+        null | .append $topic --meta {intent: $intent}
       }
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: GET path: "/sse"} {|req ctx|
       let signals = "" | from datastar-signals $req
-      let tab_id = $signals | get tabId? | default "anon"
-      let topic = $"game.($tab_id).move"
+      let player_id = $signals | get playerId? | default "anon"
+      let topic = $"game.($player_id).move"
 
       .cat --follow
       | where {|f| $f.topic == $topic or $f.topic == "xs.threshold"}
-      | impulses-to-states {stack: [(initial-state)], mode: "game"}
+      # Empty stack/game_id at the start: a "start" frame in the log will
+      # fill them in. If there is no start frame yet, the threshold marker
+      # still passes through and the client renders the empty placeholder.
+      | impulses-to-states {stack: [{tiles: [] next_id: 1 score: 0 game_over: false}], mode: "game", game_id: ""}
       | threshold-gate-states
       | states-to-html
       | html-to-patches
@@ -478,25 +483,30 @@ def html-to-patches [] {
       # ttl=ephemeral so they are NOT persisted -- only currently-connected
       # subscribers receive them. Reconnecting always starts in game mode.
       let signals = $in | from datastar-signals $req
-      let topic = $"game.($signals.tabId).move"
+      let topic = $"game.($signals.playerId).move"
       let mode = $signals | get mode? | default "game"
       null | .append $topic --ttl ephemeral --meta {kind: "view" mode: $mode}
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: GET path: "/"} {|req ctx|
-      let tab_id = random uuid
-      # Seed a "start" frame: the canonical initial state for this tab. Every
-      # subsequent /sse replays this plus the move log to recompute state, so
-      # the random tile placements are captured once and reproduced faithfully.
-      let initial = initial-state
-      null | .append $"game.($tab_id).move" --meta {kind: "start" state: $initial}
+      # Player identity lives in a cookie -- a refresh or new tab on the same
+      # browser comes back to the same in-progress game. First visit mints a
+      # uuid AND seeds a "start" frame so /sse has an initial state to replay.
+      # Subsequent visits skip the seed: the game is already in the log.
+      let cookies = $req | cookie parse
+      let prior = $cookies | get player? | default ""
+      let is_new = ($prior | is-empty)
+      let player_id = if $is_new { random uuid } else { $prior }
+      if $is_new {
+        null | .append $"game.($player_id).move" --meta {kind: "start" game_id: (random uuid)}
+      }
       # Render an EMPTY board as the placeholder: same dimensions (grid cells
       # fill it) so no layout jump, but no tiles in the DOM yet. When the SSE
       # init patch arrives with the real tiles, they're unpaired (:only-child)
       # which fires the spawn pop-in -- otherwise paired tiles would just
       # cross-fade with no animation.
-      let placeholder = $initial | upsert tiles [] | render-game
+      let placeholder = {tiles: [] next_id: 1 score: 0 game_over: false} | render-game
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
@@ -519,12 +529,13 @@ def html-to-patches [] {
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
       (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true}))
       (BODY {
-        # tabId is generated server-side per page load so datastar's @get URL
-        # and the input handlers in script.js share one id.
-        "data-tab-id": $tab_id
+        # playerId comes from the "player" cookie (set below). datastar's
+        # @get URL and the input handlers in script.js share this one id so
+        # POSTs land on the same per-player xs topic as the SSE stream.
+        "data-player-id": $player_id
         "data-move-url": ($req | href "/move")
         "data-view-url": ($req | href "/view")
-        "data-signals": $"{tabId: '($tab_id)'}"
+        "data-signals": $"{playerId: '($player_id)'}"
         # Mirror datastar's $connected signal (set by data-indicator on #game)
         # into a data-attr CSS can react to.
         "data-attr:data-conn": "$connected ? 'ok' : 'down'"
@@ -563,7 +574,10 @@ def html-to-patches [] {
           (SPAN {class: "credit"}
             (A {href: "https://http-nu.cross.stream"}
               "served by http-nu "
-              (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))))
+              (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))))
+      # Persist the player id for a year, refreshing on every visit.
+      # --no-secure so the cookie works over plain HTTP for local dev.
+      | cookie set "player" $player_id --max-age 31536000 --no-secure)
     })
   ]
 }
