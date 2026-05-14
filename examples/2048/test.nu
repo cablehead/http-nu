@@ -122,6 +122,16 @@ def drive [frames: list, initial: record]: nothing -> list {
   $frames | impulses-to-states $initial
 }
 
+# 0. Empty log: only an xs.threshold marker, no prior frames. The pipeline
+#    must produce ONE state record (the placeholder), not crash. Regression
+#    for prod incident where threshold-gate emitted null and states-to-html
+#    errored on `$s.state`.
+let placeholder_init = {stack: [{tiles: [] next_id: 1 score: 0 game_over: false}] mode: "game" game_id: ""}
+let r0 = [{topic: "xs.threshold"}] | impulses-to-states $placeholder_init | threshold-gate-states | take 2
+assert ((($r0 | length) == 1)) "empty-log pipeline emits exactly one record"
+assert ((($r0 | first).state.tiles | length) == 0) "empty-log state has zero tiles"
+assert ((($r0 | first | get threshold?) | default false) == false) "threshold flag stripped before downstream"
+
 # 1. Start frame replaces the stack AND updates game_id.
 let r1 = drive [{topic: "game.t.move" meta: {kind: "start" game_id: "fresh-game-cccc"}}] $init
 assert (($r1 | length) == 1) "start frame emits one state"

@@ -400,7 +400,11 @@ def impulses-to-states [initial: record] {
 def threshold-gate-states [] {
   generate {|item state = {}|
     if ($item.threshold? | default false) {
-      return {out: $state.last?, next: {reached: true}}
+      # Empty log: nothing buffered. Emit the threshold marker's own state
+      # (the placeholder top-of-stack from impulses-to-states) so downstream
+      # always sees a non-null record. Strip the threshold flag.
+      let emit = $state.last? | default ($item | upsert threshold false)
+      return {out: $emit, next: {reached: true}}
     }
     if ("reached" in $state) {
       return {out: $item, next: $state}
@@ -493,15 +497,18 @@ def html-to-patches [] {
 
     (route {method: GET path: "/"} {|req ctx|
       # Player identity lives in a cookie -- a refresh or new tab on the same
-      # browser comes back to the same in-progress game. First visit mints a
-      # uuid AND seeds a "start" frame so /sse has an initial state to replay.
-      # Subsequent visits skip the seed: the game is already in the log.
+      # browser comes back to the same in-progress game. We seed a "start"
+      # frame whenever the player's log is empty: covers both a fresh cookie
+      # AND an orphaned cookie pointing at a wiped/rotated store. Without
+      # this the SSE handler would replay nothing and the client would be
+      # stuck on the empty placeholder.
       let cookies = $req | cookie parse
       let prior = $cookies | get player? | default ""
-      let is_new = ($prior | is-empty)
-      let player_id = if $is_new { random uuid } else { $prior }
-      if $is_new {
-        null | .append $"game.($player_id).move" --meta {kind: "start" game_id: (random uuid)}
+      let player_id = if ($prior | is-empty) { random uuid } else { $prior }
+      let topic = $"game.($player_id).move"
+      let has_log = (try { (.last $topic) != null } catch { false })
+      if not $has_log {
+        null | .append $topic --meta {kind: "start" game_id: (random uuid)}
       }
       # Render an EMPTY board as the placeholder: same dimensions (grid cells
       # fill it) so no layout jump, but no tiles in the DOM yet. When the SSE
