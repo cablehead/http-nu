@@ -57,10 +57,19 @@ let staleTimer = null;
 const setConn = (v) => {
   if (document.body.dataset.conn === v) return;
   document.body.dataset.conn = v;
+  if (v === "down") {
+    // Old RTT readings are stale across a disconnect; clear the indicator
+    // and the history so reconnect probes for a fresh measurement.
+    pending = null;
+    rtts.length = 0;
+    rttEl()?.replaceChildren("—ms");
+  }
   if (prevConn === "down" && v === "ok") {
     document.body.classList.remove("reconnect-pulse");
     void document.body.offsetWidth;
     document.body.classList.add("reconnect-pulse");
+    // Re-probe RTT after reconnect.
+    move("");
   }
   prevConn = v;
 };

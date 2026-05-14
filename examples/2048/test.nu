@@ -149,14 +149,19 @@ let placeholder_init = {
   mode: "game" game_id: "" games_topic: "player.test-pid.games"
 }
 let r0 = [{topic: "xs.threshold"}] | impulses-to-states $placeholder_init | threshold-gate-states | take 2
-assert ((($r0 | length) == 1)) "empty-log pipeline emits exactly one record"
-assert ((($r0 | first).state.tiles | length) == 0) "empty-log state has zero tiles"
-assert ((($r0 | first | get threshold?) | default false) == false) "threshold flag stripped before downstream"
+# Threshold emits: (1) the gated state record, (2) a {signals: {replayMs}}
+# debug record. The state record comes first and has zero tiles.
+let r0_state = $r0 | where {|i| ($i | get state? | default null) != null} | first
+assert (($r0_state.state.tiles | length) == 0) "empty-log state has zero tiles"
+assert ((($r0_state | get threshold?) | default false) == false) "threshold flag stripped before downstream"
+let r0_signals = $r0 | where {|i| ('signals' in $i)} | first
+assert (($r0_signals.signals | get replayMs? | default null) != null) "threshold emits replayMs signals"
 
 # 2. xs.threshold marker passes the current top of stack through.
 let r2 = drive [{topic: "xs.threshold"}] $init
-assert (($r2 | first | get threshold) == true) "threshold marker carries threshold=true"
-assert (tiles-equal ($r2 | first | get state | get tiles) $known.tiles) "threshold emits current top"
+let r2_first = $r2 | first
+assert (($r2_first | get threshold) == true) "threshold marker carries threshold=true"
+assert (tiles-equal $r2_first.state.tiles $known.tiles) "threshold emits current top"
 
 # 3. A move that changes the board emits one state.
 let r3 = drive [{topic: "game.test-game-aaaa.move" meta: {intent: "h"}}] $init

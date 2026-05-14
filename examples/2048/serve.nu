@@ -360,7 +360,14 @@ def impulses-to-states [initial: record] {
   generate {|frame s|
     let cur = $s.stack | last
     if $frame.topic == "xs.threshold" {
-      return {out: [{state: $cur, mode: $s.mode, threshold: true}], next: $s}
+      # Replay caught up to live. Also emit a signals patch with how long
+      # the replay took -- useful as a quick debug indicator client-side.
+      let started = $s | get started? | default (date now)
+      let elapsed = ((date now) - $started) / 1ms | math round
+      return {out: [
+        {state: $cur, mode: $s.mode, threshold: true}
+        {signals: {replayMs: $elapsed}}
+      ], next: $s}
     }
     if $frame.topic == "xs.pulse" {
       # SSE keepalive -- emit a pulse marker; downstream stages turn it into
@@ -491,6 +498,8 @@ def states-to-html [] {
   each {|s|
     if ($s.pulse? | default false) {
       $s
+    } else if ('signals' in $s) {
+      $s
     } else {
       $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false)
     }
@@ -505,6 +514,8 @@ def html-to-patches [] {
   each {|item|
     if ($item.pulse? | default false) {
       {} | to datastar-patch-signals
+    } else if ('signals' in $item) {
+      $item.signals | to datastar-patch-signals
     } else {
       $item | to datastar-patch-elements --use-view-transition --id (random uuid)
     }
@@ -564,6 +575,7 @@ def html-to-patches [] {
           mode: "game"
           game_id: ""
           games_topic: $games_topic
+          started: (date now)
         }
         | pace-slam-steps
         | threshold-gate-states
@@ -709,7 +721,9 @@ def html-to-patches [] {
         (FOOTER
           (SPAN {class: "status"}
             (SPAN {id: "conn" title: "SSE connection"})
-            (SPAN {id: "rtt"} "\u{2014}ms"))
+            (SPAN {id: "rtt"} "\u{2014}ms")
+            (SPAN {id: "replay" title: "last SSE replay time"
+              "data-text": "$replayMs ? `replay ${$replayMs}ms` : ''"} ""))
           (SPAN {class: "credit"}
             (A {href: "https://http-nu.cross.stream"}
               "served by http-nu "
