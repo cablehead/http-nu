@@ -435,12 +435,12 @@ def impulses-to-states [initial: record] {
   | flatten
 }
 
-# Pace consecutive paced items 250ms apart so each slam step animates over
+# Pace consecutive paced items 200ms apart so each slam step animates over
 # the wire. Separated from impulses-to-states so replay paths (e.g. /games
 # rendering each past game's final state) can skip the wait.
 def pace-slam-steps [] {
   generate {|item state = {prev_paced: false}|
-    if (($item.paced? | default false) and $state.prev_paced) { sleep 250ms }
+    if (($item.paced? | default false) and $state.prev_paced) { sleep 200ms }
     {out: $item, next: {prev_paced: ($item.paced? | default false)}}
   }
 }
