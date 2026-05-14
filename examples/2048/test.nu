@@ -10,6 +10,20 @@ let _handler = source ($script_dir | path join serve.nu)
 # A fixed game id so every test is deterministic.
 const GID = "test-game-aaaa"
 
+# --- roll: deterministic hash -> seeds --------------------------------------
+
+# Regression: `into int --radix 16` errors on hex strings starting with "0b"
+# (interpreted as a binary literal prefix), and similarly for "0x" / "0o".
+# `game-249` happens to produce a hash starting with "0b" -- roll must still
+# return clean integers, not error.
+let r = roll "game-249" {tiles: [] next_id: 1 score: 0 game_over: false} "h"
+assert (($r.idx | describe) == "int") "roll returns int idx even on 0b-prefixed hash"
+assert ($r.value >= 0 and $r.value <= 9) "roll value in 0..9"
+
+# Same inputs always yield the same outputs.
+let r2 = roll "game-249" {tiles: [] next_id: 1 score: 0 game_over: false} "h"
+assert ($r.idx == $r2.idx and $r.value == $r2.value) "roll is deterministic"
+
 # --- pure game logic --------------------------------------------------------
 
 # initial-state seeds two tiles deterministically from the game_id.

@@ -27,9 +27,11 @@ let REV = random uuid | str substring 0..7
 def roll [game_id: string, state: record, key: string]: nothing -> record {
   let payload = $"($game_id)|($key)|" + ($state | to json --raw)
   let h = $payload | hash sha256
+  # Prepend "0x" so `into int` parses as hex. `--radix 16` would mis-read
+  # hashes starting with "0b" / "0o" as binary / octal literals and error.
   {
-    idx: ($h | str substring 0..8 | into int --radix 16)
-    value: (($h | str substring 8..10 | into int --radix 16) mod 10)
+    idx: ($h | str substring 0..8 | $"0x($in)" | into int)
+    value: (($h | str substring 8..10 | $"0x($in)" | into int) mod 10)
   }
 }
 
