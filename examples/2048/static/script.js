@@ -44,18 +44,39 @@ const move = (intent) => {
   });
 };
 
-// body[data-conn] is driven by datastar via data-attr + data-indicator
-// (see serve.nu). Watch for the down -> ok transition to trigger the pulse.
+// SSE liveness signal. Server interleaves a no-op datastar-patch-signals
+// every 450ms; we watch datastar-fetch CustomEvents for our SSE element
+// only, refresh a staleness timer on any sign-of-life event, and flip to
+// "down" if 1000ms passes with no refresh (~2 missed heartbeats).
+// We ignore datastar's $connected / data-indicator because it stays true
+// through retry loops -- not a real liveness signal.
+const SSE_STALE_MS = 1000;
+const sseEl = document.querySelector("[data-sse]");
 let prevConn = null;
-new MutationObserver(() => {
-  const conn = document.body.dataset.conn;
-  if (prevConn === "down" && conn === "ok") {
+let staleTimer = null;
+const setConn = (v) => {
+  if (document.body.dataset.conn === v) return;
+  document.body.dataset.conn = v;
+  if (prevConn === "down" && v === "ok") {
     document.body.classList.remove("reconnect-pulse");
-    void document.body.offsetWidth;  // force reflow so animation restarts
+    void document.body.offsetWidth;
     document.body.classList.add("reconnect-pulse");
   }
-  prevConn = conn;
-}).observe(document.body, { attributes: true, attributeFilter: ["data-conn"] });
+  prevConn = v;
+};
+const sseAlive = () => {
+  setConn("ok");
+  clearTimeout(staleTimer);
+  staleTimer = setTimeout(() => setConn("down"), SSE_STALE_MS);
+};
+document.addEventListener("datastar-fetch", (e) => {
+  if (e.detail.el !== sseEl) return;  // not our SSE -- ignore
+  const t = e.detail.type;
+  // Any successful event from our SSE is a sign of life: lifecycle
+  // 'started', or any 'datastar-patch-*' message (including heartbeats).
+  if (t === "started" || t.startsWith("datastar-patch")) sseAlive();
+  if (t === "retrying" || t === "retries-failed") setConn("down");
+});
 
 new MutationObserver(() => {
   if (!initSeen) {

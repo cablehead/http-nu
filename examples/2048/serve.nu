@@ -362,6 +362,11 @@ def impulses-to-states [initial: record] {
     if $frame.topic == "xs.threshold" {
       return {out: [{state: $cur, mode: $s.mode, threshold: true}], next: $s}
     }
+    if $frame.topic == "xs.pulse" {
+      # SSE keepalive -- emit a pulse marker; downstream stages turn it into
+      # a datastar-patch-signals no-op so the client sees a sign of life.
+      return {out: [{pulse: true, mode: $s.mode}], next: $s}
+    }
     if $frame.topic == $s.games_topic {
       # New game (or first game) for this player. Reset to a fresh board.
       let new_game_id = $frame.id
@@ -449,6 +454,7 @@ def filter-for-player [games_topic: string] {
     $f.topic == $games_topic
     or (($f.topic | str starts-with "game.") and ($f.topic | str ends-with ".move"))
     or $f.topic == "xs.threshold"
+    or $f.topic == "xs.pulse"
   ) }
 }
 
@@ -465,6 +471,12 @@ def threshold-gate-states [] {
       let emit = $state.last? | default ($item | upsert threshold false)
       return {out: $emit, next: {reached: true}}
     }
+    if ($item.pulse? | default false) {
+      # Pulse: forward post-threshold (live keepalive); drop pre-threshold
+      # so they don't pollute the replay buffer.
+      if ("reached" in $state) { return {out: $item, next: $state} }
+      return {next: $state}
+    }
     if ("reached" in $state) {
       return {out: $item, next: $state}
     }
@@ -473,18 +485,29 @@ def threshold-gate-states [] {
 }
 
 # Box C. Pure rendering. {state, mode, direction?, changed?} -> html record.
+# Pulse markers pass through untouched so html-to-patches can emit them as
+# datastar-patch-signals heartbeats.
 def states-to-html [] {
   each {|s|
-    $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false)
+    if ($s.pulse? | default false) {
+      $s
+    } else {
+      $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false)
+    }
   }
 }
 
-# Box D. Wrap each html render in a datastar patch event. Unique id per patch
+# Box D. Wrap each render in a datastar patch event. Unique id per patch
 # so morphdom recreates the .edge-flash element and its animation re-fires
-# each step.
+# each step. Pulse markers become a no-op signal patch -- a heartbeat that
+# script.js uses to refresh the connection-liveness timer.
 def html-to-patches [] {
-  each {|html|
-    $html | to datastar-patch-elements --use-view-transition --id (random uuid)
+  each {|item|
+    if ($item.pulse? | default false) {
+      {} | to datastar-patch-signals
+    } else {
+      $item | to datastar-patch-elements --use-view-transition --id (random uuid)
+    }
   }
 }
 
@@ -531,7 +554,10 @@ def html-to-patches [] {
         # Subscribe to everything relevant: the player's games index
         # (resets / new-game signals) and every game.*.move topic.
         # impulses-to-states filters move frames to the current game_id.
-        .cat --follow
+        # --pulse 450 injects xs.pulse frames into the stream every 450ms
+        # which the pipeline turns into datastar-patch-signals heartbeats
+        # for the client's liveness timer.
+        .cat --follow --pulse 450
         | filter-for-player $games_topic
         | impulses-to-states {
           stack: [{tiles: [] next_id: 1 score: 0 game_over: false}]
@@ -644,13 +670,12 @@ def html-to-patches [] {
         # playerId comes from the cookie. The current gameId lives entirely
         # server-side (latest frame in player.<id>.games); /move and /sse
         # derive it from the index, so the client only carries the player.
+        # data-conn is managed by script.js based on SSE heartbeats; CSS
+        # reacts via body[data-conn="down"] selectors.
         "data-player-id": $player_id
         "data-move-url": ($req | href "/move")
         "data-view-url": ($req | href "/view")
         "data-signals": $"{playerId: '($player_id)'}"
-        # Mirror datastar's $connected signal (set by data-indicator on #game)
-        # into a data-attr CSS can react to.
-        "data-attr:data-conn": "$connected ? 'ok' : 'down'"
       }
       (H1 (A {
         href: "https://github.com/cablehead/http-nu/blob/main/examples/2048/serve.nu"
@@ -672,9 +697,9 @@ def html-to-patches [] {
       # of #game's contents on every server patch.
       (DIV {
         class: "column"
-        # data-indicator MUST come before data-init so the signal exists when
-        # the fetch fires.
-        "data-indicator": "connected"
+        # data-sse tags this element so script.js can filter datastar-fetch
+        # events to just our SSE (ignoring any unrelated @get/@post).
+        "data-sse": ""
         "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
       }
         # #game is the single view; SSE patches morph it between the game
