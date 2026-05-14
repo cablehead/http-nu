@@ -415,33 +415,33 @@ def impulses-to-states [initial: record] {
     }
     if ($intent | str starts-with "slam-") {
       let dir = $intent | str substring 5..
-      # Iterate up to 32 steps or until the board stops changing. Each step
-      # derives its own spawn from the current state -- naturally distinct
-      # because each apply-move advances the state. Only the LAST step
-      # carries req_id so the client RTT-matches the final cascade frame.
-      let result = 0..31 | reduce --fold {state: $cur, stopped: false, yields: []} {|_ acc|
-        if $acc.stopped { return $acc }
-        let nxt = $acc.state | apply-move $dir $s.game_id
-        if (tiles-equal $acc.state.tiles $nxt.tiles) {
-          $acc | upsert stopped true
+      # Generate each step lazily; break the moment tiles stop moving.
+      # The `take 32` is a safety cap that should never bind on a 4x4 board.
+      let yields = (generate {|state|
+        let nxt = $state | apply-move $dir $s.game_id
+        if (tiles-equal $state.tiles $nxt.tiles) {
+          # Returning a record without `next` terminates the generator.
+          {}
         } else {
-          $acc | update state $nxt | update yields {
-            append {state: $nxt, mode: $s.mode, direction: $dir, changed: true, threshold: false, paced: true}
+          {
+            out: {state: $nxt, mode: $s.mode, direction: $dir, changed: true, threshold: false, paced: true}
+            next: $nxt
           }
         }
-      }
+      } $cur) | take 32 | collect
       # No-op slam: echo, no stack change.
-      if ($result.yields | is-empty) {
+      if ($yields | is-empty) {
         return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
       }
       # Tag the final step with req_id so the client's RTT match latches
       # onto the cascade's terminal patch (not the first step which arrives
       # almost-immediately and would skew the measurement low).
-      let yields_len = $result.yields | length
-      let tagged = $result.yields | enumerate | each {|p|
-        if $p.index == ($yields_len - 1) { $p.item | upsert req_id $req_id } else { $p.item }
+      let n = $yields | length
+      let tagged = $yields | enumerate | each {|p|
+        if $p.index == ($n - 1) { $p.item | upsert req_id $req_id } else { $p.item }
       }
-      return {out: $tagged, next: ($s | update stack ($s.stack | append $result.state))}
+      let final_state = $yields | last | get state
+      return {out: $tagged, next: ($s | update stack ($s.stack | append $final_state))}
     }
     # Any other intent (empty ping, unrecognised) still emits a no-op state
     # echo. The client uses the resulting mutation to measure RTT and to
@@ -587,8 +587,13 @@ def html-to-patches [] {
           games_topic: $games_topic
           started: (date now)
         }
-        | pace-slam-steps
+        # pace-slam-steps AFTER threshold-gate-states: pre-threshold the gate
+        # buffers (only keeps the last item), so paced replay steps get
+        # dropped before they reach pace -- no sleeps fire during replay.
+        # Post-threshold the gate forwards each item and pace inserts its
+        # 200ms gap between consecutive paced ones for the live animation.
         | threshold-gate-states
+        | pace-slam-steps
         | states-to-html
         | html-to-patches
         | to sse
