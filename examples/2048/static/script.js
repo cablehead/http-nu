@@ -63,6 +63,10 @@ const setConn = (v) => {
     pending = null;
     rtts.length = 0;
     rttEl()?.replaceChildren("—ms");
+    // Clear the replayMs debug indicator too. The reconnect SSE will emit
+    // a fresh value via datastar-patch-signals which the data-text binding
+    // will pick up.
+    document.querySelector("#replay")?.replaceChildren("");
   }
   if (prevConn === "down" && v === "ok") {
     document.body.classList.remove("reconnect-pulse");
