@@ -1,7 +1,6 @@
 // Input handlers for 2048. Server embeds the player id and the /move URL
 // as body data-* attributes so this file stays parameter-free and cacheable.
 const playerId = document.body.dataset.playerId;
-const gameId = document.body.dataset.gameId;
 const moveUrl = document.body.dataset.moveUrl;
 
 // End-to-end RTT: time from a move() call to the next DOM mutation in #game
@@ -34,12 +33,11 @@ const move = (intent) => {
   return fetch(moveUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerId, gameId, intent }),
+    body: JSON.stringify({ playerId, intent }),
   }).then((r) => {
-    if (!r.ok) { pending = null; flashRed(); return; }
-    // Reset creates a new game on the server; reload so GET / picks up
-    // the new gameId and the page re-anchors to the fresh game's topic.
-    if (intent === "reset") { location.href = "/"; }
+    if (!r.ok) { pending = null; flashRed(); }
+    // Reset emits a games-index frame which the SSE pipeline picks up and
+    // streams a fresh board over the existing connection -- no reload.
   }).catch(() => {
     pending = null;
     flashRed();
@@ -146,7 +144,7 @@ document.addEventListener("click", (e) => {
   fetch(document.body.dataset.viewUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerId, gameId, mode: t.dataset.viewTo }),
+    body: JSON.stringify({ playerId, mode: t.dataset.viewTo }),
   });
   setTimeout(() => document.documentElement.classList.remove("view-flipping"), 600);
 });

@@ -104,6 +104,22 @@ let after_l = $diag | apply-move "l" $GID
 let rightmost = $after_l.tiles | where r == 0 and c == 3 | first
 assert ($rightmost.value == 4) "right-side merge yields 4 on slide right"
 
+# --- filter-for-player ------------------------------------------------------
+
+let frames = [
+  {topic: "player.alice.games"}        # alice's index -- keep
+  {topic: "game.abc.move"}             # any game move topic -- keep
+  {topic: "game.xyz.move"}             # any game move topic -- keep
+  {topic: "xs.threshold"}              # threshold marker -- keep
+  {topic: "player.bob.games"}          # bob's index -- drop
+  {topic: "templates.html"}            # unrelated -- drop
+  {topic: "game.abc"}                  # missing .move suffix -- drop
+  {topic: "abc.move"}                  # missing game. prefix -- drop
+]
+let kept = $frames | filter-for-player "player.alice.games" | get topic
+let expected = ["player.alice.games" "game.abc.move" "game.xyz.move" "xs.threshold"]
+assert ($kept == $expected) $"filter kept ($kept), expected ($expected)"
+
 # --- impulses-to-states stack discipline ------------------------------------
 
 # A known starting state so we can reason about the stack precisely.
@@ -114,7 +130,9 @@ let known = {
   ]
   next_id: 3 score: 0 game_over: false
 }
-let init = {stack: [$known] mode: "game" game_id: $GID}
+let GAMES_TOPIC = $"player.test-pid.games"
+let MOVE_TOPIC = $"game.($GID).move"
+let init = {stack: [$known] mode: "game" game_id: $GID games_topic: $GAMES_TOPIC}
 
 # Helper: feed a list of frames through impulses-to-states and return the
 # emitted records as a list. Each frame emits one or more records.
@@ -126,7 +144,10 @@ def drive [frames: list, initial: record]: nothing -> list {
 #    must produce ONE state record (the placeholder), not crash. Regression
 #    for prod incident where threshold-gate emitted null and states-to-html
 #    errored on `$s.state`.
-let placeholder_init = {stack: [{tiles: [] next_id: 1 score: 0 game_over: false}] mode: "game" game_id: ""}
+let placeholder_init = {
+  stack: [{tiles: [] next_id: 1 score: 0 game_over: false}]
+  mode: "game" game_id: "" games_topic: "player.test-pid.games"
+}
 let r0 = [{topic: "xs.threshold"}] | impulses-to-states $placeholder_init | threshold-gate-states | take 2
 assert ((($r0 | length) == 1)) "empty-log pipeline emits exactly one record"
 assert ((($r0 | first).state.tiles | length) == 0) "empty-log state has zero tiles"
@@ -138,7 +159,7 @@ assert (($r2 | first | get threshold) == true) "threshold marker carries thresho
 assert (tiles-equal ($r2 | first | get state | get tiles) $known.tiles) "threshold emits current top"
 
 # 3. A move that changes the board emits one state.
-let r3 = drive [{topic: "game.t.move" meta: {intent: "h"}}] $init
+let r3 = drive [{topic: "game.test-game-aaaa.move" meta: {intent: "h"}}] $init
 let r3_state = $r3 | first | get state
 let changed = not (tiles-equal $r3_state.tiles $known.tiles)
 assert $changed "left move on known state changes the board"
@@ -146,8 +167,8 @@ assert (($r3 | first | get direction) == "h") "move record carries direction"
 
 # 4. Undo after a real move restores the pre-move state.
 let move_then_undo = [
-  {topic: "game.t.move" meta: {intent: "h"}}
-  {topic: "game.t.move" meta: {kind: "undo"}}
+  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
+  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
   {topic: "xs.threshold"}
 ]
 let r4 = drive $move_then_undo $init
@@ -157,18 +178,18 @@ assert (tiles-equal $r4_final.state.tiles $known.tiles) "undo restores the prior
 # 5. Undo + same direction reproduces the original spawn (the whole point
 #    of game_id-based deterministic rolls).
 let move_undo_redo = [
-  {topic: "game.t.move" meta: {intent: "h"}}
-  {topic: "game.t.move" meta: {kind: "undo"}}
-  {topic: "game.t.move" meta: {intent: "h"}}
+  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
+  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
+  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
   {topic: "xs.threshold"}
 ]
 let r5 = drive $move_undo_redo $init
 let r5_final = $r5 | where threshold == true | first
-let r3_final_again = drive [{topic: "game.t.move" meta: {intent: "h"}} {topic: "xs.threshold"}] $init | where threshold == true | first
+let r3_final_again = drive [{topic: "game.test-game-aaaa.move" meta: {intent: "h"}} {topic: "xs.threshold"}] $init | where threshold == true | first
 assert (tiles-equal $r5_final.state.tiles $r3_final_again.state.tiles) "undo + redo same dir = same board"
 
 # 6. Undo at the bottom of the stack is a no-op echo (state unchanged).
-let r6 = drive [{topic: "game.t.move" meta: {kind: "undo"}}] $init
+let r6 = drive [{topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}] $init
 assert (tiles-equal ($r6 | first | get state | get tiles) $known.tiles) "undo at bottom echoes current"
 
 # 7. A no-op move does NOT push, so a subsequent undo finds the stack at
@@ -177,10 +198,10 @@ let edge = {
   tiles: [{id: 1 r: 0 c: 0 value: 2}]
   next_id: 2 score: 0 game_over: false
 }
-let init_edge = {stack: [$edge] mode: "game" game_id: $GID}
+let init_edge = {stack: [$edge] mode: "game" game_id: $GID games_topic: $GAMES_TOPIC}
 let r7 = drive [
-  {topic: "game.t.move" meta: {intent: "h"}}
-  {topic: "game.t.move" meta: {kind: "undo"}}
+  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
+  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
   {topic: "xs.threshold"}
 ] $init_edge
 let r7_final = $r7 | where threshold == true | first
@@ -196,14 +217,33 @@ let pair = {
   ]
   next_id: 3 score: 0 game_over: false
 }
-let init_pair = {stack: [$pair] mode: "game" game_id: $GID}
+let init_pair = {stack: [$pair] mode: "game" game_id: $GID games_topic: $GAMES_TOPIC}
 let slam_frames = [
-  {topic: "game.t.move" meta: {intent: "slam-h"}}
-  {topic: "game.t.move" meta: {kind: "undo"}}
+  {topic: "game.test-game-aaaa.move" meta: {intent: "slam-h"}}
+  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
   {topic: "xs.threshold"}
 ]
 let r8 = drive $slam_frames $init_pair
 let r8_final = $r8 | where threshold == true | first
 assert (tiles-equal $r8_final.state.tiles $pair.tiles) "undo after slam restores pre-slam state"
+
+# 9. A frame on the player's games_topic starts a new game: stack resets,
+#    game_id updates, and the emitted state is the fresh initial-state.
+let r9 = drive [{topic: $GAMES_TOPIC id: "new-game-zzzz" meta: {}}] $init
+let r9_state = $r9 | first | get state
+let expected9 = (initial-state "new-game-zzzz") | get tiles
+assert (tiles-equal $r9_state.tiles $expected9) "new game frame resets to initial-state(new id)"
+
+# 10. After a game switch, OLD game's move frames are dropped: state stays
+#     at the new game's initial board (the old game's "h" intent has no
+#     effect because impulses-to-states only matches `game.<current>.move`).
+let r10 = drive [
+  {topic: $GAMES_TOPIC id: "new-game-zzzz" meta: {}}
+  {topic: $"game.($GID).move" meta: {intent: "h"}}    # old game -- dropped
+  {topic: "xs.threshold"}
+] $init
+let r10_final = $r10 | where threshold == true | first
+let new_init_tiles = (initial-state "new-game-zzzz") | get tiles
+assert (tiles-equal $r10_final.state.tiles $new_init_tiles) "stale game's move is dropped after switch"
 
 print "examples/2048/test.nu: all assertions passed"

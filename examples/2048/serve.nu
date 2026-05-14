@@ -316,16 +316,32 @@ def render-current [mode: string, direction?: string, changed?: bool]: record ->
 # client sees each step animate. Pacing lives here because this is the box
 # that knows the difference between a one-shot move and a multi-step slam.
 def impulses-to-states [initial: record] {
-  # s = {stack: [state, ...], mode: string, game_id: string}
+  # s = {stack: [state, ...], mode, game_id, games_topic}
   # Stack discipline: every move that actually changes the board pushes the
   # resulting state. A slam counts as one undoable step (its final state).
   # An undo frame pops the top, exposing the previous state. The "current"
   # state is always the top of the stack. game_id seeds spawn determinism so
   # (state, dir) -> same spawn within a game; undo + same-dir = same outcome.
+  # A frame on the player's games_topic starts a new game: game_id becomes
+  # the frame's id, stack resets to a fresh initial-state. Move frames are
+  # only processed for the current game's topic; everything else is dropped.
   generate {|frame s|
     let cur = $s.stack | last
     if $frame.topic == "xs.threshold" {
       return {out: [{state: $cur, mode: $s.mode, threshold: true}], next: $s}
+    }
+    if $frame.topic == $s.games_topic {
+      # New game (or first game) for this player. Reset to a fresh board.
+      let new_game_id = $frame.id
+      let new_state = initial-state $new_game_id
+      return {
+        out: [{state: $new_state, mode: $s.mode, threshold: false}]
+        next: ($s | update stack [$new_state] | update game_id $new_game_id)
+      }
+    }
+    if $frame.topic != $"game.($s.game_id).move" {
+      # Some other player's game, or our own old game. Drop.
+      return {next: $s}
     }
     let kind = $frame.meta | get kind? | default "move"
     if $kind == "view" {
@@ -387,6 +403,18 @@ def impulses-to-states [initial: record] {
   }
 }
 
+# Static topic filter: admits this player's games index, any game's move
+# topic, and the xs.threshold marker. Everything else (other players'
+# topics, unrelated streams) is dropped. impulses-to-states still does
+# the dynamic per-game filtering -- this stage is the cheap pre-filter.
+def filter-for-player [games_topic: string] {
+  where {|f| (
+    $f.topic == $games_topic
+    or (($f.topic | str starts-with "game.") and ($f.topic | str ends-with ".move"))
+    or $f.topic == "xs.threshold"
+  ) }
+}
+
 # Box B. Buffers states pre-threshold (only the last is retained); on
 # threshold marker emits the last buffered state; then forwards everything.
 # Same pattern as examples/quotes/serve.nu's threshold-once-gate, but
@@ -428,19 +456,20 @@ def html-to-patches [] {
 {|req|
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
-      # Move/undo intents append to the current game's move topic. "reset"
-      # appends to the player's game index (creating a new game) and asks
-      # the client to reload so the new gameId flows through GET /.
+      # The player's "current game" is always the most-recent frame on
+      # their games topic. /move derives it server-side so the client
+      # doesn't have to track gameId at all -- it just sends intents.
       let signals = $in | from datastar-signals $req
       let player_id = $signals | get playerId? | default ""
-      let game_id = $signals | get gameId? | default ""
       let intent = $signals | get intent? | default ""
+      let games_topic = $"player.($player_id).games"
       if $intent == "reset" {
-        # Mint a new game and let the client reload to pick up the new
-        # gameId via GET /. The script.js move() handler reloads itself
-        # on the "reset" intent, so we just need to ack with 204.
-        null | .append $"player.($player_id).games"
+        # Append to the index. The SSE pipeline picks this up, resets its
+        # state machine, and streams a fresh board over the existing
+        # connection -- no page reload needed.
+        null | .append $games_topic
       } else {
+        let game_id = (.last $games_topic | get id)
         let topic = $"game.($game_id).move"
         if $intent == "undo" {
           null | .append $topic --meta {kind: "undo"}
@@ -455,21 +484,24 @@ def html-to-patches [] {
     (route {method: GET path: "/sse"} {|req ctx|
       let signals = "" | from datastar-signals $req
       let player_id = $signals | get playerId? | default ""
-      let game_id = $signals | get gameId? | default ""
-      # Orphan cookie: the player's game index is empty (store wiped). Clear
-      # the cookie and reload so GET / mints fresh identity. We check the
-      # index rather than the move topic so a brand-new game (no moves yet)
-      # isn't mistaken for an orphan.
-      let has_games = (try { (.last $"player.($player_id).games") != null } catch { false })
+      let games_topic = $"player.($player_id).games"
+      # Orphan cookie: the player's index is empty (store wiped). Clear
+      # the cookie and reload so GET / mints fresh identity.
+      let has_games = (try { (.last $games_topic) != null } catch { false })
       if not $has_games {
         "/" | to datastar-redirect | cookie delete "player" | to sse
       } else {
-        let topic = $"game.($game_id).move"
+        # Subscribe to everything relevant: the player's games index
+        # (resets / new-game signals) and every game.*.move topic.
+        # impulses-to-states filters move frames to the current game_id.
         .cat --follow
-        | where {|f| $f.topic == $topic or $f.topic == "xs.threshold"}
-        # game_id is fixed for this connection; the initial state derives
-        # deterministically from it. The move topic carries only intents.
-        | impulses-to-states {stack: [(initial-state $game_id)], mode: "game", game_id: $game_id}
+        | filter-for-player $games_topic
+        | impulses-to-states {
+          stack: [{tiles: [] next_id: 1 score: 0 game_over: false}]
+          mode: "game"
+          game_id: ""
+          games_topic: $games_topic
+        }
         | threshold-gate-states
         | states-to-html
         | html-to-patches
@@ -498,7 +530,9 @@ def html-to-patches [] {
       # ttl=ephemeral so they are NOT persisted -- only currently-connected
       # subscribers receive them. Reconnecting always starts in game mode.
       let signals = $in | from datastar-signals $req
-      let topic = $"game.($signals.gameId).move"
+      let player_id = $signals | get playerId? | default ""
+      let game_id = (.last $"player.($player_id).games" | get id)
+      let topic = $"game.($game_id).move"
       let mode = $signals | get mode? | default "game"
       null | .append $topic --ttl ephemeral --meta {kind: "view" mode: $mode}
       null | metadata set { merge {'http.response': {status: 204}} }
@@ -506,17 +540,15 @@ def html-to-patches [] {
 
     (route {method: GET path: "/"} {|req ctx|
       # Player identity lives in a cookie; a refresh or new tab continues
-      # the player's most-recent game. The player's "game" topic is an
-      # index of all their games -- each frame's scru128 is one game_id.
-      # If the index is empty (new player or wiped store) we append a
-      # first game frame and use its id.
+      # the player's most-recent game. The player's games topic is an
+      # index of all their games; the SSE pipeline picks the latest. If
+      # the index is empty (new player or wiped store) we seed it here.
       let cookies = $req | cookie parse
       let prior = $cookies | get player? | default ""
       let player_id = if ($prior | is-empty) { random uuid } else { $prior }
       let games_topic = $"player.($player_id).games"
-      let latest = (try { .last $games_topic } catch { null })
-      let game_id = if $latest != null { $latest.id } else {
-        (null | .append $games_topic | get id)
+      if (try { (.last $games_topic) == null } catch { true }) {
+        null | .append $games_topic
       }
       # Render an EMPTY board as the placeholder: same dimensions (grid cells
       # fill it) so no layout jump, but no tiles in the DOM yet. When the SSE
@@ -546,15 +578,13 @@ def html-to-patches [] {
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
       (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true}))
       (BODY {
-        # playerId comes from the cookie; gameId is the scru128 of the
-        # player's most-recent game (or a freshly-minted one). datastar's
-        # @get URL and the input handlers in script.js share both ids so
-        # POSTs land on the right per-game xs topic.
+        # playerId comes from the cookie. The current gameId lives entirely
+        # server-side (latest frame in player.<id>.games); /move and /sse
+        # derive it from the index, so the client only carries the player.
         "data-player-id": $player_id
-        "data-game-id": $game_id
         "data-move-url": ($req | href "/move")
         "data-view-url": ($req | href "/view")
-        "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
+        "data-signals": $"{playerId: '($player_id)'}"
         # Mirror datastar's $connected signal (set by data-indicator on #game)
         # into a data-attr CSS can react to.
         "data-attr:data-conn": "$connected ? 'ok' : 'down'"

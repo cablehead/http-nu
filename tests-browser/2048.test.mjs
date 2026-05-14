@@ -101,13 +101,9 @@ check(
 const score = await page.evaluate(() => document.querySelector("#status")?.textContent ?? "");
 check("score shows", /Score:/.test(score), score);
 
-// Reset starts a new game in a new topic, so the server returns a
-// datastar-redirect that reloads the page. Wait for the navigation and
-// for the fresh board to render via SSE.
-await Promise.all([
-  page.waitForNavigation({ waitUntil: "load" }),
-  page.keyboard.press("r"),
-]);
+// Reset appends a games-index frame; the SSE pipeline picks it up and
+// streams a fresh board over the existing connection. No page reload.
+await page.keyboard.press("r");
 const afterReset = await waitFor((s) => s.tiles.length === 2);
 check("reset back to 2 tiles", afterReset.tiles.length === 2, JSON.stringify(afterReset));
 
