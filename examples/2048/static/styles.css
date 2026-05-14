@@ -455,3 +455,58 @@ footer a {
   transition: background 120ms;
 }
 footer a:hover { background: var(--brand-hover); }
+
+/* /games -- past games list. The board renders at full size; .thumb scales
+   it down via CSS transform so we don't need a separate small renderer. */
+.games-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  width: min(960px, 100% - 32px);
+  margin: 0 auto;
+  padding: 16px;
+}
+.game-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--tile);
+  border-radius: 6px;
+  padding: 12px;
+}
+.game-card .thumb {
+  width: 92px;
+  height: 92px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.game-card .thumb #board {
+  transform: scale(0.2);
+  transform-origin: top left;
+}
+.game-card .meta {
+  flex: 1;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.game-card .score { font-weight: bold; }
+.game-card .badge {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-top: 4px;
+}
+.game-card .badge.live { background: var(--accent); color: var(--light); }
+.game-card .badge.over { background: var(--accent-press); color: var(--light); }
+
+/* /games -- override body so the page scrolls and content flows top-down. */
+body.games-view {
+  height: auto;
+  min-height: 100dvh;
+  overflow: auto;
+  justify-content: flex-start;
+}
+body.games-view h1 { padding-top: 16px; }

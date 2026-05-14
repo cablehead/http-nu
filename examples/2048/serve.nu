@@ -294,6 +294,37 @@ def render-settings []: nothing -> record {
       (P "more knobs soon.")))
 }
 
+# Replay a game's move log into its final state. Used by /games to show
+# each past game's resting board without any animation pacing.
+def replay-game-state [game_id: string]: nothing -> record {
+  let init = (initial-state $game_id)
+  let frames = (.cat -T $"game.($game_id).move")
+  if ($frames | is-empty) { return $init }
+  let init_acc = {stack: [$init] mode: "game" game_id: $game_id games_topic: ""}
+  $frames | impulses-to-states $init_acc | last | get state
+}
+
+# One row in the past-games list: thumbnail + score + max-tile + move count.
+def render-game-card [req: record game_frame: record]: nothing -> record {
+  let game_id = $game_frame.id
+  let state = replay-game-state $game_id
+  let max_tile = if ($state.tiles | is-empty) { 0 } else {
+    $state.tiles | get value | math max
+  }
+  let move_count = (.cat -T $"game.($game_id).move" | length)
+  (DIV {class: "game-card"}
+    (DIV {class: "thumb"} ($state | render-board))
+    (DIV {class: "meta"}
+      (DIV {class: "score"} $"Score: ($state.score)")
+      (DIV {} $"Max tile: ($max_tile)")
+      (DIV {} $"Moves: ($move_count)")
+      (if $state.game_over {
+        (DIV {class: "badge over"} "game over")
+      } else {
+        (DIV {class: "badge live"} "in progress")
+      })))
+}
+
 # Pick the right render based on the per-tab mode. Same #game id either way
 # so datastar morphs the swap as a single replacement.
 def render-current [mode: string, direction?: string, changed?: bool]: record -> record {
@@ -307,7 +338,8 @@ def render-current [mode: string, direction?: string, changed?: bool]: record ->
 
 # --- pipeline boxes ------------------------------------------------------
 # The SSE handler is a tight composition of:
-#   .cat --follow -> impulses-to-states -> threshold-gate -> states-to-html -> html-to-patches -> to sse
+#   .cat --follow -> filter-for-player -> impulses-to-states -> pace-slam-steps
+#   -> threshold-gate-states -> states-to-html -> html-to-patches -> to sse
 # Each stage has one job.
 
 # Box A. Takes xs frames, yields {state, mode, threshold?} records. A normal
@@ -396,8 +428,13 @@ def impulses-to-states [initial: record] {
     return {out: [{state: $cur, mode: $s.mode, threshold: false}], next: $s}
   } $initial
   | flatten
-  | generate {|item state = {prev_paced: false}|
-    # Pace consecutive paced items 100ms apart so each slam step animates.
+}
+
+# Pace consecutive paced items 250ms apart so each slam step animates over
+# the wire. Separated from impulses-to-states so replay paths (e.g. /games
+# rendering each past game's final state) can skip the wait.
+def pace-slam-steps [] {
+  generate {|item state = {prev_paced: false}|
     if (($item.paced? | default false) and $state.prev_paced) { sleep 250ms }
     {out: $item, next: {prev_paced: ($item.paced? | default false)}}
   }
@@ -502,6 +539,7 @@ def html-to-patches [] {
           game_id: ""
           games_topic: $games_topic
         }
+        | pace-slam-steps
         | threshold-gate-states
         | states-to-html
         | html-to-patches
@@ -523,6 +561,31 @@ def html-to-patches [] {
 
     (route {method: GET path: "/og.png"} {|req ctx|
       .static $SCRIPT_DIR "/og.png"
+    })
+
+    (route {method: GET path: "/games"} {|req ctx|
+      # Read-only history view. Latest first. Replays each game's move log
+      # to derive its final state, then renders a thumbnail + summary.
+      let cookies = $req | cookie parse
+      let prior = $cookies | get player? | default ""
+      let player_id = if ($prior | is-empty) { random uuid } else { $prior }
+      let games_topic = $"player.($player_id).games"
+      let games = (try { .cat -T $games_topic | reverse } catch { [] })
+      (HTML
+      (HEAD
+        (META {charset: "utf-8"})
+        (META {name: "viewport" content: "width=device-width, initial-scale=1"})
+        (LINK {rel: "icon" href: "data:,"})
+        (TITLE "past games -- 2048.nu")
+        (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")}))
+      (BODY {class: "games-view"}
+        (H1 "past games")
+        (P (A {href: ($req | href "/")} "\u{2190} play current"))
+        (if ($games | is-empty) {
+          (P {class: "hint"} "no games yet.")
+        } else {
+          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
+        })))
     })
 
     (route {method: POST path: "/view"} {|req ctx|
@@ -601,7 +664,9 @@ def html-to-patches [] {
         ", or swipe. Undo: "
         (BUTTON {type: "button" "data-intent": "undo"} "u")
         ", reset: "
-        (BUTTON {type: "button" "data-intent": "reset"} "r"))
+        (BUTTON {type: "button" "data-intent": "reset"} "r")
+        ". "
+        (A {href: ($req | href "/games")} "past games"))
       # data-init and data-indicator live on .column (which is never patched)
       # so the SSE fetch + connection signal survive the wholesale replacement
       # of #game's contents on every server patch.
