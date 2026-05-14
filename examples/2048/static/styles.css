@@ -239,17 +239,19 @@ button:active {
     linear-gradient(to bottom, rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%);
 }
 
-/* Disconnected: fade the board, disable the reset button. Keyboard input
-   is gated in script.js; pointer input is gated by pointer-events:none. */
+/* Disconnected: desaturate the board so tile numbers stay readable;
+   disable the reset button. Keyboard input is gated in script.js;
+   pointer input is gated by pointer-events:none. */
 body[data-conn="down"] #board-wrap {
-  opacity: 0.35;
+  filter: grayscale(1);
   pointer-events: none;
 }
 body[data-conn="down"] button {
   opacity: 0.4;
   pointer-events: none;
 }
-#board-wrap, button { transition: opacity 320ms ease; }
+#board-wrap { transition: filter 320ms ease; }
+button { transition: opacity 320ms ease; }
 
 /* Reconnect: a brief all-sides glow flash. */
 body.reconnect-pulse { animation: reconnect-pulse 600ms ease-out; }
