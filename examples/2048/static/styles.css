@@ -253,6 +253,11 @@ body[data-conn="down"] button {
   opacity: 0.4;
   pointer-events: none;
 }
+/* The replayMs span is datastar-bound (data-text) so the value persists
+   across a disconnect. Hide it while disconnected; the next reconnect's
+   SSE replay will refresh the signal and the next data-text apply will
+   re-show it when this rule no longer matches. */
+body[data-conn="down"] #replay { visibility: hidden; }
 #board-wrap { transition: filter 320ms ease; }
 button { transition: opacity 320ms ease; }
 
