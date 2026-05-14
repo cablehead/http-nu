@@ -721,9 +721,9 @@ def html-to-patches [] {
         (FOOTER
           (SPAN {class: "status"}
             (SPAN {id: "conn" title: "SSE connection"})
-            (SPAN {id: "rtt"} "\u{2014}ms")
             (SPAN {id: "replay" title: "last SSE replay time"
-              "data-text": "$replayMs ? `replay ${$replayMs}ms` : ''"} ""))
+              "data-text": "$replayMs ? `replayed in ${$replayMs}ms` : ''"} "")
+            (SPAN {id: "rtt" title: "last move round-trip time"} ""))
           (SPAN {class: "credit"}
             (A {href: "https://http-nu.cross.stream"}
               "served by http-nu "

@@ -23,7 +23,7 @@ const flashRed = () => {
 const rttEl = () => document.querySelector("#rtt");
 const tickRtt = () => {
   if (pending == null) return;
-  rttEl()?.replaceChildren(`${Math.round(performance.now() - pending)}ms`);
+  rttEl()?.replaceChildren(`rtt ${Math.round(performance.now() - pending)}ms`);
   requestAnimationFrame(tickRtt);
 };
 
@@ -62,11 +62,10 @@ const setConn = (v) => {
     // and the history so reconnect probes for a fresh measurement.
     pending = null;
     rtts.length = 0;
-    rttEl()?.replaceChildren("—ms");
-    // Clear the replayMs debug indicator too. The reconnect SSE will emit
-    // a fresh value via datastar-patch-signals which the data-text binding
-    // will pick up.
-    document.querySelector("#replay")?.replaceChildren("");
+    rttEl()?.replaceChildren("");
+    // #replay is datastar-bound (data-text) so we can't clear it from JS
+    // -- the next heartbeat would re-apply $replayMs. CSS hides it while
+    // body[data-conn="down"] (see styles.css).
   }
   if (prevConn === "down" && v === "ok") {
     document.body.classList.remove("reconnect-pulse");
@@ -107,7 +106,7 @@ new MutationObserver(() => {
   const w = document.querySelector("#board-wrap");
   w?.style.setProperty("--glow-x", "0px");
   w?.style.setProperty("--glow-y", "0px");
-  document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
+  document.querySelector("#rtt")?.replaceChildren(`rtt ${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();
   // The spring curve peaks around 40% through the animation. To make that
