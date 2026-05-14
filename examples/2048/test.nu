@@ -132,13 +132,6 @@ assert ((($r0 | length) == 1)) "empty-log pipeline emits exactly one record"
 assert ((($r0 | first).state.tiles | length) == 0) "empty-log state has zero tiles"
 assert ((($r0 | first | get threshold?) | default false) == false) "threshold flag stripped before downstream"
 
-# 1. Start frame replaces the stack AND updates game_id.
-let r1 = drive [{topic: "game.t.move" meta: {kind: "start" game_id: "fresh-game-cccc"}}] $init
-assert (($r1 | length) == 1) "start frame emits one state"
-let r1_tiles = $r1 | first | get state | get tiles
-let expected = (initial-state "fresh-game-cccc") | get tiles
-assert (tiles-equal $r1_tiles $expected) "start state derives from the frame's game_id"
-
 # 2. xs.threshold marker passes the current top of stack through.
 let r2 = drive [{topic: "xs.threshold"}] $init
 assert (($r2 | first | get threshold) == true) "threshold marker carries threshold=true"

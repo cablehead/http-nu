@@ -101,7 +101,13 @@ check(
 const score = await page.evaluate(() => document.querySelector("#status")?.textContent ?? "");
 check("score shows", /Score:/.test(score), score);
 
-await page.keyboard.press("r");
+// Reset starts a new game in a new topic, so the server returns a
+// datastar-redirect that reloads the page. Wait for the navigation and
+// for the fresh board to render via SSE.
+await Promise.all([
+  page.waitForNavigation({ waitUntil: "load" }),
+  page.keyboard.press("r"),
+]);
 const afterReset = await waitFor((s) => s.tiles.length === 2);
 check("reset back to 2 tiles", afterReset.tiles.length === 2, JSON.stringify(afterReset));
 
