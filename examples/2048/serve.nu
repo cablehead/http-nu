@@ -241,13 +241,14 @@ def close-button []: nothing -> record {
     (ICONIFY "material-symbols:close-rounded" {width: "20" height: "20"}))
 }
 
-def render-game [direction?: string, changed?: bool]: record -> record {
+def render-game [direction?: string, changed?: bool, req_id?: string]: record -> record {
   let state = $in
   # The edge-glow color rides the highest-value tile, pushed as an inline
   # CSS variable so it cascades to #board-wrap and the ::after pseudo.
   let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
   let dir = $direction | default ""
   let did_change = $changed | default false
+  let rid = $req_id | default ""
   # A fresh edge-flash element per patch (unique id forces morphdom to
   # destroy/recreate, so its CSS animation re-fires every step -- including
   # each step of a slam cascade). When the move did not change the board
@@ -260,9 +261,9 @@ def render-game [direction?: string, changed?: bool]: record -> record {
   } else {
     [($state | render-board)]
   }
-  # data-rev forces a unique attribute per render so datastar's morph always
-  # touches something -- otherwise no-op patches (e.g. ping echoes) wouldn't
-  # fire a MutationObserver event and the RTT readout would never seed.
+  # data-rev = client's reqId when the patch is the response to a specific
+  # move POST; otherwise a fresh uuid. The client's RTT observer only counts
+  # a mutation when data-rev matches its pending probe id.
   # data-view tells the client which mode the current render is in.
   # data-changed signals to the client whether the board state actually
   # moved (vs a no-op direction press); used to gate haptics + edge flash.
@@ -271,7 +272,7 @@ def render-game [direction?: string, changed?: bool]: record -> record {
   (DIV {
     id: "game"
     style: $"--glow: ($glow); view-transition-name: view-game;"
-    "data-rev": (random uuid)
+    "data-rev": (if ($rid | is-empty) { random uuid } else { $rid })
     "data-view": "game"
     "data-from": $dir
     "data-changed": (if $did_change { "1" } else { "" })
@@ -327,12 +328,12 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
 
 # Pick the right render based on the per-tab mode. Same #game id either way
 # so datastar morphs the swap as a single replacement.
-def render-current [mode: string, direction?: string, changed?: bool]: record -> record {
+def render-current [mode: string, direction?: string, changed?: bool, req_id?: string]: record -> record {
   let state = $in
   if $mode == "settings" {
     render-settings
   } else {
-    $state | render-game $direction $changed
+    $state | render-game $direction $changed $req_id
   }
 }
 
@@ -394,14 +395,15 @@ def impulses-to-states [initial: record] {
       let new_s = $s | upsert mode ($frame.meta | get mode? | default "game")
       return {out: [{state: $cur, mode: $new_s.mode, threshold: false}], next: $new_s}
     }
+    let req_id = $frame.meta | get req_id? | default ""
     if $kind == "undo" {
       # Pop one entry. If only the initial state is on the stack, echo.
       if ($s.stack | length) <= 1 {
-        return {out: [{state: $cur, mode: $s.mode, threshold: false}], next: $s}
+        return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
       }
       let popped = $s.stack | drop 1
       let new_top = $popped | last
-      return {out: [{state: $new_top, mode: $s.mode, direction: "undo", changed: true, threshold: false}], next: ($s | update stack $popped)}
+      return {out: [{state: $new_top, mode: $s.mode, direction: "undo", changed: true, req_id: $req_id, threshold: false}], next: ($s | update stack $popped)}
     }
     let intent = $frame.meta | get intent? | default ""
     if $intent in [h j k l] {
@@ -409,13 +411,14 @@ def impulses-to-states [initial: record] {
       let changed = not (tiles-equal $cur.tiles $new_state.tiles)
       # No-op moves don't push -- nothing to undo if the board didn't change.
       let new_stack = if $changed { $s.stack | append $new_state } else { $s.stack }
-      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, threshold: false}], next: ($s | update stack $new_stack)}
+      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, req_id: $req_id, threshold: false}], next: ($s | update stack $new_stack)}
     }
     if ($intent | str starts-with "slam-") {
       let dir = $intent | str substring 5..
       # Iterate up to 32 steps or until the board stops changing. Each step
       # derives its own spawn from the current state -- naturally distinct
-      # because each apply-move advances the state.
+      # because each apply-move advances the state. Only the LAST step
+      # carries req_id so the client RTT-matches the final cascade frame.
       let result = 0..31 | reduce --fold {state: $cur, stopped: false, yields: []} {|_ acc|
         if $acc.stopped { return $acc }
         let nxt = $acc.state | apply-move $dir $s.game_id
@@ -429,15 +432,21 @@ def impulses-to-states [initial: record] {
       }
       # No-op slam: echo, no stack change.
       if ($result.yields | is-empty) {
-        return {out: [{state: $cur, mode: $s.mode, threshold: false}], next: $s}
+        return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
       }
-      # A slam cascade is ONE undoable step: push only the final state.
-      return {out: $result.yields, next: ($s | update stack ($s.stack | append $result.state))}
+      # Tag the final step with req_id so the client's RTT match latches
+      # onto the cascade's terminal patch (not the first step which arrives
+      # almost-immediately and would skew the measurement low).
+      let yields_len = $result.yields | length
+      let tagged = $result.yields | enumerate | each {|p|
+        if $p.index == ($yields_len - 1) { $p.item | upsert req_id $req_id } else { $p.item }
+      }
+      return {out: $tagged, next: ($s | update stack ($s.stack | append $result.state))}
     }
     # Any other intent (empty ping, unrecognised) still emits a no-op state
     # echo. The client uses the resulting mutation to measure RTT and to
     # clear the "lit edge" -- if the edge stays lit, the server is slow.
-    return {out: [{state: $cur, mode: $s.mode, threshold: false}], next: $s}
+    return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
   } $initial
   | flatten
 }
@@ -501,7 +510,7 @@ def states-to-html [] {
     } else if ('signals' in $s) {
       $s
     } else {
-      $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false)
+      $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false) ($s.req_id? | default "")
     }
   }
 }
@@ -533,6 +542,7 @@ def html-to-patches [] {
       let signals = $in | from datastar-signals $req
       let player_id = $signals | get playerId? | default ""
       let intent = $signals | get intent? | default ""
+      let req_id = $signals | get reqId? | default ""
       let games_topic = $"player.($player_id).games"
       if $intent == "reset" {
         # Append to the index. The SSE pipeline picks this up, resets its
@@ -543,10 +553,10 @@ def html-to-patches [] {
         let game_id = (.last $games_topic | get id)
         let topic = $"game.($game_id).move"
         if $intent == "undo" {
-          null | .append $topic --meta {kind: "undo"}
+          null | .append $topic --meta {kind: "undo" req_id: $req_id}
         } else {
           # Covers h/j/k/l, slam-X, and empty-string ping.
-          null | .append $topic --meta {intent: $intent}
+          null | .append $topic --meta {intent: $intent req_id: $req_id}
         }
       }
       null | metadata set { merge {'http.response': {status: 204}} }

@@ -23,21 +23,23 @@ const flashRed = () => {
 const rttEl = () => document.querySelector("#rtt");
 const tickRtt = () => {
   if (pending == null) return;
-  rttEl()?.replaceChildren(`rtt ${Math.round(performance.now() - pending)}ms`);
+  rttEl()?.replaceChildren(`rtt ${Math.round(performance.now() - pending.t)}ms`);
   requestAnimationFrame(tickRtt);
 };
 
 const move = (intent) => {
-  pending = performance.now();
+  // Each move carries a uuid the server echoes back via #game's data-rev.
+  // The observer only counts an RTT when data-rev matches our pending id,
+  // so reconnect-replay patches don't get misattributed to a probe.
+  const reqId = crypto.randomUUID();
+  pending = { id: reqId, t: performance.now() };
   requestAnimationFrame(tickRtt);  // live-tick the RTT indicator while in flight
   return fetch(moveUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerId, intent }),
+    body: JSON.stringify({ playerId, intent, reqId }),
   }).then((r) => {
     if (!r.ok) { pending = null; flashRed(); }
-    // Reset emits a games-index frame which the SSE pipeline picks up and
-    // streams a fresh board over the existing connection -- no reload.
   }).catch(() => {
     pending = null;
     flashRed();
@@ -99,7 +101,11 @@ new MutationObserver(() => {
     return;
   }
   if (pending == null) return;
-  const rtt = Math.round(performance.now() - pending);
+  // Only attribute the mutation to our pending probe if #game's data-rev
+  // matches the reqId we issued. Replay patches use a fresh-uuid data-rev
+  // so they don't get misattributed.
+  if (game.dataset.rev !== pending.id) return;
+  const rtt = Math.round(performance.now() - pending.t);
   pending = null;
   // SSE patch landed: release the "still lit" edge glow. The patch's own
   // .edge-flash element carries the per-step visual from here on.
