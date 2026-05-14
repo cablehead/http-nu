@@ -193,24 +193,27 @@ button:active {
 /* Keyboard anticipation: synthetic two-phase animation (attack -> spring-back
    with overshoot) since there's no finger to drive --tilt-x continuously.
    Total duration tracks RTT just like swipe-commit decay. */
+/* Anticipation goes OPPOSITE the press direction -- like pulling a
+   slingshot back before release. The board winds up away from where
+   it's about to slide. */
 @keyframes key-lean-h {
-  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
-  100% { --tilt-x: 0px; }
-}
-@keyframes key-lean-l {
   0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
   15%  { --tilt-x: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
   100% { --tilt-x: 0px; }
 }
+@keyframes key-lean-l {
+  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
+  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  100% { --tilt-x: 0px; }
+}
 @keyframes key-lean-k {
   0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
   100% { --tilt-y: 0px; }
 }
 @keyframes key-lean-j {
   0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
   100% { --tilt-y: 0px; }
 }
 #board-wrap.key-h { animation: key-lean-h var(--decay-duration) both; }
