@@ -3,6 +3,10 @@ use http-nu/datastar *
 use http-nu/html *
 use http-nu/http *
 
+# Pure game logic + replay helpers live in mod.nu so they're reusable from
+# `http-nu eval` for ad-hoc poking at a game store.
+use ./mod.nu *
+
 const SCRIPT_DIR = path self | path dirname
 const STATIC_DIR = $SCRIPT_DIR | path join "static"
 # Cache-buster for static assets: fresh per server start, stable within one
@@ -17,142 +21,6 @@ let REV = random uuid | str substring 0..7
 # absolutely-positioned div with `view-transition-name: tile-<id>`. When the
 # board re-renders, the browser pairs old and new snapshots by name and
 # animates the position interpolation for free.
-
-# --- game logic -----------------------------------------------------------
-
-# Deterministic random "roll" -- a pure function of (game_id, state, key).
-# Same inputs always yield the same {idx, value}, so the whole game replays
-# identically and (undo + same direction) reproduces the original spawn.
-# Frames carry only the intent and game_id; replay re-derives every spawn.
-def roll [game_id: string, state: record, key: string]: nothing -> record {
-  let payload = $"($game_id)|($key)|" + ($state | to json --raw)
-  let h = $payload | hash sha256
-  # Prepend "0x" so `into int` parses as hex. `--radix 16` would mis-read
-  # hashes starting with "0b" / "0o" as binary / octal literals and error.
-  {
-    idx: ($h | str substring 0..8 | $"0x($in)" | into int)
-    value: (($h | str substring 8..10 | $"0x($in)" | into int) mod 10)
-  }
-}
-
-# Drop a 2 (90%) or 4 (10%) into an empty cell, picked by a roll.
-def spawn-tile [seeds: record]: record -> record {
-  let s = $in
-  let occupied = $s.tiles | each {|t| {r: $t.r c: $t.c} }
-  let empties = 0..3 | each {|r|
-      0..3 | each {|c| {r: $r c: $c} }
-    } | flatten | where {|cell| $cell not-in $occupied }
-  if ($empties | is-empty) { return $s }
-  let pick = $empties | get ($seeds.idx mod ($empties | length))
-  let value = if ($seeds.value == 0) { 4 } else { 2 }
-  $s
-  | update tiles { append {id: $s.next_id r: $pick.r c: $pick.c value: $value} }
-  | update next_id { $in + 1 }
-}
-
-# Initial board for a game. Two tiles spawned via roll() with key "@init".
-def initial-state [game_id: string]: nothing -> record {
-  let s0 = {tiles: [] next_id: 1 score: 0 game_over: false}
-  let s1 = $s0 | spawn-tile (roll $game_id $s0 "@init")
-  $s1 | spawn-tile (roll $game_id $s1 "@init")
-}
-
-# Slide one row left, preserving tile identity. When two adjacent tiles merge,
-# the leading tile keeps its id (and doubles its value); the trailing tile is
-# removed. Returns {tiles, score}.
-def slide-row-tiles [row_idx: int]: list -> record {
-  let in_row = $in | where r == $row_idx | sort-by c
-  mut out = []
-  mut score = 0
-  mut col = 0
-  mut i = 0
-  let n = $in_row | length
-  while $i < $n {
-    let cur = $in_row | get $i
-    let has_next = ($i + 1) < $n
-    let nxt = if $has_next { $in_row | get ($i + 1) } else { null }
-    if $has_next and $cur.value == $nxt.value {
-      let merged = $cur.value * 2
-      $out = $out | append {id: $cur.id r: $row_idx c: $col value: $merged}
-      $score = $score + $merged
-      $col = $col + 1
-      $i = $i + 2
-    } else {
-      $out = $out | append {id: $cur.id r: $row_idx c: $col value: $cur.value}
-      $col = $col + 1
-      $i = $i + 1
-    }
-  }
-  {tiles: $out score: $score}
-}
-
-def slide-tiles-left []: list -> record {
-  let tiles = $in
-  let rows = 0..3 | each {|r| $tiles | slide-row-tiles $r }
-  {
-    tiles: ($rows | each {|r| $r.tiles } | flatten)
-    score: ($rows | each {|r| $r.score } | math sum)
-  }
-}
-
-# Reflect tiles over the vertical axis (c -> 3 - c).
-def reflect-cols []: list -> list {
-  $in | each {|t| $t | upsert c (3 - $t.c) }
-}
-
-# Swap r and c (transpose over the diagonal).
-def transpose-tiles []: list -> list {
-  $in | each {|t| $t | upsert r $t.c | upsert c $t.r }
-}
-
-# All four directions reuse `slide-tiles-left` by reflecting/transposing in
-# and back out -- so the merge logic lives in exactly one place.
-def slide-tiles [dir: string]: list -> record {
-  let tiles = $in
-  match $dir {
-    "h" => ($tiles | slide-tiles-left)
-    "l" => {
-      let r = $tiles | reflect-cols | slide-tiles-left
-      {tiles: ($r.tiles | reflect-cols) score: $r.score}
-    }
-    "k" => {
-      let r = $tiles | transpose-tiles | slide-tiles-left
-      {tiles: ($r.tiles | transpose-tiles) score: $r.score}
-    }
-    "j" => {
-      let r = $tiles | transpose-tiles | reflect-cols | slide-tiles-left
-      {tiles: ($r.tiles | reflect-cols | transpose-tiles) score: $r.score}
-    }
-    _ => {tiles: $tiles score: 0}
-  }
-}
-
-def tiles-equal [a: list b: list]: nothing -> bool {
-  ($a | sort-by id) == ($b | sort-by id)
-}
-
-def is-game-over []: record -> bool {
-  let s = $in
-  if ($s.tiles | length) < 16 { return false }
-  let mergeable = $s.tiles | any {|t|
-      let right = $t.c < 3 and ($s.tiles | where r == $t.r and c == ($t.c + 1) | first | get value) == $t.value
-      let down = $t.r < 3 and ($s.tiles | where r == ($t.r + 1) and c == $t.c | first | get value) == $t.value
-      $right or $down
-    }
-  not $mergeable
-}
-
-def apply-move [dir: string, game_id: string]: record -> record {
-  let s = $in
-  if $s.game_over { return $s }
-  let r = $s.tiles | slide-tiles $dir
-  if (tiles-equal $s.tiles $r.tiles) { return $s }
-  let with_tile = ($s
-  | update tiles { $r.tiles }
-  | update score { $in + $r.score }
-  | spawn-tile (roll $game_id $s $dir))
-  $with_tile | update game_over { $with_tile | is-game-over }
-}
 
 # --- rendering ------------------------------------------------------------
 
@@ -295,16 +163,6 @@ def render-settings []: nothing -> record {
       (P "more knobs soon.")))
 }
 
-# Replay a game's move log into its final state. Used by /games to show
-# each past game's resting board without any animation pacing.
-def replay-game-state [game_id: string]: nothing -> record {
-  let init = (initial-state $game_id)
-  let frames = (.cat -T $"game.($game_id).move")
-  if ($frames | is-empty) { return $init }
-  let init_acc = {stack: [$init] mode: "game" game_id: $game_id games_topic: ""}
-  $frames | impulses-to-states $init_acc | last | get state
-}
-
 # One row in the past-games list: thumbnail + score + max-tile + move count.
 def render-game-card [req: record game_frame: record]: nothing -> record {
   let game_id = $game_frame.id
@@ -343,113 +201,9 @@ def render-current [mode: string, direction?: string, changed?: bool, req_id?: s
 #   -> threshold-gate-states -> states-to-html -> html-to-patches -> to sse
 # Each stage has one job.
 
-# Box A. Takes xs frames, yields {state, mode, threshold?} records. A normal
-# move yields one record; a slam-intent runs apply-move until the board
-# settles and yields one record per successful step, paced 50ms apart so the
-# client sees each step animate. Pacing lives here because this is the box
-# that knows the difference between a one-shot move and a multi-step slam.
-def impulses-to-states [initial: record] {
-  # s = {stack: [state, ...], mode, game_id, games_topic}
-  # Stack discipline: every move that actually changes the board pushes the
-  # resulting state. A slam counts as one undoable step (its final state).
-  # An undo frame pops the top, exposing the previous state. The "current"
-  # state is always the top of the stack. game_id seeds spawn determinism so
-  # (state, dir) -> same spawn within a game; undo + same-dir = same outcome.
-  # A frame on the player's games_topic starts a new game: game_id becomes
-  # the frame's id, stack resets to a fresh initial-state. Move frames are
-  # only processed for the current game's topic; everything else is dropped.
-  generate {|frame s|
-    let cur = $s.stack | last
-    if $frame.topic == "xs.threshold" {
-      # Replay caught up to live. Also emit a signals patch with how long
-      # the replay took -- useful as a quick debug indicator client-side.
-      let started = $s | get started? | default (date now)
-      let elapsed = ((date now) - $started) / 1ms | math round
-      return {out: [
-        {state: $cur, mode: $s.mode, threshold: true}
-        {signals: {replayMs: $elapsed}}
-      ], next: $s}
-    }
-    if $frame.topic == "xs.pulse" {
-      # SSE keepalive -- emit a pulse marker; downstream stages turn it into
-      # a datastar-patch-signals no-op so the client sees a sign of life.
-      return {out: [{pulse: true, mode: $s.mode}], next: $s}
-    }
-    if $frame.topic == $s.games_topic {
-      # New game (or first game) for this player. Reset to a fresh board.
-      let new_game_id = $frame.id
-      let new_state = initial-state $new_game_id
-      return {
-        out: [{state: $new_state, mode: $s.mode, threshold: false}]
-        next: ($s | update stack [$new_state] | update game_id $new_game_id)
-      }
-    }
-    if $frame.topic != $"game.($s.game_id).move" {
-      # Some other player's game, or our own old game. Drop.
-      return {next: $s}
-    }
-    let kind = $frame.meta | get kind? | default "move"
-    if $kind == "view" {
-      # Ephemeral (ttl=ephemeral): only arrives live, never during replay,
-      # so mode resets to game on reconnect.
-      let new_s = $s | upsert mode ($frame.meta | get mode? | default "game")
-      return {out: [{state: $cur, mode: $new_s.mode, threshold: false}], next: $new_s}
-    }
-    let req_id = $frame.meta | get req_id? | default ""
-    if $kind == "undo" {
-      # Pop one entry. If only the initial state is on the stack, echo.
-      if ($s.stack | length) <= 1 {
-        return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
-      }
-      let popped = $s.stack | drop 1
-      let new_top = $popped | last
-      return {out: [{state: $new_top, mode: $s.mode, direction: "undo", changed: true, req_id: $req_id, threshold: false}], next: ($s | update stack $popped)}
-    }
-    let intent = $frame.meta | get intent? | default ""
-    if $intent in [h j k l] {
-      let new_state = $cur | apply-move $intent $s.game_id
-      let changed = not (tiles-equal $cur.tiles $new_state.tiles)
-      # No-op moves don't push -- nothing to undo if the board didn't change.
-      let new_stack = if $changed { $s.stack | append $new_state } else { $s.stack }
-      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, req_id: $req_id, threshold: false}], next: ($s | update stack $new_stack)}
-    }
-    if ($intent | str starts-with "slam-") {
-      let dir = $intent | str substring 5..
-      # Generate each step lazily; break the moment tiles stop moving.
-      # The `take 32` is a safety cap that should never bind on a 4x4 board.
-      let yields = (generate {|state|
-        let nxt = $state | apply-move $dir $s.game_id
-        if (tiles-equal $state.tiles $nxt.tiles) {
-          # Returning a record without `next` terminates the generator.
-          {}
-        } else {
-          {
-            out: {state: $nxt, mode: $s.mode, direction: $dir, changed: true, threshold: false, paced: true}
-            next: $nxt
-          }
-        }
-      } $cur) | take 32 | collect
-      # No-op slam: echo, no stack change.
-      if ($yields | is-empty) {
-        return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
-      }
-      # Tag the final step with req_id so the client's RTT match latches
-      # onto the cascade's terminal patch (not the first step which arrives
-      # almost-immediately and would skew the measurement low).
-      let n = $yields | length
-      let tagged = $yields | enumerate | each {|p|
-        if $p.index == ($n - 1) { $p.item | upsert req_id $req_id } else { $p.item }
-      }
-      let final_state = $yields | last | get state
-      return {out: $tagged, next: ($s | update stack ($s.stack | append $final_state))}
-    }
-    # Any other intent (empty ping, unrecognised) still emits a no-op state
-    # echo. The client uses the resulting mutation to measure RTT and to
-    # clear the "lit edge" -- if the edge stays lit, the server is slow.
-    return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
-  } $initial
-  | flatten
-}
+# Box A. impulses-to-states (and filter-for-player) live in mod.nu so they're
+# reusable from `http-nu eval`. The remaining boxes here are SSE-specific:
+# pacing, threshold gating, render, and patch wrapping.
 
 # Pace consecutive paced items 200ms apart so each slam step animates over
 # the wire. Separated from impulses-to-states so replay paths (e.g. /games
@@ -459,19 +213,6 @@ def pace-slam-steps [] {
     if (($item.paced? | default false) and $state.prev_paced) { sleep 200ms }
     {out: $item, next: {prev_paced: ($item.paced? | default false)}}
   }
-}
-
-# Static topic filter: admits this player's games index, any game's move
-# topic, and the xs.threshold marker. Everything else (other players'
-# topics, unrelated streams) is dropped. impulses-to-states still does
-# the dynamic per-game filtering -- this stage is the cheap pre-filter.
-def filter-for-player [games_topic: string] {
-  where {|f| (
-    $f.topic == $games_topic
-    or (($f.topic | str starts-with "game.") and ($f.topic | str ends-with ".move"))
-    or $f.topic == "xs.threshold"
-    or $f.topic == "xs.pulse"
-  ) }
 }
 
 # Box B. Buffers states pre-threshold (only the last is retained); on
@@ -568,17 +309,21 @@ def html-to-patches [] {
       let games_topic = $"player.($player_id).games"
       # Orphan cookie: the player's index is empty (store wiped). Clear
       # the cookie and reload so GET / mints fresh identity.
-      let has_games = (try { (.last $games_topic) != null } catch { false })
-      if not $has_games {
+      let current_game_frame = (try { .last $games_topic } catch { null })
+      if $current_game_frame == null {
         "/" | to datastar-redirect | cookie delete "player" | to sse
       } else {
-        # Subscribe to everything relevant: the player's games index
-        # (resets / new-game signals) and every game.*.move topic.
-        # impulses-to-states filters move frames to the current game_id.
+        # Start the stream at the current game's frame (inclusive) so we
+        # skip the player's earlier games entirely -- impulses-to-states
+        # only ever needs to apply moves for the current game (and any
+        # newer game that gets started live via a fresh games_topic frame).
+        # The first frame the pipeline sees is the current game's
+        # games_topic frame, which triggers impulses-to-states to set
+        # game_id and seed the stack with the correct initial state.
         # --pulse 450 injects xs.pulse frames into the stream every 450ms
         # which the pipeline turns into datastar-patch-signals heartbeats
         # for the client's liveness timer.
-        .cat --follow --pulse 450
+        .cat --follow --pulse 450 --from $current_game_frame.id
         | filter-for-player $games_topic
         | impulses-to-states {
           stack: [{tiles: [] next_id: 1 score: 0 game_over: false}]

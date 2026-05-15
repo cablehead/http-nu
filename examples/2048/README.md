@@ -32,6 +32,52 @@ http-nu --datastar --store ./store :3002 examples/2048/serve.nu
 
 Visit http://localhost:3002 and play.
 
+## Interactive use from nushell
+
+[`mod.nu`](mod.nu) is the primary surface: pure game logic plus replay
+helpers, designed to be loaded into a vanilla nu shell talking to a vanilla
+`xs serve` store. `serve.nu` is a web view layered on top; you don't need
+it running to explore games from the command line.
+
+Point your nu session at the store and overlay-use the module:
+
+```nushell
+$env.XS_ADDR = (realpath ./store)
+overlay use -r examples/2048
+```
+
+(`xs.nu` -- the CLI wrapper that supplies `.cat`, `.last`, `.append` --
+needs to be in your shell already; it shells out to the `xs` binary which
+reads `XS_ADDR`.)
+
+Then explore:
+
+```nushell
+# Every player seen in the store, with game count + latest game id.
+list-players
+
+# Every game, ranked by move count.
+list-games | first 5
+
+# Final state of one game.
+replay-game-state "03g4l0uvw5ewry8bwhzvgmuye" | reject tiles
+
+# Pipeline form: pipe an arbitrary move-frame stream through the same fold.
+# The game_id seeds the deterministic spawn rolls.
+.cat -T "game.03g4l0uvw5ewry8bwhzvgmuye.move" | project-game "03g4l0uvw5ewry8bwhzvgmuye" | reject tiles
+
+# Live tail: emits one record per state change as moves stream in. Streams
+# indefinitely; Ctrl-C to stop.
+follow-game "03g4l0uvw5ewry8bwhzvgmuye" | each { reject state.tiles }
+```
+
+Both `replay-game-state` and `follow-game` are thin wrappers over the
+streaming primitive `project-game`; the underlying state machine lives in
+`impulses-to-states`. `mod.nu` also exports the pure pieces
+(`initial-state`, `apply-move`, `slide-tiles`, `tiles-equal`,
+`is-game-over`, `roll`, `spawn-tile`, `filter-for-player`) for finer-grained
+poking.
+
 ## What this demonstrates
 
 - **Event-sourced state.** No server-side mutable variable holds the game.
