@@ -163,28 +163,55 @@ document.addEventListener("change", (e) => {
   }
 });
 
+const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
+const LIT = 5;
+
+// Hold-mode wind-up: smoothly tilt opposite the press direction and HOLD.
+// The .key-windup class adds a short CSS transition so the snap is animated.
 const applyHoldLean = (dir) => {
   const w = document.querySelector("#board-wrap");
   if (!w) return;
-  w.classList.remove("decay", "snap");
-  const peakX = dir === "l" ? CAP : dir === "h" ? -CAP : 0;
-  const peakY = dir === "j" ? CAP : dir === "k" ? -CAP : 0;
-  w.style.setProperty("--tilt-x", `${peakX}px`);
-  w.style.setProperty("--tilt-y", `${peakY}px`);
-  // Glow follows the lean: brighter than the post-release lit value so the
-  // press feels "loaded". The lit value (5px) takes over on release.
-  w.style.setProperty("--glow-x", `${peakX}px`);
-  w.style.setProperty("--glow-y", `${peakY}px`);
+  w.classList.remove("decay", "snap", ...keyClasses);
+  w.classList.add("key-windup");
+  const tiltX = dir === "l" ? -CAP : dir === "h" ? CAP : 0;
+  const tiltY = dir === "j" ? -CAP : dir === "k" ? CAP : 0;
+  w.style.setProperty("--tilt-x", `${tiltX}px`);
+  w.style.setProperty("--tilt-y", `${tiltY}px`);
+  // Glow lights the destination edge at full intensity during the hold.
+  const glowX = dir === "l" ? CAP : dir === "h" ? -CAP : 0;
+  const glowY = dir === "j" ? CAP : dir === "k" ? -CAP : 0;
+  w.style.setProperty("--glow-x", `${glowX}px`);
+  w.style.setProperty("--glow-y", `${glowY}px`);
 };
 
+// Release: spring tilt forward through 0 via .decay, drop glow to LIT.
 const releaseHold = (dir) => {
   const w = document.querySelector("#board-wrap");
   if (!w) return;
+  w.classList.remove("key-windup");
   w.classList.add("decay");
   w.style.setProperty("--tilt-x", "0px");
   w.style.setProperty("--tilt-y", "0px");
-  // Lit-edge while the move is in flight; observer clears on SSE patch.
-  const LIT = 5;
+  w.style.setProperty("--glow-x",
+    dir === "l" ? `${LIT}px` :
+    dir === "h" ? `${-LIT}px` : "0px");
+  w.style.setProperty("--glow-y",
+    dir === "j" ? `${LIT}px` :
+    dir === "k" ? `${-LIT}px` : "0px");
+};
+
+// Non-hold-mode anticipation: trigger the existing key-X keyframe (which
+// does 0 -> opposite peak -> 0 over --decay-duration with a spring curve).
+// Set the lit destination glow at the same time; observer clears on SSE.
+const applySlingshot = (dir) => {
+  const w = document.querySelector("#board-wrap");
+  if (!w) return;
+  w.classList.remove(...keyClasses, "decay", "snap", "key-windup");
+  void w.offsetWidth;
+  w.classList.add(`key-${dir}`);
+  w.addEventListener("animationend", () => {
+    w.classList.remove(`key-${dir}`);
+  }, { once: true });
   w.style.setProperty("--glow-x",
     dir === "l" ? `${LIT}px` :
     dir === "h" ? `${-LIT}px` : "0px");
@@ -196,19 +223,20 @@ const releaseHold = (dir) => {
 addEventListener("keydown", (e) => {
   if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
   if (document.getElementById("game")?.dataset.view !== "game") return;  // settings shown
+  // OS auto-repeat: holding a key emits keydown over and over. Ignore those
+  // so we don't fire 10,000 moves; hold-mode tracks press/release via the
+  // single non-repeat keydown + the keyup.
+  if (e.repeat) { e.preventDefault(); return; }
   // Shift+letter sends uppercase ("H"), so fall back to the lowercased key.
   // Arrow keys aren't affected (e.key is "ArrowLeft" regardless of Shift).
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
 
   if (dir) {
     if (holdMode) {
-      if (heldDir === dir) { e.preventDefault(); return; }  // auto-repeat
       heldDir = dir;
-      applyHoldLean(dir);
+      applyHoldLean(dir);                 // smooth wind-back, stays at peak
     } else {
-      // Immediate-fire mode: lean briefly, fire, then spring back via decay.
-      applyHoldLean(dir);
-      requestAnimationFrame(() => releaseHold(dir));
+      applySlingshot(dir);                // synthesized 0 -> peak -> 0 keyframe
       move(e.shiftKey ? `slam-${dir}` : dir);
     }
     e.preventDefault();

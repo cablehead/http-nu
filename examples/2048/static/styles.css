@@ -228,6 +228,15 @@ button:active {
 #board-wrap.key-l { animation: key-lean-l var(--decay-duration) both; }
 #board-wrap.key-k { animation: key-lean-k var(--decay-duration) both; }
 #board-wrap.key-j { animation: key-lean-j var(--decay-duration) both; }
+/* Hold-mode wind-up: short animated transition into the slingshot pose;
+   stays there until keyup adds .decay which springs tilt back through 0. */
+#board-wrap.key-windup {
+  transition:
+    --tilt-x 120ms ease-out,
+    --tilt-y 120ms ease-out,
+    --glow-x 120ms ease-out,
+    --glow-y 120ms ease-out;
+}
 /* Edge glow: soft band of the accent color on whichever edge the gesture is
    heading toward. Alpha is driven by tilt magnitude so it ramps with the
    drag and bleeds off through the decay/snap animation. */
