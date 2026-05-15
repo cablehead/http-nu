@@ -292,7 +292,11 @@ def render-settings []: nothing -> record {
     (close-button)
     (DIV {id: "settings-panel"}
       (H2 "settings")
-      (P "more knobs soon.")))
+      # Checkbox state is synced from localStorage by script.js on every
+      # patch that renders the settings view; the server doesn't know it.
+      (LABEL {class: "toggle"}
+        (INPUT {type: "checkbox" "data-toggle": "holdMode"})
+        " Hold key to lean, release to move")))
 }
 
 # Replay a game's move log into its final state. Used by /games to show

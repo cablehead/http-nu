@@ -93,6 +93,9 @@ document.addEventListener("datastar-fetch", (e) => {
 });
 
 new MutationObserver(() => {
+  // Re-sync the settings checkbox in case this patch rendered the panel.
+  // No-op when the panel isn't on screen (querySelector returns null).
+  syncHoldCheckbox();
   if (!initSeen) {
     // First mutation is the SSE init render. Now that the stream's open,
     // send a no-op ping to seed the RTT estimate.
@@ -135,7 +138,30 @@ const keymap = {
 // direction (mirroring swipe anticipation) and holds. Releasing fires
 // the move and lets the lean spring back via .decay. Auto-repeat on
 // keydown is ignored so re-presses don't re-tilt.
+// Toggle via settings checkbox; persisted in localStorage. Default ON.
 let heldDir = null;
+let holdMode = localStorage.getItem("holdMode") !== "false";
+
+// When the settings panel renders, sync the checkbox state from the
+// in-memory flag (server-rendered without `checked`).
+const syncHoldCheckbox = () => {
+  const cb = document.querySelector('input[data-toggle="holdMode"]');
+  if (cb) cb.checked = holdMode;
+};
+
+// Delegate change events for the toggle.
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t && t.matches && t.matches('input[data-toggle="holdMode"]')) {
+    holdMode = t.checked;
+    localStorage.setItem("holdMode", holdMode ? "true" : "false");
+    // If holdMode just turned off mid-hold, drop any active hold.
+    if (!holdMode && heldDir) {
+      releaseHold(heldDir);
+      heldDir = null;
+    }
+  }
+});
 
 const applyHoldLean = (dir) => {
   const w = document.querySelector("#board-wrap");
@@ -175,9 +201,16 @@ addEventListener("keydown", (e) => {
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
 
   if (dir) {
-    if (heldDir === dir) { e.preventDefault(); return; }  // auto-repeat
-    heldDir = dir;
-    applyHoldLean(dir);
+    if (holdMode) {
+      if (heldDir === dir) { e.preventDefault(); return; }  // auto-repeat
+      heldDir = dir;
+      applyHoldLean(dir);
+    } else {
+      // Immediate-fire mode: lean briefly, fire, then spring back via decay.
+      applyHoldLean(dir);
+      requestAnimationFrame(() => releaseHold(dir));
+      move(e.shiftKey ? `slam-${dir}` : dir);
+    }
     e.preventDefault();
     return;
   }
@@ -188,6 +221,7 @@ addEventListener("keydown", (e) => {
 });
 
 addEventListener("keyup", (e) => {
+  if (!holdMode) return;  // immediate mode: nothing pending on key release
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
   if (!dir || heldDir !== dir) return;
   heldDir = null;

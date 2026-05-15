@@ -163,6 +163,14 @@ button:active {
   gap: 12px;
   color: var(--fg);
 }
+#settings-panel label.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+#settings-panel label.toggle input { cursor: pointer; }
 
 #board-wrap {
   position: relative;
