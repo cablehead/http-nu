@@ -123,47 +123,78 @@ new MutationObserver(() => {
   document.documentElement.style.setProperty("--decay-duration", `${decay}ms`);
 }).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
 
-// Keyboard: hjkl + arrows + r-to-reset.
+// Keyboard: hjkl + arrows + r-to-reset + u-to-undo.
 const keymap = {
   h: "h", ArrowLeft: "h",
   j: "j", ArrowDown: "j",
   k: "k", ArrowUp: "k",
   l: "l", ArrowRight: "l",
 };
-// Per-direction peak glow values for keyboard / programmatic moves. Magnitude
-// is well above the alpha-saturation threshold so the edge fully lights up.
-const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
-const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
+
+// Hold-and-release: pressing a direction key leans the board in that
+// direction (mirroring swipe anticipation) and holds. Releasing fires
+// the move and lets the lean spring back via .decay. Auto-repeat on
+// keydown is ignored so re-presses don't re-tilt.
+let heldDir = null;
+
+const applyHoldLean = (dir) => {
+  const w = document.querySelector("#board-wrap");
+  if (!w) return;
+  w.classList.remove("decay", "snap");
+  const peakX = dir === "l" ? CAP : dir === "h" ? -CAP : 0;
+  const peakY = dir === "j" ? CAP : dir === "k" ? -CAP : 0;
+  w.style.setProperty("--tilt-x", `${peakX}px`);
+  w.style.setProperty("--tilt-y", `${peakY}px`);
+  // Glow follows the lean: brighter than the post-release lit value so the
+  // press feels "loaded". The lit value (5px) takes over on release.
+  w.style.setProperty("--glow-x", `${peakX}px`);
+  w.style.setProperty("--glow-y", `${peakY}px`);
+};
+
+const releaseHold = (dir) => {
+  const w = document.querySelector("#board-wrap");
+  if (!w) return;
+  w.classList.add("decay");
+  w.style.setProperty("--tilt-x", "0px");
+  w.style.setProperty("--tilt-y", "0px");
+  // Lit-edge while the move is in flight; observer clears on SSE patch.
+  const LIT = 5;
+  w.style.setProperty("--glow-x",
+    dir === "l" ? `${LIT}px` :
+    dir === "h" ? `${-LIT}px` : "0px");
+  w.style.setProperty("--glow-y",
+    dir === "j" ? `${LIT}px` :
+    dir === "k" ? `${-LIT}px` : "0px");
+};
+
 addEventListener("keydown", (e) => {
   if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
   if (document.getElementById("game")?.dataset.view !== "game") return;  // settings shown
   // Shift+letter sends uppercase ("H"), so fall back to the lowercased key.
   // Arrow keys aren't affected (e.key is "ArrowLeft" regardless of Shift).
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
-  const intent = dir
-    || (e.key === "r" ? "reset" : "")
-    || (e.key === "u" ? "undo" : "");
-  if (intent) {
-    if (glowFor[intent]) {
-      const [prop, val] = glowFor[intent];
-      const w = document.querySelector("#board-wrap");
-      w?.style.setProperty(prop, `${val}px`);
-      // Synthetic anticipation: restart the directional lean animation by
-      // clearing any prior key-* class, forcing a reflow, then adding the
-      // new one. animationend then cleans it up.
-      if (w) {
-        w.classList.remove(...keyClasses);
-        void w.offsetWidth;
-        w.classList.add(`key-${intent}`);
-        w.addEventListener("animationend", () => {
-          w.classList.remove(`key-${intent}`);
-        }, { once: true });
-      }
-    }
-    // Shift + arrow triggers a slam: slide until the board stops changing.
-    move(dir && e.shiftKey ? `slam-${dir}` : intent);
+
+  if (dir) {
+    if (heldDir === dir) { e.preventDefault(); return; }  // auto-repeat
+    heldDir = dir;
+    applyHoldLean(dir);
     e.preventDefault();
+    return;
   }
+
+  // Non-direction keys fire immediately.
+  if (e.key === "r") { move("reset"); e.preventDefault(); }
+  else if (e.key === "u") { move("undo"); e.preventDefault(); }
+});
+
+addEventListener("keyup", (e) => {
+  const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
+  if (!dir || heldDir !== dir) return;
+  heldDir = null;
+  releaseHold(dir);
+  // Shift held at release time = slam; otherwise single move.
+  move(e.shiftKey ? `slam-${dir}` : dir);
+  e.preventDefault();
 });
 
 // Reset button lives in the hint paragraph (static); the settings toggle
