@@ -228,29 +228,25 @@ button:active {
 #board-wrap.key-l { animation: key-lean-l var(--decay-duration) both; }
 #board-wrap.key-k { animation: key-lean-k var(--decay-duration) both; }
 #board-wrap.key-j { animation: key-lean-j var(--decay-duration) both; }
-/* "Lean toward target" variants. Peak tilt is in the press direction
-   (e.g. left for 'h'). The post-peak easing UNDERSHOOTS -- dips further
-   in the press direction before settling -- so the board's motion at the
-   tail end is in the press direction, "slingshotting" the pieces across.
-   cubic-bezier with a negative y1 produces the dip-before-rest curve. */
+/* "Lean toward target" variants -- mirror sign of the slingshot peak. */
 @keyframes key-lean-h-toward {
   0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.5, -0.5, 0.5, 1); }
+  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
   100% { --tilt-x: 0px; }
 }
 @keyframes key-lean-l-toward {
   0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: 26px; animation-timing-function: cubic-bezier(0.5, -0.5, 0.5, 1); }
+  15%  { --tilt-x: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
   100% { --tilt-x: 0px; }
 }
 @keyframes key-lean-k-toward {
   0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.5, -0.5, 0.5, 1); }
+  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
   100% { --tilt-y: 0px; }
 }
 @keyframes key-lean-j-toward {
   0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.5, -0.5, 0.5, 1); }
+  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
   100% { --tilt-y: 0px; }
 }
 #board-wrap.key-h-toward { animation: key-lean-h-toward var(--decay-duration) both; }
