@@ -95,7 +95,7 @@ document.addEventListener("datastar-fetch", (e) => {
 new MutationObserver(() => {
   // Re-sync the settings checkbox in case this patch rendered the panel.
   // No-op when the panel isn't on screen (querySelector returns null).
-  syncHoldCheckbox();
+  syncToggles();
   if (!initSeen) {
     // First mutation is the SSE init render. Now that the stream's open,
     // send a no-op ping to seed the RTT estimate.
@@ -140,44 +140,57 @@ const keymap = {
 // keydown is ignored so re-presses don't re-tilt.
 // Toggle via settings checkbox; persisted in localStorage. Default ON.
 let heldDir = null;
-let holdMode = localStorage.getItem("holdMode") === "true";
+// Toggle state map: name -> default. Each setting is mirrored in localStorage
+// and bound to an <input data-toggle="<name>"> checkbox rendered server-side.
+const toggles = {
+  holdMode: false,       // false: fire on keydown; true: fire on keyup
+  leanForward: false,    // false: slingshot (wind back); true: lean toward target
+};
+for (const k of Object.keys(toggles)) {
+  toggles[k] = localStorage.getItem(k) === "true";
+}
 
-// When the settings panel renders, sync the checkbox state from the
-// in-memory flag (server-rendered without `checked`).
-const syncHoldCheckbox = () => {
-  const cb = document.querySelector('input[data-toggle="holdMode"]');
-  if (cb) cb.checked = holdMode;
+const syncToggles = () => {
+  for (const k of Object.keys(toggles)) {
+    const cb = document.querySelector(`input[data-toggle="${k}"]`);
+    if (cb) cb.checked = toggles[k];
+  }
 };
 
-// Delegate change events for the toggle.
 document.addEventListener("change", (e) => {
   const t = e.target;
-  if (t && t.matches && t.matches('input[data-toggle="holdMode"]')) {
-    holdMode = t.checked;
-    localStorage.setItem("holdMode", holdMode ? "true" : "false");
-    // If holdMode just turned off mid-hold, drop any active hold.
-    if (!holdMode && heldDir) {
-      releaseHold(heldDir);
-      heldDir = null;
-    }
+  const name = t?.dataset?.toggle;
+  if (!name || !(name in toggles)) return;
+  toggles[name] = t.checked;
+  localStorage.setItem(name, t.checked ? "true" : "false");
+  // If holdMode just turned off mid-hold, drop any active hold.
+  if (name === "holdMode" && !t.checked && heldDir) {
+    releaseHold(heldDir);
+    heldDir = null;
   }
 });
 
 const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
+const keyClassesToward = ["key-h-toward", "key-j-toward", "key-k-toward", "key-l-toward"];
 const LIT = 5;
 
-// Hold-mode wind-up: smoothly tilt opposite the press direction and HOLD.
-// The .key-windup class adds a short CSS transition so the snap is animated.
+// Hold-mode wind-up: smoothly tilt and HOLD until release. Direction depends
+// on the leanForward toggle -- slingshot (wind back, default) or toward the
+// target direction. The .key-windup class adds a short CSS transition so
+// the snap is animated.
 const applyHoldLean = (dir) => {
   const w = document.querySelector("#board-wrap");
   if (!w) return;
-  w.classList.remove("decay", "snap", ...keyClasses);
+  w.classList.remove("decay", "snap", ...keyClasses, ...keyClassesToward);
   w.classList.add("key-windup");
-  const tiltX = dir === "l" ? -CAP : dir === "h" ? CAP : 0;
-  const tiltY = dir === "j" ? -CAP : dir === "k" ? CAP : 0;
+  // sign: -1 for slingshot (opposite press), +1 for lean-toward-target.
+  const sign = toggles.leanForward ? 1 : -1;
+  const tiltX = dir === "l" ? sign * CAP : dir === "h" ? -sign * CAP : 0;
+  const tiltY = dir === "j" ? sign * CAP : dir === "k" ? -sign * CAP : 0;
   w.style.setProperty("--tilt-x", `${tiltX}px`);
   w.style.setProperty("--tilt-y", `${tiltY}px`);
-  // Glow lights the destination edge at full intensity during the hold.
+  // Glow lights the destination edge at full intensity during the hold,
+  // regardless of lean direction.
   const glowX = dir === "l" ? CAP : dir === "h" ? -CAP : 0;
   const glowY = dir === "j" ? CAP : dir === "k" ? -CAP : 0;
   w.style.setProperty("--glow-x", `${glowX}px`);
@@ -200,17 +213,18 @@ const releaseHold = (dir) => {
     dir === "k" ? `${-LIT}px` : "0px");
 };
 
-// Non-hold-mode anticipation: trigger the existing key-X keyframe (which
-// does 0 -> opposite peak -> 0 over --decay-duration with a spring curve).
-// Set the lit destination glow at the same time; observer clears on SSE.
+// Non-hold-mode anticipation: trigger the key-X keyframe (slingshot, wind
+// back) or key-X-toward (lean toward target). Both run 0 -> peak -> 0 over
+// --decay-duration with a spring curve. Lit destination glow alongside.
 const applySlingshot = (dir) => {
   const w = document.querySelector("#board-wrap");
   if (!w) return;
-  w.classList.remove(...keyClasses, "decay", "snap", "key-windup");
+  w.classList.remove(...keyClasses, ...keyClassesToward, "decay", "snap", "key-windup");
   void w.offsetWidth;
-  w.classList.add(`key-${dir}`);
+  const cls = toggles.leanForward ? `key-${dir}-toward` : `key-${dir}`;
+  w.classList.add(cls);
   w.addEventListener("animationend", () => {
-    w.classList.remove(`key-${dir}`);
+    w.classList.remove(cls);
   }, { once: true });
   w.style.setProperty("--glow-x",
     dir === "l" ? `${LIT}px` :
@@ -232,9 +246,9 @@ addEventListener("keydown", (e) => {
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
 
   if (dir) {
-    if (holdMode) {
+    if (toggles.holdMode) {
       heldDir = dir;
-      applyHoldLean(dir);                 // smooth wind-back, stays at peak
+      applyHoldLean(dir);                 // smooth wind into pose, stays at peak
     } else {
       applySlingshot(dir);                // synthesized 0 -> peak -> 0 keyframe
       move(e.shiftKey ? `slam-${dir}` : dir);
@@ -249,7 +263,7 @@ addEventListener("keydown", (e) => {
 });
 
 addEventListener("keyup", (e) => {
-  if (!holdMode) return;  // immediate mode: nothing pending on key release
+  if (!toggles.holdMode) return;  // immediate mode: nothing pending on key release
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
   if (!dir || heldDir !== dir) return;
   heldDir = null;

@@ -296,7 +296,10 @@ def render-settings []: nothing -> record {
       # patch that renders the settings view; the server doesn't know it.
       (LABEL {class: "toggle"}
         (INPUT {type: "checkbox" "data-toggle": "holdMode"})
-        " Hold key to lean, release to move")))
+        " Hold key to lean, release to move")
+      (LABEL {class: "toggle"}
+        (INPUT {type: "checkbox" "data-toggle": "leanForward"})
+        " Lean toward target (off = wind back, slingshot)")))
 }
 
 # Replay a game's move log into its final state. Used by /games to show
