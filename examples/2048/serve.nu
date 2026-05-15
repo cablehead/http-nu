@@ -295,8 +295,13 @@ def html-to-patches [] {
         let topic = $"game.($game_id).move"
         if $intent == "undo" {
           null | .append $topic --meta {kind: "undo" req_id: $req_id}
+        } else if $intent == "" {
+          # RTT-measurement ping: client sends an empty intent so the SSE
+          # echoes a no-op state. Carries no game-state effect, so don't
+          # persist -- ephemeral keeps the move log clean for replay.
+          null | .append $topic --ttl ephemeral --meta {intent: $intent req_id: $req_id}
         } else {
-          # Covers h/j/k/l, slam-X, and empty-string ping.
+          # Covers h/j/k/l and slam-X.
           null | .append $topic --meta {intent: $intent req_id: $req_id}
         }
       }
