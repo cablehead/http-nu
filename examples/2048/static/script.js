@@ -174,6 +174,25 @@ const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 const keyClassesToward = ["key-h-toward", "key-j-toward", "key-k-toward", "key-l-toward"];
 const LIT = 5;
 
+// Inverted controls when leanForward is on: the key represents the PULL
+// direction; the tile fires opposite. The board's lean animation still
+// matches the press direction (it's literally being pulled), but the
+// intent sent to the server is the inverse.
+const opposite = { h: "l", l: "h", j: "k", k: "j" };
+const intentFor = (dir) => toggles.leanForward ? opposite[dir] : dir;
+
+// Set glow on the destination edge for the given INTENT (not the press key).
+// In leanForward mode the intent is the inverse of the key, so the lit edge
+// follows where tiles actually end up.
+const setEdgeGlow = (w, intent, mag) => {
+  w.style.setProperty("--glow-x",
+    intent === "l" ? `${mag}px` :
+    intent === "h" ? `${-mag}px` : "0px");
+  w.style.setProperty("--glow-y",
+    intent === "j" ? `${mag}px` :
+    intent === "k" ? `${-mag}px` : "0px");
+};
+
 // Hold-mode wind-up: smoothly tilt and HOLD until release. Direction depends
 // on the leanForward toggle -- slingshot (wind back, default) or toward the
 // target direction. The .key-windup class adds a short CSS transition so
@@ -183,18 +202,14 @@ const applyHoldLean = (dir) => {
   if (!w) return;
   w.classList.remove("decay", "snap", ...keyClasses, ...keyClassesToward);
   w.classList.add("key-windup");
-  // sign: -1 for slingshot (opposite press), +1 for lean-toward-target.
+  // sign: -1 for slingshot (opposite press), +1 for lean-toward-press.
   const sign = toggles.leanForward ? 1 : -1;
   const tiltX = dir === "l" ? sign * CAP : dir === "h" ? -sign * CAP : 0;
   const tiltY = dir === "j" ? sign * CAP : dir === "k" ? -sign * CAP : 0;
   w.style.setProperty("--tilt-x", `${tiltX}px`);
   w.style.setProperty("--tilt-y", `${tiltY}px`);
-  // Glow lights the destination edge at full intensity during the hold,
-  // regardless of lean direction.
-  const glowX = dir === "l" ? CAP : dir === "h" ? -CAP : 0;
-  const glowY = dir === "j" ? CAP : dir === "k" ? -CAP : 0;
-  w.style.setProperty("--glow-x", `${glowX}px`);
-  w.style.setProperty("--glow-y", `${glowY}px`);
+  // Glow on the actual destination edge (intent, which may be inverted).
+  setEdgeGlow(w, intentFor(dir), CAP);
 };
 
 // Release: spring tilt forward through 0 via .decay, drop glow to LIT.
@@ -205,12 +220,7 @@ const releaseHold = (dir) => {
   w.classList.add("decay");
   w.style.setProperty("--tilt-x", "0px");
   w.style.setProperty("--tilt-y", "0px");
-  w.style.setProperty("--glow-x",
-    dir === "l" ? `${LIT}px` :
-    dir === "h" ? `${-LIT}px` : "0px");
-  w.style.setProperty("--glow-y",
-    dir === "j" ? `${LIT}px` :
-    dir === "k" ? `${-LIT}px` : "0px");
+  setEdgeGlow(w, intentFor(dir), LIT);
 };
 
 // Non-hold-mode anticipation: trigger the key-X keyframe (slingshot, wind
@@ -226,12 +236,7 @@ const applySlingshot = (dir) => {
   w.addEventListener("animationend", () => {
     w.classList.remove(cls);
   }, { once: true });
-  w.style.setProperty("--glow-x",
-    dir === "l" ? `${LIT}px` :
-    dir === "h" ? `${-LIT}px` : "0px");
-  w.style.setProperty("--glow-y",
-    dir === "j" ? `${LIT}px` :
-    dir === "k" ? `${-LIT}px` : "0px");
+  setEdgeGlow(w, intentFor(dir), LIT);
 };
 
 addEventListener("keydown", (e) => {
@@ -251,7 +256,8 @@ addEventListener("keydown", (e) => {
       applyHoldLean(dir);                 // smooth wind into pose, stays at peak
     } else {
       applySlingshot(dir);                // synthesized 0 -> peak -> 0 keyframe
-      move(e.shiftKey ? `slam-${dir}` : dir);
+      const intent = intentFor(dir);
+      move(e.shiftKey ? `slam-${intent}` : intent);
     }
     e.preventDefault();
     return;
@@ -268,8 +274,10 @@ addEventListener("keyup", (e) => {
   if (!dir || heldDir !== dir) return;
   heldDir = null;
   releaseHold(dir);
-  // Shift held at release time = slam; otherwise single move.
-  move(e.shiftKey ? `slam-${dir}` : dir);
+  // Shift held at release time = slam; otherwise single move. leanForward
+  // inverts the intent (key = pull direction; tile fires opposite).
+  const intent = intentFor(dir);
+  move(e.shiftKey ? `slam-${intent}` : intent);
   e.preventDefault();
 });
 
