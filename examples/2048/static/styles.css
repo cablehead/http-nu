@@ -228,6 +228,34 @@ button:active {
 #board-wrap.key-l { animation: key-lean-l var(--decay-duration) both; }
 #board-wrap.key-k { animation: key-lean-k var(--decay-duration) both; }
 #board-wrap.key-j { animation: key-lean-j var(--decay-duration) both; }
+
+/* No-op brick-wall: the board jams once in the attempted direction, then
+   snaps back hard. Triggered on patches where data-changed="" (board
+   didn't move). */
+@keyframes bump-h {
+  0%, 100% { transform: translateX(0); }
+  30%      { transform: translateX(-14px); }
+  60%      { transform: translateX(4px); }
+}
+@keyframes bump-l {
+  0%, 100% { transform: translateX(0); }
+  30%      { transform: translateX(14px); }
+  60%      { transform: translateX(-4px); }
+}
+@keyframes bump-k {
+  0%, 100% { transform: translateY(0); }
+  30%      { transform: translateY(-14px); }
+  60%      { transform: translateY(4px); }
+}
+@keyframes bump-j {
+  0%, 100% { transform: translateY(0); }
+  30%      { transform: translateY(14px); }
+  60%      { transform: translateY(-4px); }
+}
+#board-wrap.bump-h { animation: bump-h 220ms cubic-bezier(0.25, 1, 0.5, 1); }
+#board-wrap.bump-l { animation: bump-l 220ms cubic-bezier(0.25, 1, 0.5, 1); }
+#board-wrap.bump-k { animation: bump-k 220ms cubic-bezier(0.25, 1, 0.5, 1); }
+#board-wrap.bump-j { animation: bump-j 220ms cubic-bezier(0.25, 1, 0.5, 1); }
 /* "Lean toward target" variants -- mirror sign of the slingshot peak. */
 @keyframes key-lean-h-toward {
   0%   { --tilt-x: 0px; animation-timing-function: ease-out; }

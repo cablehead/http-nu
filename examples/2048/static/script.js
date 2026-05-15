@@ -115,6 +115,18 @@ new MutationObserver(() => {
   const w = document.querySelector("#board-wrap");
   w?.style.setProperty("--glow-x", "0px");
   w?.style.setProperty("--glow-y", "0px");
+  // No-op move: board "hit a brick wall." Bump in the attempted direction
+  // (game.dataset.from is the intent the server processed).
+  const attemptDir = game.dataset.from;
+  if (w && attemptDir && game.dataset.changed !== "1") {
+    const bumpCls = `bump-${attemptDir}`;
+    w.classList.remove("bump-h", "bump-l", "bump-k", "bump-j");
+    void w.offsetWidth;
+    w.classList.add(bumpCls);
+    w.addEventListener("animationend", () => {
+      w.classList.remove(bumpCls);
+    }, { once: true });
+  }
   document.querySelector("#rtt")?.replaceChildren(`rtt ${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();
@@ -212,11 +224,13 @@ const applyHoldLean = (dir) => {
   setEdgeGlow(w, intentFor(dir), CAP);
 };
 
-// Release: spring tilt forward through 0 via .decay, drop glow to LIT.
+// Release: spring through 0 with overshoot via .decay (simplified - no
+// phase A pull-back-further for now while we debug why pieces stopped
+// moving on the slide path).
 const releaseHold = (dir) => {
   const w = document.querySelector("#board-wrap");
   if (!w) return;
-  w.classList.remove("key-windup");
+  w.classList.remove("key-windup", "snap");
   w.classList.add("decay");
   w.style.setProperty("--tilt-x", "0px");
   w.style.setProperty("--tilt-y", "0px");
