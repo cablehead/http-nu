@@ -140,7 +140,7 @@ const keymap = {
 // keydown is ignored so re-presses don't re-tilt.
 // Toggle via settings checkbox; persisted in localStorage. Default ON.
 let heldDir = null;
-let holdMode = localStorage.getItem("holdMode") !== "false";
+let holdMode = localStorage.getItem("holdMode") === "true";
 
 // When the settings panel renders, sync the checkbox state from the
 // in-memory flag (server-rendered without `checked`).
