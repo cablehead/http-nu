@@ -1,16 +1,21 @@
 # xs actor: 2048 game-state singleton.
 #
 # Watches player.<uuid>.games (new-game frames) and game.<id>.move
-# (impulses). Applies them via mod.nu's pure game logic; writes the
-# resulting state to game.<id>.snapshot (ttl: last:1).
+# (impulses). Applies them via game.nu's pure logic; writes the
+# resulting state to game.<id>.snapshot (ttl: forever, so the chronology
+# of states is preserved as a history).
+#
+# Each snapshot's meta.last_move_id is the impulse that produced it;
+# meta.intent is the move (or "undo" / "init"). Undo writes a snapshot
+# whose state is the popped one -- just another chronological event.
 #
 # Registered at serve.nu startup. Re-registering replaces the running
 # actor, so restarts are safe. Requires `--services` on the http-nu (or
 # xs serve) process for the actor to actually run.
 #
-# Single writer for `game.<id>.snapshot` -- the SSE handler is a pure
-# reader (no in-pipeline snapshot tap). Multiple SSE connections (incl.
-# viewers, when added) all read the same actor-written snapshot.
+# Single writer -- the SSE handler is a pure reader (no in-pipeline tap).
+# Multiple SSE connections (incl. viewers, when added) all read what the
+# actor writes.
 
 {
   run: {|frame, state = {games: {}}|
@@ -25,9 +30,11 @@
       let init = (initial-state $game_id)
       let max_tile = if ($init.tiles | is-empty) { 0 } else { $init.tiles | get value | math max }
       let moves = [0 ($init.next_id - 3)] | math max
-      null | .append $"game.($game_id).snapshot" --ttl last:1 --meta {
+      # Root snapshot of this game.
+      null | .append $"game.($game_id).snapshot" --meta {
         state: $init
         last_move_id: $game_id
+        intent: "init"
         player_id: $player_id
         score: 0
         max_tile: $max_tile
@@ -95,12 +102,16 @@
       return {next: ($state | upsert games ($state.games | upsert $game_id $new_acc))}
     }
 
-    # State changed -- write the snapshot.
+    # State changed -- write the snapshot. ttl: forever preserves the
+    # whole history; meta.last_move_id links each snapshot back to its
+    # causing impulse so consumers can walk the chronology.
     let max_tile = if ($new_top.tiles | is-empty) { 0 } else { $new_top.tiles | get value | math max }
     let moves = [0 ($new_top.next_id - 3)] | math max
-    null | .append $"game.($game_id).snapshot" --ttl last:1 --meta {
+    let snap_intent = if $kind == "undo" { "undo" } else { $intent }
+    null | .append $"game.($game_id).snapshot" --meta {
       state: $new_top
       last_move_id: $frame.id
+      intent: $snap_intent
       player_id: $acc.player_id
       score: $new_top.score
       max_tile: $max_tile

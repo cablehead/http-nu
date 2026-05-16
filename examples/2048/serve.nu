@@ -294,22 +294,30 @@ def html-to-patches [] {
         # connection -- no page reload needed. Carry req_id so the client's
         # RTT match finds the resulting fresh-board mutation.
         null | .append $games_topic --meta {req_id: $req_id}
+        null | metadata set { merge {'http.response': {status: 204}} }
       } else {
-        let game_id = (.last $games_topic | get id)
-        let topic = $"game.($game_id).move"
-        if $intent == "undo" {
-          null | .append $topic --meta {kind: "undo" req_id: $req_id}
-        } else if $intent == "" {
-          # RTT-measurement ping: client sends an empty intent so the SSE
-          # echoes a no-op state. Carries no game-state effect, so don't
-          # persist -- ephemeral keeps the move log clean for replay.
-          null | .append $topic --ttl ephemeral --meta {intent: $intent req_id: $req_id}
+        let last_game = (try { .last $games_topic } catch { null })
+        if $last_game == null {
+          # Stale cookie -- same response /sse uses for an unknown player.
+          # The client reloads + re-mints identity, then retries.
+          "/" | to datastar-redirect | cookie delete "player" | to sse
         } else {
-          # Covers h/j/k/l.
-          null | .append $topic --meta {intent: $intent req_id: $req_id}
+          let game_id = $last_game.id
+          let topic = $"game.($game_id).move"
+          if $intent == "undo" {
+            null | .append $topic --meta {kind: "undo" req_id: $req_id}
+          } else if $intent == "" {
+            # RTT-measurement ping: client sends an empty intent so the SSE
+            # echoes a no-op state. Carries no game-state effect, so don't
+            # persist -- ephemeral keeps the move log clean for replay.
+            null | .append $topic --ttl ephemeral --meta {intent: $intent req_id: $req_id}
+          } else {
+            # Covers h/j/k/l.
+            null | .append $topic --meta {intent: $intent req_id: $req_id}
+          }
+          null | metadata set { merge {'http.response': {status: 204}} }
         }
       }
-      null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: GET path: "/sse"} {|req ctx|

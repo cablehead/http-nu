@@ -63,9 +63,10 @@ export def resume-game [game_id: string]: nothing -> record {
   let player_id = if $owner_frame != null {
     $owner_frame.topic | str replace "player." "" | str replace ".games" ""
   } else { "" }
-  null | .append $"game.($game_id).snapshot" --ttl last:1 --meta {
+  null | .append $"game.($game_id).snapshot" --meta {
     state: $state
     last_move_id: $follow_from_id
+    intent: "backfill"
     player_id: $player_id
     score: $state.score
     max_tile: $max_tile
