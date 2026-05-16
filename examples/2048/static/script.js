@@ -160,8 +160,7 @@ addEventListener("keydown", (e) => {
         }, { once: true });
       }
     }
-    // Shift + arrow triggers a slam: slide until the board stops changing.
-    move(dir && e.shiftKey ? `slam-${dir}` : intent);
+    move(intent);
     e.preventDefault();
   }
 });
@@ -196,81 +195,23 @@ document.addEventListener("click", (e) => {
 const DAMP = 0.9;
 const CAP = 26;
 const AXIS_LOCK = 8;  // once you move this far on one axis, the other locks
-const HOLD_FOR_SLAM_MS = 500;  // hold after the swipe for this long -> slam
 let start = null;
 let wrap = null;
 let axis = null;
 let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
-let holdSlamTimer = null;   // fires slam-<dir> if the user keeps holding
-let blastFired = false;      // hold-timer already fired a slam -- skip single on release
-let touchDot = null;         // visual dot under the finger during charge-up
-let settleTimer = null;      // fires startChargeUp once the finger stops moving
-let lastClientX = 0, lastClientY = 0;  // tracked so charge-up spawns under finger
-const SETTLE_MS = 120;       // idle this long after commit -> swipe is done
-
-const removeTouchDot = () => {
-  if (touchDot) { touchDot.remove(); touchDot = null; }
-};
-
-const armSettleTimer = () => {
-  if (settleTimer) clearTimeout(settleTimer);
-  settleTimer = setTimeout(() => { settleTimer = null; startChargeUp(); }, SETTLE_MS);
-};
-
-// Called once the finger has been still for SETTLE_MS after a swipe commits.
-// Spawns the dot at the current finger position, lights the board edge, and
-// arms the hold timer.
-const startChargeUp = () => {
-  if (!start || !committedDir || holdSlamTimer || touchDot || !wrap) return;
-  touchDot = document.createElement("div");
-  touchDot.className = "touch-dot-pos";
-  touchDot.style.transform = `translate3d(${lastClientX}px, ${lastClientY}px, 0)`;
-  const inner = document.createElement("div");
-  inner.className = "touch-dot";
-  touchDot.appendChild(inner);
-  document.body.appendChild(touchDot);
-  wrap.dataset.charge = committedDir;
-  wrap.classList.add("charging");
-  holdSlamTimer = setTimeout(() => {
-    holdSlamTimer = null;
-    blastFired = true;
-    wrap?.classList.remove("charging");
-    delete wrap?.dataset.charge;
-    removeTouchDot();
-    // Relight the committed edge so the user sees "slam request in flight"
-    // -- the observer clears it when the first SSE patch (or no-op echo)
-    // lands.
-    const LIT = 5;
-    wrap?.style.setProperty("--glow-x",
-      committedDir === "l" ? `${LIT}px` :
-      committedDir === "h" ? `${-LIT}px` : "0px");
-    wrap?.style.setProperty("--glow-y",
-      committedDir === "j" ? `${LIT}px` :
-      committedDir === "k" ? `${-LIT}px` : "0px");
-    move(`slam-${committedDir}`);
-  }, HOLD_FOR_SLAM_MS);
-};
 
 addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#board")) { start = null; return; }
   start = [e.clientX, e.clientY];
-  lastClientX = e.clientX;
-  lastClientY = e.clientY;
   axis = null;
   committedDir = null;
-  blastFired = false;
-  if (holdSlamTimer) { clearTimeout(holdSlamTimer); holdSlamTimer = null; }
-  if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
-  removeTouchDot();
   wrap = document.querySelector("#board-wrap");
-  wrap?.classList.remove("snap", "decay", "charging");
-  delete wrap?.dataset.charge;
+  wrap?.classList.remove("snap", "decay");
 });
 
 addEventListener("pointermove", (e) => {
   if (!start || !wrap) return;
-  lastClientX = e.clientX;
-  lastClientY = e.clientY;
+  if (committedDir) return;  // committed -- ignore further movement until release
   let dx = e.clientX - start[0];
   let dy = e.clientY - start[1];
   if (!axis && Math.max(Math.abs(dx), Math.abs(dy)) >= AXIS_LOCK) {
@@ -278,36 +219,19 @@ addEventListener("pointermove", (e) => {
   }
   if (axis === "h") dy = 0;
   if (axis === "v") dx = 0;
-  // Once committed, freeze the tilt and let the board settle -- subsequent
-  // pointermoves don't keep "holding" the board at the lean. The touch-dot
-  // still tracks the finger so the charge-up visual stays under it.
-  if (committedDir) {
-    if (touchDot) {
-      touchDot.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0)`;
-    } else if (settleTimer) {
-      // Still moving -- defer charge-up until the finger settles.
-      armSettleTimer();
-    }
-    return;
-  }
   const tx = Math.max(-CAP, Math.min(CAP, dx * DAMP));
   const ty = Math.max(-CAP, Math.min(CAP, dy * DAMP));
   wrap.style.setProperty("--tilt-x", `${tx}px`);
   wrap.style.setProperty("--tilt-y", `${ty}px`);
   wrap.style.setProperty("--glow-x", `${tx}px`);
   wrap.style.setProperty("--glow-y", `${ty}px`);
-  // Commit on first threshold crossing -- single impulse fires immediately,
+  // Commit on first threshold crossing -- the impulse fires on release;
   // tilt + glow release with a spring so the board visibly settles back to
   // its origin and the incoming SSE patches animate over a still board.
-  // Then arm a hold timer: if the user keeps the finger down for
-  // HOLD_FOR_SLAM_MS, fire slam-<dir> to keep sliding until settled.
   if (Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
     committedDir = Math.abs(dx) > Math.abs(dy)
       ? (dx > 0 ? "l" : "h")
       : (dy > 0 ? "j" : "k");
-    // Don't fire the impulse yet -- wait for release (single) or for the
-    // hold-timer to fire (blast). The lit edge below shows "armed", staying
-    // up until SSE clears it.
     wrap.style.setProperty("--tilt-x", "0px");
     wrap.style.setProperty("--tilt-y", "0px");
     const LIT = 5;  // alpha ~0.6 via /8 in the gradient
@@ -318,21 +242,12 @@ addEventListener("pointermove", (e) => {
       committedDir === "j" ? `${LIT}px` :
       committedDir === "k" ? `${-LIT}px` : "0px");
     wrap.classList.add("decay");
-    // Don't start the charge-up while the finger is still completing the
-    // swipe gesture -- arm a settle timer that fires once movement stops.
-    armSettleTimer();
   }
 });
 
 addEventListener("pointerup", () => {
   if (!start) return;
   start = null;
-  if (holdSlamTimer) { clearTimeout(holdSlamTimer); holdSlamTimer = null; }
-  if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
-  // Cancel charge-up if user released before it fired.
-  wrap?.classList.remove("charging");
-  delete wrap?.dataset.charge;
-  removeTouchDot();
   if (!committedDir) {
     // Below threshold: cancel, spring tilt + glow back to rest.
     wrap?.style.setProperty("--tilt-x", "0px");
@@ -341,11 +256,10 @@ addEventListener("pointerup", () => {
     wrap?.style.setProperty("--glow-y", "0px");
     wrap?.classList.add("snap");
     setTimeout(() => wrap?.classList.remove("snap"), 260);
-  } else if (!blastFired) {
-    // Committed and released before the hold-timer fired -- send the
-    // single impulse now. Lit edge stays until SSE clears it.
+  } else {
+    // Committed and released -- send the impulse now. Lit edge stays until
+    // SSE clears it.
     move(committedDir);
   }
   committedDir = null;
-  blastFired = false;
 });

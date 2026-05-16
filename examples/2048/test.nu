@@ -212,9 +212,8 @@ let r7 = drive [
 let r7_final = $r7 | where threshold == true | first
 assert (tiles-equal $r7_final.state.tiles $edge.tiles) "no-op move + undo round-trips"
 
-# 8. A slam counts as ONE undo step. The slam frame carries only the intent;
-#    impulses-to-states iterates apply-move until the board settles, deriving
-#    each spawn from the current state. Undo after a slam restores pre-slam.
+# 8. Legacy slam-X intents (no longer supported) fall through to the noop
+#    echo arm: state unchanged, no stack push.
 let pair = {
   tiles: [
     {id: 1 r: 0 c: 0 value: 2}
@@ -223,14 +222,8 @@ let pair = {
   next_id: 3 score: 0 game_over: false
 }
 let init_pair = {stack: [$pair] mode: "game" game_id: $GID games_topic: $GAMES_TOPIC}
-let slam_frames = [
-  {topic: "game.test-game-aaaa.move" meta: {intent: "slam-h"}}
-  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
-  {topic: "xs.threshold"}
-]
-let r8 = drive $slam_frames $init_pair
-let r8_final = $r8 | where threshold == true | first
-assert (tiles-equal $r8_final.state.tiles $pair.tiles) "undo after slam restores pre-slam state"
+let r8 = drive [{topic: "game.test-game-aaaa.move" meta: {intent: "slam-h"}}] $init_pair
+assert (tiles-equal ($r8 | first | get state | get tiles) $pair.tiles) "legacy slam-X is a no-op echo"
 
 # 9. A frame on the player's games_topic starts a new game: stack resets,
 #    game_id updates, and the emitted state is the fresh initial-state.

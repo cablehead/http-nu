@@ -167,19 +167,19 @@ export def filter-for-player [games_topic: string] {
   ) }
 }
 
-# Takes xs frames, yields {state, mode, threshold?} records. A normal move
-# yields one record; a slam-intent runs apply-move until the board settles
-# and yields one record per successful step.
+# Takes xs frames, yields {state, mode, threshold?} records. One emit per
+# move frame.
 export def impulses-to-states [initial: record] {
   # s = {stack: [state, ...], mode, game_id, games_topic}
   # Stack discipline: every move that actually changes the board pushes the
-  # resulting state. A slam counts as one undoable step (its final state).
-  # An undo frame pops the top, exposing the previous state. The "current"
-  # state is always the top of the stack. game_id seeds spawn determinism so
-  # (state, dir) -> same spawn within a game; undo + same-dir = same outcome.
-  # A frame on the player's games_topic starts a new game: game_id becomes
-  # the frame's id, stack resets to a fresh initial-state. Move frames are
-  # only processed for the current game's topic; everything else is dropped.
+  # resulting state. An undo frame pops the top, exposing the previous state.
+  # The "current" state is always the top of the stack. game_id seeds spawn
+  # determinism so (state, dir) -> same spawn within a game; undo + same-dir
+  # = same outcome. A frame on the player's games_topic starts a new game:
+  # game_id becomes the frame's id, stack resets to a fresh initial-state.
+  # Move frames are only processed for the current game's topic; everything
+  # else is dropped. Legacy slam-X intents in old logs fall through to the
+  # noop-echo arm at the bottom.
   generate {|frame s|
     let cur = $s.stack | last
     if $frame.topic == "xs.threshold" {
@@ -238,35 +238,7 @@ export def impulses-to-states [initial: record] {
       let new_stack = if $changed { $s.stack | append $new_state } else { $s.stack }
       return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, req_id: $req_id, threshold: false, move_id: ($frame | get id? | default "")}], next: ($s | update stack $new_stack)}
     }
-    if ($intent | str starts-with "slam-") {
-      let dir = $intent | str substring 5..
-      # Generate each step lazily; break the moment tiles stop moving.
-      # The `take 32` is a safety cap that should never bind on a 4x4 board.
-      let yields = (generate {|state|
-        let nxt = $state | apply-move $dir $s.game_id
-        if (tiles-equal $state.tiles $nxt.tiles) {
-          # Returning a record without `next` terminates the generator.
-          {}
-        } else {
-          {
-            out: {state: $nxt, mode: $s.mode, direction: $dir, changed: true, threshold: false, paced: true}
-            next: $nxt
-          }
-        }
-      } $cur) | take 32 | collect
-      # No-op slam: echo, no stack change.
-      if ($yields | is-empty) {
-        return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
-      }
-      # Tag the final step with req_id so the client's RTT match latches
-      # onto the cascade's terminal patch (not the first step which arrives
-      # almost-immediately and would skew the measurement low). Also mark
-      # final: true and attach move_id so snapshot-tap snapshots once per
-      # slam (at the cascade's settled state) rather than per intermediate.
-      let tagged = $yields | drop 1 | append ($yields | last | upsert req_id $req_id | upsert final true | upsert move_id ($frame | get id? | default ""))
-      return {out: $tagged, next: ($s | update stack ($s.stack | append ($yields | last | get state)))}
-    }
-    # Any other intent (empty ping, unrecognised) still emits a no-op state
+    # Any other intent (empty ping, legacy slam-X, unrecognised) emits a no-op state
     # echo. The client uses the resulting mutation to measure RTT and to
     # clear the "lit edge" -- if the edge stays lit, the server is slow.
     return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
@@ -278,8 +250,7 @@ export def impulses-to-states [initial: record] {
 # whenever a state-changing record flows past. Snapshots:
 #   - the threshold-emit (so the first connection to a fresh game seeds the
 #     snapshot for future cheap resumes), and
-#   - any record with changed=true, except slam intermediate steps (paced=true
-#     without final=true).
+#   - any record with changed=true.
 #
 # Pass-through, so it slots into the SSE pipeline without altering shape.
 # Only the OWNING SSE connection should call this -- viewers should not
@@ -288,9 +259,7 @@ export def snapshot-tap [game_id: string player_id: string default_move_id: stri
   each {|s|
     let is_threshold = ($s | get threshold? | default false)
     let is_changed = ($s | get changed? | default false)
-    let is_paced = ($s | get paced? | default false)
-    let is_final = ($s | get final? | default false)
-    let should_snap = $is_threshold or ($is_changed and (not $is_paced or $is_final))
+    let should_snap = $is_threshold or $is_changed
     if $should_snap and ($s | get state? | default null) != null {
       let state = $s.state
       let max_tile = if ($state.tiles | is-empty) { 0 } else { $state.tiles | get value | math max }

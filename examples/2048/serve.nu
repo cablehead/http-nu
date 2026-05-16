@@ -118,9 +118,8 @@ def render-game [direction?: string, changed?: bool, req_id?: string]: record ->
   let did_change = $changed | default false
   let rid = $req_id | default ""
   # A fresh edge-flash element per patch (unique id forces morphdom to
-  # destroy/recreate, so its CSS animation re-fires every step -- including
-  # each step of a slam cascade). When the move did not change the board
-  # (slide had no effect), skip the flash.
+  # destroy/recreate, so its CSS animation re-fires every move). When the
+  # move did not change the board (slide had no effect), skip the flash.
   let wrap_children = if ($did_change and $dir in [h j k l]) {
     [
       ($state | render-board)
@@ -198,23 +197,14 @@ def render-current [mode: string, direction?: string, changed?: bool, req_id?: s
 
 # --- pipeline boxes ------------------------------------------------------
 # The SSE handler is a tight composition of:
-#   .cat --follow -> filter-for-player -> impulses-to-states -> pace-slam-steps
-#   -> threshold-gate-states -> states-to-html -> html-to-patches -> to sse
+#   .cat --follow -> filter-for-player -> impulses-to-states
+#   -> threshold-gate-states -> snapshot-tap -> states-to-html
+#   -> html-to-patches -> to sse
 # Each stage has one job.
 
 # Box A. impulses-to-states (and filter-for-player) live in mod.nu so they're
 # reusable from `http-nu eval`. The remaining boxes here are SSE-specific:
-# pacing, threshold gating, render, and patch wrapping.
-
-# Pace consecutive paced items 200ms apart so each slam step animates over
-# the wire. Separated from impulses-to-states so replay paths (e.g. /games
-# rendering each past game's final state) can skip the wait.
-def pace-slam-steps [] {
-  generate {|item state = {prev_paced: false}|
-    if (($item.paced? | default false) and $state.prev_paced) { sleep 200ms }
-    {out: $item, next: {prev_paced: ($item.paced? | default false)}}
-  }
-}
+# threshold gating, render, and patch wrapping.
 
 # Box B. Buffers states pre-threshold (only the last is retained); on
 # threshold marker emits the last buffered state; then forwards everything.
@@ -303,7 +293,7 @@ def html-to-patches [] {
           # persist -- ephemeral keeps the move log clean for replay.
           null | .append $topic --ttl ephemeral --meta {intent: $intent req_id: $req_id}
         } else {
-          # Covers h/j/k/l and slam-X.
+          # Covers h/j/k/l.
           null | .append $topic --meta {intent: $intent req_id: $req_id}
         }
       }
@@ -338,13 +328,7 @@ def html-to-patches [] {
           games_topic: $games_topic
           started: (date now)
         }
-        # pace-slam-steps AFTER threshold-gate-states: pre-threshold the gate
-        # buffers (only keeps the last item), so paced replay steps get
-        # dropped before they reach pace -- no sleeps fire during replay.
-        # Post-threshold the gate forwards each item and pace inserts its
-        # 200ms gap between consecutive paced ones for the live animation.
         | threshold-gate-states
-        | pace-slam-steps
         # Snapshot tap writes game.<id>.snapshot (ttl last:1) on every
         # state-changing emit. Only the owning connection should call this;
         # viewers (when added) must skip it. The default_move_id is used

@@ -317,63 +317,12 @@ body.flash-red { animation: flash-red 300ms ease; }
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* Hold-to-slam charge-up: while the user is holding past the commit, a
-   gradient builds in the press direction. If the hold reaches HOLD_FOR_-
-   SLAM_MS the class is removed (timer fires slam, gradient vanishes,
-   server's per-step edge-flash takes over). If the user releases early
-   it's also removed and nothing extra happens. */
-#board-wrap.charging::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 6px;
-  pointer-events: none;
-  z-index: 1;
-  opacity: 0;
-  animation: charge-build 500ms ease-in forwards;
-}
-#board-wrap.charging[data-charge="l"]::before { background: linear-gradient(to left,   rgb(from var(--glow) r g b / 0.85), transparent 35%); }
-#board-wrap.charging[data-charge="h"]::before { background: linear-gradient(to right,  rgb(from var(--glow) r g b / 0.85), transparent 35%); }
-#board-wrap.charging[data-charge="k"]::before { background: linear-gradient(to bottom, rgb(from var(--glow) r g b / 0.85), transparent 35%); }
-#board-wrap.charging[data-charge="j"]::before { background: linear-gradient(to top,    rgb(from var(--glow) r g b / 0.85), transparent 35%); }
-@keyframes charge-build {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-/* Touch dot: spawned under the finger on swipe-commit, grows over the charge
-   window so the user has a tactile sense of charging the cascade. Removed
-   on hold-fire or early release.
-   Split into pos (translate, updated per pointermove) and dot (scale anim)
-   so the per-frame position update doesn't fight the keyframe transform. */
-.touch-dot-pos {
-  position: fixed;
-  top: 0;
-  left: 0;
-  pointer-events: none;
-  z-index: 10;
-  will-change: transform;
-}
-.touch-dot {
-  width: 120px;
-  height: 120px;
-  margin: -60px 0 0 -60px;
-  border-radius: 50%;
-  background: rgb(from var(--glow) r g b / 0.5);
-  animation: touch-dot-grow 500ms ease-in forwards;
-  will-change: transform, opacity;
-}
-@keyframes touch-dot-grow {
-  from { transform: scale(1);   opacity: 0.45; }
-  to   { transform: scale(2.4); opacity: 0.9; }
-}
-
 /* Edge flash: server emits a fresh .edge-flash element with a unique id per
    patch (whenever the patch carries a direction). Morphdom recreates the
-   element, so its CSS animation re-fires each step -- including each step
-   of a slam cascade. The keyframes start near-invisible so the snapshot
-   captured during the view-transition doesn't show a "stuck" glow, then
-   ramps to peak around the time view-transition completes, then fades. */
+   element, so its CSS animation re-fires each move. The keyframes start
+   near-invisible so the snapshot captured during the view-transition
+   doesn't show a "stuck" glow, then ramps to peak around the time
+   view-transition completes, then fades. */
 .edge-flash {
   position: absolute;
   inset: 0;
