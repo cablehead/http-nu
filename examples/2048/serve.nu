@@ -566,7 +566,201 @@ def html-to-patches [] {
           (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo")
           (SPAN {class: "hint"} "keys: hjkl / arrows")
           (render-mode-toggle "game")
-        ]))
+        ])
+        # Temporary tuning panel for the view-transition bezier dials.
+        # Lives as a floating overlay so it doesn''t disturb the layout.
+        # Each slider writes its CSS custom property on :root and the
+        # SVG preview re-plots the bezier in motion-y space (y=0 at the
+        # bottom is "not yet moved", y=1 mid-height is "at target",
+        # anything above the target line is overshoot). Remove this
+        # block once we''ve settled on values.
+        {__html: '<aside class="vt-tuner">
+  <button class="vt-tuner-tab" aria-label="toggle tuner"><span class="vt-tuner-tab-arrow" aria-hidden="true">&#9656;</span><span class="vt-tuner-tab-label">fx</span></button>
+  <div class="vt-tuner-body">
+    <details class="vt-tuner-fold" open>
+      <summary>anticipation <span class="vt-tuner-sub">wind-up + spring-back</span></summary>
+      <svg class="vt-tuner-plot" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line class="ax-zero"   x1="0" y1="50" x2="100" y2="50"/>
+        <line class="ax-target" x1="0" y1="85" x2="100" y2="85"/>
+        <path class="curve" data-curve-ant fill="none" stroke-width="2"/>
+      </svg>
+      <div class="vt-tuner-legend">
+        <div>y = board tilt (0 = level, peak = lean, &lt;0 = recoil past level)</div>
+        <div>each dial is <em>base</em> + <em>k</em>&middot;rtt; set k=0 to ignore latency.</div>
+      </div>
+
+      <div class="vt-tuner-section">magnitude <span class="vt-tuner-sub">how far the board leans (px)</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="60" step="1" value="26" data-var="--ant-magnitude-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; bigger lean</span></span><span data-readout></span><input type="range" min="-0.2" max="0.2" step="0.005" value="0" data-var="--ant-magnitude-k"></label>
+      </div>
+
+      <div class="vt-tuner-section">y1 <span class="vt-tuner-sub">recoil height; &gt;1 = bounces past 0 the other way</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="1" max="3" step="0.05" value="1.7" data-var="--ant-y1-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>shrink</em> recoil (neg.)</span></span><span data-readout></span><input type="range" min="-0.01" max="0.01" step="0.0005" value="0" data-var="--ant-y1-k"></label>
+      </div>
+
+      <div class="vt-tuner-section">x1 <span class="vt-tuner-sub">when the recoil peaks (smaller = sooner)</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.34" data-var="--ant-x1-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>earlier</em> peak (neg.)</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-x1-k"></label>
+      </div>
+
+      <div class="vt-tuner-section">x2 <span class="vt-tuner-sub">when it settles back; larger = longer linger</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.5" data-var="--ant-x2-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; longer linger</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-x2-k"></label>
+      </div>
+    </details>
+
+    <details class="vt-tuner-fold" open>
+      <summary>overshoot <span class="vt-tuner-sub">tile slide bezier</span></summary>
+      <svg class="vt-tuner-plot" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line class="ax-zero"   x1="0" y1="100" x2="100" y2="100"/>
+        <line class="ax-target" x1="0" y1="50"  x2="100" y2="50"/>
+        <path class="curve" data-curve fill="none" stroke-width="2"/>
+      </svg>
+      <div class="vt-tuner-legend">
+        <div><strong>x</strong> = time (0&#8594;1)</div>
+        <div><strong>y</strong> = motion (0 = start, 1 = at target, &gt;1 = overshoot)</div>
+        <div>each dial is <em>base</em> + <em>k</em>&middot;rtt; set k=0 to ignore latency.</div>
+        <div>rtt mean: <span data-rtt-readout>0</span>ms &rarr; effective <span data-bz>0.34, 1.56, 0.64, 1</span></div>
+      </div>
+      <div class="vt-tuner-section">duration <span class="vt-tuner-sub">total slide time, ms</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="80" max="600" step="10" value="220" data-var="--vt-duration-base" data-unit="ms"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; stretch</span></span><span data-readout></span><input type="range" min="-1" max="2" step="0.05" value="0" data-var="--vt-duration-k"></label>
+      </div>
+
+      <div class="vt-tuner-section">y1 <span class="vt-tuner-sub">overshoot height; 1 = none, &gt;1 = bounce past target</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="1" max="3" step="0.05" value="1.56" data-var="--vt-y1-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>shrink</em> bounce (neg.)</span></span><span data-readout></span><input type="range" min="-0.01" max="0.01" step="0.0005" value="0" data-var="--vt-y1-k"></label>
+      </div>
+
+      <div class="vt-tuner-section">x1 <span class="vt-tuner-sub">when the peak hits; smaller = sooner</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.34" data-var="--vt-x1-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>earlier</em> peak (neg.)</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--vt-x1-k"></label>
+      </div>
+
+      <div class="vt-tuner-section">x2 <span class="vt-tuner-sub">when it returns to target; larger = softer landing</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.64" data-var="--vt-x2-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; softer landing</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--vt-x2-k"></label>
+      </div>
+    </details>
+  </div>
+</aside>
+<script>
+(() => {
+  const root = document.documentElement;
+  const tuner = document.querySelector(".vt-tuner");
+  const inputs = tuner.querySelectorAll("input[data-var]");
+  const bz = tuner.querySelector("[data-bz]");
+  const rttReadout = tuner.querySelector("[data-rtt-readout]");
+  const curve = tuner.querySelector("[data-curve]");
+  const update = (input) => {
+    const unit = input.dataset.unit || "";
+    const v = input.value + unit;
+    root.style.setProperty(input.dataset.var, v);
+    input.previousElementSibling.textContent = v;
+  };
+  const curveAnt = tuner.querySelector("[data-curve-ant]");
+  const sy = (my) => Math.max(0, Math.min(100, 100 - my * 50));
+  // overshoot plot: motion-y in [0,2] -> SVG y in [100,0], target line at 50.
+  // anticipation plot: tilt in [-1, 1] -> SVG y in [85, -15] (clamped to 0-100).
+  // For anticipation, the keyframes are: 0% (tilt=0), 15% (tilt=peak), 100% (tilt=0)
+  // with the bezier easing applied to the 15%->100% segment.
+  const clamp = (lo, v, hi) => Math.max(lo, Math.min(hi, v));
+  const dials = {
+    duration: { lo: 80,   hi: 600,  unit: "ms" },
+    y1:       { lo: 1.0,  hi: 3.0 },
+    x1:       { lo: 0.05, hi: 0.95 },
+    x2:       { lo: 0.05, hi: 0.95 },
+  };
+  // Anticipation plot: build a polyline of the synthetic 0->15%->100%
+  // keyframe by sampling the bezier on the spring-back segment.
+  const sampleBezier = (x1, y1, x2, y2, n = 24) => {
+    const points = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const mt = 1 - t;
+      // cubic-bezier y at parametric t (not the same as time progress;
+      // but for a curve preview this approximates the shape well).
+      const y = 3*mt*mt*t*y1 + 3*mt*t*t*y2 + t*t*t*1;
+      const x = 3*mt*mt*t*x1 + 3*mt*t*t*x2 + t*t*t*1;
+      points.push([x, y]);
+    }
+    return points;
+  };
+  const refresh = () => {
+    const cs = getComputedStyle(root);
+    const rtt = parseFloat(cs.getPropertyValue("--rtt-mean")) || 0;
+    rttReadout.textContent = Math.round(rtt);
+    // -- overshoot curve --
+    const eff = {};
+    for (const [name, { lo, hi }] of Object.entries(dials)) {
+      const base = parseFloat(cs.getPropertyValue(`--vt-${name}-base`));
+      const k = parseFloat(cs.getPropertyValue(`--vt-${name}-k`));
+      eff[name] = clamp(lo, base + k * rtt, hi);
+    }
+    const y2 = parseFloat(cs.getPropertyValue("--vt-y2")) || 1;
+    bz.textContent = [eff.x1.toFixed(3), eff.y1.toFixed(3), eff.x2.toFixed(3), y2.toFixed(3)].join(", ");
+    curve.setAttribute("d", `M 0,${sy(0)} C ${eff.x1*100},${sy(eff.y1)} ${eff.x2*100},${sy(y2)} 100,${sy(1)}`);
+    // -- anticipation curve: 0 -> peak (15% time) -> 0 (with spring bezier) --
+    // Plot tilt over time. y-axis in SVG: 50 = level (0 tilt), 85 = peak
+    // lean, anything above 50 = recoil past 0. Mapping tilt t in [-1, 1.5]
+    // to SVG y: SVG_y = 50 + t * 35, clamped to [0, 100].
+    const antDials = {
+      "ant-y1": { lo: 1.0,  hi: 3.0 },
+      "ant-x1": { lo: 0.05, hi: 0.95 },
+      "ant-x2": { lo: 0.05, hi: 0.95 },
+    };
+    const ant = {};
+    for (const [name, { lo, hi }] of Object.entries(antDials)) {
+      const base = parseFloat(cs.getPropertyValue(`--${name}-base`));
+      const k = parseFloat(cs.getPropertyValue(`--${name}-k`));
+      ant[name] = clamp(lo, base + k * rtt, hi);
+    }
+    const ax1 = ant["ant-x1"];
+    const ay1 = ant["ant-y1"];
+    const ax2 = ant["ant-x2"];
+    const ay2 = parseFloat(cs.getPropertyValue("--ant-y2")) || 1;
+    const ty = (tilt) => Math.max(0, Math.min(100, 50 + tilt * 35));
+    // Wind-up segment: 0..15% time, linear 0 -> peak (using ease-out
+    // approximation as a quick curve).
+    const peakX = 15, peakTilt = 1;
+    let d = `M 0,${ty(0)} Q ${peakX*0.7},${ty(peakTilt*1.05)} ${peakX},${ty(peakTilt)}`;
+    // Spring-back segment: sample the bezier from peak (tilt=1) back to 0,
+    // but with overshoot if y_peak > 1 (recoil past 0 to negative).
+    const samples = sampleBezier(ax1, ay1, ax2, ay2, 24);
+    for (const [bx, by] of samples) {
+      // bx in [0,1] maps to time [15%, 100%]. by in [0, y_peak+] is bezier
+      // progress; tilt = 1 - by (so by=0 -> tilt=1 (peak); by=1 -> tilt=0;
+      // by>1 -> tilt<0 (recoil)).
+      const x = peakX + bx * (100 - peakX);
+      const tilt = 1 - by;
+      d += ` L ${x.toFixed(2)},${ty(tilt).toFixed(2)}`;
+    }
+    curveAnt.setAttribute("d", d);
+  };
+  inputs.forEach(i => { update(i); i.addEventListener("input", () => { update(i); refresh(); }); });
+  refresh();
+  new MutationObserver(refresh).observe(root, { attributes: true, attributeFilter: ["style"] });
+
+  // Slide-out behaviour: the tab on the right edge of the viewport stays
+  // visible; clicking it toggles the body in/out via a class on the aside.
+  // localStorage keeps the panel state across reloads.
+  const KEY = "vt-tuner-collapsed";
+  if (localStorage.getItem(KEY) === "1") tuner.classList.add("is-collapsed");
+  tuner.querySelector(".vt-tuner-tab").addEventListener("click", () => {
+    const collapsed = tuner.classList.toggle("is-collapsed");
+    localStorage.setItem(KEY, collapsed ? "1" : "0");
+  });
+})();
+</script>'})
       # Persist the player id for a year, refreshing on every visit.
       # --no-secure so the cookie works over plain HTTP for local dev.
       | cookie set "player" $player_id --max-age 31536000 --no-secure)

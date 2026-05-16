@@ -180,40 +180,65 @@ button:active {
     --glow-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
     --glow-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+/* Anticipation tuning (the wind-up before / spring-back after a move).
+   Each dial is `base + k * --rtt-mean`, clamped, same pattern as the
+   overshoot section. `--ant-magnitude` = how far the board leans
+   opposite the press direction. `--ant-x1/y1/x2/y2` = bezier on the
+   spring-back segment. Y1 > 1 = bounce past 0 in the other direction
+   (the recoil). Total animation duration tracks --decay-duration which
+   already scales with RTT.
+   Note: keyframe selector positions (0%, 15%, 100%) are static -- CSS
+   doesn't let custom properties take their place. Magnitudes and the
+   timing function inside each keyframe ARE variabilised. */
+:root {
+  --ant-magnitude-base: 26;     /* unitless; multiplied by 1px in calc */
+  --ant-magnitude-k:    0;
+  --ant-y1-base:        1.7;
+  --ant-y1-k:           0;
+  --ant-x1-base:        0.34;
+  --ant-x1-k:           0;
+  --ant-x2-base:        0.5;
+  --ant-x2-k:           0;
+  --ant-y2:             1;
+
+  --ant-magnitude: clamp(0px, calc((var(--ant-magnitude-base) + var(--rtt-mean) * var(--ant-magnitude-k)) * 1px), 80px);
+  --ant-y1:        clamp(1.0,   calc(var(--ant-y1-base) + var(--rtt-mean) * var(--ant-y1-k)), 3.0);
+  --ant-x1:        clamp(0.05,  calc(var(--ant-x1-base) + var(--rtt-mean) * var(--ant-x1-k)), 0.95);
+  --ant-x2:        clamp(0.05,  calc(var(--ant-x2-base) + var(--rtt-mean) * var(--ant-x2-k)), 0.95);
+}
+
 /* decay transitions everything together with the RTT-tuned duration so the
    overshoot bounce is still in motion when the SSE patch lands. */
 #board-wrap.decay {
   transition:
-    --tilt-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
-    --tilt-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
-    --glow-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
-    --glow-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1);
+    --tilt-x var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
+    --tilt-y var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
+    --glow-x var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
+    --glow-y var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2));
 }
 
 /* Keyboard anticipation: synthetic two-phase animation (attack -> spring-back
    with overshoot) since there's no finger to drive --tilt-x continuously.
-   Total duration tracks RTT just like swipe-commit decay. */
-/* Anticipation goes OPPOSITE the press direction -- like pulling a
-   slingshot back before release. The board winds up away from where
-   it's about to slide. */
+   Anticipation goes OPPOSITE the press direction -- like pulling a slingshot
+   back before release. */
 @keyframes key-lean-h {
   0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  15%  { --tilt-x: var(--ant-magnitude); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
   100% { --tilt-x: 0px; }
 }
 @keyframes key-lean-l {
   0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  15%  { --tilt-x: calc(-1 * var(--ant-magnitude)); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
   100% { --tilt-x: 0px; }
 }
 @keyframes key-lean-k {
   0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  15%  { --tilt-y: var(--ant-magnitude); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
   100% { --tilt-y: 0px; }
 }
 @keyframes key-lean-j {
   0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
+  15%  { --tilt-y: calc(-1 * var(--ant-magnitude)); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
   100% { --tilt-y: 0px; }
 }
 #board-wrap.key-h { animation: key-lean-h var(--decay-duration) both; }
@@ -332,9 +357,197 @@ body.play .board > div:not(:empty) {
   h1 { font-size: 20px; }
 }
 
+/* Tile-slide tuning. The browser auto-generates the transform animation
+   from old-rect to new-rect; we control the timing function and
+   duration. Each dial is `base + (latency_k * --rtt-mean)`, clamped to
+   sensible bounds. script.js writes --rtt-mean (unitless ms) after each
+   move; setting the k-coefficients to 0 turns off latency scaling.
+   *
+   * --vt-duration: total slide time.
+   * --vt-y1: overshoot magnitude (1.0 = none; >1 = bounce past target).
+   * --vt-x1: when the peak hits (smaller = sooner).
+   * --vt-x2: when the curve returns to target (larger = softer landing).
+   * --vt-y2: end value; pinned to 1 so the curve lands on the target.
+   */
+:root {
+  --rtt-mean: 0;
+
+  --vt-duration-base: 220ms;
+  --vt-duration-k:    0;        /* +ms of slide per ms of RTT */
+  --vt-y1-base:       1.56;
+  --vt-y1-k:          0;        /* unit change per ms of RTT */
+  --vt-x1-base:       0.34;
+  --vt-x1-k:          0;
+  --vt-x2-base:       0.64;
+  --vt-x2-k:          0;
+  --vt-y2:            1;
+
+  --vt-duration: clamp(80ms,  calc(var(--vt-duration-base) + var(--rtt-mean) * var(--vt-duration-k) * 1ms), 600ms);
+  --vt-y1:       clamp(1.0,   calc(var(--vt-y1-base)       + var(--rtt-mean) * var(--vt-y1-k)),             3.0);
+  --vt-x1:       clamp(0.05,  calc(var(--vt-x1-base)       + var(--rtt-mean) * var(--vt-x1-k)),             0.95);
+  --vt-x2:       clamp(0.05,  calc(var(--vt-x2-base)       + var(--rtt-mean) * var(--vt-x2-k)),             0.95);
+}
 ::view-transition-group(*) {
-  animation-duration: 220ms;
-  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation-duration: var(--vt-duration);
+  animation-timing-function: cubic-bezier(var(--vt-x1), var(--vt-y1), var(--vt-x2), var(--vt-y2));
+}
+
+/* Temporary tuning overlay (slides in/out from the right edge on /play).
+   Remove when the dials are dialled in.
+   Structure: the tab is anchored to the right edge of the viewport (the
+   .vt-tuner is fixed at right:0 with the tab as its only static child).
+   The body is absolutely positioned to the LEFT of the tab and slides
+   off-screen via translateX when .is-collapsed is set. That way the
+   tab itself never moves, so clicking it always works. */
+.vt-tuner {
+  position: fixed;
+  top: 12px;
+  right: 0;
+  z-index: 1000;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 11px;
+  color: var(--fg);
+}
+.vt-tuner-tab {
+  width: 32px;
+  background: var(--brand);
+  color: var(--light);
+  border: 0;
+  border-radius: 6px 0 0 6px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: bold;
+  padding: 12px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.2);
+}
+.vt-tuner-tab:hover { background: var(--brand-hover); }
+.vt-tuner-tab .vt-tuner-tab-arrow {
+  font-size: 18px;
+  line-height: 1;
+  /* arrow points in the direction the panel will move on click:
+     open -> right (close); collapsed -> left (re-open) */
+  transition: transform 220ms ease;
+}
+.vt-tuner.is-collapsed .vt-tuner-tab .vt-tuner-tab-arrow {
+  transform: rotate(180deg);
+}
+.vt-tuner-tab .vt-tuner-tab-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+}
+.vt-tuner-body {
+  position: absolute;
+  top: 0;
+  right: 32px;  /* anchor to the left of the tab */
+  width: 240px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  padding: 6px 10px 10px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-right: none;
+  box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.1);
+  transition: transform 220ms ease;
+}
+.vt-tuner.is-collapsed .vt-tuner-body {
+  /* slide entirely off-screen to the right, past where the tab sits */
+  transform: translateX(calc(100% + 32px));
+}
+.vt-tuner-fold {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.vt-tuner-fold:last-child { border-bottom: none; margin-bottom: 0; }
+.vt-tuner-fold > summary {
+  cursor: pointer;
+  font-weight: bold;
+  padding: 2px 0;
+  user-select: none;
+  font-size: 12px;
+}
+.vt-tuner-fold[open] > summary { margin-bottom: 6px; }
+.vt-tuner label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 2px;
+  margin-bottom: 6px;
+  min-width: 0;
+}
+.vt-tuner label > .hdr { grid-column: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.vt-tuner label > span[data-readout] { grid-column: 2; font-variant-numeric: tabular-nums; opacity: 0.7; text-align: right; }
+.vt-tuner label > input { grid-column: 1 / -1; width: 100%; min-width: 0; }
+/* Pair a base + k dial in a two-column row to compress the panel. */
+.vt-tuner-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 10px;
+}
+.vt-tuner-pair > label { margin-bottom: 6px; }
+.vt-tuner .vt-tuner-plot {
+  width: 100%;
+  height: 80px;
+  background: #f5f1e8;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+  margin-bottom: 6px;
+}
+.vt-tuner .vt-tuner-plot .ax-zero,
+.vt-tuner .vt-tuner-plot .ax-target {
+  stroke: rgba(0, 0, 0, 0.25);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+.vt-tuner .vt-tuner-plot .ax-target { stroke: var(--accent); stroke-dasharray: none; }
+.vt-tuner .vt-tuner-plot .curve {
+  stroke: var(--brand);
+  vector-effect: non-scaling-stroke;
+}
+.vt-tuner .vt-tuner-legend {
+  font-size: 10px;
+  opacity: 0.75;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.vt-tuner .vt-tuner-legend [data-bz],
+.vt-tuner .vt-tuner-legend [data-rtt-readout] {
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+}
+.vt-tuner .vt-tuner-section {
+  margin-top: 6px;
+  font-weight: bold;
+  font-size: 11px;
+}
+.vt-tuner .vt-tuner-bigsection {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  font-size: 12px;
+}
+.vt-tuner .vt-tuner-sub {
+  font-weight: normal;
+  font-size: 10px;
+  opacity: 0.6;
+}
+.vt-tuner .vt-tuner-curve {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  font-size: 10px;
+  opacity: 0.7;
+  word-break: break-all;
 }
 /* :only-child fires when there's no paired old pseudo -- a fresh tile. */
 ::view-transition-new(*):only-child {

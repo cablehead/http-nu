@@ -127,6 +127,10 @@ new MutationObserver(() => {
   const mean = rtts.reduce((a, b) => a + b, 0) / rtts.length;
   const decay = Math.max(400, Math.min(1200, Math.round(mean * 2)));
   document.documentElement.style.setProperty("--decay-duration", `${decay}ms`);
+  // Expose the mean RTT to CSS so view-transition bezier dials can
+  // (optionally) scale with latency. Plain unitless number; CSS multi-
+  // plies it through calc() in :root.
+  document.documentElement.style.setProperty("--rtt-mean", String(mean));
 }).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
 
 // Keyboard: hjkl + arrows + u-to-undo. (New game lives on the splash;
