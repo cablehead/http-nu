@@ -67,15 +67,19 @@ const TOTAL = 460
 # grid placement (r,c), tile bg/color/font-size (value), and the
 # view-transition-name (tile id). Empty cells render as `<div></div>` and
 # get their look from the structural `.board > div:empty` selector.
-def render-tile []: record -> record {
+def render-tile [scope?: string]: record -> record {
   let t = $in
+  let s = $scope | default ""
+  # view-transition-name is page-global; on /games multiple boards live
+  # on the same page, so the optional scope (game id) keeps names unique.
+  let vt_name = if ($s | is-empty) { $"tile-($t.id)" } else { $"tile-($s)-($t.id)" }
   (DIV {style: {
     grid-column: ($t.c + 1 | into string)
     grid-row: ($t.r + 1 | into string)
     background-color: (color-for $t.value)
     color: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
     font-size: (if $t.value >= 1024 { "24px" } else if $t.value >= 128 { "28px" } else { "32px" })
-    view-transition-name: $"tile-($t.id)"
+    view-transition-name: $vt_name
   }} ($t.value | into string))
 }
 
@@ -86,10 +90,10 @@ def render-empty-cell [r: int c: int]: nothing -> record {
   }} "")
 }
 
-def render-board []: record -> record {
+def render-board [scope?: string]: record -> record {
   let state = $in
   let bg = 0..3 | each {|r| 0..3 | each {|c| render-empty-cell $r $c } } | flatten
-  let tiles = $state.tiles | each {|t| $t | render-tile }
+  let tiles = $state.tiles | each {|t| $t | render-tile $scope }
   (DIV {class: "board"} $bg $tiles)
 }
 
@@ -195,7 +199,7 @@ def render-card-from-state [req: record game_id: string state: record moves: int
     (if ($status | is-not-empty) { $status } else { null })
   ] | compact
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
-    (DIV {class: "thumb"} ($state | render-board))
+    (DIV {class: "thumb"} ($state | render-board $game_id))
     (DIV {class: "caption"} ($caption_bits | str join " · ")))
 }
 
@@ -386,7 +390,7 @@ def html-to-patches [] {
             } else { $data }
             if $new_data == $data { return {next: $data} }
             let patch = (render-games-list-from-data $req $new_data
-                          | to datastar-patch-elements --selector ".games-list" --id (random uuid))
+                          | to datastar-patch-elements --selector ".games-list" --use-view-transition --id (random uuid))
             {out: $patch, next: $new_data}
           } $initial_data
         | to sse
