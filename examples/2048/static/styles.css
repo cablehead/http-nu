@@ -544,11 +544,12 @@ body.tracker .track-nav:hover { color: var(--track-white); }
 
 body.tracker .track-btn {
   background: var(--track-panel-deep);
-  color: var(--track-yellow);
+  color: var(--track-cyan);
   border: 0;
-  padding: 1px 8px;
+  padding: 3px 10px;
   font: inherit;
   cursor: pointer;
+  text-decoration: none;
   box-shadow:
     inset 1px 1px 0 var(--track-bevel-light),
     inset -1px -1px 0 var(--track-bevel-dark);
@@ -560,21 +561,21 @@ body.tracker .track-btn:active {
     inset -1px -1px 0 var(--track-bevel-light);
 }
 
-/* track-action: a whole chip that's clickable. Reads as plain bar text
-   ([u]ndo) with the key letter highlighted via .track-key. No button
-   chrome -- the cursor + hover do the affordance work. */
-body.tracker .track-action {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--track-cyan);
-  cursor: pointer;
-  box-shadow: none;
+/* Score readout: big tabular-nums, no label, sits flush right of the top
+   bar. Reads like an Impulse Tracker counter ticking up. */
+body.tracker .track-digits {
+  color: var(--track-green);
+  font-weight: bold;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+  padding: 0 4px;
 }
-body.tracker .track-action:hover { color: var(--track-white); }
-body.tracker .track-action:hover .track-key { color: var(--track-white); }
-body.tracker .track-key { color: var(--track-white); }
+
+/* The key character inside a text-bearing button -- e.g. the `u` in
+   `[u]ndo` or `esc` in `[esc] all games`. White + bold so it pops
+   against the cyan body without shouting yellow. */
+body.tracker .track-key { color: var(--track-white); font-weight: bold; }
 
 /* Gear / close button: sits in the top bar; small, inset chip. */
 body.tracker .track-gear {

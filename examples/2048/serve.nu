@@ -112,7 +112,7 @@ def close-button []: nothing -> record {
 # board patch is small and the bar's layout doesn't need to round-trip
 # nav links and the game-id chip on every move.
 def render-score [score: int]: nothing -> record {
-  (SPAN {id: "score" class: "track-value"} ($score | into string))
+  (SPAN {id: "score" class: "track-digits"} ($score | into string))
 }
 
 def render-state-badge [won: bool, game_over: bool]: nothing -> record {
@@ -457,24 +457,24 @@ def html-to-patches [] {
       # morphed in place by separate SSE patches emitted alongside the
       # board patch (see states-to-html).
       (DIV {class: "track-bar track-bar-top"}
-        (SPAN {class: "track-title"} (A {href: $home_href} "2048.nu"))
+        (A {class: "track-btn" href: $home_href aria-label: "back to all games"}
+          "["
+          (SPAN {class: "track-key"} "esc")
+          "] all games")
         (SPAN {class: "track-field"}
           (SPAN {class: "track-label"} "Game ")
           (SPAN {class: "track-value"} ($game_id | str substring 0..7)))
         (SPAN {class: "track-field"}
-          (SPAN {class: "track-label"} "Score ")
-          (render-score 0))
-        (SPAN {class: "track-field"}
           (SPAN {class: "track-label"} "Keys ")
           (SPAN {class: "track-value"} "hjkl/arrows"))
-        (BUTTON {type: "button" "data-intent": "undo" class: "track-field track-action"}
+        (BUTTON {type: "button" "data-intent": "undo" class: "track-btn" aria-label: "undo"}
           "["
           (SPAN {class: "track-key"} "u")
           "]ndo")
+        (render-mode-toggle "game")
         (render-state-badge false false)
         (SPAN {class: "track-spacer"} "")
-        (render-mode-toggle "game")
-        (A {class: "track-nav" href: $home_href} "[Esc] All games"))
+        (render-score 0))
       # data-init and data-indicator live on .column (which is never patched)
       # so the SSE fetch + connection signal survive the wholesale replacement
       # of #game's contents on every server patch.
