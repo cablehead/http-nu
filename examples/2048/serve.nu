@@ -95,7 +95,7 @@ let BOARD_TPL = .mj compile --inline (
       style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; view-transition-name: {{ g.vt }}; view-transition-class: ghost; opacity: 0; pointer-events: none;"
     } ""))
     (_for {t: "tiles"} (DIV {
-      style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}px; view-transition-name: {{ t.vt }};"
+      style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw; view-transition-name: {{ t.vt }};"
     } (_var "t.value")))
 )
 
@@ -113,7 +113,7 @@ def render-board [scope?: string]: record -> record {
       row: ($t.r + 1)
       bg: (color-for $t.value)
       fg: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
-      fs: (if $t.value >= 1024 { 24 } else if $t.value >= 128 { 28 } else { 32 })
+      fs: (if $t.value >= 1024 { 5 } else if $t.value >= 128 { 6 } else { 7 })
       vt: (do $vt_name $t.id)
       value: $t.value
     }
@@ -183,7 +183,7 @@ def render-game [direction?: string, changed?: bool, req_id?: string]: record ->
     "data-from": $dir
     "data-changed": (if $did_change { "1" } else { "" })
   }
-    (DIV {id: "board-wrap"} ...$wrap_children))
+    (DIV {id: "board-wrap" "data-preserve-attr": "class"} ...$wrap_children))
 }
 
 # Render a card from already-known state. The SSE handler calls this with
@@ -513,23 +513,33 @@ def html-to-patches [] {
         "data-move-url": ($req | href "/move")
         "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
       }
-        (HEADER {class: "play-header"}
-          (A {href: $home_href} "← back")
-          (SPAN "score "
-            (render-score 0))
-          (render-state-badge false false))
-        # data-init lives on .column (which is never patched) so the SSE
-        # fetch + connection signal survive the morph of #game's contents.
-        (DIV {
-          class: "column"
-          "data-sse": ""
-          "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
-        }
-          $placeholder)
-        (render-footer $req [
-          (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo")
-          (SPAN {class: "hint"} "keys: hjkl / arrows")
-        ])
+        (DIV {class: "page"}
+          (HEADER {class: "play-header"}
+            (DIV {class: "left"}
+              (A {href: $home_href} "← back")
+              (SPAN {class: "hint"} "keys: hjkl / arrows")
+              (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo"))
+            (DIV {class: "right"}
+              (SPAN {class: "score-label"} "score ")
+              (render-score 0)
+              (render-state-badge false false)))
+          # data-init lives on .column (which is never patched) so the SSE
+          # fetch + connection signal survive the morph of #game's contents.
+          (DIV {
+            class: "column"
+            "data-sse": ""
+            "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+          }
+            $placeholder)
+          (FOOTER {class: "play-footer"}
+            (DIV {class: "left"}
+              (SPAN {id: "conn" class: "stat"} "")
+              (SPAN {id: "rtt" class: "stat"} ""))
+            (DIV {class: "right"}
+              (SPAN {class: "credit"}
+                (A {href: "https://http-nu.cross.stream"}
+                  "served by http-nu "
+                  (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))))
         # Temporary tuning panel for the view-transition bezier dials.
         # Lives as a floating overlay so it doesn''t disturb the layout.
         # Each slider writes its CSS custom property on :root and the
@@ -559,31 +569,31 @@ def html-to-patches [] {
 
       <div class="vt-tuner-section">duration <span class="vt-tuner-sub">total lean time, ms</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="80" max="1200" step="10" value="400" data-var="--ant-duration-base"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="80" max="1200" step="10" value="200" data-var="--ant-duration-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; stretches the lean</span></span><span data-readout></span><input type="range" min="-1" max="5" step="0.05" value="2" data-var="--ant-duration-k"></label>
       </div>
 
       <div class="vt-tuner-section">magnitude <span class="vt-tuner-sub">how far the board leans, in tile widths (1 = a whole tile)</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1.5" step="0.01" value="0.26" data-var="--ant-magnitude-base"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1.5" step="0.01" value="0.02" data-var="--ant-magnitude-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; bigger lean</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-magnitude-k"></label>
       </div>
 
       <div class="vt-tuner-section">y1 <span class="vt-tuner-sub">recoil height; &gt;1 = bounces past 0 the other way</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="1" max="3" step="0.05" value="1.7" data-var="--ant-y1-base"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="1" max="3" step="0.05" value="2" data-var="--ant-y1-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>shrink</em> recoil (neg.)</span></span><span data-readout></span><input type="range" min="-0.01" max="0.01" step="0.0005" value="0" data-var="--ant-y1-k"></label>
       </div>
 
       <div class="vt-tuner-section">attack <span class="vt-tuner-sub">(x1) how fast each half commits to its target; smaller = sooner peak</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.34" data-var="--ant-x1-base"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.05" data-var="--ant-x1-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>earlier</em> peak (neg.)</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-x1-k"></label>
       </div>
 
       <div class="vt-tuner-section">decay <span class="vt-tuner-sub">(x2) how each half settles after the peak; larger = longer linger</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.5" data-var="--ant-x2-base"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.05" data-var="--ant-x2-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; longer linger</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-x2-k"></label>
       </div>
 
@@ -609,14 +619,14 @@ def html-to-patches [] {
       </div>
       <div class="vt-tuner-section">duration <span class="vt-tuner-sub">total slide time, ms</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="80" max="600" step="10" value="220" data-var="--vt-duration-base" data-unit="ms"></label>
-        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; stretch</span></span><span data-readout></span><input type="range" min="-1" max="2" step="0.05" value="0" data-var="--vt-duration-k"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="80" max="600" step="10" value="100" data-var="--vt-duration-base" data-unit="ms"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; stretch</span></span><span data-readout></span><input type="range" min="-1" max="2" step="0.05" value="0.1" data-var="--vt-duration-k"></label>
       </div>
 
       <div class="vt-tuner-section">y1 <span class="vt-tuner-sub">overshoot height; 1 = none, &gt;1 = bounce past target</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="1" max="3" step="0.05" value="1.56" data-var="--vt-y1-base"></label>
-        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>shrink</em> bounce (neg.)</span></span><span data-readout></span><input type="range" min="-0.01" max="0.01" step="0.0005" value="0" data-var="--vt-y1-k"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="1" max="3" step="0.05" value="1.2" data-var="--vt-y1-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>shrink</em> bounce (neg.)</span></span><span data-readout></span><input type="range" min="-0.01" max="0.01" step="0.0005" value="0.001" data-var="--vt-y1-k"></label>
       </div>
 
       <div class="vt-tuner-section">attack <span class="vt-tuner-sub">(x1) how fast it commits to the target; smaller = sooner peak</span></div>
@@ -639,7 +649,7 @@ def html-to-patches [] {
 
       <div class="vt-tuner-section">ghost duration <span class="vt-tuner-sub">how long a merge-consumed tile lingers as it slides + fades into the merge cell (ms)</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="120" max="2000" step="20" value="600" data-var="--ghost-duration-base" data-unit="ms"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="120" max="2000" step="20" value="120" data-var="--ghost-duration-base" data-unit="ms"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; longer ghost</span></span><span data-readout></span><input type="range" min="-1" max="3" step="0.05" value="0" data-var="--ghost-duration-k"></label>
       </div>
     </details>

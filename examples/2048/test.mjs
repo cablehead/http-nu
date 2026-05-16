@@ -111,21 +111,19 @@ check(
 const score = await page.evaluate(() => document.querySelector("#score")?.textContent ?? "");
 check("score shows", /^\d+$/.test(score.trim()), score);
 
-// Computed-style regression check: the play view's animation chain (board
-// scaling and per-tile keyboard lean) is wired through CSS selectors
-// anchored on the body's class. Layout refactors keep silently breaking
-// this when the body class is renamed but the CSS isn't updated. So we
-// probe the *computed* style here -- not the HTML markup -- to catch
-// "selector stopped matching" regressions early.
-//
-// A matching selector still resolves to `matrix(1, 0, 0, 1, 0, 0)` when
-// --board-scale is 1 (large viewport). The only failure mode that
-// matters is `transform: none` -- which means the selector didn't match.
-const boardTransform = await page.evaluate(() => getComputedStyle(document.querySelector(".board")).transform);
+// Computed-style regression check: the play view's behaviour (board
+// touch handling and per-tile keyboard lean) is wired through CSS
+// selectors anchored on the body's class. Layout refactors keep
+// silently breaking this when the body class is renamed but the CSS
+// isn't updated. So we probe the *computed* style here -- not the
+// HTML markup -- to catch "selector stopped matching" regressions
+// early. `touch-action: none` is set by `body.play .board { ... }`;
+// if the selector stops matching, this falls back to `auto`.
+const boardTouchAction = await page.evaluate(() => getComputedStyle(document.querySelector(".board")).touchAction);
 check(
-  "board has a transform set (.board scale selector matched)",
-  boardTransform !== "none",
-  boardTransform,
+  "body.play .board selector matched (touch-action: none)",
+  boardTouchAction === "none",
+  boardTouchAction,
 );
 
 // Pressing a direction key adds .key-<dir> to #board-wrap which kicks off

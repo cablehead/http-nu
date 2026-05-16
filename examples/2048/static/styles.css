@@ -40,15 +40,9 @@
   --brand: #0077b6;
   --brand-hover: #005a8a;
   --light: #f9f6f2;
-  --board-size: 460px;
   --gap: 8px;
   --radius: 4px;
   --glow: #fffdc2;
-  --board-scale: min(
-    calc((100dvw - 24px) / var(--board-size)),
-    calc((100dvh - 210px) / var(--board-size)),
-    1
-  );
 }
 
 * { box-sizing: border-box; margin: 0; }
@@ -118,16 +112,24 @@ button:active {
   flex-direction: column;
   align-items: center;
   gap: var(--gap);
+  width: 100%;
 }
-.column { width: calc(var(--board-size) * var(--board-scale)); }
 
 #game { position: relative; }
 
 #board-wrap {
   position: relative;
-  width: calc(var(--board-size) * var(--board-scale));
-  height: calc(var(--board-size) * var(--board-scale));
-  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  /* container-type: inline-size makes `cqw` resolve against this
+     element. One tile is ~25cqw, so magnitude (in tile widths) is
+     base * 25cqw -> actual viewport pixels. */
+  container-type: inline-size;
+  --ant-magnitude: clamp(
+    0px,
+    calc((var(--ant-magnitude-base) + var(--rtt-mean) * var(--ant-magnitude-k)) * 25cqw),
+    50cqw
+  );
 }
 /* Animate --tilt-x / --tilt-y themselves; the tile transform and the edge
    glow then interpolate together rather than one snapping while the other
@@ -150,28 +152,27 @@ button:active {
    doesn't let custom properties take their place. Magnitudes and the
    timing function inside each keyframe ARE variabilised. */
 :root {
-  --ant-duration-base:  400;    /* unitless ms; matches old --decay-duration floor */
-  --ant-duration-k:     2;      /* old behaviour was clamp(400, 2*rtt, 1200) */
-  --ant-magnitude-base: 0.26;   /* multiplier of one tile width; 1 = a full tile */
+  --ant-duration-base:  200;    /* unitless ms */
+  --ant-duration-k:     2;
+  --ant-magnitude-base: 0.02;   /* multiplier of one tile width */
   --ant-magnitude-k:    0;
-  --ant-y1-base:        1.7;
+  --ant-y1-base:        2;
   --ant-y1-k:           0;
-  --ant-x1-base:        0.34;
+  --ant-x1-base:        0.05;
   --ant-x1-k:           0;
-  --ant-x2-base:        0.5;
+  --ant-x2-base:        0.05;
   --ant-x2-k:           0;
   --ant-y2-base:        1;
   --ant-y2-k:           0;
 
   --ant-duration:  clamp(80ms, calc((var(--ant-duration-base) + var(--rtt-mean) * var(--ant-duration-k)) * 1ms), 1500ms);
-  /* tile_width = CELL (100px) * --board-scale. Magnitude in tile widths
-     so the lean stays visually proportional regardless of viewport. */
-  --ant-magnitude: clamp(0px, calc((var(--ant-magnitude-base) + var(--rtt-mean) * var(--ant-magnitude-k)) * 100px * var(--board-scale)), calc(150px * var(--board-scale)));
   --ant-y1:        clamp(1.0,   calc(var(--ant-y1-base) + var(--rtt-mean) * var(--ant-y1-k)), 3.0);
   --ant-x1:        clamp(0.05,  calc(var(--ant-x1-base) + var(--rtt-mean) * var(--ant-x1-k)), 0.95);
   --ant-x2:        clamp(0.05,  calc(var(--ant-x2-base) + var(--rtt-mean) * var(--ant-x2-k)), 0.95);
   --ant-y2:        clamp(0.5,   calc(var(--ant-y2-base) + var(--rtt-mean) * var(--ant-y2-k)), 1.5);
 }
+/* --ant-magnitude is in tile widths -- resolved in the #board-wrap
+   scope below where container query units (25cqw ≈ one tile) work. */
 
 /* decay transitions everything together with the RTT-tuned duration so the
    overshoot bounce is still in motion when the SSE patch lands. */
@@ -278,14 +279,16 @@ body.flash-red { animation: flash-red 300ms ease; }
    `:empty` selector below. */
 .board {
   display: grid;
-  grid-template-columns: repeat(4, 100px);
-  grid-template-rows: repeat(4, 100px);
-  gap: 10px;
-  padding: 15px;
-  width: 460px;
-  height: 460px;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 2.2%;
+  padding: 3.3%;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   background: #bbada0;
-  border-radius: 6px;
+  border-radius: 0.5rem;
+  box-sizing: border-box;
+  container-type: inline-size;
 }
 .board > div {
   border-radius: 4px;
@@ -300,30 +303,15 @@ body.flash-red { animation: flash-red 300ms ease; }
   font-weight: bold;
 }
 
-/* /play: the board is scaled to fit the page via --board-scale. */
-body.play .board {
-  touch-action: none;
-  transform: scale(var(--board-scale));
-  transform-origin: top left;
-}
-/* Lean the value tiles (not the empty background cells) during a swipe.
-   Divide by scale so the lean reads as viewport pixels at any board scale. */
+/* /play: tile lean reads --tilt-x/--tilt-y directly (they're already in
+   viewport pixels via the magnitude computed on #board-wrap below). */
+body.play .board { touch-action: none; }
 body.play .board > div:not(:empty) {
-  transform: translate(
-    calc(var(--tilt-x) / var(--board-scale)),
-    calc(var(--tilt-y) / var(--board-scale))
-  );
+  transform: translate(var(--tilt-x), var(--tilt-y));
 }
 
-/* Tight viewports (landscape phones): hide the hint, give more to the board. */
+/* Tight viewports (landscape phones): hide the hint to give more room. */
 @media (max-height: 600px) {
-  :root {
-    --board-scale: min(
-      calc((100dvw - 24px) / var(--board-size)),
-      calc((100dvh - 110px) / var(--board-size)),
-      1
-    );
-  }
   p.hint { display: none; }
   h1 { font-size: 20px; }
 }
@@ -343,17 +331,17 @@ body.play .board > div:not(:empty) {
 :root {
   --rtt-mean: 0;
 
-  --vt-duration-base: 220ms;
-  --vt-duration-k:    0;        /* +ms of slide per ms of RTT */
-  --vt-y1-base:       1.56;
-  --vt-y1-k:          0;        /* unit change per ms of RTT */
+  --vt-duration-base: 100ms;
+  --vt-duration-k:    0.1;      /* +ms of slide per ms of RTT */
+  --vt-y1-base:       1.2;
+  --vt-y1-k:          0.001;    /* unit change per ms of RTT */
   --vt-x1-base:       0.34;
   --vt-x1-k:          0;
   --vt-x2-base:       0.64;
   --vt-x2-k:          0;
   --vt-y2-base:       1;
   --vt-y2-k:          0;
-  --ghost-duration-base: 600ms;  /* how long the consumed tile lingers */
+  --ghost-duration-base: 120ms;  /* how long the consumed tile lingers */
   --ghost-duration-k:    0;
 
   --vt-duration: clamp(80ms,  calc(var(--vt-duration-base) + var(--rtt-mean) * var(--vt-duration-k) * 1ms), 600ms);
@@ -608,7 +596,6 @@ body.play .board > div:not(:empty) {
 .games-list:not(:empty) + .empty-state { display: none; }
 
 .games-list {
-  --thumb-scale: 0.5;
   display: flex;
   flex-wrap: wrap;
   gap: 1.5rem;
@@ -624,14 +611,9 @@ body.play .board > div:not(:empty) {
 }
 .game-card:hover .thumb { outline: 2px solid var(--brand); }
 .game-card .thumb {
-  width: calc(460px * var(--thumb-scale));
-  height: calc(460px * var(--thumb-scale));
-  overflow: hidden;
+  width: 230px;
+  height: 230px;
   border-radius: 6px;
-}
-.game-card .thumb .board {
-  transform: scale(var(--thumb-scale));
-  transform-origin: top left;
 }
 .game-card .caption {
   font-size: 13px;
@@ -651,49 +633,87 @@ body.games-view h1 { padding-top: 16px; }
 /* /play: a plain flex column with a small header and footer. The middle
    .column flex-centers the board. No slate chrome, no tracker palette. */
 body.play {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
+  /* base body is already flex-column centered (align-items: center,
+     justify-content: center). .page (the only child) sizes itself by
+     content so header + board + footer cluster tightly together,
+     centred in the viewport. */
   padding: 0;
   gap: 0;
 }
-body.play .play-header {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.25rem;
-  font-size: 14px;
-}
-body.play .play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
-
-/* Shared site footer (used on /play and /games). Status bits sit right;
-   page-specific actions (e.g. undo on /play) sit left. */
+/* Footer used by /games (and any other plain-flow page). /play has its
+   own structured footer; see body.play .play-footer rules below. */
 .site-footer {
   display: flex;
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 1.25rem;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--fg);
   opacity: 0.8;
 }
 .site-footer .spacer { flex: 1; }
-.site-footer .stat { font-variant-numeric: tabular-nums; font-size: 12px; }
-.site-footer .credit { font-size: 12px; }
+.site-footer .stat { font-variant-numeric: tabular-nums; }
 .site-footer .credit a { color: inherit; text-decoration: none; }
 .site-footer .credit a:hover { text-decoration: underline; }
 .site-footer .credit .mascot { width: 22px; height: 12px; vertical-align: -2px; }
 .site-footer #conn::before { content: "•"; margin-right: 4px; font-size: 16px; vertical-align: -2px; color: #888; }
 body[data-conn="ok"]   .site-footer #conn::before { color: #2a9d4a; }
 body[data-conn="down"] .site-footer #conn::before { color: #c0392b; }
-body.play .column {
-  flex: 1;
-  width: auto;
+
+/* /play layout: single 800px-max centred column. Header has two
+   groups (left: back/keys/undo, right: score+badge). Footer mirrors
+   (left: SSE/RTT, right: served-by credit). Page shrinks to mobile
+   widths naturally via max-width + padding. */
+body.play .page {
+  width: 100%;
+  max-width: 600px;
+  padding: 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  box-sizing: border-box;
+}
+body.play .play-header,
+body.play .play-footer {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 0;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  font-size: 14px;
+}
+body.play .play-header .left,
+body.play .play-header .right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+body.play .play-footer .left,
+body.play .play-footer .right {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+body.play .play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
+body.play .play-header .score-label { opacity: 0.6; }
+
+body.play .play-footer { color: var(--fg); opacity: 0.8; font-size: 12px; }
+body.play .play-footer .stat { font-variant-numeric: tabular-nums; }
+body.play .play-footer .credit a { color: inherit; text-decoration: none; }
+body.play .play-footer .credit a:hover { text-decoration: underline; }
+body.play .play-footer .credit .mascot { width: 22px; height: 12px; }
+body.play .play-footer #conn {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #888;
+}
+body.play[data-conn="ok"]   .play-footer #conn { background: #2a9d4a; }
+body.play[data-conn="down"] .play-footer #conn { background: #c0392b; }
+
+body.play .column {
+  width: 100%;
 }
 
 /* Inline link-styled button (e.g. undo in the footer). */
