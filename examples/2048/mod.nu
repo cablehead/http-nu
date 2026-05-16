@@ -225,7 +225,7 @@ export def impulses-to-states [initial: record] {
       }
       let popped = $s.stack | drop 1
       let new_top = $popped | last
-      return {out: [{state: $new_top, mode: $s.mode, direction: "undo", changed: true, req_id: $req_id, threshold: false}], next: ($s | update stack $popped)}
+      return {out: [{state: $new_top, mode: $s.mode, direction: "undo", changed: true, req_id: $req_id, threshold: false, move_id: ($frame | get id? | default "")}], next: ($s | update stack $popped)}
     }
     let intent = $frame.meta | get intent? | default ""
     if $intent in [h j k l] {
@@ -233,7 +233,7 @@ export def impulses-to-states [initial: record] {
       let changed = not (tiles-equal $cur.tiles $new_state.tiles)
       # No-op moves don't push -- nothing to undo if the board didn't change.
       let new_stack = if $changed { $s.stack | append $new_state } else { $s.stack }
-      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, req_id: $req_id, threshold: false}], next: ($s | update stack $new_stack)}
+      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, req_id: $req_id, threshold: false, move_id: ($frame | get id? | default "")}], next: ($s | update stack $new_stack)}
     }
     if ($intent | str starts-with "slam-") {
       let dir = $intent | str substring 5..
@@ -257,9 +257,10 @@ export def impulses-to-states [initial: record] {
       }
       # Tag the final step with req_id so the client's RTT match latches
       # onto the cascade's terminal patch (not the first step which arrives
-      # almost-immediately and would skew the measurement low). Splice it
-      # in by replacing the tail rather than walking every element.
-      let tagged = $yields | drop 1 | append ($yields | last | upsert req_id $req_id)
+      # almost-immediately and would skew the measurement low). Also mark
+      # final: true and attach move_id so snapshot-tap snapshots once per
+      # slam (at the cascade's settled state) rather than per intermediate.
+      let tagged = $yields | drop 1 | append ($yields | last | upsert req_id $req_id | upsert final true | upsert move_id ($frame | get id? | default ""))
       return {out: $tagged, next: ($s | update stack ($s.stack | append ($yields | last | get state)))}
     }
     # Any other intent (empty ping, unrecognised) still emits a no-op state
@@ -268,6 +269,45 @@ export def impulses-to-states [initial: record] {
     return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
   } $initial
   | flatten
+}
+
+# Side-effect tap: writes a snapshot to `game.<id>.snapshot` (ttl: last:1)
+# whenever a state-changing record flows past. Snapshots:
+#   - the threshold-emit (so the first connection to a fresh game seeds the
+#     snapshot for future cheap resumes), and
+#   - any record with changed=true, except slam intermediate steps (paced=true
+#     without final=true).
+#
+# Pass-through, so it slots into the SSE pipeline without altering shape.
+# Only the OWNING SSE connection should call this -- viewers should not
+# advance the snapshot. Today every connection is the owner.
+export def snapshot-tap [game_id: string player_id: string default_move_id: string] {
+  each {|s|
+    let is_threshold = ($s | get threshold? | default false)
+    let is_changed = ($s | get changed? | default false)
+    let is_paced = ($s | get paced? | default false)
+    let is_final = ($s | get final? | default false)
+    let should_snap = $is_threshold or ($is_changed and (not $is_paced or $is_final))
+    if $should_snap and ($s | get state? | default null) != null {
+      let state = $s.state
+      let max_tile = if ($state.tiles | is-empty) { 0 } else { $state.tiles | get value | math max }
+      let moves = [0 ($state.next_id - 3)] | math max
+      # Threshold-only snapshots have no source move_id; fall back to
+      # default_move_id (the SSE handler passes the games_topic frame id,
+      # which is the right `--after` cursor for a "no-moves-yet" game).
+      let move_id = $s | get move_id? | default $default_move_id
+      null | .append $"game.($game_id).snapshot" --ttl last:1 --meta {
+        state: $state
+        last_move_id: $move_id
+        player_id: $player_id
+        score: $state.score
+        max_tile: $max_tile
+        moves: $moves
+        game_over: $state.game_over
+      }
+    }
+    $s
+  }
 }
 
 # --- ad-hoc helpers (require --store) ------------------------------------

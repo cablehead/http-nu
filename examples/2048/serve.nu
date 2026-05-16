@@ -318,22 +318,32 @@ def html-to-patches [] {
       if $current_game_frame == null {
         "/" | to datastar-redirect | cookie delete "player" | to sse
       } else {
-        # Start the stream at the current game's frame (inclusive) so we
-        # skip the player's earlier games entirely -- impulses-to-states
-        # only ever needs to apply moves for the current game (and any
-        # newer game that gets started live via a fresh games_topic frame).
-        # The first frame the pipeline sees is the current game's
-        # games_topic frame, which triggers impulses-to-states to set
-        # game_id and seed the stack with the correct initial state.
+        let game_id = $current_game_frame.id
+        # If a snapshot exists, seed the accumulator from it and start the
+        # stream just AFTER the move that produced it (--after is exclusive,
+        # so we don't re-apply that move). Otherwise seed with initial-state
+        # and start --after the games_topic frame -- skipping it because we
+        # already pre-set game_id and stack.
+        let snapshot = (try { .last $"game.($game_id).snapshot" } catch { null })
+        let init_state = if $snapshot != null {
+          $snapshot.meta.state
+        } else {
+          (initial-state $game_id)
+        }
+        let after_id = if $snapshot != null {
+          $snapshot.meta.last_move_id
+        } else {
+          $current_game_frame.id
+        }
         # --pulse 450 injects xs.pulse frames into the stream every 450ms
         # which the pipeline turns into datastar-patch-signals heartbeats
         # for the client's liveness timer.
-        .cat --follow --pulse 450 --from $current_game_frame.id
+        .cat --follow --pulse 450 --after $after_id
         | filter-for-player $games_topic
         | impulses-to-states {
-          stack: [{tiles: [] next_id: 1 score: 0 game_over: false}]
+          stack: [$init_state]
           mode: "game"
-          game_id: ""
+          game_id: $game_id
           games_topic: $games_topic
           started: (date now)
         }
@@ -344,6 +354,11 @@ def html-to-patches [] {
         # 200ms gap between consecutive paced ones for the live animation.
         | threshold-gate-states
         | pace-slam-steps
+        # Snapshot tap writes game.<id>.snapshot (ttl last:1) on every
+        # state-changing emit. Only the owning connection should call this;
+        # viewers (when added) must skip it. The default_move_id is used
+        # for threshold-only snapshots that have no source move.
+        | snapshot-tap $game_id $player_id $current_game_frame.id
         | states-to-html
         | html-to-patches
         | to sse
