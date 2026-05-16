@@ -172,11 +172,11 @@ addEventListener("keydown", (e) => {
   }
 });
 
-// Reset button lives in the hint paragraph (static); the settings toggle
-// lives inside #game and gets morphed in/out -- delegated handler catches
-// both via event bubbling.
-document.querySelectorAll("p.hint button[data-intent]").forEach((b) => {
-  b.addEventListener("click", () => move(b.dataset.intent));
+// Delegated handler so it works for buttons that live in the static top
+// tracker bar (e.g. undo) as well as any morphed-in [data-intent] buttons.
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-intent]");
+  if (b) move(b.dataset.intent);
 });
 
 document.addEventListener("click", (e) => {
