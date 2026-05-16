@@ -339,28 +339,40 @@ def html-to-patches [] {
     })
 
     (route {method: GET path: "/sse/games"} {|req ctx|
-      # Live updates for the all-games splash. The initial page render
-      # already populated every card via resume-game (which reads each
-      # game's last snapshot in O(1)), so this stream only needs to push
-      # *new* snapshots that arrive after page load.
+      # Live updates for the all-games splash. The initial render
+      # populated every existing card via resume-game; this stream
+      # handles two kinds of post-load events:
       #
-      # `.cat --follow` without --from replays the entire history first.
-      # We snapshot the current head id at handler start and drop any
-      # frame with id <= head in the filter -- the historical frames
-      # still flow through the stream but no patches reach the browser,
-      # so the "serial replay" of every past snapshot doesn't happen.
+      #   1. A new player.<player_id>.games frame -- the player just
+      #      created a new game (in this tab or another). Prepend an
+      #      empty placeholder card to .games-list. Subsequent snapshot
+      #      frames morph it by id.
+      #   2. A new game.<id>.snapshot frame -- an in-progress game
+      #      advanced. Morph the matching #card-<id> in place.
+      #
+      # Capture the head id at handler start and drop anything <= head
+      # so we don't replay history (the initial render already covered
+      # everything up to "now").
       let cookies = $req | cookie parse
       let player_id = $cookies | get player? | default ""
+      let games_topic = $"player.($player_id).games"
       if ($player_id | is-empty) {
         null | metadata set { merge {'http.response': {status: 400}} }
       } else {
         let head = (try { .cat | last | get id? } catch { null })
-        # xs's -T glob only supports a trailing wildcard, so we subscribe
-        # to all "game.*" frames and filter to .snapshot ones below.
-        .cat --follow --pulse 450 -T "game.*"
+        # No -T filter: we need both `player.<id>.games` and
+        # `game.*.snapshot`, and xs's -T glob only takes one trailing
+        # wildcard. Filtering happens in the each block below.
+        .cat --follow --pulse 450
         | pulse-keepalive
         | each {|item|
-            if ('event' in $item) { $item } else if ($head != null and $item.id <= $head) { null } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
+            if ('event' in $item) { $item } else if ($head != null and $item.id <= $head) { null } else if ($item.topic == $games_topic) {
+              # New game minted for this player -- prepend a placeholder
+              # card. The next snapshot for this game will morph it.
+              let placeholder_state = {tiles: [] next_id: 1 score: 0 game_over: false}
+              render-card-from-state $req $item.id $placeholder_state 0
+              | to datastar-patch-elements --selector ".games-list" --mode prepend --id (random uuid)
+            } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
               let game_id = $item.topic | str replace "game." "" | str replace ".snapshot" ""
               let state = $item.meta.state
               let moves = $item.meta | get moves? | default 0
@@ -461,11 +473,12 @@ def html-to-patches [] {
       }
         (H1 "past games")
         (P (A {href: ($req | href "/new")} "+ new game"))
-        (if ($games | is-empty) {
-          (P {class: "hint"} "no games yet.")
-        } else {
-          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
-        })
+        # Always render .games-list (even if empty) so the SSE handler
+        # has a stable target to prepend new-game cards into. The hint
+        # below is a sibling, hidden via CSS when .games-list has any
+        # children.
+        (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
+        (P {class: "hint empty-state"} "no games yet.")
         (render-footer $req))
       | cookie set "player" $player_id --max-age 31536000 --no-secure)
     })

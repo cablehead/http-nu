@@ -402,6 +402,10 @@ html.view-flipping .board > div:not(:empty) { view-transition-name: none !import
 
 /* /games splash: simple plain page. No tracker chrome. Boards in a
    flex-wrap row, plain caption under each. */
+
+/* The "no games yet" hint hides whenever .games-list has a card. */
+.games-list:not(:empty) + .empty-state { display: none; }
+
 .games-list {
   --thumb-scale: 0.5;
   display: flex;
