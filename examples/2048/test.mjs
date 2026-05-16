@@ -1,9 +1,9 @@
 // End-to-end browser test for examples/2048/serve.nu.
 //
 // Drives a real chromium instance against an isolated http-nu instance.
-// Run from the repo root:
+// Run via check.sh, or directly:
 //
-//   node tests-browser/2048.test.mjs
+//   NODE_PATH=examples/2048/node_modules node examples/2048/test.mjs
 //
 // Verifies the data-* wiring: a keypress fires a fetch to /move, the bus
 // publishes, the SSE handler receives the impulse, and the patched board
@@ -11,14 +11,23 @@
 
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+
+// Resolve repo root and serve.nu path relative to this file so the test
+// works regardless of the caller's CWD.
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(HERE, "..", "..");
+const HTTP_NU = resolve(REPO_ROOT, "target", "debug", "http-nu");
+const SERVE_NU = resolve(HERE, "serve.nu");
 
 const PORT = 39200;
 const BASE = `http://127.0.0.1:${PORT}`;
 // Each test run gets a fresh ephemeral xs store so the event log starts empty.
 const STORE = `/tmp/2048-test-${process.pid}-${Date.now()}`;
 const srv = spawn(
-  "./target/debug/http-nu",
-  ["--datastar", "--store", STORE, `127.0.0.1:${PORT}`, "examples/2048/serve.nu"],
+  HTTP_NU,
+  ["--datastar", "--store", STORE, `127.0.0.1:${PORT}`, SERVE_NU],
   { stdio: "ignore" },
 );
 const cleanup = () => { try { srv.kill("SIGTERM"); } catch {} };
