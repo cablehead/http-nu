@@ -94,13 +94,13 @@ def render-board []: record -> record {
 }
 
 def gear-button []: nothing -> record {
-  (BUTTON {class: "track-btn track-gear" type: "button" aria-label: "settings" "data-view-to": "settings"}
-    (ICONIFY "material-symbols:settings-outline-rounded" {width: "20" height: "20"}))
+  (BUTTON {class: "icon-btn" type: "button" aria-label: "settings" "data-view-to": "settings"}
+    (ICONIFY "material-symbols:settings-outline-rounded" {width: "18" height: "18"}))
 }
 
 def close-button []: nothing -> record {
-  (BUTTON {class: "track-btn track-gear" type: "button" aria-label: "close" "data-view-to": "game"}
-    (ICONIFY "material-symbols:close-rounded" {width: "20" height: "20"}))
+  (BUTTON {class: "icon-btn" type: "button" aria-label: "close" "data-view-to": "game"}
+    (ICONIFY "material-symbols:close-rounded" {width: "18" height: "18"}))
 }
 
 # Small targeted SSE fragments. The top tracker bar lives statically at
@@ -109,14 +109,14 @@ def close-button []: nothing -> record {
 # board patch is small and the bar's layout doesn't need to round-trip
 # nav links and the game-id chip on every move.
 def render-score [score: int]: nothing -> record {
-  (SPAN {id: "score" class: "track-digits"} ($score | into string))
+  (SPAN {id: "score"} ($score | into string))
 }
 
 def render-state-badge [won: bool, game_over: bool]: nothing -> record {
   if $game_over {
-    (SPAN {id: "state-badge" class: "track-field track-badge track-badge-over"} "GAME OVER")
+    (SPAN {id: "state-badge" class: "badge over"} "game over")
   } else if $won {
-    (SPAN {id: "state-badge" class: "track-field track-badge track-badge-win"} "YOU WIN!")
+    (SPAN {id: "state-badge" class: "badge win"} "you win!")
   } else {
     (SPAN {id: "state-badge"} "")
   }
@@ -166,11 +166,10 @@ def render-settings []: nothing -> record {
       (P "more knobs soon.")))
 }
 
-# One card in the games list: tracker-styled panel with a header bar
-# (game id + status badge), the inner board centered, and a footer bar
-# with summary stats. Wraps in an anchor so clicking jumps into
-# /play/<id>. The outer element has id `card-<game_id>` so a future SSE
-# stream can morph individual cards in place as snapshots arrive.
+# One card in the games list: the board, with a small plain-text caption
+# below it (score / moves / state). No card chrome. The outer element has
+# id `card-<game_id>` so a future SSE stream can morph individual cards
+# in place as snapshots arrive.
 def render-game-card [req: record game_frame: record]: nothing -> record {
   let game_id = $game_frame.id
   let resumed = (resume-game $game_id)
@@ -178,34 +177,15 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
   let max_tile = if ($state.tiles | is-empty) { 0 } else {
     $state.tiles | get value | math max
   }
-  let move_count = $resumed.moves
-  let badge = if $max_tile >= 2048 {
-    (SPAN {class: "track-badge track-badge-win"} "won")
-  } else if $state.game_over {
-    (SPAN {class: "track-badge track-badge-over"} "failed")
-  } else {
-    (SPAN {class: "track-badge track-badge-paused"} "paused")
-  }
+  let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
+  let caption_bits = [
+    $"score ($state.score)"
+    $"moves ($resumed.moves)"
+    (if ($status | is-not-empty) { $status } else { null })
+  ] | compact
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
-    (DIV {class: "card-header"}
-      (SPAN {class: "track-field"}
-        (SPAN {class: "track-label"} "Game ")
-        (SPAN {class: "track-value"} ($game_id | str substring 0..7)))
-      (SPAN {class: "track-spacer"} "")
-      $badge)
-    (DIV {class: "card-board"}
-      (DIV {class: "thumb"} ($state | render-board)))
-    (DIV {class: "card-footer"}
-      (SPAN {class: "track-field"}
-        (SPAN {class: "track-label"} "Score ")
-        (SPAN {class: "track-value"} ($state.score | into string)))
-      (SPAN {class: "track-field"}
-        (SPAN {class: "track-label"} "Max ")
-        (SPAN {class: "track-value"} ($max_tile | into string)))
-      (SPAN {class: "track-spacer"} "")
-      (SPAN {class: "track-field"}
-        (SPAN {class: "track-label"} "Moves ")
-        (SPAN {class: "track-value"} ($move_count | into string)))))
+    (DIV {class: "thumb"} ($state | render-board))
+    (DIV {class: "caption"} ($caption_bits | str join " · ")))
 }
 
 # Pick the right render based on the per-tab mode. Same #game id either way
@@ -411,9 +391,9 @@ def html-to-patches [] {
         (LINK {rel: "icon" href: "data:,"})
         (TITLE "2048.nu")
         (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")}))
-      (BODY {class: "tracker games-view"}
-        (H1 (A {href: "https://github.com/cablehead/http-nu/blob/main/examples/2048/serve.nu"} "2048.nu"))
-        (P (A {class: "new-game-link" href: ($req | href "/new")} "+ New game"))
+      (BODY {class: "games-view"}
+        (H1 "past games")
+        (P (A {href: ($req | href "/new")} "+ new game"))
         (if ($games | is-empty) {
           (P {class: "hint"} "no games yet.")
         } else {
@@ -454,7 +434,7 @@ def html-to-patches [] {
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
       (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true}))
       (BODY {
-        class: "tracker play"
+        class: "play"
         # playerId from cookie, gameId from URL path. Both ride along on
         # every datastar POST so /move and /view don't need to look them
         # up server-side. data-conn is managed by script.js based on SSE
@@ -465,55 +445,26 @@ def html-to-patches [] {
         "data-view-url": ($req | href "/view")
         "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
       }
-      # Top tracker bar: stays static at body level. Live bits (score,
-      # state badge, gear/close toggle) have their own ids and are
-      # morphed in place by separate SSE patches emitted alongside the
-      # board patch (see states-to-html).
-      (DIV {class: "track-bar track-bar-top"}
-        (A {class: "track-btn" href: $home_href aria-label: "back to all games"}
-          "["
-          (SPAN {class: "track-key"} "esc")
-          "] all games")
-        (SPAN {class: "track-field"}
-          (SPAN {class: "track-label"} "Game ")
-          (SPAN {class: "track-value"} ($game_id | str substring 0..7)))
-        (SPAN {class: "track-field"}
-          (SPAN {class: "track-label"} "Keys ")
-          (SPAN {class: "track-value"} "hjkl/arrows"))
-        (BUTTON {type: "button" "data-intent": "undo" class: "track-btn" aria-label: "undo"}
-          "["
-          (SPAN {class: "track-key"} "u")
-          "]ndo")
-        (render-mode-toggle "game")
-        (render-state-badge false false)
-        (SPAN {class: "track-spacer"} "")
-        (render-score 0))
-      # data-init and data-indicator live on .column (which is never patched)
-      # so the SSE fetch + connection signal survive the wholesale replacement
-      # of #game's contents on every server patch.
-      (DIV {
-        class: "column"
-        # data-sse tags this element so script.js can filter datastar-fetch
-        # events to just our SSE (ignoring any unrelated @get/@post).
-        "data-sse": ""
-        "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
-      }
-        # #game is the single view; SSE patches morph it between the game
-        # board render and the settings panel render based on per-tab mode
-        # in the event log.
-        $placeholder)
-      (DIV {class: "track-bar track-bar-bot"}
-        (SPAN {class: "track-field"}
-          (SPAN {class: "track-label"} "SSE ")
-          (SPAN {id: "conn" class: "track-value" title: "SSE connection"} ""))
-        (SPAN {class: "track-field"}
-          (SPAN {class: "track-label"} "RTT ")
-          (SPAN {id: "rtt" class: "track-value" title: "last move round-trip time"} ""))
-        (SPAN {class: "track-spacer"} "")
-        (SPAN {class: "track-credit"}
-          (A {href: "https://http-nu.cross.stream"}
-            "served by http-nu "
-            (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))
+        (HEADER {class: "play-header"}
+          (A {href: $home_href} "← back")
+          (SPAN "score "
+            (render-score 0))
+          (render-state-badge false false))
+        # data-init lives on .column (which is never patched) so the SSE
+        # fetch + connection signal survive the morph of #game's contents.
+        (DIV {
+          class: "column"
+          "data-sse": ""
+          "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+        }
+          $placeholder)
+        (FOOTER {class: "play-footer"}
+          (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo")
+          (SPAN {class: "hint"} "keys: hjkl / arrows")
+          (SPAN {class: "spacer"} "")
+          (SPAN {id: "conn" class: "stat"} "")
+          (SPAN {id: "rtt" class: "stat"} "")
+          (render-mode-toggle "game")))
       # Persist the player id for a year, refreshing on every visit.
       # --no-secure so the cookie works over plain HTTP for local dev.
       | cookie set "player" $player_id --max-age 31536000 --no-secure)

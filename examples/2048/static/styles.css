@@ -444,69 +444,39 @@ footer a {
 }
 footer a:hover { background: var(--brand-hover); }
 
-/* Game panel (one per past game). Tracker chrome: small slate header
-   bar, the inner board centered, and a slate footer bar with stats.
-   The board is rendered at intrinsic 460px and CSS-scaled to fit the
-   card. */
+/* /games splash: simple plain page. No tracker chrome. Boards in a
+   flex-wrap row, plain caption under each. */
 .games-list {
-  --thumb-scale: 0.55;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(460px * var(--thumb-scale) + 24px), 1fr));
-  gap: 16px;
-  width: min(960px, 100% - 32px);
-  margin: 0 auto;
-  padding: 16px;
+  --thumb-scale: 0.5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 0 1rem 1.5rem;
 }
 .game-card {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  background: var(--track-panel, #2a2a4a);
-  color: var(--track-white, #e8e8e8);
-  font-family: ui-monospace, "Berkeley Mono", "SF Mono", "Menlo", "Consolas", monospace;
-  font-size: 13px;
-  text-decoration: none;
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-light, #66668c),
-    inset -1px -1px 0 var(--track-bevel-dark, #14141f),
-    0 2px 0 rgba(0,0,0,0.3);
-}
-.game-card:hover {
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-light, #66668c),
-    inset -1px -1px 0 var(--track-bevel-dark, #14141f),
-    0 4px 0 rgba(0,0,0,0.4);
-  transform: translateY(-1px);
-}
-.game-card .card-header,
-.game-card .card-footer {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 4px 10px;
-  background: var(--track-panel-deep, #1c1c34);
-  box-shadow:
-    inset 0 1px 0 var(--track-bevel-dark, #14141f),
-    inset 0 -1px 0 var(--track-bevel-light, #66668c);
+  gap: 0.5rem;
+  text-decoration: none;
+  color: inherit;
 }
-.game-card .card-board {
-  display: grid;
-  place-items: center;
-  padding: 10px;
-}
+.game-card:hover .thumb { outline: 2px solid var(--brand); }
 .game-card .thumb {
   width: calc(460px * var(--thumb-scale));
   height: calc(460px * var(--thumb-scale));
   overflow: hidden;
+  border-radius: 6px;
 }
 .game-card .thumb .board {
   transform: scale(var(--thumb-scale));
   transform-origin: top left;
 }
-.game-card .track-label { color: var(--track-cyan, #6acdcd); }
-.game-card .track-value { color: var(--track-green, #66e070); font-weight: bold; }
-.game-card .track-spacer { flex: 1; }
-.game-card .track-badge { font-size: 11px; padding: 1px 6px; }
-.game-card .track-badge-paused { background: #3a3a5a; color: #c8c8d8; }
+.game-card .caption {
+  font-size: 13px;
+  color: var(--fg);
+  opacity: 0.7;
+}
 
 /* /games -- override body so the page scrolls and content flows top-down. */
 body.games-view {
@@ -648,9 +618,33 @@ body.tracker .track-badge-win  { background: #1a3a1a; color: #aef0a8; }
 body.tracker .track-credit { color: var(--track-mute); }
 body.tracker .track-credit a { color: var(--track-cyan); text-decoration: none; }
 
-/* Play view: body is the flex column; the middle .column is itself a
-   flex container that centers the board. That's it. */
-body.tracker.play .column {
+/* /play: a plain flex column with a small header and footer. The middle
+   .column flex-centers the board. No slate chrome, no tracker palette. */
+body.play {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  gap: 0;
+}
+body.play .play-header,
+body.play .play-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 14px;
+}
+body.play .play-header { gap: 1.5rem; }
+body.play .play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
+body.play .play-footer { color: var(--fg); opacity: 0.7; }
+body.play .play-footer .spacer { flex: 1; }
+body.play .play-footer .stat { font-variant-numeric: tabular-nums; font-size: 12px; }
+body.play .play-footer #conn::before { content: "•"; margin-right: 4px; font-size: 16px; vertical-align: -2px; color: #888; }
+body.play[data-conn="ok"]   .play-footer #conn::before { color: #2a9d4a; }
+body.play[data-conn="down"] .play-footer #conn::before { color: #c0392b; }
+body.play .column {
   flex: 1;
   width: auto;
   display: flex;
@@ -658,6 +652,48 @@ body.tracker.play .column {
   justify-content: center;
   min-height: 0;
 }
+
+/* Inline link-styled button (e.g. undo in the footer). */
+.linklike {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--brand);
+  text-decoration: underline;
+  cursor: pointer;
+  box-shadow: none;
+}
+.linklike:hover { color: var(--brand-hover); background: none; }
+.linklike:active { transform: none; box-shadow: none; }
+
+/* Small icon-only button (settings gear / close). */
+.icon-btn {
+  background: none;
+  border: 0;
+  padding: 4px;
+  color: var(--fg);
+  cursor: pointer;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+}
+.icon-btn:hover { opacity: 1; background: none; }
+.icon-btn:active { transform: none; box-shadow: none; }
+
+/* Small status badge for game-over / you-win in the header. */
+.badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge.over { background: #c0392b; color: white; }
+.badge.win  { background: #2a9d4a; color: white; }
 
 /* Settings panel: dark slate well. */
 body.tracker.play #settings-panel {
