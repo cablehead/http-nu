@@ -4,9 +4,10 @@ const playerId = document.body.dataset.playerId;
 const gameId = document.body.dataset.gameId;
 const moveUrl = document.body.dataset.moveUrl;
 
-// End-to-end RTT: time from a move() call to the next DOM mutation in #game
-// (i.e. when the SSE patch lands). We tune --decay-duration off this so the
-// anticipation animation stays in motion through the network round-trip.
+// End-to-end RTT: time from a move() call to the next DOM mutation in
+// #game (i.e. when the SSE patch lands). The mean is published on
+// :root as --rtt-mean so CSS dials can scale animation timing with
+// latency.
 let pending = null;
 const rtts = [];
 const RTT_HISTORY = 5;
@@ -61,14 +62,12 @@ const setConn = (v) => {
   if (document.body.dataset.conn === v) return;
   document.body.dataset.conn = v;
   if (v === "down") {
-    // Old RTT readings are stale across a disconnect; clear the indicator
-    // and the history so reconnect probes for a fresh measurement.
+    // Old RTT readings are stale across a disconnect; clear the
+    // indicator and the history so reconnect probes for a fresh
+    // measurement.
     pending = null;
     rtts.length = 0;
     rttEl()?.replaceChildren("");
-    // #replay is datastar-bound (data-text) so we can't clear it from JS
-    // -- the next heartbeat would re-apply $replayMs. CSS hides it while
-    // body[data-conn="down"] (see styles.css).
   }
   if (prevConn === "down" && v === "ok") {
     document.body.classList.remove("reconnect-pulse");

@@ -58,34 +58,27 @@ const PAD = 15
 const TOTAL = 460
 
 # The board: a self-contained component. Single class `.board` on the
-# root; layout, palette, and cell styling all live in `.board > *` /
-# `.board > div:not(:empty)` selectors in styles.css. Used at full size
-# on /play and CSS-scaled inside game-card thumbnails on /games -- same
-# render, different wrap.
+# root; layout, palette, and cell styling live in `.board > *` /
+# `.board > div:not(:empty)` selectors in styles.css. Used at full
+# size on /play and inside game-card thumbnails on /games.
 #
-# Per-cell inline styles are limited to what's actually data-driven:
-# grid placement (r,c), tile bg/color/font-size (value), and the
-# view-transition-name (tile id). Empty cells render as `<div></div>` and
-# get their look from the structural `.board > div:empty` selector.
-# render-board is a hot path: every snapshot push re-renders one or more
-# boards. Building the markup via the runtime HTML DSL costs ~40ms per
-# board (most of it nushell record construction per tile/cell). With
-# multiple cards re-rendering on /games it adds up to perceptible lag.
+# Per-cell inline styles are limited to what's data-driven: grid
+# placement (r,c), tile bg/color/font-size (value), and view-
+# transition-name (tile id). Empty cells render as `<div></div>` and
+# pick up their look from the `.board > div:empty` selector.
 #
-# Compile a minijinja template once at module load and render through it
-# instead -- ~1ms per board, ~40x faster, identical output. The 16 empty
-# background cells are hardcoded into the template (they never change);
-# tiles are a {% for %} loop driven by a pre-shaped list computed in
-# render-board.
-## The board template has three layers:
-##   1. 16 hardcoded empty cells (background grid).
-##   2. ghosts -- one per tile consumed by a merge on the move that
-##      produced this snapshot. Same `view-transition-name` as the
-##      consumed tile, placed at the merge cell with opacity 0.
-##      The browser pairs the old visible tile with this new invisible
-##      ghost and slides it into the merge position before fading,
-##      instead of just popping out of existence.
-##   3. tiles (the live game-state tiles).
+# Compiled once into a minijinja template since render-board is hot --
+# every snapshot push re-renders one or more boards, and the runtime
+# HTML DSL is significantly slower per tile.
+#
+# Template layers, in DOM order (later layers paint on top):
+#   1. 16 hardcoded empty cells (background grid; never change).
+#   2. Ghosts -- one per tile consumed by a merge on this snapshot's
+#      move. Same view-transition-name as the consumed tile, placed at
+#      the merge cell with opacity 0. The browser pairs the visible
+#      old tile with this invisible new ghost and slides it into the
+#      merge cell while fading, instead of popping out of existence.
+#   3. Tiles (live game-state tiles).
 let BOARD_TPL = .mj compile --inline (
   DIV {class: "board"}
     (0..3 | each {|r| 0..3 | each {|c|
@@ -540,13 +533,10 @@ def html-to-patches [] {
                 (A {href: "https://http-nu.cross.stream"}
                   "served by http-nu "
                   (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))))
-        # Temporary tuning panel for the view-transition bezier dials.
-        # Lives as a floating overlay so it doesn''t disturb the layout.
-        # Each slider writes its CSS custom property on :root and the
-        # SVG preview re-plots the bezier in motion-y space (y=0 at the
-        # bottom is "not yet moved", y=1 mid-height is "at target",
-        # anything above the target line is overshoot). Remove this
-        # block once we''ve settled on values.
+        # TEMPORARY: floating fx tuner. Each slider writes its CSS
+        # custom property on :root; the SVG previews plot the bezier in
+        # motion-y space (y=1 = target, y>1 = overshoot). Remove this
+        # block once the dial values are settled.
         {__html: '<aside class="vt-tuner">
   <button class="vt-tuner-tab" aria-label="toggle tuner"><span class="vt-tuner-tab-arrow" aria-hidden="true">&#9656;</span><span class="vt-tuner-tab-label">fx</span></button>
   <div class="vt-tuner-body">

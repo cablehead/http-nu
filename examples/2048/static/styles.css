@@ -142,15 +142,15 @@ button:active {
     --glow-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 /* Anticipation tuning (the wind-up before / spring-back after a move).
-   Each dial is `base + k * --rtt-mean`, clamped, same pattern as the
-   overshoot section. `--ant-magnitude` = how far the board leans
-   opposite the press direction. `--ant-x1/y1/x2/y2` = bezier on the
-   spring-back segment. Y1 > 1 = bounce past 0 in the other direction
-   (the recoil). Total animation duration tracks --decay-duration which
-   already scales with RTT.
-   Note: keyframe selector positions (0%, 15%, 100%) are static -- CSS
-   doesn't let custom properties take their place. Magnitudes and the
-   timing function inside each keyframe ARE variabilised. */
+   Each dial is `base + k * --rtt-mean`, clamped. `--ant-magnitude` is
+   how far the board leans opposite the press direction. The bezier
+   `(--ant-x1, --ant-y1, --ant-x2, --ant-y2)` applies to the whole
+   three-keyframe animation, shaping both the wind-up (0 -> peak at
+   15%) and the spring-back (peak -> 0). y1 > 1 = overshoot past peak
+   on the way up, and past zero on the way back (the recoil).
+   Keyframe selector positions (0%, 15%, 100%) are static -- CSS does
+   not substitute custom properties there. Values inside the keyframe
+   and the timing function on the element are variabilised. */
 :root {
   --ant-duration-base:  200;    /* unitless ms */
   --ant-duration-k:     2;
@@ -184,15 +184,11 @@ button:active {
     --glow-y var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2));
 }
 
-/* Keyboard anticipation: synthetic three-keyframe lean (0 -> peak at 15%
-   -> 0) so a press feels like a slingshot wind-up + recoil. The bezier
-   that shapes BOTH segments lives on the element's
-   `animation-timing-function` (where `var()` is honored). It's NOT
-   inside the @keyframes block, because Chromium silently drops `var()`
-   from `animation-timing-function` declared inside a keyframe.
-   With y1 > 1 the wind-up briefly overshoots peak before settling, and
-   the recoil overshoots past 0 in the other direction -- both shaped by
-   the same dial. */
+/* Browser quirk: `animation-timing-function: cubic-bezier(var(...))`
+   does not honour var() *inside* a @keyframes block (Chromium falls
+   back to `ease`). The bezier must live on the element via
+   `animation-timing-function` instead -- which is where the
+   `#board-wrap.key-X` rules below put it. */
 @keyframes key-lean-h {
   0%   { --tilt-x: 0px; }
   15%  { --tilt-x: var(--ant-magnitude); }
@@ -250,11 +246,9 @@ body[data-conn="down"] button {
   opacity: 0.4;
   pointer-events: none;
 }
-/* While disconnected the rtt/replay numbers are stale -- hide them and
-   let just the conn dot represent status. (#replay is datastar-bound
-   so the value would otherwise persist across the disconnect.) */
-body[data-conn="down"] #rtt,
-body[data-conn="down"] #replay { visibility: hidden; }
+/* Hide the stale RTT readout while disconnected; the conn dot
+   represents the status on its own. */
+body[data-conn="down"] #rtt { visibility: hidden; }
 #board-wrap { transition: filter 320ms ease; }
 button { transition: opacity 320ms ease; }
 
@@ -370,13 +364,12 @@ body.play .board > div:not(:empty) {
   100% { opacity: 0; }
 }
 
-/* Temporary tuning overlay (slides in/out from the right edge on /play).
-   Remove when the dials are dialled in.
-   Structure: the tab is anchored to the right edge of the viewport (the
-   .vt-tuner is fixed at right:0 with the tab as its only static child).
-   The body is absolutely positioned to the LEFT of the tab and slides
-   off-screen via translateX when .is-collapsed is set. That way the
-   tab itself never moves, so clicking it always works. */
+/* TEMPORARY: fx tuner overlay. Remove when the dial values are
+   settled.
+   Layout: .vt-tuner is fixed at right:0 with the tab as its only
+   static child. The body is absolutely positioned to the LEFT of the
+   tab and slides off-screen via translateX when .is-collapsed is set
+   -- the tab stays put so it's always click-able. */
 .vt-tuner {
   position: fixed;
   top: 12px;

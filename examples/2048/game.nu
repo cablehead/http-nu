@@ -145,9 +145,8 @@ export def is-game-over []: record -> bool {
 }
 
 export def apply-move [dir: string, game_id: string]: record -> record {
-  # Clear last move's ghosts (they were rendered exactly once when their
-  # snapshot landed at the client). Reattaching empty here means a no-op
-  # move returns a state whose ghosts are also cleared.
+  # Ghosts live for one snapshot only -- the move that produced them.
+  # Clear them at the start of every move so they don't carry over.
   let s = $in | upsert ghosts []
   let r = $s.tiles | slide-tiles $dir
   if $s.game_over or (tiles-equal $s.tiles $r.tiles) { return $s }

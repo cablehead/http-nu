@@ -246,11 +246,10 @@ assert (tiles-equal $r10_final.state.tiles $new_init_tiles) "stale game's move i
 
 # --- frames-to-states ------------------------------------------------------
 #
-# This is the SSE pipeline `/play` uses. The bug we fixed: a no-op
-# h/j/k/l move frame (the actor returns null, no snapshot written)
-# never resolved the client's RTT probe because frames-to-states
-# dropped it. Every move frame -- ping, h/j/k/l, undo -- must emit
-# a state record carrying the originating req_id.
+# Contract: every `game.<id>.move` frame -- empty-intent ping, h/j/k/l,
+# undo -- must emit a state record carrying the originating req_id, so
+# the client's pending RTT probe resolves whether or not the actor
+# follows up with a snapshot frame.
 
 let MOVE_TOPIC2 = $"game.($GID).move"
 let SNAP_TOPIC  = $"game.($GID).snapshot"
@@ -266,9 +265,8 @@ let r11 = drive-frames [{id: "m1" topic: $MOVE_TOPIC2 meta: {intent: "" req_id: 
 assert (($r11 | length) == 1) "intent=\"\" emits exactly one record"
 assert (($r11 | first | get req_id) == "ping-1") "RTT ping echoes req_id"
 
-# 12. REGRESSION GUARD: a real h/j/k/l move frame ALSO echoes with req_id,
-#     so the client's RTT probe resolves even when the move turns out
-#     to be a no-op at the actor level (no snapshot written).
+# 12. h/j/k/l move frames echo with req_id too, so the RTT probe
+#     resolves even on no-op moves (where the actor writes no snapshot).
 let r12 = drive-frames [{id: "m2" topic: $MOVE_TOPIC2 meta: {intent: "h" req_id: "probe-42"}}]
 assert (($r12 | length) == 1) "h-move emits exactly one record"
 assert (($r12 | first | get req_id) == "probe-42") "h-move echoes req_id (NO-OP RTT resolution)"

@@ -49,15 +49,13 @@ export def frames-to-states [] {
         next: ($acc | upsert state $state)
       }
     } else if ($t | str ends-with ".move") {
-      # Echo the current state with the originating req_id. This is the
-      # client's RTT-resolution signal: any move POST (RTT ping, real
-      # h/j/k/l, undo) gets a quick state-echo patch back that flips
-      # #game's data-rev to the matching req_id, so script.js can mark
-      # the pending probe as resolved. For *state-changing* moves the
-      # actor also writes a snapshot frame; that's emitted separately
-      # downstream and is what actually re-renders new tiles. For NO-OP
-      # moves (h/j/k/l that don't move any tiles) only the echo lands,
-      # so without this branch the client's RTT counter ticks forever.
+      # Every move frame emits a state record carrying its req_id. The
+      # render flips #game's data-rev to that req_id, which is the
+      # client's signal that its pending RTT probe has resolved.
+      # State-changing moves also produce a snapshot frame (emitted
+      # downstream as its own record), and that one re-renders new
+      # tiles. No-op moves produce no snapshot, so this echo is their
+      # only resolution.
       let req_id = $f.meta | get req_id? | default ""
       {out: {state: $acc.state, req_id: $req_id, threshold: false}, next: $acc}
     } else {
