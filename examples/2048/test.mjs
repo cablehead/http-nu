@@ -57,7 +57,8 @@ const ctx = await browser.newContext();
 const page = await ctx.newPage();
 page.on("pageerror", (err) => console.log(`  [pageerror] ${err.message}`));
 
-await page.goto(BASE);
+// /new mints a games_topic frame and 302s to /play/<game-id>.
+await page.goto(`${BASE}/new`);
 await page.waitForFunction(
   () => document.querySelectorAll("#board > div").length > 0,
   null,
@@ -110,9 +111,13 @@ check(
 const score = await page.evaluate(() => document.querySelector("#status")?.textContent ?? "");
 check("score shows", /Score:/.test(score), score);
 
-// Reset appends a games-index frame; the SSE pipeline picks it up and
-// streams a fresh board over the existing connection. No page reload.
-await page.keyboard.press("r");
+// Reset is now "navigate to /new" -- mints a fresh game and redirects.
+await page.goto(`${BASE}/new`);
+await page.waitForFunction(
+  () => document.querySelectorAll("#board > div").length > 0,
+  null,
+  { timeout: 5000 },
+);
 const afterReset = await waitFor((s) => s.tiles.length === 2);
 check("reset back to 2 tiles", afterReset.tiles.length === 2, JSON.stringify(afterReset));
 

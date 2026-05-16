@@ -173,7 +173,8 @@ def render-settings []: nothing -> record {
       (P "more knobs soon.")))
 }
 
-# One row in the past-games list: thumbnail + score + max-tile + move count.
+# One card in the games list: thumbnail + score + max-tile + move count.
+# Wraps in an anchor so clicking the card jumps into /play/<id>.
 def render-game-card [req: record game_frame: record]: nothing -> record {
   let game_id = $game_frame.id
   let resumed = (resume-game $game_id)
@@ -182,17 +183,20 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
     $state.tiles | get value | math max
   }
   let move_count = $resumed.moves
-  (DIV {class: "game-card"}
+  let badge = if $max_tile >= 2048 {
+    (DIV {class: "badge won"} "won")
+  } else if $state.game_over {
+    (DIV {class: "badge failed"} "failed")
+  } else {
+    (DIV {class: "badge paused"} "paused")
+  }
+  (A {class: "game-card" href: ($req | href $"/play/($game_id)")}
     (DIV {class: "thumb"} ($state | render-board))
     (DIV {class: "meta"}
       (DIV {class: "score"} $"Score: ($state.score)")
       (DIV {} $"Max tile: ($max_tile)")
       (DIV {} $"Moves: ($move_count)")
-      (if $state.game_over {
-        (DIV {class: "badge over"} "game over")
-      } else {
-        (DIV {class: "badge live"} "in progress")
-      })))
+      $badge))
 }
 
 # Pick the right render based on the per-tab mode. Same #game id either way
@@ -280,77 +284,45 @@ def html-to-patches [] {
 {|req|
   dispatch $req [
     (route {method: POST path: "/move"} {|req ctx|
-      # The player's "current game" is always the most-recent frame on
-      # their games topic. /move derives it server-side so the client
-      # doesn't have to track gameId at all -- it just sends intents.
+      # The client carries the game id (URL-routed play view, so the
+      # page knows which game it's on). Body shape: {playerId, gameId,
+      # intent, reqId}.
       let signals = $in | from datastar-signals $req
-      let player_id = $signals | get playerId? | default ""
+      let game_id = $signals | get gameId? | default ""
       let intent = $signals | get intent? | default ""
       let req_id = $signals | get reqId? | default ""
-      let games_topic = $"player.($player_id).games"
-      if $intent == "reset" {
-        # Append to the index. The SSE pipeline picks this up, resets its
-        # state machine, and streams a fresh board over the existing
-        # connection -- no page reload needed. Carry req_id so the client's
-        # RTT match finds the resulting fresh-board mutation.
-        null | .append $games_topic --meta {req_id: $req_id}
-        null | metadata set { merge {'http.response': {status: 204}} }
+      if ($game_id | is-empty) {
+        null | metadata set { merge {'http.response': {status: 400}} }
       } else {
-        let last_game = (try { .last $games_topic } catch { null })
-        if $last_game == null {
-          # Stale cookie -- same response /sse uses for an unknown player.
-          # The client reloads + re-mints identity, then retries.
-          "/" | to datastar-redirect | cookie delete "player" | to sse
+        let topic = $"game.($game_id).move"
+        if $intent == "undo" {
+          null | .append $topic --meta {kind: "undo" req_id: $req_id}
+        } else if $intent == "" {
+          # RTT-measurement ping: client sends an empty intent so the SSE
+          # echoes a no-op state. Don't persist -- ephemeral keeps the
+          # move log clean.
+          null | .append $topic --ttl ephemeral --meta {intent: $intent req_id: $req_id}
         } else {
-          let game_id = $last_game.id
-          let topic = $"game.($game_id).move"
-          if $intent == "undo" {
-            null | .append $topic --meta {kind: "undo" req_id: $req_id}
-          } else if $intent == "" {
-            # RTT-measurement ping: client sends an empty intent so the SSE
-            # echoes a no-op state. Carries no game-state effect, so don't
-            # persist -- ephemeral keeps the move log clean for replay.
-            null | .append $topic --ttl ephemeral --meta {intent: $intent req_id: $req_id}
-          } else {
-            # Covers h/j/k/l.
-            null | .append $topic --meta {intent: $intent req_id: $req_id}
-          }
-          null | metadata set { merge {'http.response': {status: 204}} }
+          # Covers h/j/k/l.
+          null | .append $topic --meta {intent: $intent req_id: $req_id}
         }
+        null | metadata set { merge {'http.response': {status: 204}} }
       }
     })
 
-    (route {method: GET path: "/sse"} {|req ctx|
-      let signals = "" | from datastar-signals $req
-      let player_id = $signals | get playerId? | default ""
-      let games_topic = $"player.($player_id).games"
-      # Orphan cookie: the player's index is empty (store wiped). Clear
-      # the cookie and reload so GET / mints fresh identity.
-      let current_game_frame = (try { .last $games_topic } catch { null })
-      if $current_game_frame == null {
-        "/" | to datastar-redirect | cookie delete "player" | to sse
-      } else {
-        let game_id = $current_game_frame.id
-        # The actor owns game state; the SSE handler is a thin reader.
-        # We subscribe to a broad slice (no -T filter) so we also see
-        # the player's games_topic -- a new frame there means "reset, a
-        # new game started." `take until` terminates the stream when
-        # that happens; the browser's auto-reconnect picks up the new
-        # game on its next /sse connect.
-        .cat --follow --pulse 450 --from $current_game_frame.id
-        | where {|f| (
-            $f.topic == $games_topic
-            or ($f.topic | str starts-with $"game.($game_id).")
-            or $f.topic == "xs.threshold"
-            or $f.topic == "xs.pulse"
-          ) }
-        | take until {|f| $f.topic == $games_topic and $f.id != $game_id }
-        | frames-to-states
-        | threshold-gate-states
-        | states-to-html
-        | html-to-patches
-        | to sse
-      }
+    (route {method: GET path-matches: "/sse/:game_id"} {|req ctx|
+      let game_id = $ctx.game_id
+      # The actor owns game state; the SSE handler is a thin reader of
+      # this game's snapshot stream (plus ephemeral view-toggles).
+      # --from $game_id includes the games_topic frame at that id and
+      # everything after; the threshold-gate buffers it down to just the
+      # latest snapshot for the initial render.
+      .cat --follow --pulse 450 -T $"game.($game_id).*" --from $game_id
+      | frames-to-states
+      | threshold-gate-states
+      | states-to-html
+      | html-to-patches
+      | to sse
     })
 
     (route {method: GET path: "/script.js"} {|req ctx|
@@ -369,9 +341,36 @@ def html-to-patches [] {
       .static $SCRIPT_DIR "/og.png"
     })
 
-    (route {method: GET path: "/games"} {|req ctx|
-      # Read-only history view. Latest first. Replays each game's move log
-      # to derive its final state, then renders a thumbnail + summary.
+    (route {method: POST path: "/view"} {|req ctx|
+      # View toggle on this game's move topic with ttl=ephemeral so only
+      # currently-connected SSE subscribers see it. Game id comes from
+      # the page's data-signals (URL-routed play view).
+      let signals = $in | from datastar-signals $req
+      let game_id = $signals | get gameId? | default ""
+      let mode = $signals | get mode? | default "game"
+      if ($game_id | is-not-empty) {
+        null | .append $"game.($game_id).move" --ttl ephemeral --meta {kind: "view" mode: $mode}
+      }
+      null | metadata set { merge {'http.response': {status: 204}} }
+    })
+
+    (route {method: GET path: "/new"} {|req ctx|
+      # Mint a games_topic frame for this player and 302 to /play/<id>.
+      # Cookie minted on first visit.
+      let cookies = $req | cookie parse
+      let prior = $cookies | get player? | default ""
+      let player_id = if ($prior | is-empty) { random uuid } else { $prior }
+      let games_topic = $"player.($player_id).games"
+      let new_frame = (null | .append $games_topic)
+      let location = ($req | href $"/play/($new_frame.id)")
+      "" | metadata set { merge {'http.response': {status: 302 headers: {Location: $location}}} }
+      | cookie set "player" $player_id --max-age 31536000 --no-secure
+    })
+
+    (route {method: GET path: "/"} {|req ctx|
+      # Splash = past games + New game link. The play view lives at
+      # /play/<game_id>. Mint a cookie on first visit so subsequent
+      # actions (creating games, etc.) have a player identity.
       let cookies = $req | cookie parse
       let prior = $cookies | get player? | default ""
       let player_id = if ($prior | is-empty) { random uuid } else { $prior }
@@ -382,43 +381,22 @@ def html-to-patches [] {
         (META {charset: "utf-8"})
         (META {name: "viewport" content: "width=device-width, initial-scale=1"})
         (LINK {rel: "icon" href: "data:,"})
-        (TITLE "past games -- 2048.nu")
+        (TITLE "2048.nu")
         (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")}))
       (BODY {class: "games-view"}
-        (H1 "past games")
-        (P (A {href: ($req | href "/")} "\u{2190} play current"))
+        (H1 (A {href: "https://github.com/cablehead/http-nu/blob/main/examples/2048/serve.nu"} "2048.nu"))
+        (P (A {class: "new-game-link" href: ($req | href "/new")} "+ New game"))
         (if ($games | is-empty) {
           (P {class: "hint"} "no games yet.")
         } else {
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
-        })))
+        }))
+      | cookie set "player" $player_id --max-age 31536000 --no-secure)
     })
 
-    (route {method: POST path: "/view"} {|req ctx|
-      # View changes go on the current game's move topic, but with
-      # ttl=ephemeral so they are NOT persisted -- only currently-connected
-      # subscribers receive them. Reconnecting always starts in game mode.
-      let signals = $in | from datastar-signals $req
-      let player_id = $signals | get playerId? | default ""
-      let game_id = (.last $"player.($player_id).games" | get id)
-      let topic = $"game.($game_id).move"
-      let mode = $signals | get mode? | default "game"
-      null | .append $topic --ttl ephemeral --meta {kind: "view" mode: $mode}
-      null | metadata set { merge {'http.response': {status: 204}} }
-    })
-
-    (route {method: GET path: "/"} {|req ctx|
-      # Player identity lives in a cookie; a refresh or new tab continues
-      # the player's most-recent game. The player's games topic is an
-      # index of all their games; the SSE pipeline picks the latest. If
-      # the index is empty (new player or wiped store) we seed it here.
-      let cookies = $req | cookie parse
-      let prior = $cookies | get player? | default ""
-      let player_id = if ($prior | is-empty) { random uuid } else { $prior }
-      let games_topic = $"player.($player_id).games"
-      if (try { (.last $games_topic) == null } catch { true }) {
-        null | .append $games_topic
-      }
+    (route {method: GET path-matches: "/play/:game_id"} {|req ctx|
+      let player_id = ($req | cookie parse | get player? | default (random uuid))
+      let game_id = $ctx.game_id
       # Render an EMPTY board as the placeholder: same dimensions (grid cells
       # fill it) so no layout jump, but no tiles in the DOM yet. When the SSE
       # init patch arrives with the real tiles, they're unpaired (:only-child)
@@ -447,19 +425,17 @@ def html-to-patches [] {
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
       (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true}))
       (BODY {
-        # playerId comes from the cookie. The current gameId lives entirely
-        # server-side (latest frame in player.<id>.games); /move and /sse
-        # derive it from the index, so the client only carries the player.
-        # data-conn is managed by script.js based on SSE heartbeats; CSS
-        # reacts via body[data-conn="down"] selectors.
+        # playerId from cookie, gameId from URL path. Both ride along on
+        # every datastar POST so /move and /view don't need to look them
+        # up server-side. data-conn is managed by script.js based on SSE
+        # heartbeats; CSS reacts via body[data-conn="down"] selectors.
         "data-player-id": $player_id
+        "data-game-id": $game_id
         "data-move-url": ($req | href "/move")
         "data-view-url": ($req | href "/view")
-        "data-signals": $"{playerId: '($player_id)'}"
+        "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
       }
-      (H1 (A {
-        href: "https://github.com/cablehead/http-nu/blob/main/examples/2048/serve.nu"
-      } "2048.nu"))
+      (H1 (A {href: ($req | href "/")} "2048.nu"))
       (P {class: "hint"}
         "Letter or arrow keys "
         (KBD "h \u{2190}") " "
@@ -468,10 +444,8 @@ def html-to-patches [] {
         (KBD "l \u{2192}")
         ", or swipe. Undo: "
         (BUTTON {type: "button" "data-intent": "undo"} "u")
-        ", reset: "
-        (BUTTON {type: "button" "data-intent": "reset"} "r")
         ". "
-        (A {href: ($req | href "/games")} "past games"))
+        (A {href: ($req | href "/")} "all games"))
       # data-init and data-indicator live on .column (which is never patched)
       # so the SSE fetch + connection signal survive the wholesale replacement
       # of #game's contents on every server patch.
@@ -480,7 +454,7 @@ def html-to-patches [] {
         # data-sse tags this element so script.js can filter datastar-fetch
         # events to just our SSE (ignoring any unrelated @get/@post).
         "data-sse": ""
-        "data-init": ("@get('" + ($req | href "/sse") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+        "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
       }
         # #game is the single view; SSE patches morph it between the game
         # board render and the settings panel render based on per-tab mode

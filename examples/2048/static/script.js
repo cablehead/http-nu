@@ -1,6 +1,7 @@
 // Input handlers for 2048. Server embeds the player id and the /move URL
 // as body data-* attributes so this file stays parameter-free and cacheable.
 const playerId = document.body.dataset.playerId;
+const gameId = document.body.dataset.gameId;
 const moveUrl = document.body.dataset.moveUrl;
 
 // End-to-end RTT: time from a move() call to the next DOM mutation in #game
@@ -37,7 +38,7 @@ const move = (intent) => {
   return fetch(moveUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerId, intent, reqId }),
+    body: JSON.stringify({ playerId, gameId, intent, reqId }),
   }).then((r) => {
     if (!r.ok) { pending = null; flashRed(); }
   }).catch(() => {
@@ -123,7 +124,8 @@ new MutationObserver(() => {
   document.documentElement.style.setProperty("--decay-duration", `${decay}ms`);
 }).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
 
-// Keyboard: hjkl + arrows + r-to-reset.
+// Keyboard: hjkl + arrows + u-to-undo. (New game lives on the splash;
+// reset key is intentionally gone.)
 const keymap = {
   h: "h", ArrowLeft: "h",
   j: "j", ArrowDown: "j",
@@ -141,7 +143,6 @@ addEventListener("keydown", (e) => {
   // Arrow keys aren't affected (e.key is "ArrowLeft" regardless of Shift).
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
   const intent = dir
-    || (e.key === "r" ? "reset" : "")
     || (e.key === "u" ? "undo" : "");
   if (intent) {
     if (glowFor[intent]) {
@@ -182,7 +183,7 @@ document.addEventListener("click", (e) => {
   fetch(document.body.dataset.viewUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerId, mode: t.dataset.viewTo }),
+    body: JSON.stringify({ playerId, gameId, mode: t.dataset.viewTo }),
   });
   setTimeout(() => document.documentElement.classList.remove("view-flipping"), 600);
 });
