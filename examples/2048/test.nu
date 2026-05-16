@@ -244,4 +244,53 @@ let r10_final = $r10 | where threshold == true | first
 let new_init_tiles = (initial-state "new-game-zzzz") | get tiles
 assert (tiles-equal $r10_final.state.tiles $new_init_tiles) "stale game's move is dropped after switch"
 
+# --- frames-to-states ------------------------------------------------------
+#
+# This is the SSE pipeline `/play` uses. The bug we fixed: a no-op
+# h/j/k/l move frame (the actor returns null, no snapshot written)
+# never resolved the client's RTT probe because frames-to-states
+# dropped it. Every move frame -- ping, h/j/k/l, undo -- must emit
+# a state record carrying the originating req_id.
+
+let MOVE_TOPIC2 = $"game.($GID).move"
+let SNAP_TOPIC  = $"game.($GID).snapshot"
+
+# Helper: pump a single frame through frames-to-states and return the
+# non-acc-init records (filter out the {next: ...} accumulator entries).
+def drive-frames [frames: list]: nothing -> list {
+  $frames | frames-to-states
+}
+
+# 11. RTT-ping move frame (intent="") echoes current state with req_id.
+let r11 = drive-frames [{id: "m1" topic: $MOVE_TOPIC2 meta: {intent: "" req_id: "ping-1"}}]
+assert (($r11 | length) == 1) "intent=\"\" emits exactly one record"
+assert (($r11 | first | get req_id) == "ping-1") "RTT ping echoes req_id"
+
+# 12. REGRESSION GUARD: a real h/j/k/l move frame ALSO echoes with req_id,
+#     so the client's RTT probe resolves even when the move turns out
+#     to be a no-op at the actor level (no snapshot written).
+let r12 = drive-frames [{id: "m2" topic: $MOVE_TOPIC2 meta: {intent: "h" req_id: "probe-42"}}]
+assert (($r12 | length) == 1) "h-move emits exactly one record"
+assert (($r12 | first | get req_id) == "probe-42") "h-move echoes req_id (NO-OP RTT resolution)"
+
+# 13. Undo move frame also echoes (kind=undo, intent unset).
+let r13 = drive-frames [{id: "m3" topic: $MOVE_TOPIC2 meta: {kind: "undo" req_id: "undo-7"}}]
+assert (($r13 | length) == 1) "undo move emits exactly one record"
+assert (($r13 | first | get req_id) == "undo-7") "undo move echoes req_id"
+
+# 14. A snapshot frame emits a state record carrying its meta.req_id and
+#     the snapshot's state. This is the normal "real move" path -- the
+#     echo from #12 lands first; this one then re-renders with new tiles.
+let snap_state = {tiles: [{id: 1 r: 0 c: 0 value: 4}] next_id: 2 score: 4 game_over: false ghosts: []}
+let r14 = drive-frames [{id: "s1" topic: $SNAP_TOPIC meta: {state: $snap_state req_id: "probe-42" intent: "h"}}]
+assert (($r14 | length) == 1) "snapshot emits one record"
+assert (tiles-equal ($r14 | first | get state | get tiles) $snap_state.tiles) "snapshot state propagates"
+assert (($r14 | first | get req_id) == "probe-42") "snapshot carries req_id"
+
+# 15. Pre-converted SSE event records (e.g. from pulse-keepalive) flow
+#     through unchanged so downstream stages can dispatch by `event`.
+let evt = {event: "datastar-patch-signals" data: ["signals {}"]}
+let r15 = drive-frames [$evt]
+assert (($r15 | first) == $evt) "event records pass through unchanged"
+
 print "examples/2048/test.nu: all assertions passed"
