@@ -73,7 +73,11 @@
         let parent = (try { .get $parent_id } catch { null })
         if $parent == null { null } else {
           {
-            state: $parent.meta.state
+            # Strip stale ghosts from the parent state: those were the
+            # merge-source ghosts from the move that originally produced
+            # the parent, and they'd otherwise spawn invisible pseudos on
+            # the undo morph that briefly flicker via tile-spawn.
+            state: ($parent.meta.state | upsert ghosts [])
             snap_prev: ($parent.meta | get prev? | default $game_id)
             intent: "undo"
           }

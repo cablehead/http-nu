@@ -42,14 +42,18 @@ export def spawn-tile [seeds: record]: record -> record {
 
 # Initial board for a game. Two tiles spawned via roll() with key "@init".
 export def initial-state [game_id: string]: nothing -> record {
-  let s0 = {tiles: [] next_id: 1 score: 0 game_over: false}
+  let s0 = {tiles: [] ghosts: [] next_id: 1 score: 0 game_over: false}
   let s1 = $s0 | spawn-tile (roll $game_id $s0 "@init")
   $s1 | spawn-tile (roll $game_id $s1 "@init")
 }
 
-# Slide one row left, preserving tile identity. When two adjacent tiles merge,
-# the leading tile keeps its id (and doubles its value); the trailing tile is
-# removed. Returns {tiles, score}.
+# Slide one row left, preserving tile identity. When two adjacent tiles
+# merge, the leading tile keeps its id (and doubles its value); the
+# trailing tile becomes a ghost at the merge cell -- it carries the
+# consumed tile's id so the renderer can emit it with the same
+# view-transition-name, letting the browser pair the old visible tile
+# with the new (invisible) ghost and slide it into the merge position
+# before fading. Returns {tiles, ghosts, score}.
 #
 # Imperative `mut`+`while` rather than `reduce`: profiling showed reduce was
 # ~75% slower in this hot path because every step paid closure-call cost
@@ -57,6 +61,7 @@ export def initial-state [game_id: string]: nothing -> record {
 export def slide-row-tiles [row_idx: int]: list -> record {
   let in_row = $in | sort-by c
   mut out = []
+  mut ghosts = []
   mut score = 0
   mut col = 0
   mut i = 0
@@ -68,6 +73,7 @@ export def slide-row-tiles [row_idx: int]: list -> record {
     if $has_next and $cur.value == $nxt.value {
       let merged = $cur.value * 2
       $out = $out | append {id: $cur.id r: $row_idx c: $col value: $merged}
+      $ghosts = $ghosts | append {id: $nxt.id r: $row_idx c: $col value: $nxt.value}
       $score = $score + $merged
       $col = $col + 1
       $i = $i + 2
@@ -77,7 +83,7 @@ export def slide-row-tiles [row_idx: int]: list -> record {
       $i = $i + 1
     }
   }
-  {tiles: $out score: $score}
+  {tiles: $out ghosts: $ghosts score: $score}
 }
 
 # Group tiles by row once, slide each row, flatten back. The previous form
@@ -90,6 +96,7 @@ export def slide-tiles-left []: list -> record {
   }
   {
     tiles: ($rows | each { $in.tiles } | flatten)
+    ghosts: ($rows | each { $in.ghosts } | flatten)
     score: ($rows | each { $in.score } | math sum)
   }
 }
@@ -117,9 +124,9 @@ export def slide-tiles [dir: string]: list -> record {
     k: {pre: {|| transpose-tiles}                  post: {|| transpose-tiles}}
     j: {pre: {|| transpose-tiles | reflect-cols}   post: {|| reflect-cols | transpose-tiles}}
   } | get -o $dir
-  if $plan == null { return {tiles: $in score: 0} }
+  if $plan == null { return {tiles: $in ghosts: [] score: 0} }
   let r = $in | do $plan.pre | slide-tiles-left
-  {tiles: ($r.tiles | do $plan.post) score: $r.score}
+  {tiles: ($r.tiles | do $plan.post) ghosts: ($r.ghosts | do $plan.post) score: $r.score}
 }
 
 export def tiles-equal [a: list b: list]: nothing -> bool {
@@ -138,11 +145,15 @@ export def is-game-over []: record -> bool {
 }
 
 export def apply-move [dir: string, game_id: string]: record -> record {
-  let s = $in
+  # Clear last move's ghosts (they were rendered exactly once when their
+  # snapshot landed at the client). Reattaching empty here means a no-op
+  # move returns a state whose ghosts are also cleared.
+  let s = $in | upsert ghosts []
   let r = $s.tiles | slide-tiles $dir
   if $s.game_over or (tiles-equal $s.tiles $r.tiles) { return $s }
   let next = ($s
     | update tiles { $r.tiles }
+    | update ghosts { $r.ghosts }
     | update score { $in + $r.score }
     | spawn-tile (roll $game_id $s $dir))
   $next | upsert game_over ($next | is-game-over)

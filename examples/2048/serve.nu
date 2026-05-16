@@ -77,11 +77,23 @@ const TOTAL = 460
 # background cells are hardcoded into the template (they never change);
 # tiles are a {% for %} loop driven by a pre-shaped list computed in
 # render-board.
+## The board template has three layers:
+##   1. 16 hardcoded empty cells (background grid).
+##   2. ghosts -- one per tile consumed by a merge on the move that
+##      produced this snapshot. Same `view-transition-name` as the
+##      consumed tile, placed at the merge cell with opacity 0.
+##      The browser pairs the old visible tile with this new invisible
+##      ghost and slides it into the merge position before fading,
+##      instead of just popping out of existence.
+##   3. tiles (the live game-state tiles).
 let BOARD_TPL = .mj compile --inline (
   DIV {class: "board"}
     (0..3 | each {|r| 0..3 | each {|c|
       DIV {style: $"grid-column: ($c + 1); grid-row: ($r + 1);"} ""
     } } | flatten)
+    (_for {g: "ghosts"} (DIV {
+      style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; view-transition-name: {{ g.vt }}; view-transition-class: ghost; opacity: 0; pointer-events: none;"
+    } ""))
     (_for {t: "tiles"} (DIV {
       style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}px; view-transition-name: {{ t.vt }};"
     } (_var "t.value")))
@@ -90,6 +102,9 @@ let BOARD_TPL = .mj compile --inline (
 def render-board [scope?: string]: record -> record {
   let state = $in
   let s = $scope | default ""
+  # view-transition-name is page-global; on /games multiple boards share
+  # a page, so the optional scope (game id) keeps names unique.
+  let vt_name = {|id| if ($s | is-empty) { $"tile-($id)" } else { $"tile-($s)-($id)" }}
   # Per-tile arithmetic in nushell (cheap); loop body emitted by the
   # compiled template in Rust (fast).
   let tiles = $state.tiles | each {|t|
@@ -99,13 +114,16 @@ def render-board [scope?: string]: record -> record {
       bg: (color-for $t.value)
       fg: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
       fs: (if $t.value >= 1024 { 24 } else if $t.value >= 128 { 28 } else { 32 })
-      # view-transition-name is page-global; on /games multiple boards
-      # share a page, so the optional scope (game id) keeps names unique.
-      vt: (if ($s | is-empty) { $"tile-($t.id)" } else { $"tile-($s)-($t.id)" })
+      vt: (do $vt_name $t.id)
       value: $t.value
     }
   }
-  {__html: ({tiles: $tiles} | .mj render $BOARD_TPL)}
+  # `ghosts` may be absent on snapshots written before the merge-ghosts
+  # feature -- default to empty so old games still render.
+  let ghosts = ($state | get ghosts? | default []) | each {|g|
+    {col: ($g.c + 1) row: ($g.r + 1) bg: (color-for $g.value) vt: (do $vt_name $g.id)}
+  }
+  {__html: ({tiles: $tiles, ghosts: $ghosts} | .mj render $BOARD_TPL)}
 }
 
 # Small targeted SSE fragments. The top tracker bar lives statically at
@@ -522,6 +540,11 @@ def html-to-patches [] {
         {__html: '<aside class="vt-tuner">
   <button class="vt-tuner-tab" aria-label="toggle tuner"><span class="vt-tuner-tab-arrow" aria-hidden="true">&#9656;</span><span class="vt-tuner-tab-label">fx</span></button>
   <div class="vt-tuner-body">
+    <div class="vt-tuner-actions">
+      <button class="vt-tuner-btn vt-tuner-copy">copy json</button>
+      <button class="vt-tuner-btn vt-tuner-reset">reset</button>
+      <span class="vt-tuner-flash" data-flash></span>
+    </div>
     <details class="vt-tuner-fold" open>
       <summary>anticipation <span class="vt-tuner-sub">wind-up + spring-back</span></summary>
       <svg class="vt-tuner-plot" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -540,10 +563,10 @@ def html-to-patches [] {
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; stretches the lean</span></span><span data-readout></span><input type="range" min="-1" max="5" step="0.05" value="2" data-var="--ant-duration-k"></label>
       </div>
 
-      <div class="vt-tuner-section">magnitude <span class="vt-tuner-sub">how far the board leans (px)</span></div>
+      <div class="vt-tuner-section">magnitude <span class="vt-tuner-sub">how far the board leans, in tile widths (1 = a whole tile)</span></div>
       <div class="vt-tuner-pair">
-        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="60" step="1" value="26" data-var="--ant-magnitude-base"></label>
-        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; bigger lean</span></span><span data-readout></span><input type="range" min="-0.2" max="0.2" step="0.005" value="0" data-var="--ant-magnitude-k"></label>
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1.5" step="0.01" value="0.26" data-var="--ant-magnitude-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; bigger lean</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-magnitude-k"></label>
       </div>
 
       <div class="vt-tuner-section">y1 <span class="vt-tuner-sub">recoil height; &gt;1 = bounces past 0 the other way</span></div>
@@ -552,13 +575,13 @@ def html-to-patches [] {
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>shrink</em> recoil (neg.)</span></span><span data-readout></span><input type="range" min="-0.01" max="0.01" step="0.0005" value="0" data-var="--ant-y1-k"></label>
       </div>
 
-      <div class="vt-tuner-section">x1 <span class="vt-tuner-sub">when the recoil peaks (smaller = sooner)</span></div>
+      <div class="vt-tuner-section">attack <span class="vt-tuner-sub">(x1) how fast each half commits to its target; smaller = sooner peak</span></div>
       <div class="vt-tuner-pair">
         <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.34" data-var="--ant-x1-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>earlier</em> peak (neg.)</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-x1-k"></label>
       </div>
 
-      <div class="vt-tuner-section">x2 <span class="vt-tuner-sub">when it settles back; larger = longer linger</span></div>
+      <div class="vt-tuner-section">decay <span class="vt-tuner-sub">(x2) how each half settles after the peak; larger = longer linger</span></div>
       <div class="vt-tuner-pair">
         <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.5" data-var="--ant-x2-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; longer linger</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-x2-k"></label>
@@ -596,13 +619,13 @@ def html-to-patches [] {
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>shrink</em> bounce (neg.)</span></span><span data-readout></span><input type="range" min="-0.01" max="0.01" step="0.0005" value="0" data-var="--vt-y1-k"></label>
       </div>
 
-      <div class="vt-tuner-section">x1 <span class="vt-tuner-sub">when the peak hits; smaller = sooner</span></div>
+      <div class="vt-tuner-section">attack <span class="vt-tuner-sub">(x1) how fast it commits to the target; smaller = sooner peak</span></div>
       <div class="vt-tuner-pair">
         <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.34" data-var="--vt-x1-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; <em>earlier</em> peak (neg.)</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--vt-x1-k"></label>
       </div>
 
-      <div class="vt-tuner-section">x2 <span class="vt-tuner-sub">when it returns to target; larger = softer landing</span></div>
+      <div class="vt-tuner-section">decay <span class="vt-tuner-sub">(x2) how it settles after the peak; larger = softer landing</span></div>
       <div class="vt-tuner-pair">
         <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.64" data-var="--vt-x2-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; softer landing</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--vt-x2-k"></label>
@@ -612,6 +635,12 @@ def html-to-patches [] {
       <div class="vt-tuner-pair">
         <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0.5" max="1.5" step="0.05" value="1" data-var="--vt-y2-base"></label>
         <label><span class="hdr">k</span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--vt-y2-k"></label>
+      </div>
+
+      <div class="vt-tuner-section">ghost duration <span class="vt-tuner-sub">how long a merge-consumed tile lingers as it slides + fades into the merge cell (ms)</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="120" max="2000" step="20" value="600" data-var="--ghost-duration-base" data-unit="ms"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; longer ghost</span></span><span data-readout></span><input type="range" min="-1" max="3" step="0.05" value="0" data-var="--ghost-duration-k"></label>
       </div>
     </details>
   </div>
@@ -693,26 +722,71 @@ def html-to-patches [] {
     const ax2 = ant["ant-x2"];
     const ay2 = ant["ant-y2"];
     const ty = (tilt) => Math.max(0, Math.min(100, 50 + tilt * 35));
-    // Wind-up segment: 0..15% time, linear 0 -> peak (using ease-out
-    // approximation as a quick curve).
-    const peakX = 15, peakTilt = 1;
-    let d = `M 0,${ty(0)} Q ${peakX*0.7},${ty(peakTilt*1.05)} ${peakX},${ty(peakTilt)}`;
-    // Spring-back segment: sample the bezier from peak (tilt=1) back to 0,
-    // but with overshoot if y_peak > 1 (recoil past 0 to negative).
+    // Both segments share the SAME bezier (it lives on the
+    // animation-timing-function and applies to every keyframe pair). So
+    // overshoot-above-peak in the wind-up and overshoot-past-zero in
+    // the recoil are both consequences of dialling x1/y1/x2/y2.
+    const peakX = 15;
     const samples = sampleBezier(ax1, ay1, ax2, ay2, 24);
+    let d = "";
+    // Wind-up 0 -> peak over 0..15% of x: tilt = bezier_y * peak (1).
+    samples.forEach(([bx, by], i) => {
+      const cmd = i === 0 ? "M" : "L";
+      d += ` ${cmd} ${(bx * peakX).toFixed(2)},${ty(by).toFixed(2)}`;
+    });
+    // Recoil peak -> 0 over 15..100%: tilt = peak - bezier_y * peak.
     for (const [bx, by] of samples) {
-      // bx in [0,1] maps to time [15%, 100%]. by in [0, y_peak+] is bezier
-      // progress; tilt = 1 - by (so by=0 -> tilt=1 (peak); by=1 -> tilt=0;
-      // by>1 -> tilt<0 (recoil)).
-      const x = peakX + bx * (100 - peakX);
-      const tilt = 1 - by;
-      d += ` L ${x.toFixed(2)},${ty(tilt).toFixed(2)}`;
+      d += ` L ${(peakX + bx * (100 - peakX)).toFixed(2)},${ty(1 - by).toFixed(2)}`;
     }
     curveAnt.setAttribute("d", d);
   };
-  inputs.forEach(i => { update(i); i.addEventListener("input", () => { update(i); refresh(); }); });
+  // Persistence: serialise every input value (keyed by --css-var name)
+  // to localStorage on every change. Load on boot before the initial
+  // update() pass so the CSS vars take the stored values.
+  const KEY_SETTINGS = "fx-tuner-settings";
+  const defaults = {};
+  inputs.forEach(i => { defaults[i.dataset.var] = i.value; });
+  const loadSettings = () => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(KEY_SETTINGS) || "{}");
+      inputs.forEach(i => {
+        if (i.dataset.var in stored) i.value = stored[i.dataset.var];
+      });
+    } catch {}
+  };
+  const saveSettings = () => {
+    const out = {};
+    inputs.forEach(i => { out[i.dataset.var] = i.value; });
+    try { localStorage.setItem(KEY_SETTINGS, JSON.stringify(out)); } catch {}
+  };
+  loadSettings();
+  inputs.forEach(i => { update(i); i.addEventListener("input", () => { update(i); saveSettings(); refresh(); }); });
   refresh();
   new MutationObserver(refresh).observe(root, { attributes: true, attributeFilter: ["style"] });
+
+  // Copy + reset buttons.
+  const flash = tuner.querySelector("[data-flash]");
+  const flashMsg = (msg) => {
+    flash.textContent = msg;
+    clearTimeout(flash.__t);
+    flash.__t = setTimeout(() => { flash.textContent = ""; }, 1500);
+  };
+  tuner.querySelector(".vt-tuner-copy").addEventListener("click", async () => {
+    const out = {};
+    inputs.forEach(i => {
+      const v = i.value;
+      out[i.dataset.var] = /^-?\d+(\.\d+)?$/.test(v) ? parseFloat(v) : v;
+    });
+    const json = JSON.stringify(out, null, 2);
+    try { await navigator.clipboard.writeText(json); flashMsg("copied"); }
+    catch { flashMsg("copy failed"); }
+  });
+  tuner.querySelector(".vt-tuner-reset").addEventListener("click", () => {
+    inputs.forEach(i => { i.value = defaults[i.dataset.var]; update(i); });
+    saveSettings();
+    refresh();
+    flashMsg("reset");
+  });
 
   // Slide-out behaviour: the tab on the right edge of the viewport stays
   // visible; clicking it toggles the body in/out via a class on the aside.

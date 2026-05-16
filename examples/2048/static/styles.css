@@ -152,7 +152,7 @@ button:active {
 :root {
   --ant-duration-base:  400;    /* unitless ms; matches old --decay-duration floor */
   --ant-duration-k:     2;      /* old behaviour was clamp(400, 2*rtt, 1200) */
-  --ant-magnitude-base: 26;     /* unitless; multiplied by 1px in calc */
+  --ant-magnitude-base: 0.26;   /* multiplier of one tile width; 1 = a full tile */
   --ant-magnitude-k:    0;
   --ant-y1-base:        1.7;
   --ant-y1-k:           0;
@@ -164,7 +164,9 @@ button:active {
   --ant-y2-k:           0;
 
   --ant-duration:  clamp(80ms, calc((var(--ant-duration-base) + var(--rtt-mean) * var(--ant-duration-k)) * 1ms), 1500ms);
-  --ant-magnitude: clamp(0px, calc((var(--ant-magnitude-base) + var(--rtt-mean) * var(--ant-magnitude-k)) * 1px), 80px);
+  /* tile_width = CELL (100px) * --board-scale. Magnitude in tile widths
+     so the lean stays visually proportional regardless of viewport. */
+  --ant-magnitude: clamp(0px, calc((var(--ant-magnitude-base) + var(--rtt-mean) * var(--ant-magnitude-k)) * 100px * var(--board-scale)), calc(150px * var(--board-scale)));
   --ant-y1:        clamp(1.0,   calc(var(--ant-y1-base) + var(--rtt-mean) * var(--ant-y1-k)), 3.0);
   --ant-x1:        clamp(0.05,  calc(var(--ant-x1-base) + var(--rtt-mean) * var(--ant-x1-k)), 0.95);
   --ant-x2:        clamp(0.05,  calc(var(--ant-x2-base) + var(--rtt-mean) * var(--ant-x2-k)), 0.95);
@@ -351,8 +353,11 @@ body.play .board > div:not(:empty) {
   --vt-x2-k:          0;
   --vt-y2-base:       1;
   --vt-y2-k:          0;
+  --ghost-duration-base: 600ms;  /* how long the consumed tile lingers */
+  --ghost-duration-k:    0;
 
   --vt-duration: clamp(80ms,  calc(var(--vt-duration-base) + var(--rtt-mean) * var(--vt-duration-k) * 1ms), 600ms);
+  --ghost-duration: clamp(120ms, calc(var(--ghost-duration-base) + var(--rtt-mean) * var(--ghost-duration-k) * 1ms), 2000ms);
   --vt-y1:       clamp(1.0,   calc(var(--vt-y1-base)       + var(--rtt-mean) * var(--vt-y1-k)),             3.0);
   --vt-x1:       clamp(0.05,  calc(var(--vt-x1-base)       + var(--rtt-mean) * var(--vt-x1-k)),             0.95);
   --vt-x2:       clamp(0.05,  calc(var(--vt-x2-base)       + var(--rtt-mean) * var(--vt-x2-k)),             0.95);
@@ -361,6 +366,20 @@ body.play .board > div:not(:empty) {
 ::view-transition-group(*) {
   animation-duration: var(--vt-duration);
   animation-timing-function: cubic-bezier(var(--vt-x1), var(--vt-y1), var(--vt-x2), var(--vt-y2));
+}
+/* Merge ghosts (the consumed tile sliding into the merge cell, then
+   disappearing) linger a beat longer than the survivor's slide so the
+   fade is legible. Same bezier on the slide so motion shape matches the
+   surviving tile; only the duration differs. */
+::view-transition-group(*.ghost) {
+  animation-duration: var(--ghost-duration);
+}
+::view-transition-old(*.ghost) {
+  animation: ghost-fade var(--ghost-duration) ease-out forwards;
+}
+@keyframes ghost-fade {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* Temporary tuning overlay (slides in/out from the right edge on /play).
@@ -432,6 +451,31 @@ body.play .board > div:not(:empty) {
 .vt-tuner.is-collapsed .vt-tuner-body {
   /* slide entirely off-screen to the right, past where the tab sits */
   transform: translateX(calc(100% + 32px));
+}
+.vt-tuner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.vt-tuner-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--fg);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  box-shadow: none;
+}
+.vt-tuner-btn:hover { background: rgba(0, 0, 0, 0.1); }
+.vt-tuner-flash {
+  font-size: 10px;
+  opacity: 0.7;
+  font-style: italic;
 }
 .vt-tuner-fold {
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
