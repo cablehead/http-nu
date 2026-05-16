@@ -34,11 +34,14 @@ export use ./game.nu *
 # Everything else -> drop.
 export def frames-to-states [] {
   generate {|f, acc = {mode: "game", state: null}|
+    # Pre-converted SSE event records (e.g. from `pulse-keepalive`) just
+    # flow through -- they're already shaped for `to sse`.
+    if ('event' in $f) {
+      return {out: $f, next: $acc}
+    }
     let t = $f.topic
     if $t == "xs.threshold" {
       {out: {state: $acc.state, mode: $acc.mode, threshold: true}, next: $acc}
-    } else if $t == "xs.pulse" {
-      {out: {pulse: true, mode: $acc.mode}, next: $acc}
     } else if ($t | str ends-with ".snapshot") {
       let state = $f.meta.state
       let intent = $f.meta | get intent? | default ""

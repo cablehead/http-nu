@@ -399,50 +399,6 @@ html.view-flipping .board > div:not(:empty) { view-transition-name: none !import
   to   { transform: perspective(1200px) rotateY(0deg); }
 }
 
-footer {
-  font-size: 14px;
-  align-self: stretch;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-}
-footer #rtt, footer #replay { font-variant-numeric: tabular-nums; opacity: 0.7; }
-footer .status, footer .credit {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-footer .mascot {
-  width: 27px;
-  height: 14px;
-  max-width: 27px;
-  max-height: 14px;
-  object-fit: contain;
-  vertical-align: -2px;
-}
-footer #conn {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-press);  /* default: down */
-  transition: background 200ms;
-}
-body[data-conn="ok"] footer #conn { background: #2a9d4a; }
-footer a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--light);
-  background: var(--brand);
-  padding: 4px 10px;
-  border-radius: var(--radius);
-  text-decoration: none;
-  transition: background 120ms;
-}
-footer a:hover { background: var(--brand-hover); }
 
 /* /games splash: simple plain page. No tracker chrome. Boards in a
    flex-wrap row, plain caption under each. */
@@ -628,22 +584,35 @@ body.play {
   padding: 0;
   gap: 0;
 }
-body.play .play-header,
-body.play .play-footer {
+body.play .play-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 14px;
+}
+body.play .play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
+
+/* Shared site footer (used on /play and /games). Status bits sit right;
+   page-specific actions (e.g. undo on /play) sit left. */
+.site-footer {
   display: flex;
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 1.25rem;
   font-size: 14px;
+  color: var(--fg);
+  opacity: 0.8;
 }
-body.play .play-header { gap: 1.5rem; }
-body.play .play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
-body.play .play-footer { color: var(--fg); opacity: 0.7; }
-body.play .play-footer .spacer { flex: 1; }
-body.play .play-footer .stat { font-variant-numeric: tabular-nums; font-size: 12px; }
-body.play .play-footer #conn::before { content: "•"; margin-right: 4px; font-size: 16px; vertical-align: -2px; color: #888; }
-body.play[data-conn="ok"]   .play-footer #conn::before { color: #2a9d4a; }
-body.play[data-conn="down"] .play-footer #conn::before { color: #c0392b; }
+.site-footer .spacer { flex: 1; }
+.site-footer .stat { font-variant-numeric: tabular-nums; font-size: 12px; }
+.site-footer .credit { font-size: 12px; }
+.site-footer .credit a { color: inherit; text-decoration: none; }
+.site-footer .credit a:hover { text-decoration: underline; }
+.site-footer .credit .mascot { width: 22px; height: 12px; vertical-align: -2px; }
+.site-footer #conn::before { content: "•"; margin-right: 4px; font-size: 16px; vertical-align: -2px; color: #888; }
+body[data-conn="ok"]   .site-footer #conn::before { color: #2a9d4a; }
+body[data-conn="down"] .site-footer #conn::before { color: #c0392b; }
 body.play .column {
   flex: 1;
   width: auto;

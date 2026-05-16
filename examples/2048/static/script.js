@@ -74,8 +74,8 @@ const setConn = (v) => {
     document.body.classList.remove("reconnect-pulse");
     void document.body.offsetWidth;
     document.body.classList.add("reconnect-pulse");
-    // Re-probe RTT after reconnect.
-    move("");
+    // Re-probe RTT after reconnect. (Only on /play -- /games has no move URL.)
+    if (moveUrl) move("");
   }
   prevConn = v;
 };
@@ -93,6 +93,11 @@ document.addEventListener("datastar-fetch", (e) => {
   if (t === "retrying" || t === "retries-failed") setConn("down");
 });
 
+// MutationObserver, keyboard, and pointer handlers below are /play-only --
+// they all need the #game element to exist. Guard so script.js can also
+// be loaded on /games (where we just want the SSE connection tracker
+// above to update #conn).
+if (game) {
 new MutationObserver(() => {
   if (!initSeen) {
     // First mutation is the SSE init render. Now that the stream's open,
@@ -270,3 +275,5 @@ addEventListener("pointerup", () => {
   }
   committedDir = null;
 });
+
+}

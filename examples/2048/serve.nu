@@ -127,6 +127,21 @@ def render-mode-toggle [mode: string]: nothing -> record {
   (SPAN {id: "mode-toggle"} $btn)
 }
 
+# Shared site footer used by both /play and /games so SSE liveness shows
+# everywhere. Optional `actions` go on the left (e.g. undo button + key
+# hint on /play); the status bits + credit are always on the right.
+def render-footer [req: record, actions: list = []]: nothing -> record {
+  (FOOTER {class: "site-footer"}
+    ...$actions
+    (SPAN {class: "spacer"} "")
+    (SPAN {id: "conn" class: "stat"} "")
+    (SPAN {id: "rtt" class: "stat"} "")
+    (SPAN {class: "credit"}
+      (A {href: "https://http-nu.cross.stream"}
+        "served by http-nu "
+        (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))
+}
+
 def render-game [direction?: string, changed?: bool, req_id?: string]: record -> record {
   let state = $in
   # The edge-glow color rides the highest-value tile, pushed as an inline
@@ -166,26 +181,29 @@ def render-settings []: nothing -> record {
       (P "more knobs soon.")))
 }
 
-# One card in the games list: the board, with a small plain-text caption
-# below it (score / moves / state). No card chrome. The outer element has
-# id `card-<game_id>` so a future SSE stream can morph individual cards
-# in place as snapshots arrive.
-def render-game-card [req: record game_frame: record]: nothing -> record {
-  let game_id = $game_frame.id
-  let resumed = (resume-game $game_id)
-  let state = $resumed.state
+# Render a card from already-known state. The SSE handler calls this with
+# state straight out of the snapshot frame's meta, avoiding a redundant
+# resume-game lookup per live update.
+def render-card-from-state [req: record game_id: string state: record moves: int]: nothing -> record {
   let max_tile = if ($state.tiles | is-empty) { 0 } else {
     $state.tiles | get value | math max
   }
   let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
   let caption_bits = [
     $"score ($state.score)"
-    $"moves ($resumed.moves)"
+    $"moves ($moves)"
     (if ($status | is-not-empty) { $status } else { null })
   ] | compact
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
     (DIV {class: "thumb"} ($state | render-board))
     (DIV {class: "caption"} ($caption_bits | str join " · ")))
+}
+
+# Render a card from a games_topic frame (the initial page render). Resumes
+# the game to get state, then defers to render-card-from-state.
+def render-game-card [req: record game_frame: record]: nothing -> record {
+  let resumed = (resume-game $game_frame.id)
+  render-card-from-state $req $game_frame.id $resumed.state $resumed.moves
 }
 
 # Pick the right render based on the per-tab mode. Same #game id either way
@@ -211,24 +229,31 @@ def render-current [mode: string, direction?: string, changed?: bool, req_id?: s
 # reusable from `http-nu eval`. The remaining boxes here are SSE-specific:
 # threshold gating, render, and patch wrapping.
 
+# Top-of-pipeline keepalive. xs.pulse frames are turned into ready-to-send
+# datastar-patch-signals event records immediately, so downstream rendering
+# stages never have to know about pulses -- they just pass through anything
+# that already has an `event` field. Reused by every SSE handler in this
+# file.
+def pulse-keepalive [] {
+  each {|f|
+    if ($f.topic? | default "") == "xs.pulse" {
+      ({} | to datastar-patch-signals)
+    } else { $f }
+  }
+}
+
 # Box B. Buffers states pre-threshold (only the last is retained); on
 # threshold marker emits the last buffered state; then forwards everything.
-# Same pattern as examples/quotes/serve.nu's threshold-once-gate, but
-# operating on state records instead of raw xs frames.
+# Pre-converted SSE event records pass through untouched (they're already
+# ready for `to sse`).
 def threshold-gate-states [] {
   generate {|item state = {}|
+    if ('event' in $item) {
+      return {out: $item, next: $state}
+    }
     if ($item.threshold? | default false) {
-      # Empty log: nothing buffered. Emit the threshold marker's own state
-      # (the placeholder top-of-stack from impulses-to-states) so downstream
-      # always sees a non-null record. Strip the threshold flag.
       let emit = $state.last? | default ($item | upsert threshold false)
       return {out: $emit, next: {reached: true}}
-    }
-    if ($item.pulse? | default false) {
-      # Pulse: forward post-threshold (live keepalive); drop pre-threshold
-      # so they don't pollute the replay buffer.
-      if ("reached" in $state) { return {out: $item, next: $state} }
-      return {next: $state}
     }
     if ("reached" in $state) {
       return {out: $item, next: $state}
@@ -237,17 +262,15 @@ def threshold-gate-states [] {
   }
 }
 
-# Box C. Pure rendering. {state, mode, direction?, changed?} -> html record.
-# Pulse markers pass through untouched so html-to-patches can emit them as
-# datastar-patch-signals heartbeats.
-# Each state expands into a list of 4 small renders (board + score + badge
-# + mode-toggle). The board patch uses view-transition (so tiles slide);
-# the bar fragments are tagged {vt: false} so they morph in place without
-# kicking off their own view-transition (multiple VTs per state interrupt
-# the tile slide animation).
+# Box C. Pure rendering. Each state expands into a list of 4 small renders
+# (board + score + badge + mode-toggle). The board patch uses view-
+# transition (so tiles slide); the bar fragments are tagged {vt: false}
+# so they morph in place without kicking off their own VT (multiple VTs
+# per state interrupt the tile slide animation). Already-event items
+# pass through unchanged.
 def states-to-html [] {
   each {|s|
-    if ($s.pulse? | default false) {
+    if ('event' in $s) {
       [$s]
     } else if ('signals' in $s) {
       [$s]
@@ -268,17 +291,14 @@ def states-to-html [] {
 
 # Box D. Wrap each render in a datastar patch event. Unique id per patch
 # so morphdom recreates the .edge-flash element and its animation re-fires
-# each step. Pulse markers become a no-op signal patch -- a heartbeat that
-# script.js uses to refresh the connection-liveness timer.
+# each step. Already-event items pass through unchanged.
 def html-to-patches [] {
   each {|item|
-    if ($item.pulse? | default false) {
-      {} | to datastar-patch-signals
+    if ('event' in $item) {
+      $item
     } else if ('signals' in $item) {
       $item.signals | to datastar-patch-signals
     } else if (('vt' in $item) and not $item.vt) {
-      # Bar fragments: no view-transition. Plain morph in place so they
-      # don't kick off a VT that would interrupt the board's tile slides.
       $item.el | to datastar-patch-elements --id (random uuid)
     } else {
       let el = if ('el' in $item) { $item.el } else { $item }
@@ -318,14 +338,46 @@ def html-to-patches [] {
       }
     })
 
+    (route {method: GET path: "/sse/games"} {|req ctx|
+      # Live updates for the all-games splash. Subscribes to every
+      # game.*.snapshot frame, filters to this player, and emits a
+      # datastar-patch-elements event per snapshot -- morphdom replaces
+      # the matching #card-<game_id> in place. `pulse-keepalive` converts
+      # xs.pulse frames to no-op signal patches so the connection stays
+      # alive without each handler reimplementing the keepalive.
+      let cookies = $req | cookie parse
+      let player_id = $cookies | get player? | default ""
+      if ($player_id | is-empty) {
+        null | metadata set { merge {'http.response': {status: 400}} }
+      } else {
+        # xs's -T glob only supports a trailing wildcard, so we subscribe
+        # to all "game.*" frames and filter to .snapshot ones below.
+        .cat --follow --pulse 30000 -T "game.*"
+        | pulse-keepalive
+        | each {|item|
+            if ('event' in $item) { $item } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
+              let game_id = $item.topic | str replace "game." "" | str replace ".snapshot" ""
+              let state = $item.meta.state
+              let moves = $item.meta | get moves? | default 0
+              render-card-from-state $req $game_id $state $moves
+              | to datastar-patch-elements --id (random uuid)
+            } else { null }
+          }
+        | compact
+        | to sse
+      }
+    })
+
     (route {method: GET path-matches: "/sse/:game_id"} {|req ctx|
       let game_id = $ctx.game_id
       # The actor owns game state; the SSE handler is a thin reader of
       # this game's snapshot stream (plus ephemeral view-toggles).
       # --from $game_id includes the games_topic frame at that id and
       # everything after; the threshold-gate buffers it down to just the
-      # latest snapshot for the initial render.
+      # latest snapshot for the initial render. `pulse-keepalive` runs
+      # first so the rendering stages can stay pulse-agnostic.
       .cat --follow --pulse 450 -T $"game.($game_id).*" --from $game_id
+      | pulse-keepalive
       | frames-to-states
       | threshold-gate-states
       | states-to-html
@@ -390,15 +442,26 @@ def html-to-patches [] {
         (META {name: "viewport" content: "width=device-width, initial-scale=1"})
         (LINK {rel: "icon" href: "data:,"})
         (TITLE "2048.nu")
+        (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
+        (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true})
         (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")}))
-      (BODY {class: "games-view"}
+      (BODY {
+        class: "games-view"
+        # Live updates: subscribe to snapshot events for this player's games
+        # and morph each #card-<game_id> in place as moves land. The
+        # data-sse marker matches what script.js's connection-state tracker
+        # listens to, so the #conn indicator works on this page too.
+        "data-sse": ""
+        "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
+      }
         (H1 "past games")
         (P (A {href: ($req | href "/new")} "+ new game"))
         (if ($games | is-empty) {
           (P {class: "hint"} "no games yet.")
         } else {
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
-        }))
+        })
+        (render-footer $req))
       | cookie set "player" $player_id --max-age 31536000 --no-secure)
     })
 
@@ -458,13 +521,11 @@ def html-to-patches [] {
           "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
         }
           $placeholder)
-        (FOOTER {class: "play-footer"}
+        (render-footer $req [
           (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo")
           (SPAN {class: "hint"} "keys: hjkl / arrows")
-          (SPAN {class: "spacer"} "")
-          (SPAN {id: "conn" class: "stat"} "")
-          (SPAN {id: "rtt" class: "stat"} "")
-          (render-mode-toggle "game")))
+          (render-mode-toggle "game")
+        ]))
       # Persist the player id for a year, refreshing on every visit.
       # --no-secure so the cookie works over plain HTTP for local dev.
       | cookie set "player" $player_id --max-age 31536000 --no-secure)
