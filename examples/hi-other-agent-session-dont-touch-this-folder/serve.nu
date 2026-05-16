@@ -17,9 +17,54 @@ def oklch [l: float, c: float, h: float]: nothing -> string {
   'oklch(' + $args + ')'
 }
 
-# Pick legible text given background OKLCH lightness.
-def fg-for-l [l: float]: nothing -> string {
-  if $l > 0.62 { "#776e65" } else { "#f9f6f2" }
+# OKLCH -> linear sRGB -> WCAG relative luminance Y. Uses Björn Ottosson's
+# OKLab matrices; out-of-gamut channels are clipped to [0,1] before the
+# luminance sum, which is enough for our coarse pass/fail check.
+def oklch-to-luminance [l: float, c: float, h: float]: nothing -> float {
+  let hr = $h * 3.141592653589793 / 180
+  let a = $c * ($hr | math cos)
+  let b = $c * ($hr | math sin)
+  let lp = $l + 0.3963377774 * $a + 0.2158037573 * $b
+  let mp = $l - 0.1055613458 * $a - 0.0638541728 * $b
+  let sp = $l - 0.0894841775 * $a - 1.2914855480 * $b
+  let ll = $lp * $lp * $lp
+  let mm = $mp * $mp * $mp
+  let ss = $sp * $sp * $sp
+  let r =  4.0767416621 * $ll - 3.3077115913 * $mm + 0.2309699292 * $ss
+  let g = -1.2684380046 * $ll + 2.6097574011 * $mm - 0.3413193965 * $ss
+  let b2 = -0.0041960863 * $ll - 0.7034186147 * $mm + 1.7076147010 * $ss
+  let clamp = {|v| if $v < 0 { 0.0 } else if $v > 1 { 1.0 } else { $v } }
+  0.2126 * (do $clamp $r) + 0.7152 * (do $clamp $g) + 0.0722 * (do $clamp $b2)
+}
+
+def wcag-ratio [y1: float, y2: float]: nothing -> float {
+  let lo = if $y1 < $y2 { $y1 } else { $y2 }
+  let hi = if $y1 < $y2 { $y2 } else { $y1 }
+  ($hi + 0.05) / ($lo + 0.05)
+}
+
+# Two-step fg picker.
+#
+# Step 1 (propose, aesthetic): pick a fg in the SAME HUE FAMILY as the bg.
+# Same H, low chroma (0.06), L on the opposite extreme of bg L. This keeps
+# each tile's number tinted with its own color rather than bleached to pure
+# white/black -- the "tonal in-hue" approach.
+#
+# Step 2 (verify, accessibility): compute WCAG 2 contrast ratio against the
+# bg. If below 4.5:1 (AA body text), push L further toward 0 or 1 until it
+# passes or we run out of room. So: in-hue is the proposal, WCAG is the gate.
+def fg-pick [bg_l: float, bg_c: float, bg_h: float]: nothing -> string {
+  let bg_y = oklch-to-luminance $bg_l $bg_c $bg_h
+  let candidates = if $bg_l > 0.5 { [0.20 0.15 0.10 0.05] } else { [0.95 0.97 0.99 1.0] }
+  mut picked = $candidates | last
+  for lp in $candidates {
+    let y = oklch-to-luminance $lp 0.06 $bg_h
+    if (wcag-ratio $bg_y $y) >= 4.5 {
+      $picked = $lp
+      break
+    }
+  }
+  oklch $picked 0.06 $bg_h
 }
 
 # Original Cirulli palette. Past 2048 uses a single `.tile-super` class
@@ -40,7 +85,9 @@ def oklch-linear []: nothing -> list {
   0..12 | each {|i|
     let t = $i / 12
     let l = 0.92 - 0.47 * $t
-    {bg: (oklch $l (0.05 + 0.13 * $t) 75), fg: (fg-for-l $l)}
+    let c = 0.05 + 0.13 * $t
+    let h = 75.0
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
   }
 }
 
@@ -49,7 +96,9 @@ def chroma-blowout []: nothing -> list {
   0..12 | each {|i|
     let t = $i / 12
     let l = 0.88 - 0.25 * $t
-    {bg: (oklch $l (0.02 + 0.22 * ($t * $t)) 55), fg: (fg-for-l $l)}
+    let c = 0.02 + 0.22 * ($t * $t)
+    let h = 55.0
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
   }
 }
 
@@ -63,7 +112,7 @@ def blackbody []: nothing -> list {
     let l = 0.42 + 0.55 * ($t ** 0.55)
     let c = 0.03 + 0.20 * ((1 - $t) ** 1.2)
     let h = 28 + 62 * ($t ** 0.6)
-    {bg: (oklch $l $c $h), fg: (fg-for-l $l)}
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
   }
 }
 
@@ -74,7 +123,7 @@ def sigmoid-light []: nothing -> list {
     let x = 8 * ($t - 0.5)
     let sig = 1 / (1 + (2.718281828459045 ** (0 - $x)))
     let l = 0.93 - 0.55 * $sig
-    {bg: (oklch $l 0.13 65), fg: (fg-for-l $l)}
+    {bg: (oklch $l 0.13 65), fg: (fg-pick $l 0.13 65)}
   }
 }
 
