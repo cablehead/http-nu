@@ -22,18 +22,16 @@ export use ./game.nu *
 # `game.<id>.snapshot`; the SSE handler is a pure reader.
 
 # Read-side fold for the SSE pipeline. Takes raw frames from
-# `game.<id>.*` (plus xs.threshold / xs.pulse) and yields the same
-# `{state, mode, threshold?, ...}` record shape that the renderer
+# `game.<id>.*` (plus xs.threshold / xs.pulse) and yields the
+# `{state, threshold?, ...}` record shape that the renderer
 # expects, so the rest of the pipeline (threshold-gate-states,
 # states-to-html, html-to-patches) is unchanged.
 #
 # Snapshot frames -> state record.
-# View-toggle frames (game.<id>.move with kind="view") -> mode flip,
-#   echoing the current state so the renderer can swap panels.
 # xs.threshold / xs.pulse -> pass-through markers.
 # Everything else -> drop.
 export def frames-to-states [] {
-  generate {|f, acc = {mode: "game", state: null}|
+  generate {|f, acc = {state: null}|
     # Pre-converted SSE event records (e.g. from `pulse-keepalive`) just
     # flow through -- they're already shaped for `to sse`.
     if ('event' in $f) {
@@ -41,27 +39,23 @@ export def frames-to-states [] {
     }
     let t = $f.topic
     if $t == "xs.threshold" {
-      {out: {state: $acc.state, mode: $acc.mode, threshold: true}, next: $acc}
+      {out: {state: $acc.state, threshold: true}, next: $acc}
     } else if ($t | str ends-with ".snapshot") {
       let state = $f.meta.state
       let intent = $f.meta | get intent? | default ""
       let req_id = $f.meta | get req_id? | default ""
       {
-        out: {state: $state, mode: $acc.mode, direction: $intent, changed: true, threshold: false, req_id: $req_id, move_id: ($f.meta | get last_move_id? | default "")}
+        out: {state: $state, direction: $intent, changed: true, threshold: false, req_id: $req_id, move_id: ($f.meta | get last_move_id? | default "")}
         next: ($acc | upsert state $state)
       }
     } else if ($t | str ends-with ".move") {
-      let kind = $f.meta | get kind? | default ""
       let intent = $f.meta | get intent? | default ""
-      if $kind == "view" {
-        let new_mode = $f.meta | get mode? | default "game"
-        {out: {state: $acc.state, mode: $new_mode, threshold: false}, next: ($acc | upsert mode $new_mode)}
-      } else if $intent == "" {
+      if $intent == "" {
         # Empty-intent ping (RTT probe). Actor never writes a snapshot
         # for it; echo current state with req_id so the client's pending
         # probe resolves on the matching data-rev.
         let req_id = $f.meta | get req_id? | default ""
-        {out: {state: $acc.state, mode: $acc.mode, req_id: $req_id, threshold: false}, next: $acc}
+        {out: {state: $acc.state, req_id: $req_id, threshold: false}, next: $acc}
       } else {
         # h/j/k/l/undo -- actor's snapshot frame carries the update.
         {next: $acc}
@@ -141,7 +135,6 @@ export def follow-game [game_id: string] {
   .cat --follow -T $"game.($game_id).move"
   | impulses-to-states {
     stack: [(initial-state $game_id)]
-    mode: "game"
     game_id: $game_id
     games_topic: ""
   }

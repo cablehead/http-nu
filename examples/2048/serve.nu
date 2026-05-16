@@ -108,16 +108,6 @@ def render-board [scope?: string]: record -> record {
   {__html: ({tiles: $tiles} | .mj render $BOARD_TPL)}
 }
 
-def gear-button []: nothing -> record {
-  (BUTTON {class: "icon-btn" type: "button" aria-label: "settings" "data-view-to": "settings"}
-    (ICONIFY "material-symbols:settings-outline-rounded" {width: "18" height: "18"}))
-}
-
-def close-button []: nothing -> record {
-  (BUTTON {class: "icon-btn" type: "button" aria-label: "close" "data-view-to": "game"}
-    (ICONIFY "material-symbols:close-rounded" {width: "18" height: "18"}))
-}
-
 # Small targeted SSE fragments. The top tracker bar lives statically at
 # the body level; these spans inside it have stable ids and are morphed
 # in place on each state change. Keeping the bar out of #game means the
@@ -135,11 +125,6 @@ def render-state-badge [won: bool, game_over: bool]: nothing -> record {
   } else {
     (SPAN {id: "state-badge"} "")
   }
-}
-
-def render-mode-toggle [mode: string]: nothing -> record {
-  let btn = if $mode == "settings" { close-button } else { gear-button }
-  (SPAN {id: "mode-toggle"} $btn)
 }
 
 # Shared site footer used by both /play and /games so SSE liveness shows
@@ -177,23 +162,10 @@ def render-game [direction?: string, changed?: bool, req_id?: string]: record ->
     id: "game"
     style: $"--glow: ($glow); view-transition-name: view-game;"
     "data-rev": (if ($rid | is-empty) { random uuid } else { $rid })
-    "data-view": "game"
     "data-from": $dir
     "data-changed": (if $did_change { "1" } else { "" })
   }
     (DIV {id: "board-wrap"} ...$wrap_children))
-}
-
-def render-settings []: nothing -> record {
-  (DIV {
-    id: "game"
-    style: "view-transition-name: view-settings;"
-    "data-rev": (random uuid)
-    "data-view": "settings"
-  }
-    (DIV {id: "settings-panel"}
-      (H2 "settings")
-      (P "more knobs soon.")))
 }
 
 # Render a card from already-known state. The SSE handler calls this with
@@ -228,17 +200,6 @@ def render-games-list-from-data [req: record, data: record]: nothing -> record {
   (DIV {class: "games-list"} ($entries | each {|e|
     render-card-from-state $req $e.game_id $e.meta.state ($e.meta | get moves? | default 0)
   }))
-}
-
-# Pick the right render based on the per-tab mode. Same #game id either way
-# so datastar morphs the swap as a single replacement.
-def render-current [mode: string, direction?: string, changed?: bool, req_id?: string]: record -> record {
-  let state = $in
-  if $mode == "settings" {
-    render-settings
-  } else {
-    $state | render-game $direction $changed $req_id
-  }
 }
 
 # --- pipeline boxes ------------------------------------------------------
@@ -301,12 +262,11 @@ def states-to-html [] {
     } else {
       let state = $s.state
       let won = $state.tiles | any {|t| $t.value >= 2048 }
-      let board = ($state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false) ($s.req_id? | default ""))
+      let board = ($state | render-game ($s.direction? | default "") ($s.changed? | default false) ($s.req_id? | default ""))
       [
         {vt: true, el: $board}
         {vt: false, el: (render-score $state.score)}
         {vt: false, el: (render-state-badge $won $state.game_over)}
-        {vt: false, el: (render-mode-toggle $s.mode)}
       ]
     }
   }
@@ -441,19 +401,6 @@ def html-to-patches [] {
       .static $SCRIPT_DIR "/og.png"
     })
 
-    (route {method: POST path: "/view"} {|req ctx|
-      # View toggle on this game's move topic with ttl=ephemeral so only
-      # currently-connected SSE subscribers see it. Game id comes from
-      # the page's data-signals (URL-routed play view).
-      let signals = $in | from datastar-signals $req
-      let game_id = $signals | get gameId? | default ""
-      let mode = $signals | get mode? | default "game"
-      if ($game_id | is-not-empty) {
-        null | .append $"game.($game_id).move" --ttl ephemeral --meta {kind: "view" mode: $mode}
-      }
-      null | metadata set { merge {'http.response': {status: 204}} }
-    })
-
     (route {method: GET path: "/new"} {|req ctx|
       # Mint a games_topic frame for this player and 302 to /play/<id>.
       # Cookie minted on first visit.
@@ -540,13 +487,12 @@ def html-to-patches [] {
       (BODY {
         class: "play"
         # playerId from cookie, gameId from URL path. Both ride along on
-        # every datastar POST so /move and /view don't need to look them
-        # up server-side. data-conn is managed by script.js based on SSE
+        # every datastar POST so /move doesn't need to look them up
+        # server-side. data-conn is managed by script.js based on SSE
         # heartbeats; CSS reacts via body[data-conn="down"] selectors.
         "data-player-id": $player_id
         "data-game-id": $game_id
         "data-move-url": ($req | href "/move")
-        "data-view-url": ($req | href "/view")
         "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
       }
         (HEADER {class: "play-header"}
@@ -565,7 +511,6 @@ def html-to-patches [] {
         (render-footer $req [
           (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo")
           (SPAN {class: "hint"} "keys: hjkl / arrows")
-          (render-mode-toggle "game")
         ])
         # Temporary tuning panel for the view-transition bezier dials.
         # Lives as a floating overlay so it doesn''t disturb the layout.
@@ -587,6 +532,12 @@ def html-to-patches [] {
       <div class="vt-tuner-legend">
         <div>y = board tilt (0 = level, peak = lean, &lt;0 = recoil past level)</div>
         <div>each dial is <em>base</em> + <em>k</em>&middot;rtt; set k=0 to ignore latency.</div>
+      </div>
+
+      <div class="vt-tuner-section">duration <span class="vt-tuner-sub">total lean time, ms</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="80" max="1200" step="10" value="400" data-var="--ant-duration-base"></label>
+        <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; stretches the lean</span></span><span data-readout></span><input type="range" min="-1" max="5" step="0.05" value="2" data-var="--ant-duration-k"></label>
       </div>
 
       <div class="vt-tuner-section">magnitude <span class="vt-tuner-sub">how far the board leans (px)</span></div>
@@ -612,10 +563,16 @@ def html-to-patches [] {
         <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.5" data-var="--ant-x2-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; longer linger</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-x2-k"></label>
       </div>
+
+      <div class="vt-tuner-section">y2 <span class="vt-tuner-sub">final value; 1 = lands flat on target</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0.5" max="1.5" step="0.05" value="1" data-var="--ant-y2-base"></label>
+        <label><span class="hdr">k</span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--ant-y2-k"></label>
+      </div>
     </details>
 
     <details class="vt-tuner-fold" open>
-      <summary>overshoot <span class="vt-tuner-sub">tile slide bezier</span></summary>
+      <summary>slide <span class="vt-tuner-sub">tile movement bezier</span></summary>
       <svg class="vt-tuner-plot" viewBox="0 0 100 100" preserveAspectRatio="none">
         <line class="ax-zero"   x1="0" y1="100" x2="100" y2="100"/>
         <line class="ax-target" x1="0" y1="50"  x2="100" y2="50"/>
@@ -650,6 +607,12 @@ def html-to-patches [] {
         <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0" max="1" step="0.01" value="0.64" data-var="--vt-x2-base"></label>
         <label><span class="hdr">k <span class="vt-tuner-sub">slow &rarr; softer landing</span></span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--vt-x2-k"></label>
       </div>
+
+      <div class="vt-tuner-section">y2 <span class="vt-tuner-sub">final value; 1 = lands flat on target</span></div>
+      <div class="vt-tuner-pair">
+        <label><span class="hdr">base</span><span data-readout></span><input type="range" min="0.5" max="1.5" step="0.05" value="1" data-var="--vt-y2-base"></label>
+        <label><span class="hdr">k</span><span data-readout></span><input type="range" min="-0.005" max="0.005" step="0.0001" value="0" data-var="--vt-y2-k"></label>
+      </div>
     </details>
   </div>
 </aside>
@@ -679,6 +642,7 @@ def html-to-patches [] {
     y1:       { lo: 1.0,  hi: 3.0 },
     x1:       { lo: 0.05, hi: 0.95 },
     x2:       { lo: 0.05, hi: 0.95 },
+    y2:       { lo: 0.5,  hi: 1.5 },
   };
   // Anticipation plot: build a polyline of the synthetic 0->15%->100%
   // keyframe by sampling the bezier on the spring-back segment.
@@ -706,9 +670,8 @@ def html-to-patches [] {
       const k = parseFloat(cs.getPropertyValue(`--vt-${name}-k`));
       eff[name] = clamp(lo, base + k * rtt, hi);
     }
-    const y2 = parseFloat(cs.getPropertyValue("--vt-y2")) || 1;
-    bz.textContent = [eff.x1.toFixed(3), eff.y1.toFixed(3), eff.x2.toFixed(3), y2.toFixed(3)].join(", ");
-    curve.setAttribute("d", `M 0,${sy(0)} C ${eff.x1*100},${sy(eff.y1)} ${eff.x2*100},${sy(y2)} 100,${sy(1)}`);
+    bz.textContent = [eff.x1.toFixed(3), eff.y1.toFixed(3), eff.x2.toFixed(3), eff.y2.toFixed(3)].join(", ");
+    curve.setAttribute("d", `M 0,${sy(0)} C ${eff.x1*100},${sy(eff.y1)} ${eff.x2*100},${sy(eff.y2)} 100,${sy(1)}`);
     // -- anticipation curve: 0 -> peak (15% time) -> 0 (with spring bezier) --
     // Plot tilt over time. y-axis in SVG: 50 = level (0 tilt), 85 = peak
     // lean, anything above 50 = recoil past 0. Mapping tilt t in [-1, 1.5]
@@ -717,6 +680,7 @@ def html-to-patches [] {
       "ant-y1": { lo: 1.0,  hi: 3.0 },
       "ant-x1": { lo: 0.05, hi: 0.95 },
       "ant-x2": { lo: 0.05, hi: 0.95 },
+      "ant-y2": { lo: 0.5,  hi: 1.5 },
     };
     const ant = {};
     for (const [name, { lo, hi }] of Object.entries(antDials)) {
@@ -727,7 +691,7 @@ def html-to-patches [] {
     const ax1 = ant["ant-x1"];
     const ay1 = ant["ant-y1"];
     const ax2 = ant["ant-x2"];
-    const ay2 = parseFloat(cs.getPropertyValue("--ant-y2")) || 1;
+    const ay2 = ant["ant-y2"];
     const ty = (tilt) => Math.max(0, Math.min(100, 50 + tilt * 35));
     // Wind-up segment: 0..15% time, linear 0 -> peak (using ease-out
     // approximation as a quick curve).

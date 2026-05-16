@@ -43,7 +43,6 @@
   --board-size: 460px;
   --gap: 8px;
   --radius: 4px;
-  --decay-duration: 500ms;
   --glow: #fffdc2;
   --board-scale: min(
     calc((100dvw - 24px) / var(--board-size)),
@@ -122,47 +121,7 @@ button:active {
 }
 .column { width: calc(var(--board-size) * var(--board-scale)); }
 
-/* The gear / close button overlays the #game container's top-right corner.
-   Server renders the right icon for the current mode (gear in game, close
-   in settings). */
 #game { position: relative; }
-.settings-toggle {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 32px;
-  height: 32px;
-  background: transparent;
-  color: var(--fg);
-  border: 0;
-  border-radius: 50%;
-  padding: 0;
-  box-shadow: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-}
-.settings-toggle:hover { background: rgba(0, 0, 0, 0.05); }
-.settings-toggle:active { background: rgba(0, 0, 0, 0.12); transform: none; }
-
-#settings-panel {
-  width: calc(var(--board-size) * var(--board-scale));
-  /* Match the game's full height (board + status row + gap) so the cluster
-     stays the same height across modes -- otherwise body's justify-content
-     re-centers and the footer appears to jump during the flip. */
-  min-height: calc(var(--board-size) * var(--board-scale) + 38px);
-  background: var(--tile);
-  border-radius: 6px;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--fg);
-}
 
 #board-wrap {
   position: relative;
@@ -191,6 +150,8 @@ button:active {
    doesn't let custom properties take their place. Magnitudes and the
    timing function inside each keyframe ARE variabilised. */
 :root {
+  --ant-duration-base:  400;    /* unitless ms; matches old --decay-duration floor */
+  --ant-duration-k:     2;      /* old behaviour was clamp(400, 2*rtt, 1200) */
   --ant-magnitude-base: 26;     /* unitless; multiplied by 1px in calc */
   --ant-magnitude-k:    0;
   --ant-y1-base:        1.7;
@@ -199,52 +160,60 @@ button:active {
   --ant-x1-k:           0;
   --ant-x2-base:        0.5;
   --ant-x2-k:           0;
-  --ant-y2:             1;
+  --ant-y2-base:        1;
+  --ant-y2-k:           0;
 
+  --ant-duration:  clamp(80ms, calc((var(--ant-duration-base) + var(--rtt-mean) * var(--ant-duration-k)) * 1ms), 1500ms);
   --ant-magnitude: clamp(0px, calc((var(--ant-magnitude-base) + var(--rtt-mean) * var(--ant-magnitude-k)) * 1px), 80px);
   --ant-y1:        clamp(1.0,   calc(var(--ant-y1-base) + var(--rtt-mean) * var(--ant-y1-k)), 3.0);
   --ant-x1:        clamp(0.05,  calc(var(--ant-x1-base) + var(--rtt-mean) * var(--ant-x1-k)), 0.95);
   --ant-x2:        clamp(0.05,  calc(var(--ant-x2-base) + var(--rtt-mean) * var(--ant-x2-k)), 0.95);
+  --ant-y2:        clamp(0.5,   calc(var(--ant-y2-base) + var(--rtt-mean) * var(--ant-y2-k)), 1.5);
 }
 
 /* decay transitions everything together with the RTT-tuned duration so the
    overshoot bounce is still in motion when the SSE patch lands. */
 #board-wrap.decay {
   transition:
-    --tilt-x var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
-    --tilt-y var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
-    --glow-x var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
-    --glow-y var(--decay-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2));
+    --tilt-x var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
+    --tilt-y var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
+    --glow-x var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
+    --glow-y var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2));
 }
 
-/* Keyboard anticipation: synthetic two-phase animation (attack -> spring-back
-   with overshoot) since there's no finger to drive --tilt-x continuously.
-   Anticipation goes OPPOSITE the press direction -- like pulling a slingshot
-   back before release. */
+/* Keyboard anticipation: synthetic three-keyframe lean (0 -> peak at 15%
+   -> 0) so a press feels like a slingshot wind-up + recoil. The bezier
+   that shapes BOTH segments lives on the element's
+   `animation-timing-function` (where `var()` is honored). It's NOT
+   inside the @keyframes block, because Chromium silently drops `var()`
+   from `animation-timing-function` declared inside a keyframe.
+   With y1 > 1 the wind-up briefly overshoots peak before settling, and
+   the recoil overshoots past 0 in the other direction -- both shaped by
+   the same dial. */
 @keyframes key-lean-h {
-  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: var(--ant-magnitude); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
+  0%   { --tilt-x: 0px; }
+  15%  { --tilt-x: var(--ant-magnitude); }
   100% { --tilt-x: 0px; }
 }
 @keyframes key-lean-l {
-  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: calc(-1 * var(--ant-magnitude)); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
+  0%   { --tilt-x: 0px; }
+  15%  { --tilt-x: calc(-1 * var(--ant-magnitude)); }
   100% { --tilt-x: 0px; }
 }
 @keyframes key-lean-k {
-  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: var(--ant-magnitude); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
+  0%   { --tilt-y: 0px; }
+  15%  { --tilt-y: var(--ant-magnitude); }
   100% { --tilt-y: 0px; }
 }
 @keyframes key-lean-j {
-  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: calc(-1 * var(--ant-magnitude)); animation-timing-function: cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)); }
+  0%   { --tilt-y: 0px; }
+  15%  { --tilt-y: calc(-1 * var(--ant-magnitude)); }
   100% { --tilt-y: 0px; }
 }
-#board-wrap.key-h { animation: key-lean-h var(--decay-duration) both; }
-#board-wrap.key-l { animation: key-lean-l var(--decay-duration) both; }
-#board-wrap.key-k { animation: key-lean-k var(--decay-duration) both; }
-#board-wrap.key-j { animation: key-lean-j var(--decay-duration) both; }
+#board-wrap.key-h { animation: key-lean-h var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
+#board-wrap.key-l { animation: key-lean-l var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
+#board-wrap.key-k { animation: key-lean-k var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
+#board-wrap.key-j { animation: key-lean-j var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
 /* Edge glow: soft band of the accent color on whichever edge the gesture is
    heading toward. Alpha is driven by tilt magnitude so it ramps with the
    drag and bleeds off through the decay/snap animation. */
@@ -380,12 +349,14 @@ body.play .board > div:not(:empty) {
   --vt-x1-k:          0;
   --vt-x2-base:       0.64;
   --vt-x2-k:          0;
-  --vt-y2:            1;
+  --vt-y2-base:       1;
+  --vt-y2-k:          0;
 
   --vt-duration: clamp(80ms,  calc(var(--vt-duration-base) + var(--rtt-mean) * var(--vt-duration-k) * 1ms), 600ms);
   --vt-y1:       clamp(1.0,   calc(var(--vt-y1-base)       + var(--rtt-mean) * var(--vt-y1-k)),             3.0);
   --vt-x1:       clamp(0.05,  calc(var(--vt-x1-base)       + var(--rtt-mean) * var(--vt-x1-k)),             0.95);
   --vt-x2:       clamp(0.05,  calc(var(--vt-x2-base)       + var(--rtt-mean) * var(--vt-x2-k)),             0.95);
+  --vt-y2:       clamp(0.5,   calc(var(--vt-y2-base)       + var(--rtt-mean) * var(--vt-y2-k)),             1.5);
 }
 ::view-transition-group(*) {
   animation-duration: var(--vt-duration);
@@ -409,6 +380,8 @@ body.play .board > div:not(:empty) {
   color: var(--fg);
 }
 .vt-tuner-tab {
+  position: relative;
+  z-index: 2;          /* stays above the body so the body slides UNDER it */
   width: 32px;
   background: var(--brand);
   color: var(--light);
@@ -445,6 +418,7 @@ body.play .board > div:not(:empty) {
   position: absolute;
   top: 0;
   right: 32px;  /* anchor to the left of the tab */
+  z-index: 1;   /* below the tab so collapse slides UNDER */
   width: 240px;
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
@@ -583,36 +557,6 @@ body.play .board > div:not(:empty) {
   100% { opacity: 0; }
 }
 
-/* View-mode flip. Game and settings each have their own view-transition-name
-   so a switch produces UNPAIRED pseudos (the :only-child guard); same-name
-   renders (game move) stay paired and cross-fade. perspective() inlined in
-   the transform so the 3D rotation works in Safari, which doesn't reliably
-   pick up `perspective` set on ::view-transition-image-pair. */
-::view-transition-old(view-game):only-child,
-::view-transition-old(view-settings):only-child {
-  animation: card-flip-out 500ms ease-in-out forwards;
-  backface-visibility: hidden;
-}
-::view-transition-new(view-game):only-child,
-::view-transition-new(view-settings):only-child {
-  animation: card-flip-in 500ms ease-in-out forwards;
-  backface-visibility: hidden;
-}
-/* While the page is flipping between modes, suppress per-tile transition
-   names so tiles are captured as part of view-game's snapshot and flip
-   *with* the board (rather than fading out separately while the board
-   rotates). The inline style on tiles uses !important to override. */
-html.view-flipping .board > div:not(:empty) { view-transition-name: none !important; }
-@keyframes card-flip-out {
-  from { transform: perspective(1200px) rotateY(0deg); }
-  to   { transform: perspective(1200px) rotateY(180deg); }
-}
-@keyframes card-flip-in {
-  from { transform: perspective(1200px) rotateY(-180deg); }
-  to   { transform: perspective(1200px) rotateY(0deg); }
-}
-
-
 /* /games splash: simple plain page. No tracker chrome. Boards in a
    flex-wrap row, plain caption under each. */
 
@@ -659,137 +603,6 @@ body.games-view {
   justify-content: flex-start;
 }
 body.games-view h1 { padding-top: 16px; }
-
-/* ===========================================================================
-   Tracker theme -- Impulse Tracker inspired chrome around the existing
-   2048 tile palette. Applied via body.tracker.
-   =========================================================================== */
-
-body.tracker {
-  --track-page: #a89868;          /* warm khaki page background */
-  --track-panel: #2a2a4a;         /* dark slate-blue panels */
-  --track-panel-deep: #1c1c34;    /* inset/recessed wells */
-  --track-bevel-light: #66668c;   /* raised bevel highlight */
-  --track-bevel-dark:  #14141f;   /* raised bevel shadow */
-  --track-yellow: #ffe44a;        /* active state / titles */
-  --track-cyan:   #6acdcd;        /* labels */
-  --track-green:  #66e070;        /* values / data */
-  --track-white:  #e8e8e8;        /* plain text */
-  --track-mute:   #99a0b0;        /* dim text / dividers */
-  background: var(--track-page);
-  color: var(--track-white);
-  font-family: ui-monospace, "Berkeley Mono", "SF Mono", "Menlo", "Consolas", monospace;
-  /* Flex column: top bar / middle / bottom bar. Stretch children so the
-     bars naturally span full width without per-element width:100%. */
-  justify-content: flex-start;
-  align-items: stretch;
-  padding: 0;
-  gap: 0;
-}
-
-/* Top + bottom status bars: dark slate, raised bevel, dense info row. */
-body.tracker .track-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 18px;
-  padding: 10px 18px;
-  background: var(--track-panel);
-  color: var(--track-white);
-  font-size: 15px;
-  width: 100%;
-  border-top: 1px solid var(--track-bevel-light);
-  border-bottom: 1px solid var(--track-bevel-dark);
-  box-shadow:
-    inset 0 1px 0 var(--track-bevel-light),
-    inset 0 -1px 0 var(--track-bevel-dark);
-}
-body.tracker .track-bar-top { margin-bottom: 0; }
-body.tracker .track-bar-bot {
-  margin-top: auto;
-  font-size: 14px;
-  color: var(--track-mute);
-}
-
-body.tracker .track-title { font-weight: bold; color: var(--track-yellow); }
-body.tracker .track-title a { color: inherit; text-decoration: none; }
-body.tracker .track-title a:hover { text-decoration: underline; }
-
-body.tracker .track-field { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
-body.tracker .track-label { color: var(--track-cyan); }
-body.tracker .track-value { color: var(--track-green); }
-body.tracker .track-spacer { flex: 1; }
-
-body.tracker .track-nav {
-  color: var(--track-yellow);
-  text-decoration: none;
-  padding: 2px 8px;
-  background: var(--track-panel-deep);
-  white-space: nowrap;
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-dark),
-    inset -1px -1px 0 var(--track-bevel-light);
-}
-body.tracker .track-nav:hover { color: var(--track-white); }
-
-body.tracker .track-btn {
-  background: var(--track-panel-deep);
-  color: var(--track-cyan);
-  border: 0;
-  padding: 3px 10px;
-  font: inherit;
-  cursor: pointer;
-  text-decoration: none;
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-light),
-    inset -1px -1px 0 var(--track-bevel-dark);
-}
-body.tracker .track-btn:hover { color: var(--track-white); }
-body.tracker .track-btn:active {
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-dark),
-    inset -1px -1px 0 var(--track-bevel-light);
-}
-
-/* Score readout: big tabular-nums, no label, sits flush right of the top
-   bar. Reads like an Impulse Tracker counter ticking up. */
-body.tracker .track-digits {
-  color: var(--track-green);
-  font-weight: bold;
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 1px;
-  padding: 0 4px;
-}
-
-/* The key character inside a text-bearing button -- e.g. the `u` in
-   `[u]ndo` or `esc` in `[esc] all games`. White + bold so it pops
-   against the cyan body without shouting yellow. */
-body.tracker .track-key { color: var(--track-white); font-weight: bold; }
-
-/* Gear / close button: sits in the top bar; small, inset chip. */
-body.tracker .track-gear {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* State badge (GAME OVER / YOU WIN) sits in the top bar as a colored chip. */
-body.tracker .track-badge {
-  padding: 1px 8px;
-  font-weight: bold;
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-dark),
-    inset -1px -1px 0 var(--track-bevel-light);
-}
-body.tracker .track-badge-over { background: #5a1a1a; color: #ff9a9a; }
-body.tracker .track-badge-win  { background: #1a3a1a; color: #aef0a8; }
-
-body.tracker .track-credit { color: var(--track-mute); }
-body.tracker .track-credit a { color: var(--track-cyan); text-decoration: none; }
 
 /* /play: a plain flex column with a small header and footer. The middle
    .column flex-centers the board. No slate chrome, no tracker palette. */
@@ -853,22 +666,6 @@ body.play .column {
 .linklike:hover { color: var(--brand-hover); background: none; }
 .linklike:active { transform: none; box-shadow: none; }
 
-/* Small icon-only button (settings gear / close). */
-.icon-btn {
-  background: none;
-  border: 0;
-  padding: 4px;
-  color: var(--fg);
-  cursor: pointer;
-  box-shadow: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.6;
-}
-.icon-btn:hover { opacity: 1; background: none; }
-.icon-btn:active { transform: none; box-shadow: none; }
-
 /* Small status badge for game-over / you-win in the header. */
 .badge {
   font-size: 12px;
@@ -880,25 +677,3 @@ body.play .column {
 }
 .badge.over { background: #c0392b; color: white; }
 .badge.win  { background: #2a9d4a; color: white; }
-
-/* Settings panel: dark slate well. */
-body.tracker.play #settings-panel {
-  background: var(--track-panel-deep);
-  color: var(--track-white);
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-dark),
-    inset -1px -1px 0 var(--track-bevel-light);
-}
-
-/* Tracker theme: constrain mascot in the new bottom-bar container, since
-   the original `footer .mascot` selector no longer matches. */
-body.tracker .track-credit img.mascot {
-  height: 14px;
-  width: auto;
-  vertical-align: -2px;
-}
-
-/* SSE liveness indicator: text via CSS pseudo so #conn stays empty in HTML. */
-body.tracker[data-conn="ok"]   #conn::after { content: "ok";   color: var(--track-green); }
-body.tracker[data-conn="down"] #conn::after { content: "down"; color: #ff7777; }
-body.tracker:not([data-conn]) #conn::after { content: "—";    color: var(--track-mute); }

@@ -125,11 +125,10 @@ new MutationObserver(() => {
   // peak land near (or just past) SSE arrival, target ~2x mean RTT so the
   // overshoot bounce is still playing when view-transition picks up.
   const mean = rtts.reduce((a, b) => a + b, 0) / rtts.length;
-  const decay = Math.max(400, Math.min(1200, Math.round(mean * 2)));
-  document.documentElement.style.setProperty("--decay-duration", `${decay}ms`);
-  // Expose the mean RTT to CSS so view-transition bezier dials can
-  // (optionally) scale with latency. Plain unitless number; CSS multi-
-  // plies it through calc() in :root.
+  // Expose the mean RTT to CSS as a unitless number. The animation
+  // duration / bezier vars in styles.css clamp `base + k*--rtt-mean` to
+  // do their own latency scaling, so we don't set --decay-duration etc
+  // directly any more -- it all comes out of the CSS dials.
   document.documentElement.style.setProperty("--rtt-mean", String(mean));
 }).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
 
@@ -153,7 +152,6 @@ addEventListener("keydown", (e) => {
     return;
   }
   if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
-  if (document.getElementById("game")?.dataset.view !== "game") return;  // settings shown
   // Shift+letter sends uppercase ("H"), so fall back to the lowercased key.
   // Arrow keys aren't affected (e.key is "ArrowLeft" regardless of Shift).
   const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
@@ -188,20 +186,6 @@ document.addEventListener("click", (e) => {
   if (b) move(b.dataset.intent);
 });
 
-document.addEventListener("click", (e) => {
-  const t = e.target.closest("[data-view-to]");
-  if (!t) return;
-  // Add view-flipping BEFORE the patch lands so the snapshot suppresses
-  // per-tile view-transition-name. Tiles get captured as part of view-game,
-  // so they flip with the board instead of fading separately.
-  document.documentElement.classList.add("view-flipping");
-  fetch(document.body.dataset.viewUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerId, gameId, mode: t.dataset.viewTo }),
-  });
-  setTimeout(() => document.documentElement.classList.remove("view-flipping"), 600);
-});
 
 
 // Swipe with anticipation: while dragging, lean the tiles toward the gesture

@@ -51,9 +51,6 @@
     let game_id = $topic | str substring 5.. | str replace ".move" ""
     let kind = $frame.meta | get kind? | default "move"
 
-    # View-toggle is per-connection ephemeral; not a game-state event.
-    if $kind == "view" { return {next: $state} }
-
     # Read current HEAD. Used both as the state to act on (moves) and as
     # the chain pointer (every new snapshot's meta.prev = head.id).
     let head = (try { .last $"game.($game_id).snapshot" } catch { null })

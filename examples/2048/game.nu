@@ -163,10 +163,10 @@ export def filter-for-player [games_topic: string] {
   ) }
 }
 
-# Takes xs frames, yields {state, mode, threshold?} records. One emit per
+# Takes xs frames, yields {state, threshold?} records. One emit per
 # move frame.
 export def impulses-to-states [initial: record] {
-  # s = {stack: [state, ...], mode, game_id, games_topic}
+  # s = {stack: [state, ...], game_id, games_topic}
   # Stack discipline: every move that actually changes the board pushes the
   # resulting state. An undo frame pops the top, exposing the previous state.
   # The "current" state is always the top of the stack. game_id seeds spawn
@@ -184,14 +184,14 @@ export def impulses-to-states [initial: record] {
       let started = $s | get started? | default (date now)
       let elapsed = ((date now) - $started) / 1ms | math round
       return {out: [
-        {state: $cur, mode: $s.mode, threshold: true}
+        {state: $cur, threshold: true}
         {signals: {replayMs: $elapsed}}
       ], next: $s}
     }
     if $frame.topic == "xs.pulse" {
       # SSE keepalive -- emit a pulse marker; downstream stages turn it into
       # a datastar-patch-signals no-op so the client sees a sign of life.
-      return {out: [{pulse: true, mode: $s.mode}], next: $s}
+      return {out: [{pulse: true}], next: $s}
     }
     if $frame.topic == $s.games_topic {
       # New game (or first game) for this player. Reset to a fresh board.
@@ -201,7 +201,7 @@ export def impulses-to-states [initial: record] {
       let new_state = initial-state $new_game_id
       let req_id = $frame | get meta? | default {} | get req_id? | default ""
       return {
-        out: [{state: $new_state, mode: $s.mode, threshold: false, req_id: $req_id}]
+        out: [{state: $new_state, threshold: false, req_id: $req_id}]
         next: ($s | update stack [$new_state] | update game_id $new_game_id)
       }
     }
@@ -210,21 +210,15 @@ export def impulses-to-states [initial: record] {
       return {next: $s}
     }
     let kind = $frame.meta | get kind? | default "move"
-    if $kind == "view" {
-      # Ephemeral (ttl=ephemeral): only arrives live, never during replay,
-      # so mode resets to game on reconnect.
-      let new_s = $s | upsert mode ($frame.meta | get mode? | default "game")
-      return {out: [{state: $cur, mode: $new_s.mode, threshold: false}], next: $new_s}
-    }
     let req_id = $frame.meta | get req_id? | default ""
     if $kind == "undo" {
       # Pop one entry. If only the initial state is on the stack, echo.
       if ($s.stack | length) <= 1 {
-        return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
+        return {out: [{state: $cur, req_id: $req_id, threshold: false}], next: $s}
       }
       let popped = $s.stack | drop 1
       let new_top = $popped | last
-      return {out: [{state: $new_top, mode: $s.mode, direction: "undo", changed: true, req_id: $req_id, threshold: false, move_id: ($frame | get id? | default "")}], next: ($s | update stack $popped)}
+      return {out: [{state: $new_top, direction: "undo", changed: true, req_id: $req_id, threshold: false, move_id: ($frame | get id? | default "")}], next: ($s | update stack $popped)}
     }
     let intent = $frame.meta | get intent? | default ""
     if $intent in [h j k l] {
@@ -232,12 +226,12 @@ export def impulses-to-states [initial: record] {
       let changed = not (tiles-equal $cur.tiles $new_state.tiles)
       # No-op moves don't push -- nothing to undo if the board didn't change.
       let new_stack = if $changed { $s.stack | append $new_state } else { $s.stack }
-      return {out: [{state: $new_state, mode: $s.mode, direction: $intent, changed: $changed, req_id: $req_id, threshold: false, move_id: ($frame | get id? | default "")}], next: ($s | update stack $new_stack)}
+      return {out: [{state: $new_state, direction: $intent, changed: $changed, req_id: $req_id, threshold: false, move_id: ($frame | get id? | default "")}], next: ($s | update stack $new_stack)}
     }
     # Any other intent (empty ping, legacy slam-X, unrecognised) emits a no-op state
     # echo. The client uses the resulting mutation to measure RTT and to
     # clear the "lit edge" -- if the edge stays lit, the server is slow.
-    return {out: [{state: $cur, mode: $s.mode, req_id: $req_id, threshold: false}], next: $s}
+    return {out: [{state: $cur, req_id: $req_id, threshold: false}], next: $s}
   } $initial
   | flatten
 }
@@ -259,7 +253,6 @@ export def project-game [game_id: string]: list -> record {
   # unchanged.
   impulses-to-states {
     stack: [(initial-state $game_id)]
-    mode: "game"
     game_id: $game_id
     games_topic: ""
   }
