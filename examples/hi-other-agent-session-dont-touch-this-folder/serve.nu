@@ -146,6 +146,67 @@ def spectral-cascade []: nothing -> list {
   }
 }
 
+# Stellar classification ascent. Each tile is a real star type ordered by
+# surface temperature: M (cool red dwarf) -> K -> G (Sun) -> F -> A (Sirius)
+# -> B (Rigel) -> O (blue supergiant). Past the main sequence the ladder
+# enters stellar pathologies: Wolf-Rayet (hot blue UV), then a SUPERNOVA
+# flash, then neutron-star magenta dimming into a black-hole horizon.
+# Tension shape: smooth and warm in the bottom half, hard violent burst at
+# 1024, dark exotic tail.
+def stellar-ascent []: nothing -> list {
+  let stops = [
+    [0.55 0.16  30.0]  # 2:    M-class red dwarf
+    [0.72 0.16  60.0]  # 4:    K-class orange (Arcturus)
+    [0.86 0.14  95.0]  # 8:    G-class yellow (Sun)
+    [0.92 0.08 100.0]  # 16:   F-class yellow-white
+    [0.95 0.03 240.0]  # 32:   A-class white (Sirius)
+    [0.88 0.10 240.0]  # 64:   B-class blue-white (Rigel)
+    [0.78 0.15 245.0]  # 128:  O-class blue (Zeta Puppis)
+    [0.70 0.18 250.0]  # 256:  O blue supergiant
+    [0.60 0.20 275.0]  # 512:  Wolf-Rayet (hot blue UV)
+    [0.95 0.10 280.0]  # 1024: SUPERNOVA flash
+    [0.40 0.22 320.0]  # 2048: neutron star / pulsar
+    [0.25 0.18 320.0]  # 4096: magnetar
+    [0.05 0.04 320.0]  # 8192: black hole / event horizon
+  ]
+  $stops | each {|s|
+    let l = $s | get 0
+    let c = $s | get 1
+    let h = $s | get 2
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Phase transitions: tiles are grouped into bands by state of matter, with
+# visible hue jumps at each transition. Solid (icy blue) -> liquid (water
+# blue) -> gas (warm misty grey) -> plasma (ionized magenta-violet) ->
+# quark-gluon plasma (electric blue-white deconfinement). Structural shape:
+# discrete regimes rather than a continuous ramp -- each doubling of energy
+# eventually unlocks a new state.
+def phase-transitions []: nothing -> list {
+  let stops = [
+    [0.94 0.03 215.0]  # 2:    solid -- frosty ice
+    [0.88 0.05 215.0]  # 4:    solid -- pale ice
+    [0.82 0.07 215.0]  # 8:    solid -- crystal
+    [0.60 0.13 235.0]  # 16:   liquid -- water
+    [0.50 0.15 235.0]  # 32:   liquid -- deep water
+    [0.78 0.03  60.0]  # 64:   gas -- steam
+    [0.72 0.05  50.0]  # 128:  gas -- vapor
+    [0.55 0.20 340.0]  # 256:  plasma -- ionized pink
+    [0.50 0.22 320.0]  # 512:  plasma -- magenta
+    [0.45 0.24 310.0]  # 1024: plasma -- violet
+    [0.48 0.26 270.0]  # 2048: QGP -- saturated electric indigo (deconfinement)
+    [0.62 0.25 245.0]  # 4096: QGP -- saturated cobalt, brighter
+    [0.78 0.20 225.0]  # 8192: QGP -- vivid electric cyan-blue
+  ]
+  $stops | each {|s|
+    let l = $s | get 0
+    let c = $s | get 1
+    let h = $s | get 2
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
 # Sigmoid in lightness: flat plateau, plunge, flat dark plateau on top.
 def sigmoid-light []: nothing -> list {
   0..12 | each {|i|
@@ -173,12 +234,16 @@ def page []: nothing -> string {
       "Equal perceptual step per doubling (Weber-Fechner honest). Calm and legible, but 2048 doesn't feel like an event -- every tier weighs the same.")
     (row "Chroma blowout" (chroma-blowout)
       "Lightness drifts gently; chroma climbs convex. Late tiles radiate -- back-loaded drama. 1024 and 2048 feel almost incandescent against the muted low end.")
+    (row "Sigmoid lightness" (sigmoid-light)
+      "Flat-plunge-flat. The 64-to-256 stretch is a regime change; the top tier is a dark slate plateau. Mid-game is where the work feels visible.")
     (row "Blackbody march" (blackbody)
       "Dim deep red to white-hot, hue confined to the warm half of the wheel (28 -> 90). Chroma decays as lightness climbs -- saturated at the cool end, near-neutral when incandescent. Reads as a glowing element.")
     (row "Spectral cascade" (spectral-cascade)
       "Each tile is one octave of light frequency. The ladder walks the EM spectrum from H-alpha red (~1.8eV photons) through the visible band to UV. Lightness peaks at green (photopic sensitivity max); top two tiles fade past violet into near-black -- light too energetic to see. Tension builds because higher-energy photons culturally and physically read as more intense.")
-    (row "Sigmoid lightness" (sigmoid-light)
-      "Flat-plunge-flat. The 64-to-256 stretch is a regime change; the top tier is a dark slate plateau. Mid-game is where the work feels visible.")
+    (row "Stellar ascent" (stellar-ascent)
+      "Stellar classification: M red dwarf -> K -> G (Sun) -> F -> A (Sirius) -> B (Rigel) -> O blue supergiant -> Wolf-Rayet. Tile 1024 is a SUPERNOVA flash (sudden pale violet-white burst); 2048/4096/8192 are the remnant -- neutron star, magnetar, black hole. Smooth then violent then dark.")
+    (row "Phase transitions" (phase-transitions)
+      "Bands of tiles share state of matter, with visible hue jumps at each transition. Solid (pale frosty ice) -> liquid (cohesive blue) -> gas (warm mist) -> plasma (ionized magenta-violet) -> quark-gluon plasma (saturated electric cyan-blue -- distinct from the pale icy solid: same hue family but high chroma, reads as live wire rather than frost). Each doubling of energy eventually unlocks a new regime.")
   ] | str join "\n"
   # Static chrome uses a plain string (CSS `repeat(13, 1fr)` etc. would
   # confuse nu's interpolation parser).
@@ -197,7 +262,7 @@ def page []: nothing -> string {
 </style></head>
 <body>
 <h1>2048 tile palette experiments</h1>
-<p class='lede'>Six color-theory progressions for the same value ladder. Numbers double; what does the color do?</p>
+<p class='lede'>Eight color-theory progressions for the same value ladder. Numbers double; what does the color do?</p>
 "
   $head + $sections + "
 </body></html>"
