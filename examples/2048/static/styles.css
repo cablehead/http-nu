@@ -469,3 +469,154 @@ body.games-view {
   justify-content: flex-start;
 }
 body.games-view h1 { padding-top: 16px; }
+
+/* ===========================================================================
+   Tracker theme -- Impulse Tracker inspired chrome around the existing
+   2048 tile palette. Applied via body.tracker.
+   =========================================================================== */
+
+body.tracker {
+  --track-page: #a89868;          /* warm khaki page background */
+  --track-panel: #2a2a4a;         /* dark slate-blue panels */
+  --track-panel-deep: #1c1c34;    /* inset/recessed wells */
+  --track-bevel-light: #66668c;   /* raised bevel highlight */
+  --track-bevel-dark:  #14141f;   /* raised bevel shadow */
+  --track-yellow: #ffe44a;        /* active state / titles */
+  --track-cyan:   #6acdcd;        /* labels */
+  --track-green:  #66e070;        /* values / data */
+  --track-white:  #e8e8e8;        /* plain text */
+  --track-mute:   #99a0b0;        /* dim text / dividers */
+  background: var(--track-page);
+  color: var(--track-white);
+  font-family: ui-monospace, "Berkeley Mono", "SF Mono", "Menlo", "Consolas", monospace;
+  /* Splash + play both stack top-down. */
+  justify-content: flex-start;
+  padding: 0;
+  gap: 0;
+}
+
+/* Top + bottom status bars: dark slate, raised bevel, dense info row. */
+body.tracker .track-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 12px;
+  background: var(--track-panel);
+  color: var(--track-white);
+  font-size: 13px;
+  width: 100%;
+  border-top: 1px solid var(--track-bevel-light);
+  border-bottom: 1px solid var(--track-bevel-dark);
+  box-shadow:
+    inset 0 1px 0 var(--track-bevel-light),
+    inset 0 -1px 0 var(--track-bevel-dark);
+}
+body.tracker .track-bar-top { margin-bottom: 0; }
+body.tracker .track-bar-bot {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--track-mute);
+}
+
+body.tracker .track-title { font-weight: bold; color: var(--track-yellow); }
+body.tracker .track-title a { color: inherit; text-decoration: none; }
+body.tracker .track-title a:hover { text-decoration: underline; }
+
+body.tracker .track-field { display: inline-flex; align-items: center; gap: 2px; }
+body.tracker .track-label { color: var(--track-cyan); }
+body.tracker .track-value { color: var(--track-green); }
+body.tracker .track-spacer { flex: 1; }
+
+body.tracker .track-nav {
+  color: var(--track-yellow);
+  text-decoration: none;
+  padding: 1px 6px;
+  background: var(--track-panel-deep);
+  box-shadow:
+    inset 1px 1px 0 var(--track-bevel-dark),
+    inset -1px -1px 0 var(--track-bevel-light);
+}
+body.tracker .track-nav:hover { color: var(--track-white); }
+
+body.tracker .track-btn {
+  background: var(--track-panel-deep);
+  color: var(--track-yellow);
+  border: 0;
+  padding: 1px 8px;
+  font: inherit;
+  cursor: pointer;
+  box-shadow:
+    inset 1px 1px 0 var(--track-bevel-light),
+    inset -1px -1px 0 var(--track-bevel-dark);
+}
+body.tracker .track-btn:hover { color: var(--track-white); }
+body.tracker .track-btn:active {
+  box-shadow:
+    inset 1px 1px 0 var(--track-bevel-dark),
+    inset -1px -1px 0 var(--track-bevel-light);
+}
+
+body.tracker .track-credit { color: var(--track-mute); }
+body.tracker .track-credit a { color: var(--track-cyan); text-decoration: none; }
+
+/* Play view: frame the board in a sunken slate panel within the tan bg. */
+body.tracker.play .column {
+  margin: 16px auto;
+  padding: 12px;
+  background: var(--track-panel);
+  box-shadow:
+    inset 1px 1px 0 var(--track-bevel-dark),
+    inset -1px -1px 0 var(--track-bevel-light),
+    0 2px 0 rgba(0,0,0,0.3);
+  width: auto;
+}
+
+/* Score line above the board: tracker info-row style. */
+body.tracker.play #status {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--track-cyan);
+  background: var(--track-panel-deep);
+  padding: 4px 10px;
+  margin-bottom: 8px !important;
+  width: calc(var(--board-size) * var(--board-scale));
+  box-shadow:
+    inset 1px 1px 0 var(--track-bevel-dark),
+    inset -1px -1px 0 var(--track-bevel-light);
+}
+body.tracker.play #status > span:first-child { color: var(--track-green); font-weight: bold; }
+
+/* Settings toggle re-styled to match tracker buttons. */
+body.tracker.play .settings-toggle {
+  color: var(--track-yellow);
+  background: var(--track-panel-deep);
+  box-shadow:
+    inset 1px 1px 0 var(--track-bevel-light),
+    inset -1px -1px 0 var(--track-bevel-dark);
+  border-radius: 0;
+  width: 28px;
+  height: 28px;
+}
+body.tracker.play .settings-toggle:hover { color: var(--track-white); background: var(--track-panel-deep); }
+
+/* Settings panel: dark slate well. */
+body.tracker.play #settings-panel {
+  background: var(--track-panel-deep);
+  color: var(--track-white);
+  box-shadow:
+    inset 1px 1px 0 var(--track-bevel-dark),
+    inset -1px -1px 0 var(--track-bevel-light);
+}
+
+/* Tracker theme: constrain mascot in the new bottom-bar container, since
+   the original `footer .mascot` selector no longer matches. */
+body.tracker .track-credit img.mascot {
+  height: 14px;
+  width: auto;
+  vertical-align: -2px;
+}
+
+/* SSE liveness indicator: text via CSS pseudo so #conn stays empty in HTML. */
+body.tracker[data-conn="ok"]   #conn::after { content: "ok";   color: var(--track-green); }
+body.tracker[data-conn="down"] #conn::after { content: "down"; color: #ff7777; }
+body.tracker:not([data-conn]) #conn::after { content: "—";    color: var(--track-mute); }

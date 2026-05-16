@@ -425,6 +425,7 @@ def html-to-patches [] {
       (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
       (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true}))
       (BODY {
+        class: "tracker play"
         # playerId from cookie, gameId from URL path. Both ride along on
         # every datastar POST so /move and /view don't need to look them
         # up server-side. data-conn is managed by script.js based on SSE
@@ -435,17 +436,22 @@ def html-to-patches [] {
         "data-view-url": ($req | href "/view")
         "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
       }
-      (H1 (A {href: ($req | href "/")} "2048.nu"))
-      (P {class: "hint"}
-        "Letter or arrow keys "
-        (KBD "h \u{2190}") " "
-        (KBD "j \u{2193}") " "
-        (KBD "k \u{2191}") " "
-        (KBD "l \u{2192}")
-        ", or swipe. Undo: "
-        (BUTTON {type: "button" "data-intent": "undo"} "u")
-        ". "
-        (A {href: ($req | href "/")} "all games"))
+      # Tracker-style top status bar: title + game id + nav. Dense,
+      # monospace, color-coded labels vs values. Mirrors the row that
+      # Impulse Tracker puts under its "Song Name" / "Instrument" header.
+      (DIV {class: "track-bar track-bar-top"}
+        (SPAN {class: "track-title"} (A {href: ($req | href "/")} "2048.nu"))
+        (SPAN {class: "track-field"}
+          (SPAN {class: "track-label"} "Game ")
+          (SPAN {class: "track-value"} ($game_id | str substring 0..7)))
+        (SPAN {class: "track-field"}
+          (SPAN {class: "track-label"} "Keys ")
+          (SPAN {class: "track-value"} "hjkl/arrows"))
+        (SPAN {class: "track-field"}
+          (SPAN {class: "track-label"} "Undo ")
+          (BUTTON {type: "button" "data-intent": "undo" class: "track-btn"} "u"))
+        (SPAN {class: "track-spacer"} "")
+        (A {class: "track-nav" href: ($req | href "/")} "[Esc] All games"))
       # data-init and data-indicator live on .column (which is never patched)
       # so the SSE fetch + connection signal survive the wholesale replacement
       # of #game's contents on every server patch.
@@ -459,17 +465,19 @@ def html-to-patches [] {
         # #game is the single view; SSE patches morph it between the game
         # board render and the settings panel render based on per-tab mode
         # in the event log.
-        $placeholder
-        (FOOTER
-          (SPAN {class: "status"}
-            (SPAN {id: "conn" title: "SSE connection"})
-            (SPAN {id: "replay" title: "last SSE replay time"
-              "data-text": "$replayMs ? `replayed in ${$replayMs}ms` : ''"} "")
-            (SPAN {id: "rtt" title: "last move round-trip time"} ""))
-          (SPAN {class: "credit"}
-            (A {href: "https://http-nu.cross.stream"}
-              "served by http-nu "
-              (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))))
+        $placeholder)
+      (DIV {class: "track-bar track-bar-bot"}
+        (SPAN {class: "track-field"}
+          (SPAN {class: "track-label"} "SSE ")
+          (SPAN {id: "conn" class: "track-value" title: "SSE connection"} ""))
+        (SPAN {class: "track-field"}
+          (SPAN {class: "track-label"} "RTT ")
+          (SPAN {id: "rtt" class: "track-value" title: "last move round-trip time"} ""))
+        (SPAN {class: "track-spacer"} "")
+        (SPAN {class: "track-credit"}
+          (A {href: "https://http-nu.cross.stream"}
+            "served by http-nu "
+            (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))
       # Persist the player id for a year, refreshing on every visit.
       # --no-secure so the cookie works over plain HTTP for local dev.
       | cookie set "player" $player_id --max-age 31536000 --no-secure)

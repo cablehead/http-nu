@@ -24,7 +24,7 @@ const flashRed = () => {
 const rttEl = () => document.querySelector("#rtt");
 const tickRtt = () => {
   if (pending == null) return;
-  rttEl()?.replaceChildren(`rtt ${Math.round(performance.now() - pending.t)}ms`);
+  rttEl()?.replaceChildren(`${Math.round(performance.now() - pending.t)}ms`);
   requestAnimationFrame(tickRtt);
 };
 
@@ -113,7 +113,7 @@ new MutationObserver(() => {
   const w = document.querySelector("#board-wrap");
   w?.style.setProperty("--glow-x", "0px");
   w?.style.setProperty("--glow-y", "0px");
-  document.querySelector("#rtt")?.replaceChildren(`rtt ${rtt}ms`);
+  document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();
   // The spring curve peaks around 40% through the animation. To make that
@@ -137,6 +137,12 @@ const keymap = {
 const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
 const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 addEventListener("keydown", (e) => {
+  // Esc always escapes back to the splash (matches the [Esc] All games hint).
+  if (e.key === "Escape") {
+    location.href = "/";
+    e.preventDefault();
+    return;
+  }
   if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
   if (document.getElementById("game")?.dataset.view !== "game") return;  // settings shown
   // Shift+letter sends uppercase ("H"), so fall back to the lowercased key.
