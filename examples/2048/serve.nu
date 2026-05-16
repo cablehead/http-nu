@@ -331,27 +331,22 @@ def html-to-patches [] {
         "/" | to datastar-redirect | cookie delete "player" | to sse
       } else {
         let game_id = $current_game_frame.id
-        # resume-game encapsulates the snapshot lookup + fallback. .state
-        # seeds the accumulator's stack; .follow_from_id is the --after
-        # cursor (exclusive) so we don't re-apply the move that produced
-        # the snapshot.
-        let resumed = (resume-game $game_id)
-        # --pulse 450 injects xs.pulse frames into the stream every 450ms
-        # which the pipeline turns into datastar-patch-signals heartbeats
-        # for the client's liveness timer.
-        .cat --follow --pulse 450 --after $resumed.follow_from_id
-        | filter-for-player $games_topic
-        | impulses-to-states {
-          stack: [$resumed.state]
-          mode: "game"
-          game_id: $game_id
-          games_topic: $games_topic
-          started: (date now)
-        }
+        # The actor owns game state; the SSE handler is a thin reader.
+        # We subscribe to a broad slice (no -T filter) so we also see
+        # the player's games_topic -- a new frame there means "reset, a
+        # new game started." `take until` terminates the stream when
+        # that happens; the browser's auto-reconnect picks up the new
+        # game on its next /sse connect.
+        .cat --follow --pulse 450 --from $current_game_frame.id
+        | where {|f| (
+            $f.topic == $games_topic
+            or ($f.topic | str starts-with $"game.($game_id).")
+            or $f.topic == "xs.threshold"
+            or $f.topic == "xs.pulse"
+          ) }
+        | take until {|f| $f.topic == $games_topic and $f.id != $game_id }
+        | frames-to-states
         | threshold-gate-states
-        # Snapshot writing is owned by the xs snapshot-actor (registered
-        # at startup -- see top of this file). The SSE handler is a pure
-        # reader; viewers can connect freely without competing writes.
         | states-to-html
         | html-to-patches
         | to sse

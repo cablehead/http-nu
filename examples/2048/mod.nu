@@ -21,6 +21,46 @@ export use ./game.nu *
 # registered at serve.nu startup. The actor is the single writer to
 # `game.<id>.snapshot`; the SSE handler is a pure reader.
 
+# Read-side fold for the SSE pipeline. Takes raw frames from
+# `game.<id>.*` (plus xs.threshold / xs.pulse) and yields the same
+# `{state, mode, threshold?, ...}` record shape that the renderer
+# expects, so the rest of the pipeline (threshold-gate-states,
+# states-to-html, html-to-patches) is unchanged.
+#
+# Snapshot frames -> state record.
+# View-toggle frames (game.<id>.move with kind="view") -> mode flip,
+#   echoing the current state so the renderer can swap panels.
+# xs.threshold / xs.pulse -> pass-through markers.
+# Everything else -> drop.
+export def frames-to-states [] {
+  generate {|f, acc = {mode: "game", state: null}|
+    let t = $f.topic
+    if $t == "xs.threshold" {
+      {out: {state: $acc.state, mode: $acc.mode, threshold: true}, next: $acc}
+    } else if $t == "xs.pulse" {
+      {out: {pulse: true, mode: $acc.mode}, next: $acc}
+    } else if ($t | str ends-with ".snapshot") {
+      let state = $f.meta.state
+      let intent = $f.meta | get intent? | default ""
+      let req_id = $f.meta | get req_id? | default ""
+      {
+        out: {state: $state, mode: $acc.mode, direction: $intent, changed: true, threshold: false, req_id: $req_id, move_id: ($f.meta | get last_move_id? | default "")}
+        next: ($acc | upsert state $state)
+      }
+    } else if ($t | str ends-with ".move") {
+      let kind = $f.meta | get kind? | default ""
+      if $kind == "view" {
+        let new_mode = $f.meta | get mode? | default "game"
+        {out: {state: $acc.state, mode: $new_mode, threshold: false}, next: ($acc | upsert mode $new_mode)}
+      } else {
+        {next: $acc}
+      }
+    } else {
+      {next: $acc}
+    }
+  }
+}
+
 # Replay a game's move log into its final state. Used by serve.nu's /games
 # view to render each past game's resting board, and by ad-hoc poking from
 # `http-nu eval`.

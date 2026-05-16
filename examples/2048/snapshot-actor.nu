@@ -1,24 +1,19 @@
 # xs actor: 2048 game-state singleton.
 #
-# Watches player.<uuid>.games (new-game frames) and game.<id>.move
-# (impulses). Applies them via game.nu's pure logic; writes the
-# resulting state to game.<id>.snapshot (ttl: forever, so the chronology
-# of states is preserved as a history).
+# Stateless per-game. For each impulse, reads `.last game.<id>.snapshot`
+# (current HEAD), computes the new state, and appends a new snapshot
+# carrying `meta.prev = <previous HEAD's frame id>`. ttl: forever, so the
+# tree is preserved.
 #
-# Each snapshot's meta.last_move_id is the impulse that produced it;
-# meta.intent is the move (or "undo" / "init"). Undo writes a snapshot
-# whose state is the popped one -- just another chronological event.
+# Undo walks: read HEAD, fetch `head.meta.prev` via `.get`, write a new
+# snapshot whose state is the parent's and whose `prev` is the parent's
+# `prev` (so successive undos walk back through the chain).
 #
 # Registered at serve.nu startup. Re-registering replaces the running
-# actor, so restarts are safe. Requires `--services` on the http-nu (or
-# xs serve) process for the actor to actually run.
-#
-# Single writer -- the SSE handler is a pure reader (no in-pipeline tap).
-# Multiple SSE connections (incl. viewers, when added) all read what the
-# actor writes.
+# actor, so restarts are safe. Requires `--services`.
 
 {
-  run: {|frame, state = {games: {}}|
+  run: {|frame, state = null|
     use game *
 
     let topic = $frame.topic
@@ -30,18 +25,23 @@
       let init = (initial-state $game_id)
       let max_tile = if ($init.tiles | is-empty) { 0 } else { $init.tiles | get value | math max }
       let moves = [0 ($init.next_id - 3)] | math max
-      # Root snapshot of this game.
+      let req_id = $frame | get meta? | default {} | get req_id? | default ""
+      # Root snapshot. prev points at the games_topic frame itself so the
+      # chain terminates cleanly. req_id carries the originating reset
+      # POST's id so the client's RTT probe resolves.
       null | .append $"game.($game_id).snapshot" --meta {
         state: $init
         last_move_id: $game_id
+        prev: $game_id
         intent: "init"
         player_id: $player_id
+        req_id: $req_id
         score: 0
         max_tile: $max_tile
         moves: $moves
         game_over: false
       }
-      return {next: ($state | upsert games ($state.games | upsert $game_id {stack: [$init], player_id: $player_id}))}
+      return {next: $state}
     }
 
     # --- Move impulses: game.<id>.move ---------------------------------
@@ -54,72 +54,65 @@
     # View-toggle is per-connection ephemeral; not a game-state event.
     if $kind == "view" { return {next: $state} }
 
-    # Lazy-load per-game accumulator on first encounter after restart.
-    # Prefer the existing snapshot (cheap); fall back to a full replay.
-    let acc = if $game_id in $state.games {
-      $state.games | get $game_id
-    } else {
-      let snap = (try { .last $"game.($game_id).snapshot" } catch { null })
-      let loaded = if $snap != null {
-        $snap.meta.state
-      } else {
-        replay-game-state $game_id
-      }
-      let player_id = if $snap != null {
-        $snap.meta | get player_id? | default ""
-      } else {
-        let owner = (try { .get $game_id } catch { null })
-        if $owner != null {
-          $owner.topic | str replace "player." "" | str replace ".games" ""
-        } else { "" }
-      }
-      {stack: [$loaded], player_id: $player_id}
-    }
+    # Read current HEAD. Used both as the state to act on (moves) and as
+    # the chain pointer (every new snapshot's meta.prev = head.id).
+    let head = (try { .last $"game.($game_id).snapshot" } catch { null })
+    if $head == null { return {next: $state} }
+    let head_state = $head.meta.state
+    let player_id = $head.meta | get player_id? | default ""
 
-    let cur = $acc.stack | last
     let intent = $frame.meta | get intent? | default ""
 
-    let new_acc = if $kind == "undo" {
-      if ($acc.stack | length) <= 1 {
-        $acc
+    # Compute (new_state, snap_prev). For moves: act on HEAD's state,
+    # link prev to head.id. For undo: walk back via head.meta.prev to
+    # the parent snapshot, use its state and inherit its prev so the
+    # chain stays consistent for successive undos.
+    let result = if $kind == "undo" {
+      let parent_id = $head.meta | get prev? | default $game_id
+      if $parent_id == $game_id {
+        # Already at the root; nothing to undo.
+        null
       } else {
-        $acc | update stack ($acc.stack | drop 1)
+        let parent = (try { .get $parent_id } catch { null })
+        if $parent == null { null } else {
+          {
+            state: $parent.meta.state
+            snap_prev: ($parent.meta | get prev? | default $game_id)
+            intent: "undo"
+          }
+        }
       }
     } else if $intent in [h j k l] {
-      let next = $cur | apply-move $intent $game_id
-      if (tiles-equal $cur.tiles $next.tiles) {
-        $acc
+      let next = $head_state | apply-move $intent $game_id
+      if (tiles-equal $head_state.tiles $next.tiles) {
+        null
       } else {
-        $acc | update stack ($acc.stack | append $next)
+        {state: $next, snap_prev: $head.id, intent: $intent}
       }
     } else {
-      # Empty intent / unknown / legacy slam-X -- noop echo, no snapshot.
-      $acc
+      # Empty intent / unknown / legacy slam-X -- no snapshot.
+      null
     }
 
-    let new_top = $new_acc.stack | last
-    if (tiles-equal $cur.tiles $new_top.tiles) {
-      return {next: ($state | upsert games ($state.games | upsert $game_id $new_acc))}
-    }
+    if $result == null { return {next: $state} }
 
-    # State changed -- write the snapshot. ttl: forever preserves the
-    # whole history; meta.last_move_id links each snapshot back to its
-    # causing impulse so consumers can walk the chronology.
-    let max_tile = if ($new_top.tiles | is-empty) { 0 } else { $new_top.tiles | get value | math max }
-    let moves = [0 ($new_top.next_id - 3)] | math max
-    let snap_intent = if $kind == "undo" { "undo" } else { $intent }
+    let max_tile = if ($result.state.tiles | is-empty) { 0 } else { $result.state.tiles | get value | math max }
+    let moves = [0 ($result.state.next_id - 3)] | math max
+    let req_id = $frame.meta | get req_id? | default ""
     null | .append $"game.($game_id).snapshot" --meta {
-      state: $new_top
+      state: $result.state
       last_move_id: $frame.id
-      intent: $snap_intent
-      player_id: $acc.player_id
-      score: $new_top.score
+      prev: $result.snap_prev
+      intent: $result.intent
+      player_id: $player_id
+      req_id: $req_id
+      score: $result.state.score
       max_tile: $max_tile
       moves: $moves
-      game_over: $new_top.game_over
+      game_over: $result.state.game_over
     }
-    {next: ($state | upsert games ($state.games | upsert $game_id $new_acc))}
+    {next: $state}
   }
-  initial: {games: {}}
+  initial: null
   start: "new"
 }
