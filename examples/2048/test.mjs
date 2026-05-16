@@ -111,6 +111,45 @@ check(
 const score = await page.evaluate(() => document.querySelector("#score")?.textContent ?? "");
 check("score shows", /^\d+$/.test(score.trim()), score);
 
+// Computed-style regression check: the play view's animation chain (board
+// scaling and per-tile keyboard lean) is wired through CSS selectors
+// anchored on the body's class. Layout refactors keep silently breaking
+// this when the body class is renamed but the CSS isn't updated. So we
+// probe the *computed* style here -- not the HTML markup -- to catch
+// "selector stopped matching" regressions early.
+//
+// A matching selector still resolves to `matrix(1, 0, 0, 1, 0, 0)` when
+// --board-scale is 1 (large viewport). The only failure mode that
+// matters is `transform: none` -- which means the selector didn't match.
+const boardTransform = await page.evaluate(() => getComputedStyle(document.querySelector(".board")).transform);
+check(
+  "board has a transform set (.board scale selector matched)",
+  boardTransform !== "none",
+  boardTransform,
+);
+
+// Pressing a direction key adds .key-<dir> to #board-wrap which kicks off
+// the synthetic anticipation animation. Press 'h' and verify the class is
+// applied (the animation fires immediately on keydown).
+await page.keyboard.press("h");
+await page.waitForTimeout(20);
+const hasKeyClass = await page.evaluate(() => document.querySelector("#board-wrap")?.classList.contains("key-h") ?? false);
+check("board-wrap gains .key-h after pressing h", hasKeyClass);
+
+// Same kind of check for the per-tile transform rule. A matching
+// selector always sets transform to *something* (even matrix identity
+// when --tilt-x and --tilt-y are 0). Failure mode that matters is
+// "transform: none" -- the rule didn't match.
+const tileTransform = await page.evaluate(() => {
+  const tile = document.querySelector(".board > div:not(:empty)");
+  return tile ? getComputedStyle(tile).transform : "none";
+});
+check(
+  "tile has a transform set (.board > div:not(:empty) selector matched)",
+  tileTransform !== "none",
+  tileTransform,
+);
+
 // Reset is now "navigate to /new" -- mints a fresh game and redirects.
 await page.goto(`${BASE}/new`);
 await page.waitForFunction(

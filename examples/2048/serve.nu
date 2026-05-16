@@ -339,23 +339,28 @@ def html-to-patches [] {
     })
 
     (route {method: GET path: "/sse/games"} {|req ctx|
-      # Live updates for the all-games splash. Subscribes to every
-      # game.*.snapshot frame, filters to this player, and emits a
-      # datastar-patch-elements event per snapshot -- morphdom replaces
-      # the matching #card-<game_id> in place. `pulse-keepalive` converts
-      # xs.pulse frames to no-op signal patches so the connection stays
-      # alive without each handler reimplementing the keepalive.
+      # Live updates for the all-games splash. The initial page render
+      # already populated every card via resume-game (which reads each
+      # game's last snapshot in O(1)), so this stream only needs to push
+      # *new* snapshots that arrive after page load.
+      #
+      # `.cat --follow` without --from replays the entire history first.
+      # We snapshot the current head id at handler start and drop any
+      # frame with id <= head in the filter -- the historical frames
+      # still flow through the stream but no patches reach the browser,
+      # so the "serial replay" of every past snapshot doesn't happen.
       let cookies = $req | cookie parse
       let player_id = $cookies | get player? | default ""
       if ($player_id | is-empty) {
         null | metadata set { merge {'http.response': {status: 400}} }
       } else {
+        let head = (try { .cat | last | get id? } catch { null })
         # xs's -T glob only supports a trailing wildcard, so we subscribe
         # to all "game.*" frames and filter to .snapshot ones below.
-        .cat --follow --pulse 30000 -T "game.*"
+        .cat --follow --pulse 450 -T "game.*"
         | pulse-keepalive
         | each {|item|
-            if ('event' in $item) { $item } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
+            if ('event' in $item) { $item } else if ($head != null and $item.id <= $head) { null } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
               let game_id = $item.topic | str replace "game." "" | str replace ".snapshot" ""
               let state = $item.meta.state
               let moves = $item.meta | get moves? | default 0

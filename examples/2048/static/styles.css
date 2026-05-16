@@ -305,14 +305,14 @@ body.flash-red { animation: flash-red 300ms ease; }
 }
 
 /* /play: the board is scaled to fit the page via --board-scale. */
-body.tracker.play .board {
+body.play .board {
   touch-action: none;
   transform: scale(var(--board-scale));
   transform-origin: top left;
 }
 /* Lean the value tiles (not the empty background cells) during a swipe.
    Divide by scale so the lean reads as viewport pixels at any board scale. */
-body.tracker.play .board > div:not(:empty) {
+body.play .board > div:not(:empty) {
   transform: translate(
     calc(var(--tilt-x) / var(--board-scale)),
     calc(var(--tilt-y) / var(--board-scale))
