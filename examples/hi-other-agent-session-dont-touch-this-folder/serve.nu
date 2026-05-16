@@ -116,6 +116,36 @@ def blackbody []: nothing -> list {
   }
 }
 
+# Spectral cascade: each tile is one octave of light frequency, walking the
+# EM spectrum from low-energy red (~1.8 eV) through the visible band into UV
+# and X-ray territory. Hue and chroma trace the visible spectrum; lightness
+# peaks near green (where photopic sensitivity is max) and fades to near-black
+# at the top (UV is off-spectrum -- light too energetic for humans to see).
+# Hand-tabulated stops park at spectral landmarks rather than fitting a curve.
+def spectral-cascade []: nothing -> list {
+  let stops = [
+    [0.50 0.18  30.0]   # 2:    deep red          (~656nm, H-alpha)
+    [0.62 0.19  40.0]   # 4:    orange-red
+    [0.70 0.18  55.0]   # 8:    orange
+    [0.78 0.18  85.0]   # 16:   yellow            (~580nm, sodium D)
+    [0.85 0.17 110.0]   # 32:   yellow-green
+    [0.82 0.20 140.0]   # 64:   green             (peak eye sensitivity)
+    [0.75 0.16 200.0]   # 128:  cyan              (~486nm, H-beta)
+    [0.62 0.20 245.0]   # 256:  blue
+    [0.50 0.21 280.0]   # 512:  indigo            (~434nm, H-gamma)
+    [0.42 0.20 305.0]   # 1024: violet            (~410nm, H-delta)
+    [0.32 0.18 320.0]   # 2048: deep violet       (visible edge)
+    [0.22 0.12 320.0]   # 4096: near-UV           (fading from sight)
+    [0.10 0.05 320.0]   # 8192: deep UV           (off-spectrum void)
+  ]
+  $stops | each {|s|
+    let l = $s | get 0
+    let c = $s | get 1
+    let h = $s | get 2
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
 # Sigmoid in lightness: flat plateau, plunge, flat dark plateau on top.
 def sigmoid-light []: nothing -> list {
   0..12 | each {|i|
@@ -145,6 +175,8 @@ def page []: nothing -> string {
       "Lightness drifts gently; chroma climbs convex. Late tiles radiate -- back-loaded drama. 1024 and 2048 feel almost incandescent against the muted low end.")
     (row "Blackbody march" (blackbody)
       "Dim deep red to white-hot, hue confined to the warm half of the wheel (28 -> 90). Chroma decays as lightness climbs -- saturated at the cool end, near-neutral when incandescent. Reads as a glowing element.")
+    (row "Spectral cascade" (spectral-cascade)
+      "Each tile is one octave of light frequency. The ladder walks the EM spectrum from H-alpha red (~1.8eV photons) through the visible band to UV. Lightness peaks at green (photopic sensitivity max); top two tiles fade past violet into near-black -- light too energetic to see. Tension builds because higher-energy photons culturally and physically read as more intense.")
     (row "Sigmoid lightness" (sigmoid-light)
       "Flat-plunge-flat. The 64-to-256 stretch is a regime change; the top tier is a dark slate plateau. Mid-game is where the work feels visible.")
   ] | str join "\n"
@@ -165,7 +197,7 @@ def page []: nothing -> string {
 </style></head>
 <body>
 <h1>2048 tile palette experiments</h1>
-<p class='lede'>Five color-theory progressions for the same value ladder. Numbers double; what does the color do?</p>
+<p class='lede'>Six color-theory progressions for the same value ladder. Numbers double; what does the color do?</p>
 "
   $head + $sections + "
 </body></html>"
