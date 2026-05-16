@@ -199,10 +199,13 @@ export def impulses-to-states [initial: record] {
     }
     if $frame.topic == $s.games_topic {
       # New game (or first game) for this player. Reset to a fresh board.
+      # Carry req_id from the originating reset POST so the client's pending
+      # RTT probe finds a matching mutation and resolves.
       let new_game_id = $frame.id
       let new_state = initial-state $new_game_id
+      let req_id = $frame | get meta? | default {} | get req_id? | default ""
       return {
-        out: [{state: $new_state, mode: $s.mode, threshold: false}]
+        out: [{state: $new_state, mode: $s.mode, threshold: false, req_id: $req_id}]
         next: ($s | update stack [$new_state] | update game_id $new_game_id)
       }
     }

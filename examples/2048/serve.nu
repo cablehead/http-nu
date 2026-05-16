@@ -289,8 +289,9 @@ def html-to-patches [] {
       if $intent == "reset" {
         # Append to the index. The SSE pipeline picks this up, resets its
         # state machine, and streams a fresh board over the existing
-        # connection -- no page reload needed.
-        null | .append $games_topic
+        # connection -- no page reload needed. Carry req_id so the client's
+        # RTT match finds the resulting fresh-board mutation.
+        null | .append $games_topic --meta {req_id: $req_id}
       } else {
         let game_id = (.last $games_topic | get id)
         let topic = $"game.($game_id).move"
