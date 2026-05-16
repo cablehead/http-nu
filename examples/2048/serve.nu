@@ -166,11 +166,12 @@ def render-settings []: nothing -> record {
 # One row in the past-games list: thumbnail + score + max-tile + move count.
 def render-game-card [req: record game_frame: record]: nothing -> record {
   let game_id = $game_frame.id
-  let state = replay-game-state $game_id
+  let resumed = (resume-game $game_id)
+  let state = $resumed.state
   let max_tile = if ($state.tiles | is-empty) { 0 } else {
     $state.tiles | get value | math max
   }
-  let move_count = (.cat -T $"game.($game_id).move" | length)
+  let move_count = $resumed.moves
   (DIV {class: "game-card"}
     (DIV {class: "thumb"} ($state | render-board))
     (DIV {class: "meta"}
@@ -319,29 +320,18 @@ def html-to-patches [] {
         "/" | to datastar-redirect | cookie delete "player" | to sse
       } else {
         let game_id = $current_game_frame.id
-        # If a snapshot exists, seed the accumulator from it and start the
-        # stream just AFTER the move that produced it (--after is exclusive,
-        # so we don't re-apply that move). Otherwise seed with initial-state
-        # and start --after the games_topic frame -- skipping it because we
-        # already pre-set game_id and stack.
-        let snapshot = (try { .last $"game.($game_id).snapshot" } catch { null })
-        let init_state = if $snapshot != null {
-          $snapshot.meta.state
-        } else {
-          (initial-state $game_id)
-        }
-        let after_id = if $snapshot != null {
-          $snapshot.meta.last_move_id
-        } else {
-          $current_game_frame.id
-        }
+        # resume-game encapsulates the snapshot lookup + fallback. .state
+        # seeds the accumulator's stack; .follow_from_id is the --after
+        # cursor (exclusive) so we don't re-apply the move that produced
+        # the snapshot.
+        let resumed = (resume-game $game_id)
         # --pulse 450 injects xs.pulse frames into the stream every 450ms
         # which the pipeline turns into datastar-patch-signals heartbeats
         # for the client's liveness timer.
-        .cat --follow --pulse 450 --after $after_id
+        .cat --follow --pulse 450 --after $resumed.follow_from_id
         | filter-for-player $games_topic
         | impulses-to-states {
-          stack: [$init_state]
+          stack: [$resumed.state]
           mode: "game"
           game_id: $game_id
           games_topic: $games_topic
