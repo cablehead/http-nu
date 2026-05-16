@@ -57,17 +57,24 @@ const PAD = 15
 # inner = 4*CELL + 3*GAP = 430, total = inner + 2*PAD = 460
 const TOTAL = 460
 
+# The board: a self-contained component. Single class `.board` on the
+# root; layout, palette, and cell styling all live in `.board > *` /
+# `.board > div:not(:empty)` selectors in styles.css. Used at full size
+# on /play and CSS-scaled inside game-card thumbnails on /games -- same
+# render, different wrap.
+#
+# Per-cell inline styles are limited to what's actually data-driven:
+# grid placement (r,c), tile bg/color/font-size (value), and the
+# view-transition-name (tile id). Empty cells render as `<div></div>` and
+# get their look from the structural `.board > div:empty` selector.
 def render-tile []: record -> record {
   let t = $in
-  # Grid placement: column/row indices are 1-based in CSS Grid.
-  (DIV {class: "tile" style: {
+  (DIV {style: {
     grid-column: ($t.c + 1 | into string)
     grid-row: ($t.r + 1 | into string)
-    display: flex  align-items: center  justify-content: center
     background-color: (color-for $t.value)
     color: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
     font-size: (if $t.value >= 1024 { "24px" } else if $t.value >= 128 { "28px" } else { "32px" })
-    font-weight: "bold"  border-radius: "4px"
     view-transition-name: $"tile-($t.id)"
   }} ($t.value | into string))
 }
@@ -76,7 +83,6 @@ def render-empty-cell [r: int c: int]: nothing -> record {
   (DIV {style: {
     grid-column: ($c + 1 | into string)
     grid-row: ($r + 1 | into string)
-    background: "#cdc1b4"  border-radius: "4px"
   }} "")
 }
 
@@ -84,16 +90,7 @@ def render-board []: record -> record {
   let state = $in
   let bg = 0..3 | each {|r| 0..3 | each {|c| render-empty-cell $r $c } } | flatten
   let tiles = $state.tiles | each {|t| $t | render-tile }
-  # 4x4 grid; cells and tiles share placement via grid-column / grid-row.
-  (DIV {id: "board" style: {
-    display: grid
-    grid-template-columns: $"repeat\(4, ($CELL)px\)"
-    grid-template-rows: $"repeat\(4, ($CELL)px\)"
-    gap: $"($GAP)px"
-    padding: $"($PAD)px"
-    width: $"($TOTAL)px"  height: $"($TOTAL)px"
-    background: "#bbada0"  border-radius: "6px"
-  }} $bg $tiles)
+  (DIV {class: "board"} $bg $tiles)
 }
 
 def gear-button []: nothing -> record {
@@ -169,8 +166,11 @@ def render-settings []: nothing -> record {
       (P "more knobs soon.")))
 }
 
-# One card in the games list: thumbnail + score + max-tile + move count.
-# Wraps in an anchor so clicking the card jumps into /play/<id>.
+# One card in the games list: tracker-styled panel with a header bar
+# (game id + status badge), the inner board centered, and a footer bar
+# with summary stats. Wraps in an anchor so clicking jumps into
+# /play/<id>. The outer element has id `card-<game_id>` so a future SSE
+# stream can morph individual cards in place as snapshots arrive.
 def render-game-card [req: record game_frame: record]: nothing -> record {
   let game_id = $game_frame.id
   let resumed = (resume-game $game_id)
@@ -180,19 +180,32 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
   }
   let move_count = $resumed.moves
   let badge = if $max_tile >= 2048 {
-    (DIV {class: "badge won"} "won")
+    (SPAN {class: "track-badge track-badge-win"} "won")
   } else if $state.game_over {
-    (DIV {class: "badge failed"} "failed")
+    (SPAN {class: "track-badge track-badge-over"} "failed")
   } else {
-    (DIV {class: "badge paused"} "paused")
+    (SPAN {class: "track-badge track-badge-paused"} "paused")
   }
-  (A {class: "game-card" href: ($req | href $"/play/($game_id)")}
-    (DIV {class: "thumb"} ($state | render-board))
-    (DIV {class: "meta"}
-      (DIV {class: "score"} $"Score: ($state.score)")
-      (DIV {} $"Max tile: ($max_tile)")
-      (DIV {} $"Moves: ($move_count)")
-      $badge))
+  (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
+    (DIV {class: "card-header"}
+      (SPAN {class: "track-field"}
+        (SPAN {class: "track-label"} "Game ")
+        (SPAN {class: "track-value"} ($game_id | str substring 0..7)))
+      (SPAN {class: "track-spacer"} "")
+      $badge)
+    (DIV {class: "card-board"}
+      (DIV {class: "thumb"} ($state | render-board)))
+    (DIV {class: "card-footer"}
+      (SPAN {class: "track-field"}
+        (SPAN {class: "track-label"} "Score ")
+        (SPAN {class: "track-value"} ($state.score | into string)))
+      (SPAN {class: "track-field"}
+        (SPAN {class: "track-label"} "Max ")
+        (SPAN {class: "track-value"} ($max_tile | into string)))
+      (SPAN {class: "track-spacer"} "")
+      (SPAN {class: "track-field"}
+        (SPAN {class: "track-label"} "Moves ")
+        (SPAN {class: "track-value"} ($move_count | into string)))))
 }
 
 # Pick the right render based on the per-tab mode. Same #game id either way
@@ -398,7 +411,7 @@ def html-to-patches [] {
         (LINK {rel: "icon" href: "data:,"})
         (TITLE "2048.nu")
         (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")}))
-      (BODY {class: "games-view"}
+      (BODY {class: "tracker games-view"}
         (H1 (A {href: "https://github.com/cablehead/http-nu/blob/main/examples/2048/serve.nu"} "2048.nu"))
         (P (A {class: "new-game-link" href: ($req | href "/new")} "+ New game"))
         (if ($games | is-empty) {

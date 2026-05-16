@@ -60,14 +60,14 @@ page.on("pageerror", (err) => console.log(`  [pageerror] ${err.message}`));
 // /new mints a games_topic frame and 302s to /play/<game-id>.
 await page.goto(`${BASE}/new`);
 await page.waitForFunction(
-  () => document.querySelectorAll("#board > div").length > 0,
+  () => document.querySelectorAll(".board > div").length > 0,
   null,
   { timeout: 5000 },
 );
 
 function snapshot() {
   return page.evaluate(() => {
-    const board = document.querySelector("#board");
+    const board = document.querySelector(".board");
     return {
       children: board?.children.length ?? 0,
       tiles: Array.from(board?.children ?? [])
@@ -108,13 +108,13 @@ check(
   JSON.stringify(afterMoves),
 );
 
-const score = await page.evaluate(() => document.querySelector(".track-bar-top")?.textContent ?? "");
-check("score shows", /Score\s+\d/.test(score), score);
+const score = await page.evaluate(() => document.querySelector("#score")?.textContent ?? "");
+check("score shows", /^\d+$/.test(score.trim()), score);
 
 // Reset is now "navigate to /new" -- mints a fresh game and redirects.
 await page.goto(`${BASE}/new`);
 await page.waitForFunction(
-  () => document.querySelectorAll("#board > div").length > 0,
+  () => document.querySelectorAll(".board > div").length > 0,
   null,
   { timeout: 5000 },
 );

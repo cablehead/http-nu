@@ -208,7 +208,7 @@ let axis = null;
 let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
 
 addEventListener("pointerdown", (e) => {
-  if (!e.target.closest("#board")) { start = null; return; }
+  if (!e.target.closest(".board")) { start = null; return; }
   start = [e.clientX, e.clientY];
   axis = null;
   committedDir = null;

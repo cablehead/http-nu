@@ -39,7 +39,7 @@ const page = await ctx.newPage();
 // /new mints a game and 302s to /play/<id>
 await page.goto(`${BASE}/new`);
 await page.waitForFunction(
-  () => document.querySelectorAll("#board > div").length > 0,
+  () => document.querySelectorAll(".board > div").length > 0,
   null, { timeout: 5000 },
 );
 // Play a few moves so the board has content
