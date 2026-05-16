@@ -206,6 +206,15 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
   render-card-from-state $req $game_frame.id $resumed.state $resumed.moves
 }
 
+# Render the whole .games-list from an in-memory {game_id: snapshot_meta}
+# record. Sort by game_id (scru128, time-ordered) desc so newest is first.
+def render-games-list-from-data [req: record, data: record]: nothing -> record {
+  let entries = $data | transpose game_id meta | sort-by game_id --reverse
+  (DIV {class: "games-list"} ($entries | each {|e|
+    render-card-from-state $req $e.game_id $e.meta.state ($e.meta | get moves? | default 0)
+  }))
+}
+
 # Pick the right render based on the per-tab mode. Same #game id either way
 # so datastar morphs the swap as a single replacement.
 def render-current [mode: string, direction?: string, changed?: bool, req_id?: string]: record -> record {
@@ -339,20 +348,15 @@ def html-to-patches [] {
     })
 
     (route {method: GET path: "/sse/games"} {|req ctx|
-      # Live updates for the all-games splash. The initial render
-      # populated every existing card via resume-game; this stream
-      # handles two kinds of post-load events:
+      # Live updates for the all-games splash.
       #
-      #   1. A new player.<player_id>.games frame -- the player just
-      #      created a new game (in this tab or another). Prepend an
-      #      empty placeholder card to .games-list. Subsequent snapshot
-      #      frames morph it by id.
-      #   2. A new game.<id>.snapshot frame -- an in-progress game
-      #      advanced. Morph the matching #card-<id> in place.
-      #
-      # Capture the head id at handler start and drop anything <= head
-      # so we don't replay history (the initial render already covered
-      # everything up to "now").
+      # Strategy: keep an in-memory {game_id: snapshot_meta} record as
+      # the generate accumulator. On a snapshot frame the meta itself
+      # IS the new state -- just upsert. On a new games_topic frame
+      # (player.<id>.games), pull the root snapshot the actor just
+      # wrote and add it. Either path re-renders the whole .games-list
+      # from $data and emits a single morph patch. morphdom diffs the
+      # new HTML against the DOM so unchanged cards don't mutate.
       let cookies = $req | cookie parse
       let player_id = $cookies | get player? | default ""
       let games_topic = $"player.($player_id).games"
@@ -360,27 +364,31 @@ def html-to-patches [] {
         null | metadata set { merge {'http.response': {status: 400}} }
       } else {
         let head = (try { .cat | last | get id? } catch { null })
-        # No -T filter: we need both `player.<id>.games` and
-        # `game.*.snapshot`, and xs's -T glob only takes one trailing
-        # wildcard. Filtering happens in the each block below.
+        # Seed $data with the player's existing games + their latest
+        # snapshots so the first push is consistent with the initial
+        # page render.
+        let initial_data = (try { .cat -T $games_topic } catch { [] })
+          | reduce -f {} {|f acc|
+              let snap = try { .last $"game.($f.id).snapshot" } catch { null }
+              if $snap == null { $acc } else { $acc | upsert $f.id $snap.meta }
+            }
         .cat --follow --pulse 450
         | pulse-keepalive
-        | each {|item|
-            if ('event' in $item) { $item } else if ($head != null and $item.id <= $head) { null } else if ($item.topic == $games_topic) {
-              # New game minted for this player -- prepend a placeholder
-              # card. The next snapshot for this game will morph it.
-              let placeholder_state = {tiles: [] next_id: 1 score: 0 game_over: false}
-              render-card-from-state $req $item.id $placeholder_state 0
-              | to datastar-patch-elements --selector ".games-list" --mode prepend --id (random uuid)
+        | generate {|item data|
+            if ('event' in $item) { return {out: $item, next: $data} }
+            if ($head != null and $item.id <= $head) { return {next: $data} }
+            let new_data = if $item.topic == $games_topic {
+              let snap = try { .last $"game.($item.id).snapshot" } catch { null }
+              if $snap == null { $data } else { $data | upsert $item.id $snap.meta }
             } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
               let game_id = $item.topic | str replace "game." "" | str replace ".snapshot" ""
-              let state = $item.meta.state
-              let moves = $item.meta | get moves? | default 0
-              render-card-from-state $req $game_id $state $moves
-              | to datastar-patch-elements --id (random uuid)
-            } else { null }
-          }
-        | compact
+              $data | upsert $game_id $item.meta
+            } else { $data }
+            if $new_data == $data { return {next: $data} }
+            let patch = (render-games-list-from-data $req $new_data
+                          | to datastar-patch-elements --selector ".games-list" --id (random uuid))
+            {out: $patch, next: $new_data}
+          } $initial_data
         | to sse
       }
     })
