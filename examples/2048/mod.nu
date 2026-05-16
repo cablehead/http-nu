@@ -49,10 +49,18 @@ export def frames-to-states [] {
       }
     } else if ($t | str ends-with ".move") {
       let kind = $f.meta | get kind? | default ""
+      let intent = $f.meta | get intent? | default ""
       if $kind == "view" {
         let new_mode = $f.meta | get mode? | default "game"
         {out: {state: $acc.state, mode: $new_mode, threshold: false}, next: ($acc | upsert mode $new_mode)}
+      } else if $intent == "" {
+        # Empty-intent ping (RTT probe). Actor never writes a snapshot
+        # for it; echo current state with req_id so the client's pending
+        # probe resolves on the matching data-rev.
+        let req_id = $f.meta | get req_id? | default ""
+        {out: {state: $acc.state, mode: $acc.mode, req_id: $req_id, threshold: false}, next: $acc}
       } else {
+        # h/j/k/l/undo -- actor's snapshot frame carries the update.
         {next: $acc}
       }
     } else {

@@ -62,6 +62,7 @@
     let player_id = $head.meta | get player_id? | default ""
 
     let intent = $frame.meta | get intent? | default ""
+    let req_id = $frame.meta | get req_id? | default ""
 
     # Compute (new_state, snap_prev). For moves: act on HEAD's state,
     # link prev to head.id. For undo: walk back via head.meta.prev to
@@ -70,7 +71,6 @@
     let result = if $kind == "undo" {
       let parent_id = $head.meta | get prev? | default $game_id
       if $parent_id == $game_id {
-        # Already at the root; nothing to undo.
         null
       } else {
         let parent = (try { .get $parent_id } catch { null })
@@ -90,7 +90,6 @@
         {state: $next, snap_prev: $head.id, intent: $intent}
       }
     } else {
-      # Empty intent / unknown / legacy slam-X -- no snapshot.
       null
     }
 
@@ -98,7 +97,6 @@
 
     let max_tile = if ($result.state.tiles | is-empty) { 0 } else { $result.state.tiles | get value | math max }
     let moves = [0 ($result.state.next_id - 3)] | math max
-    let req_id = $frame.meta | get req_id? | default ""
     null | .append $"game.($game_id).snapshot" --meta {
       state: $result.state
       last_move_id: $frame.id
