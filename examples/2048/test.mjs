@@ -108,8 +108,8 @@ check(
   JSON.stringify(afterMoves),
 );
 
-const score = await page.evaluate(() => document.querySelector("#status")?.textContent ?? "");
-check("score shows", /Score:/.test(score), score);
+const score = await page.evaluate(() => document.querySelector(".track-bar-top")?.textContent ?? "");
+check("score shows", /Score\s+\d/.test(score), score);
 
 // Reset is now "navigate to /new" -- mints a fresh game and redirects.
 await page.goto(`${BASE}/new`);

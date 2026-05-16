@@ -96,28 +96,38 @@ def render-board []: record -> record {
   }} $bg $tiles)
 }
 
-def render-status []: record -> record {
-  let state = $in
-  let won = $state.tiles | any {|t| $t.value >= 2048 }
-  let tail = if $state.game_over {
-    [(SPAN {style: {color: "#c0392b" margin-left: "16px"}} "GAME OVER (press r)")]
-  } else if $won {
-    [(SPAN {style: {color: "#388e3c" margin-left: "16px"}} "YOU WIN! (keep going or press r)")]
-  } else { [] }
-  (DIV {
-    id: "status"
-    style: {font-family: "monospace" font-size: "18px" margin-bottom: "12px"}
-  } ([(SPAN $"Score: ($state.score)")] | append $tail))
-}
-
 def gear-button []: nothing -> record {
-  (BUTTON {class: "settings-toggle" type: "button" aria-label: "settings" "data-view-to": "settings"}
+  (BUTTON {class: "track-btn track-gear" type: "button" aria-label: "settings" "data-view-to": "settings"}
     (ICONIFY "material-symbols:settings-outline-rounded" {width: "20" height: "20"}))
 }
 
 def close-button []: nothing -> record {
-  (BUTTON {class: "settings-toggle" type: "button" aria-label: "close" "data-view-to": "game"}
+  (BUTTON {class: "track-btn track-gear" type: "button" aria-label: "close" "data-view-to": "game"}
     (ICONIFY "material-symbols:close-rounded" {width: "20" height: "20"}))
+}
+
+# Small targeted SSE fragments. The top tracker bar lives statically at
+# the body level; these spans inside it have stable ids and are morphed
+# in place on each state change. Keeping the bar out of #game means the
+# board patch is small and the bar's layout doesn't need to round-trip
+# nav links and the game-id chip on every move.
+def render-score [score: int]: nothing -> record {
+  (SPAN {id: "score" class: "track-value"} ($score | into string))
+}
+
+def render-state-badge [won: bool, game_over: bool]: nothing -> record {
+  if $game_over {
+    (SPAN {id: "state-badge" class: "track-field track-badge track-badge-over"} "GAME OVER")
+  } else if $won {
+    (SPAN {id: "state-badge" class: "track-field track-badge track-badge-win"} "YOU WIN!")
+  } else {
+    (SPAN {id: "state-badge"} "")
+  }
+}
+
+def render-mode-toggle [mode: string]: nothing -> record {
+  let btn = if $mode == "settings" { close-button } else { gear-button }
+  (SPAN {id: "mode-toggle"} $btn)
 }
 
 def render-game [direction?: string, changed?: bool, req_id?: string]: record -> record {
@@ -128,9 +138,6 @@ def render-game [direction?: string, changed?: bool, req_id?: string]: record ->
   let dir = $direction | default ""
   let did_change = $changed | default false
   let rid = $req_id | default ""
-  # A fresh edge-flash element per patch (unique id forces morphdom to
-  # destroy/recreate, so its CSS animation re-fires every move). When the
-  # move did not change the board (slide had no effect), skip the flash.
   let wrap_children = if ($did_change and $dir in [h j k l]) {
     [
       ($state | render-board)
@@ -139,14 +146,6 @@ def render-game [direction?: string, changed?: bool, req_id?: string]: record ->
   } else {
     [($state | render-board)]
   }
-  # data-rev = client's reqId when the patch is the response to a specific
-  # move POST; otherwise a fresh uuid. The client's RTT observer only counts
-  # a mutation when data-rev matches its pending probe id.
-  # data-view tells the client which mode the current render is in.
-  # data-changed signals to the client whether the board state actually
-  # moved (vs a no-op direction press); used to gate haptics + edge flash.
-  # view-transition-name: per-mode so a game<->settings switch becomes an
-  # UNPAIRED pseudo (game->game stays paired and cross-fades as usual).
   (DIV {
     id: "game"
     style: $"--glow: ($glow); view-transition-name: view-game;"
@@ -155,8 +154,6 @@ def render-game [direction?: string, changed?: bool, req_id?: string]: record ->
     "data-from": $dir
     "data-changed": (if $did_change { "1" } else { "" })
   }
-    (gear-button)
-    ($state | render-status)
     (DIV {id: "board-wrap"} ...$wrap_children))
 }
 
@@ -167,7 +164,6 @@ def render-settings []: nothing -> record {
     "data-rev": (random uuid)
     "data-view": "settings"
   }
-    (close-button)
     (DIV {id: "settings-panel"}
       (H2 "settings")
       (P "more knobs soon.")))
@@ -251,16 +247,30 @@ def threshold-gate-states [] {
 # Box C. Pure rendering. {state, mode, direction?, changed?} -> html record.
 # Pulse markers pass through untouched so html-to-patches can emit them as
 # datastar-patch-signals heartbeats.
+# Each state expands into a list of 4 small renders (board + score + badge
+# + mode-toggle). The board patch uses view-transition (so tiles slide);
+# the bar fragments are tagged {vt: false} so they morph in place without
+# kicking off their own view-transition (multiple VTs per state interrupt
+# the tile slide animation).
 def states-to-html [] {
   each {|s|
     if ($s.pulse? | default false) {
-      $s
+      [$s]
     } else if ('signals' in $s) {
-      $s
+      [$s]
     } else {
-      $s.state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false) ($s.req_id? | default "")
+      let state = $s.state
+      let won = $state.tiles | any {|t| $t.value >= 2048 }
+      let board = ($state | render-current $s.mode ($s.direction? | default "") ($s.changed? | default false) ($s.req_id? | default ""))
+      [
+        {vt: true, el: $board}
+        {vt: false, el: (render-score $state.score)}
+        {vt: false, el: (render-state-badge $won $state.game_over)}
+        {vt: false, el: (render-mode-toggle $s.mode)}
+      ]
     }
   }
+  | flatten
 }
 
 # Box D. Wrap each render in a datastar patch event. Unique id per patch
@@ -273,8 +283,13 @@ def html-to-patches [] {
       {} | to datastar-patch-signals
     } else if ('signals' in $item) {
       $item.signals | to datastar-patch-signals
+    } else if (('vt' in $item) and not $item.vt) {
+      # Bar fragments: no view-transition. Plain morph in place so they
+      # don't kick off a VT that would interrupt the board's tile slides.
+      $item.el | to datastar-patch-elements --id (random uuid)
     } else {
-      $item | to datastar-patch-elements --use-view-transition --id (random uuid)
+      let el = if ('el' in $item) { $item.el } else { $item }
+      $el | to datastar-patch-elements --use-view-transition --id (random uuid)
     }
   }
 }
@@ -402,6 +417,7 @@ def html-to-patches [] {
       # init patch arrives with the real tiles, they're unpaired (:only-child)
       # which fires the spawn pop-in -- otherwise paired tiles would just
       # cross-fade with no animation.
+      let home_href = ($req | href "/")
       let placeholder = {tiles: [] next_id: 1 score: 0 game_over: false} | render-game
       let scheme = $req.headers
         | get x-forwarded-proto?
@@ -436,22 +452,29 @@ def html-to-patches [] {
         "data-view-url": ($req | href "/view")
         "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
       }
-      # Tracker-style top status bar: title + game id + nav. Dense,
-      # monospace, color-coded labels vs values. Mirrors the row that
-      # Impulse Tracker puts under its "Song Name" / "Instrument" header.
+      # Top tracker bar: stays static at body level. Live bits (score,
+      # state badge, gear/close toggle) have their own ids and are
+      # morphed in place by separate SSE patches emitted alongside the
+      # board patch (see states-to-html).
       (DIV {class: "track-bar track-bar-top"}
-        (SPAN {class: "track-title"} (A {href: ($req | href "/")} "2048.nu"))
+        (SPAN {class: "track-title"} (A {href: $home_href} "2048.nu"))
         (SPAN {class: "track-field"}
           (SPAN {class: "track-label"} "Game ")
           (SPAN {class: "track-value"} ($game_id | str substring 0..7)))
         (SPAN {class: "track-field"}
+          (SPAN {class: "track-label"} "Score ")
+          (render-score 0))
+        (SPAN {class: "track-field"}
           (SPAN {class: "track-label"} "Keys ")
           (SPAN {class: "track-value"} "hjkl/arrows"))
-        (SPAN {class: "track-field"}
-          (SPAN {class: "track-label"} "Undo ")
-          (BUTTON {type: "button" "data-intent": "undo" class: "track-btn"} "u"))
+        (BUTTON {type: "button" "data-intent": "undo" class: "track-field track-action"}
+          "["
+          (SPAN {class: "track-key"} "u")
+          "]ndo")
+        (render-state-badge false false)
         (SPAN {class: "track-spacer"} "")
-        (A {class: "track-nav" href: ($req | href "/")} "[Esc] All games"))
+        (render-mode-toggle "game")
+        (A {class: "track-nav" href: $home_href} "[Esc] All games"))
       # data-init and data-indicator live on .column (which is never patched)
       # so the SSE fetch + connection signal survive the wholesale replacement
       # of #game's contents on every server patch.

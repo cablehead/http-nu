@@ -489,8 +489,10 @@ body.tracker {
   background: var(--track-page);
   color: var(--track-white);
   font-family: ui-monospace, "Berkeley Mono", "SF Mono", "Menlo", "Consolas", monospace;
-  /* Splash + play both stack top-down. */
+  /* Flex column: top bar / middle / bottom bar. Stretch children so the
+     bars naturally span full width without per-element width:100%. */
   justify-content: flex-start;
+  align-items: stretch;
   padding: 0;
   gap: 0;
 }
@@ -498,12 +500,13 @@ body.tracker {
 /* Top + bottom status bars: dark slate, raised bevel, dense info row. */
 body.tracker .track-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
-  padding: 6px 12px;
+  gap: 6px 18px;
+  padding: 10px 18px;
   background: var(--track-panel);
   color: var(--track-white);
-  font-size: 13px;
+  font-size: 15px;
   width: 100%;
   border-top: 1px solid var(--track-bevel-light);
   border-bottom: 1px solid var(--track-bevel-dark);
@@ -514,7 +517,7 @@ body.tracker .track-bar {
 body.tracker .track-bar-top { margin-bottom: 0; }
 body.tracker .track-bar-bot {
   margin-top: auto;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--track-mute);
 }
 
@@ -522,7 +525,7 @@ body.tracker .track-title { font-weight: bold; color: var(--track-yellow); }
 body.tracker .track-title a { color: inherit; text-decoration: none; }
 body.tracker .track-title a:hover { text-decoration: underline; }
 
-body.tracker .track-field { display: inline-flex; align-items: center; gap: 2px; }
+body.tracker .track-field { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 body.tracker .track-label { color: var(--track-cyan); }
 body.tracker .track-value { color: var(--track-green); }
 body.tracker .track-spacer { flex: 1; }
@@ -530,8 +533,9 @@ body.tracker .track-spacer { flex: 1; }
 body.tracker .track-nav {
   color: var(--track-yellow);
   text-decoration: none;
-  padding: 1px 6px;
+  padding: 2px 8px;
   background: var(--track-panel-deep);
+  white-space: nowrap;
   box-shadow:
     inset 1px 1px 0 var(--track-bevel-dark),
     inset -1px -1px 0 var(--track-bevel-light);
@@ -556,48 +560,67 @@ body.tracker .track-btn:active {
     inset -1px -1px 0 var(--track-bevel-light);
 }
 
-body.tracker .track-credit { color: var(--track-mute); }
-body.tracker .track-credit a { color: var(--track-cyan); text-decoration: none; }
+/* track-action: a whole chip that's clickable. Reads as plain bar text
+   ([u]ndo) with the key letter highlighted via .track-key. No button
+   chrome -- the cursor + hover do the affordance work. */
+body.tracker .track-action {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--track-cyan);
+  cursor: pointer;
+  box-shadow: none;
+}
+body.tracker .track-action:hover { color: var(--track-white); }
+body.tracker .track-action:hover .track-key { color: var(--track-white); }
+body.tracker .track-key { color: var(--track-white); }
 
-/* Play view: frame the board in a sunken slate panel within the tan bg. */
-body.tracker.play .column {
-  margin: 16px auto;
-  padding: 12px;
-  background: var(--track-panel);
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-dark),
-    inset -1px -1px 0 var(--track-bevel-light),
-    0 2px 0 rgba(0,0,0,0.3);
-  width: auto;
+/* Gear / close button: sits in the top bar; small, inset chip. */
+body.tracker .track-gear {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* Score line above the board: tracker info-row style. */
-body.tracker.play #status {
-  font-family: inherit;
-  font-size: 14px;
-  color: var(--track-cyan);
-  background: var(--track-panel-deep);
-  padding: 4px 10px;
-  margin-bottom: 8px !important;
-  width: calc(var(--board-size) * var(--board-scale));
+/* State badge (GAME OVER / YOU WIN) sits in the top bar as a colored chip. */
+body.tracker .track-badge {
+  padding: 1px 8px;
+  font-weight: bold;
   box-shadow:
     inset 1px 1px 0 var(--track-bevel-dark),
     inset -1px -1px 0 var(--track-bevel-light);
 }
-body.tracker.play #status > span:first-child { color: var(--track-green); font-weight: bold; }
+body.tracker .track-badge-over { background: #5a1a1a; color: #ff9a9a; }
+body.tracker .track-badge-win  { background: #1a3a1a; color: #aef0a8; }
 
-/* Settings toggle re-styled to match tracker buttons. */
-body.tracker.play .settings-toggle {
-  color: var(--track-yellow);
-  background: var(--track-panel-deep);
-  box-shadow:
-    inset 1px 1px 0 var(--track-bevel-light),
-    inset -1px -1px 0 var(--track-bevel-dark);
-  border-radius: 0;
-  width: 28px;
-  height: 28px;
+body.tracker .track-credit { color: var(--track-mute); }
+body.tracker .track-credit a { color: var(--track-cyan); text-decoration: none; }
+
+/* Play view layout (stacks.nu pattern): body is the flex column
+   (track-bar-top / .column / track-bar-bot, stretched). The middle .column
+   is a grid that centers the board with uniform padding -- no inner
+   wrappers, no margin gymnastics on #board-wrap. */
+body.tracker { --track-pad: 0.75rem; }
+body.tracker.play .column {
+  flex: 1;
+  width: auto;
+  display: grid;
+  place-items: center;
+  padding: var(--track-pad);
+  min-height: 0;
 }
-body.tracker.play .settings-toggle:hover { color: var(--track-white); background: var(--track-panel-deep); }
+body.tracker.play #game { width: max-content; }
+body.tracker.play {
+  --board-scale: min(
+    calc((100dvw - 2 * var(--track-pad)) / var(--board-size)),
+    calc((100dvh - 200px) / var(--board-size)),
+    1.3
+  );
+}
 
 /* Settings panel: dark slate well. */
 body.tracker.play #settings-panel {
