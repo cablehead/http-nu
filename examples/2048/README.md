@@ -24,10 +24,11 @@ https://github.com/user-attachments/assets/d2e9d1a1-4df6-46c1-b27b-33db7dda132e
 
 ## Run
 
-The example requires `--store` because it uses `.append` and `.cat`:
+The example requires `--store` (for `.append` / `.cat`) and `--services`
+(for the singleton snapshot-actor that owns canonical state writes):
 
 ```bash
-http-nu --datastar --store ./store :3002 examples/2048/serve.nu
+http-nu --datastar --services --store ./store :3002 examples/2048/serve.nu
 ```
 
 Visit http://localhost:3002 and play.

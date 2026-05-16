@@ -14,6 +14,17 @@ const STATIC_DIR = $SCRIPT_DIR | path join "static"
 # on the next server restart.
 let REV = random uuid | str substring 0..7
 
+# Register the xs snapshot-actor (singleton): it watches every
+# `player.*.games` + `game.*.move` frame and writes the canonical
+# `game.<id>.snapshot` (ttl: last:1). Requires `--store` + `--services`;
+# guarded so that test.nu, which sources serve.nu without a store, stays
+# happy. Re-registering on each startup replaces the running actor (per
+# xs's `<name>.register` semantics), so this is restart-safe.
+if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default false) {
+  open ($SCRIPT_DIR | path join "game.nu") | .append game.nu
+  open ($SCRIPT_DIR | path join "snapshot-actor.nu") | .append snapshot-actor.register
+}
+
 # 2048 over the Local Bus, with View Transition tile slides.
 #
 # State is a list of tiles `{id, r, c, value}` -- not a flat grid -- so each
@@ -198,8 +209,9 @@ def render-current [mode: string, direction?: string, changed?: bool, req_id?: s
 # --- pipeline boxes ------------------------------------------------------
 # The SSE handler is a tight composition of:
 #   .cat --follow -> filter-for-player -> impulses-to-states
-#   -> threshold-gate-states -> snapshot-tap -> states-to-html
+#   -> threshold-gate-states -> states-to-html
 #   -> html-to-patches -> to sse
+# Snapshot writes happen out-of-band in the xs snapshot-actor.
 # Each stage has one job.
 
 # Box A. impulses-to-states (and filter-for-player) live in mod.nu so they're
@@ -329,11 +341,9 @@ def html-to-patches [] {
           started: (date now)
         }
         | threshold-gate-states
-        # Snapshot tap writes game.<id>.snapshot (ttl last:1) on every
-        # state-changing emit. Only the owning connection should call this;
-        # viewers (when added) must skip it. The default_move_id is used
-        # for threshold-only snapshots that have no source move.
-        | snapshot-tap $game_id $player_id $current_game_frame.id
+        # Snapshot writing is owned by the xs snapshot-actor (registered
+        # at startup -- see top of this file). The SSE handler is a pure
+        # reader; viewers can connect freely without competing writes.
         | states-to-html
         | html-to-patches
         | to sse

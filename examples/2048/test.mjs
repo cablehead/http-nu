@@ -27,7 +27,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const STORE = `/tmp/2048-test-${process.pid}-${Date.now()}`;
 const srv = spawn(
   HTTP_NU,
-  ["--datastar", "--store", STORE, `127.0.0.1:${PORT}`, SERVE_NU],
+  ["--datastar", "--services", "--store", STORE, `127.0.0.1:${PORT}`, SERVE_NU],
   { stdio: "ignore" },
 );
 const cleanup = () => { try { srv.kill("SIGTERM"); } catch {} };
