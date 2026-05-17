@@ -112,26 +112,27 @@ export def list-games [] {
 # and the game's start time (decoded from its SCRU128 frame id).
 export def leaderboard [--since: duration = 7day, --limit: int = 5] {
   let cutoff = (date now) - $since
-  let undos = .cat
-    | where ($it.topic | str starts-with "game.") and ($it.topic | str ends-with ".move")
-    | where ($it.meta? | default {} | get kind? | default "") == "undo"
-    | group-by topic
-    | items {|t fs| {game: ($t | str replace "game." "" | str replace ".move" ""), n: ($fs | length)} }
-  list-games | each {|g|
-      let snap = .last $"game.($g.game).snapshot"
+  .cat
+  | where ($it.topic | str starts-with "game.") and (($it.topic | str ends-with ".move") or ($it.topic | str ends-with ".snapshot"))
+  | insert game {|f| $f.topic | split row "." | get 1 }
+  | insert kind {|f| $f.topic | split row "." | last }
+  | group-by game
+  | items {|game frames|
+      let moves = $frames | where kind == "move"
+      let head = $frames | where kind == "snapshot" | last
       {
-        game: ($g.game | str substring 0..7)
-        when: ($g.game | .id unpack | get timestamp)
-        player: ($snap | get -o meta.player_id | default "" | str substring 0..7)
-        moves: $g.moves
-        score: ($snap | get -o meta.score)
-        max: ($snap | get -o meta.max_tile)
-        undos: ($undos | where game == $g.game | get n? | default [0] | first)
+        game: ($game | str substring 0..7)
+        when: ($game | .id unpack | get timestamp)
+        player: ($head.meta.player_id? | default "" | str substring 0..7)
+        moves: ($moves | where ($it.meta?.kind? | default "") != "undo" | length)
+        score: ($head.meta.score? | default 0)
+        max: ($head.meta.max_tile? | default 0)
+        undos: ($moves | where ($it.meta?.kind? | default "") == "undo" | length)
       }
     }
-    | where when >= $cutoff
-    | sort-by score -r
-    | first $limit
+  | where when >= $cutoff
+  | sort-by score -r
+  | first $limit
 }
 
 # List every player seen in the store with their game count and latest game id.
