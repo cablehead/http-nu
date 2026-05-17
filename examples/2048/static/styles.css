@@ -536,28 +536,22 @@ body.play .board > div:not(:empty) {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 2rem;
 }
+/* Splash card. A thumbnail board with the max-value tile bright and
+   everything else dimmed via a tinted overlay; on hover the whole
+   board lights back up. Overlays carry the metadata (last-active,
+   won/over badge) on top. */
 .game-card {
   display: block;
   position: relative;
   aspect-ratio: 1 / 1;
   text-decoration: none;
-  color: inherit;
+  font-family: var(--font-mono);
 }
 .game-card .board-wrap { width: 100%; height: 100%; }
-/* On splash thumbnails, every tile fades except the headline (the
-   max-value tile, marked .is-max). The bright tile *is* the indicator
-   of how far this game got. Hover lights the rest back up. */
-/* Dim the entire board -- frame, empty cells, all tiles -- via a dark
-   overlay layered on top of the grid. The max tile gets lifted above
-   the mask with z-index, so it pops out as the headline. Hover fades
-   the mask so the focused card reads in full color.
-   The mask is a sibling of grid items inside .board (via ::after with
-   position: absolute), so .is-max can stack above it within the same
-   context. */
 .game-card .board {
   position: relative;
-  /* Create a stacking context so .is-max's z-index stays local to
-     the board and doesn't escape to paint over the card's .overlay
+  /* New stacking context so .is-max's z-index stays local to the
+     board and doesn't escape to paint over the card's .overlay
      siblings (last-active label, status badge). */
   isolation: isolate;
 }
@@ -565,8 +559,7 @@ body.play .board > div:not(:empty) {
   content: "";
   position: absolute;
   inset: 0;
-  /* Tinted with the body bg color (--bg #0077b6) so dimmed boards
-     recede into the page rather than calling attention as dark voids. */
+  /* Tinted with the body bg so dimmed boards recede into the page. */
   background: rgba(0, 119, 182, 0.75);
   border-radius: inherit;
   pointer-events: none;
@@ -578,42 +571,29 @@ body.play .board > div:not(:empty) {
   position: relative;
   z-index: 2;
 }
-.game-card {
-  /* Captions and overlay text are technical/numeric -- mono on the
-     container, all descendants inherit. */
-  font-family: var(--font-mono);
-}
 .game-card .overlay {
   position: absolute;
   pointer-events: none;
   z-index: 5;
-}
-/* Last active -- monospace label top-right, dark pill backdrop so it
-   reads cleanly against whichever board tile sits underneath. */
-.game-card .overlay.active {
-  top: 0.5rem;
-  right: 0.5rem;
-  padding: 0.15rem 0.5rem;
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   font-weight: 700;
   color: #fff;
-  background: rgba(0, 0, 0, 0.6);
+  padding: 0.15rem 0.5rem;
   border-radius: 4px;
   line-height: 1.2;
 }
-/* Status badge -- fun rotated pill stamped over the top-left of the
-   board when the game is decided. Won = green, over = red. Borrows the
-   shadow-offset look from http-nu/www's wedge badges. */
+.game-card .overlay.active {
+  top: 0.5rem;
+  right: 0.5rem;
+  background: rgba(0, 0, 0, 0.6);
+}
+/* Fun rotated pill stamped over the board when the game is decided. */
 .game-card .overlay.badge {
   top: 0.75rem;
   left: 0.5rem;
   padding: 0.2rem 0.7rem;
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: #fff;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  border-radius: 4px;
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
 }
 .game-card .overlay.badge.won  { background: #2a9d4a; transform: rotate(-6deg); }
@@ -656,7 +636,7 @@ body.play, body.games-view {
    At narrow viewports help drops below the board. Everything is
    left-aligned with the breadcrumb's left edge -- the board hugs the
    .page left margin rather than centering. */
-body.play .play-layout {
+.play-layout {
   display: grid;
   grid-template-columns: 1fr;
   grid-template-areas:
@@ -666,9 +646,9 @@ body.play .play-layout {
   gap: 0.4rem 1.25rem;
   justify-content: start;
 }
-body.play .board-controls { grid-area: controls; width: 100%; max-width: 500px; justify-self: start; }
-body.play .column        { grid-area: board;    width: 100%; max-width: 500px; justify-self: start; }
-body.play .help          { grid-area: help; justify-self: start; }
+.board-controls { grid-area: controls; width: 100%; max-width: 500px; justify-self: start; }
+.column        { grid-area: board;    width: 100%; max-width: 500px; justify-self: start; }
+.help          { grid-area: help; justify-self: start; }
 @media (min-width: 900px) {
   body.play .play-layout {
     grid-template-columns: 500px auto;
@@ -702,13 +682,13 @@ body.play .help          { grid-area: help; justify-self: start; }
 .breadcrumb a:hover { color: var(--accent); }
 
 /* Board controls strip: score top-left, [u]ndo button top-right. */
-body.play .board-controls {
+.board-controls {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 1rem;
 }
-body.play .score-block {
+.score-block {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
@@ -726,7 +706,7 @@ body.play .score-block {
 }
 
 /* Help panel: small monospace grid documenting the vim keys + arrows. */
-body.play .help {
+.help {
   /* position: relative so the tuner can anchor to the right of this panel.
      align-self: start so the panel doesn't stretch to match the board's
      height; align-content: start keeps rows packed at the top of the
@@ -747,7 +727,7 @@ body.play .help {
   font-size: var(--text-sm);
   color: var(--fg-header);
 }
-body.play .help .help-row {
+.help .help-row {
   display: contents;
 }
 /* kbd-btn: bracketed key-cap button. Used by the help panel ([h], [u],
@@ -785,9 +765,9 @@ body.play .help .help-row {
 .kbd-btn .bracket:first-child { margin-right: 0.2em; }
 .kbd-btn .bracket:last-child  { margin-left:  0.2em; }
 .kbd-btn .key { color: #fff; }
-body.play .help .label { opacity: 0.8; }
+.help .label { opacity: 0.8; }
 /* fx toggle row sits slightly apart -- it's a meta control, not a move. */
-body.play .help .help-fx {
+.help .help-fx {
   margin-top: 0.4rem;
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
@@ -865,7 +845,7 @@ body.play .help .help-fx {
 body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
 body[data-conn="down"] .site-header #conn { background: #c0392b; }
 
-body.play .column {
+.column {
   width: 100%;
 }
 
