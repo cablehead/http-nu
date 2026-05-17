@@ -266,3 +266,29 @@ addEventListener("pointerup", () => {
 });
 
 }
+
+// Keep splash card "last played" labels current without a server round
+// trip. Each .overlay.active span carries data-played-ms = the unix
+// millisecond timestamp from the game's last-move id; we recompute the
+// relative string every few seconds. Same shape as the server's
+// last-active-from-id in render.nu.
+function relativeFromMs(ms) {
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 60) return "in play";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return `${Math.floor(diff / 604800)}w ago`;
+}
+function updateActiveLabels() {
+  document.querySelectorAll(".overlay.active[data-played-ms]").forEach((el) => {
+    const ms = parseInt(el.dataset.playedMs, 10);
+    if (!Number.isFinite(ms)) return;
+    const next = relativeFromMs(ms);
+    if (el.textContent !== next) el.textContent = next;
+  });
+}
+// Tick every 5s: fast enough to catch "in play" -> "1m ago" near the
+// minute boundary, slow enough to be cheap.
+setInterval(updateActiveLabels, 5000);
+updateActiveLabels();

@@ -553,7 +553,13 @@ body.play .board > div:not(:empty) {
    The mask is a sibling of grid items inside .board (via ::after with
    position: absolute), so .is-max can stack above it within the same
    context. */
-.game-card .board { position: relative; }
+.game-card .board {
+  position: relative;
+  /* Create a stacking context so .is-max's z-index stays local to
+     the board and doesn't escape to paint over the card's .overlay
+     siblings (last-active label, status badge). */
+  isolation: isolate;
+}
 .game-card .board::after {
   content: "";
   position: absolute;
@@ -575,7 +581,7 @@ body.play .board > div:not(:empty) {
   position: absolute;
   font-family: "Source Code Pro", ui-monospace, monospace;
   pointer-events: none;
-  z-index: 1;
+  z-index: 5;
 }
 /* Last active -- monospace label top-right, dark pill backdrop so it
    reads cleanly against whichever board tile sits underneath. */

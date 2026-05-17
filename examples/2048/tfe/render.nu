@@ -186,10 +186,14 @@ export def render-card-from-state [
   }
   let lmid = $last_move_id | default $game_id
   let active = last-active-from-id $lmid
+  # Raw timestamp lets the client ticker recompute "Xs ago" every few
+  # seconds without a server round-trip; see updateActiveLabels() in
+  # script.js.
+  let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
   let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
     (DIV {class: "board-wrap"} ($state | render-board $game_id))
-    (SPAN {class: "overlay active"} $active)
+    (SPAN {class: "overlay active" "data-played-ms": ($played_ms | into string)} $active)
     (if ($status | is-not-empty) { (SPAN {class: $"overlay badge ($status)"} $status) } else { "" }))
 }
 
