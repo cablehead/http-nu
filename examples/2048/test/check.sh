@@ -4,7 +4,8 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+EXAMPLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$EXAMPLE_DIR/../.." && pwd)"
 cd "$REPO_ROOT"
 
 echo "=== unit tests (test.nu) ==="
@@ -16,7 +17,7 @@ if [ ! -x "$REPO_ROOT/target/debug/http-nu" ]; then
   echo "missing target/debug/http-nu -- run \`cargo build\` first" >&2
   exit 1
 fi
-NODE_PATH="$SCRIPT_DIR/node_modules" node "$SCRIPT_DIR/test.mjs"
+NODE_PATH="$EXAMPLE_DIR/node_modules" node "$SCRIPT_DIR/test.mjs"
 echo
 
 echo "=== benchmark (bench.nu) ==="

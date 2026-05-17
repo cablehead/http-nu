@@ -17,9 +17,9 @@ import { dirname, resolve } from "node:path";
 // Resolve repo root and serve.nu path relative to this file so the test
 // works regardless of the caller's CWD.
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, "..", "..");
+const REPO_ROOT = resolve(HERE, "..", "..", "..");
 const HTTP_NU = resolve(REPO_ROOT, "target", "debug", "http-nu");
-const SERVE_NU = resolve(HERE, "serve.nu");
+const SERVE_NU = resolve(HERE, "..", "serve.nu");
 
 const PORT = 39200;
 const BASE = `http://127.0.0.1:${PORT}`;

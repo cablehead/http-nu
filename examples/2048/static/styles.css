@@ -663,6 +663,7 @@ body.play, body.games-view {
 .play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
 .play-header .score-label { opacity: 0.6; }
 .play-header .page-title { font-weight: bold; }
+.play-header .game-id { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; opacity: 0.55; }
 
 .play-footer { color: var(--fg); opacity: 0.8; font-size: 12px; }
 .play-footer .stat { font-variant-numeric: tabular-nums; }

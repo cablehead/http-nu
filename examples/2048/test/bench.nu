@@ -5,10 +5,10 @@
 # of moves against a fresh game.
 #
 # Run:
-#   nu examples/2048/bench.nu
+#   nu examples/2048/test/bench.nu
 
 const BENCH_DIR = path self | path dirname
-overlay use -r ($BENCH_DIR | path join "mod.nu") as twentyfortyeight
+overlay use -r ($BENCH_DIR | path join ".." "mod.nu") as twentyfortyeight
 
 const N = 400
 const GAME_ID = "bench-game"

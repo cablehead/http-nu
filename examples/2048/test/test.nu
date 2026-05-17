@@ -5,7 +5,7 @@ use std/assert
 # The returned closure is the request handler -- not exercised here; the
 # end-to-end route behavior is covered by tests-browser/2048.test.mjs.
 const script_dir = path self | path dirname
-let _handler = source ($script_dir | path join serve.nu)
+let _handler = source ($script_dir | path join ".." serve.nu)
 
 # A fixed game id so every test is deterministic.
 const GID = "test-game-aaaa"

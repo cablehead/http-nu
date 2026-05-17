@@ -409,7 +409,7 @@ def html-to-patches [] {
     })
 
     (route {method: GET path: "/og.png"} {|req ctx|
-      .static $SCRIPT_DIR "/og.png"
+      .static $STATIC_DIR "/og.png"
     })
 
     (route {method: GET path: "/new"} {|req ctx|
@@ -521,6 +521,7 @@ def html-to-patches [] {
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
               (A {href: $home_href} "← back")
+              (SPAN {class: "game-id"} $game_id)
               (SPAN {class: "hint"} "keys: hjkl / arrows")
               (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo"))
             (DIV {class: "right"}
