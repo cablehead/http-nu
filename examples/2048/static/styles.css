@@ -768,7 +768,13 @@ body.play .help .help-row {
   box-sizing: border-box;
   text-decoration: none;  /* in case it's rendered as <a> for navigation */
 }
-.kbd-btn:hover { opacity: 0.85; }
+/* Explicit hover so the <a> form (navigation: [esc], [n]) matches the
+   <button> form (move actions: [h]/[u]/...). Without this, only the
+   <button> form picks up the base `button:hover` orange background. */
+.kbd-btn:hover {
+  background: var(--accent);
+  opacity: 1;
+}
 .kbd-btn:active {
   transform: translateY(2px);
   box-shadow: none;
