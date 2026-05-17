@@ -7,6 +7,7 @@
       <button class="vt-tuner-btn vt-tuner-copy">copy json</button>
       <button class="vt-tuner-btn vt-tuner-reset">reset</button>
       <span class="vt-tuner-flash" data-flash></span>
+      <button class="vt-tuner-btn fx-toggle" aria-label="close fx tuner">close</button>
     </div>
     <div class="vt-tuner-legend">
       <div>three sequential phases on one view-transition:</div>
@@ -126,9 +127,17 @@
     localStorage.setItem(KEY, collapsed ? "1" : "0");
   };
   tuner.querySelector(".vt-tuner-tab").addEventListener("click", toggleTuner);
-  // The .fx-toggle button lives in the /play help panel as a sibling
-  // entry next to the move keys; clicking it slides the same tuner
-  // panel in/out.
+  // Any .fx-toggle button flips the panel: the help-panel [fx] entry
+  // (opens it), the in-tuner "close" button (dismisses it).
   document.querySelectorAll(".fx-toggle").forEach(b => b.addEventListener("click", toggleTuner));
+  // Esc dismisses the tuner when open. Capture-phase so we beat the
+  // page-level Esc-to-home handler in script.js.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (tuner.classList.contains("is-collapsed")) return;
+    toggleTuner();
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }, true);
 })();
 </script>

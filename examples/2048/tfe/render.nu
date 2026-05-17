@@ -165,7 +165,7 @@ export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
   if $game_over {
     (SPAN {id: "state-badge" class: "badge over"} "game over")
   } else if $won {
-    (SPAN {id: "state-badge" class: "badge win"} "you win!")
+    (SPAN {id: "state-badge" class: "badge won"} "you win!")
   } else {
     (SPAN {id: "state-badge"} "")
   }
@@ -189,7 +189,11 @@ export def render-game [direction?: string, changed?: bool, req_id?: string]: re
     # data-pending is set client-side on keydown and cleared when the SSE
     # patch lands; preserve it across morphs so the edge glow stays lit
     # for the duration of the round trip.
-    (DIV {id: "board-wrap" "data-preserve-attr": "class data-pending"} ($state | render-board)))
+    # State badge ("you win!" / "game over") rides inside board-wrap as
+    # a positioned overlay -- same .badge stamp as the splash cards.
+    (DIV {id: "board-wrap" "data-preserve-attr": "class data-pending"}
+      ($state | render-board)
+      (render-state-badge ($state.tiles | any {|t| $t.value >= 2048 }) $state.game_over)))
 }
 
 # Render a card from already-known state. Callers pass state straight
@@ -234,7 +238,7 @@ export def render-card-from-state [
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
     (DIV {class: "board-wrap"} ($state | render-board $game_id))
     (SPAN {class: "overlay active" "data-played-ms": ($played_ms | into string)} $active)
-    (if ($status | is-not-empty) { (SPAN {class: $"overlay badge ($status)"} $status) } else { "" }))
+    (if ($status | is-not-empty) { (SPAN {class: $"badge ($status)"} $status) } else { "" }))
 }
 
 # Render the whole .games-list from an in-memory {game_id: snapshot_meta}
@@ -279,7 +283,7 @@ export def layout [
     ellie_href: ($req | href "/ellie.png")
     splash_href: ($req | href "/")
     my_games_href: ($req | href "/my/games")
-    notes_href: ($req | href "/notes/what-is-2048")
+    design_href: ($req | href "/design/")
     player_id: $pid_short
     body_class: $body_class
     body_attrs: ($body_attrs | transpose key value)

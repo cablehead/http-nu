@@ -23,12 +23,8 @@
 <body class="{{ body_class }}"{% for a in body_attrs %} {{ a.key }}="{{ a.value }}"{% endfor %}>
 <header class="site-header">
   <a class="site-title" href="{{ splash_href }}">nu2048</a>
-  <nav class="site-nav">
-    <a href="{{ my_games_href }}">my games</a>
-    <a href="{{ notes_href }}">notes</a>
-  </nav>
   <div class="site-header-right">
-    {% if player_id %}<code class="player-chip" title="player id">{{ player_id }}</code>{% endif %}
+    {% if player_id %}<a class="you-are" href="{{ my_games_href }}" title="your games (profile soon)">you are: <code>{{ player_id }}</code></a>{% endif %}
     <div class="status">
       <span id="conn" class="stat"></span>
       <span id="rtt" class="stat"></span>
@@ -39,5 +35,8 @@
   </div>
 </header>
 {{ body_html | safe }}
+<footer class="site-footer">
+  <a href="{{ design_href }}">design</a>
+</footer>
 </body>
 </html>

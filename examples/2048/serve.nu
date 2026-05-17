@@ -211,7 +211,13 @@ let design = source design/serve.nu
             (H2 "2048, in Nushell!")
             (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
             (A {class: "play-now" href: ($req | href "/new")} "play now")
-            (P {class: "kicker"} (A {href: ($req | href "/notes/what-is-2048")} "never played? \u{2192}"))))
+            (UL {class: "callouts"}
+              (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
+                  (SPAN {class: "callout-desc"} "the basic rules"))
+              (LI (A {href: ($req | href "/notes/backstory")} "what the heck is 2048?")
+                  (SPAN {class: "callout-desc"} "where it came from"))
+              (LI (A {href: ($req | href "/notes/in-nushell")} "in Nushell?")
+                  (SPAN {class: "callout-desc"} "how this is built")))))
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "nu2048"
             --og-image $og_image
@@ -280,8 +286,6 @@ let design = source design/serve.nu
               (A {href: $home_href} "home")
               (kbd-btn "esc" --href $home_href)
               (SPAN {class: "sep"} "·")
-              (A {href: ($req | href "/my/games")} "my games")
-              (SPAN {class: "sep"} "·")
               (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short)
             ]
             --right [
@@ -289,18 +293,17 @@ let design = source design/serve.nu
               (kbd-btn "n" --href ($req | href "/new"))
             ])
           (DIV {class: "play-layout"}
-            # data-init lives on .column (which is never patched) so the SSE
-            # fetch + connection signal survive the morph of #game's contents.
-            # Column = controls row above the board; flex 2:1 with help.
+            # Grid template areas (CSS): score row tops the board column,
+            # help spans rows 1-2 so its top aligns with the BOARD top,
+            # not the score row above it.
+            (DIV {class: "board-controls"} (render-score 0))
+            # data-init lives on .column (never patched) so the SSE fetch +
+            # connection signal survive morphs of #game.
             (DIV {
               class: "column"
               "data-sse": ""
               "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
             }
-              (DIV {class: "board-controls"}
-                (DIV {class: "score-block"}
-                  (render-score 0)
-                  (render-state-badge false false)))
               $placeholder)
             # Help panel: each key is a real button that triggers the move
             # via the existing [data-intent] click delegate in script.js.

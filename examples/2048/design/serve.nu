@@ -20,6 +20,7 @@ const CATALOG = [
   {slug: "kbd-btn"    title: "kbd-btn"    desc: "bracketed key-cap button: [ h ]. triggers a move or navigation."}
   {slug: "breadcrumb" title: "breadcrumb" desc: "header nav row. left = path crumbs, right = action shortcuts."}
   {slug: "board"      title: "board"      desc: "4x4 game grid. tiles, ghosts, dim mask, max-tile highlight."}
+  {slug: "badge"      title: "badge"      desc: "rotated pill stamped on a board. won/over variants."}
 ]
 
 # Render one or more stories (sample invocations) for a slug. Returns a
@@ -81,6 +82,14 @@ def render-stories [slug: string]: nothing -> list {
       ])
       (story "empty board (initial state placeholder)" [
         (DIV {style: "width: 380px;"} ({tiles: [] ghosts: []} | render-board "design-empty"))
+      ])
+    ]
+    "badge" => [
+      (story "won (rotated -6deg, green)" [
+        (SPAN {class: "badge won"} "won")
+      ])
+      (story "over (rotated -3deg, red)" [
+        (SPAN {class: "badge over"} "over")
       ])
     ]
     _ => []

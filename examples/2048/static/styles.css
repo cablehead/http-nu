@@ -332,17 +332,16 @@ body.play .board > div:not(:empty) {
    tab and slides off-screen via translateX when .is-collapsed is set
    -- the tab stays put so it's always click-able. */
 .vt-tuner {
-  /* Anchored to the right of .help so the panel slides out from there.
-     There is no floating tab anymore -- the help panel's [fx] button is
-     the only toggle. */
+  /* Overlays the .help panel (its positioned ancestor). The help [fx]
+     button opens it; the in-tuner "close" button or Esc dismisses. */
   position: absolute;
-  top: 0;
-  left: calc(100% + 1rem);
-  z-index: 1000;
+  inset: 0;
+  z-index: 10;
   font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
   font-size: 11px;
   color: var(--fg);
 }
+.vt-tuner.is-collapsed { pointer-events: none; }
 /* The floating tab is no longer the toggle -- the [fx] button in the
    help panel is. Hide it; existing JS still references it for the
    click handler but the handler also fires from .fx-toggle. */
@@ -364,20 +363,19 @@ body.play .board > div:not(:empty) {
   font-size: 11px;
 }
 .vt-tuner-body {
-  width: 260px;
-  max-height: calc(100dvh - 6rem);
+  width: 100%;
+  height: 100%;
   overflow-y: auto;
   padding: 0.75rem 0.875rem;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.55);
   color: var(--fg);
   border-radius: 0.5rem;
   backdrop-filter: blur(4px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: opacity 0.2s ease;
+  box-sizing: border-box;
 }
 .vt-tuner.is-collapsed .vt-tuner-body {
   opacity: 0;
-  pointer-events: none;
-  transform: translateX(-1rem);
 }
 .vt-tuner-actions {
   display: flex;
@@ -579,17 +577,6 @@ body.play .board > div:not(:empty) {
   right: 0.5rem;
   background: rgba(0, 0, 0, 0.6);
 }
-/* Fun rotated pill stamped over the board when the game is decided. */
-.game-card .overlay.badge {
-  top: 0.75rem;
-  left: 0.5rem;
-  padding: 0.2rem 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
-}
-.game-card .overlay.badge.won  { background: #2a9d4a; transform: rotate(-6deg); }
-.game-card .overlay.badge.over { background: #e05252; transform: rotate(-3deg); }
 
 /* /games: page may overflow vertically (many cards) -- let the document
    scroll and align .page to the top instead of centring it. The base
@@ -629,15 +616,25 @@ body.play, body.games-view {
    left-aligned with the breadcrumb's left edge -- the board hugs the
    .page left margin rather than centering. */
 .play-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  display: grid;
+  gap: 0.5rem 1.5rem;
+  grid-template-columns: 1fr;
+  /* Stacked: DOM order is board-controls, column, help -- one column,
+     help stretches full width. */
 }
-.column { display: flex; flex-direction: column; gap: 0.5rem; }
 @media (min-width: 700px) {
-  .play-layout { flex-direction: row; align-items: flex-start; gap: 1.5rem; }
-  .column { flex: 2; min-width: 0; }
-  .help   { flex: 1; min-width: 0; }
+  .play-layout {
+    grid-template-columns: 2fr 1fr;
+    grid-template-areas:
+      "controls ."
+      "board    help";
+  }
+  .board-controls { grid-area: controls; }
+  .column         { grid-area: board; }
+  /* align-self: start so help stays at its content height instead of
+     stretching to match the board's height. Only set in wide mode --
+     stacked mode wants help to fill its row. */
+  .help           { grid-area: help; align-self: start; }
 }
 
 /* Breadcrumb header (used on both / and /play): left = nav crumb +
@@ -689,12 +686,11 @@ body.play, body.games-view {
 
 /* Help panel: small monospace grid documenting the vim keys + arrows. */
 .help {
-  /* position: relative so the tuner can anchor to the right of this panel.
-     align-self: start so the panel doesn't stretch to match the board's
-     height; align-content: start keeps rows packed at the top of the
-     panel instead of spreading. */
+  /* position: relative so the fx-tuner can overlay this panel.
+     align-content: start keeps rows packed at the top regardless of
+     grid-cell stretch (so help fills the column in narrow/stacked
+     mode without spreading its rows out). */
   position: relative;
-  align-self: start;
   display: grid;
   /* label takes remaining width on the left; two equal-width button
      columns hug the right edge. */
@@ -768,9 +764,23 @@ body.play, body.games-view {
   box-sizing: border-box;
 }
 .hero .preview { width: 100%; max-width: 380px; align-self: center; }
-.hero .lede h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 1.75rem; margin-bottom: 1rem; }
-.hero .lede p { margin-bottom: 1rem; }
+.hero .lede h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 3rem; line-height: 1.1; margin-bottom: 1.25rem; }
+.hero .lede p { font-size: var(--text-lg); margin-bottom: 1.25rem; }
 .hero .kicker { font-size: var(--text-sm); opacity: 0.85; margin-top: 1.25rem; }
+/* Three rabbit-hole callouts under the PLAY NOW button. Just list +
+   whitespace, no borders or backgrounds -- each item is a link with a
+   muted explanatory clause. */
+.callouts {
+  list-style: none;
+  padding: 0;
+  margin: 2rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.callouts li { display: flex; flex-direction: column; gap: 0.15rem; }
+.callouts a { font-size: var(--text-md); }
+.callout-desc { font-size: var(--text-sm); opacity: 0.7; }
 @media (min-width: 760px) {
   .hero { flex-direction: row-reverse; align-items: center; }
   .hero > * { flex: 1; }
@@ -826,17 +836,19 @@ body.play, body.games-view {
   font-size: clamp(2rem, 5vw, 2.75rem);
   color: var(--fg-header);
 }
-.site-nav { display: flex; gap: 1.25rem; }
 .site-header-right {
   display: flex;
   align-items: baseline;
   gap: 1.25rem;
   margin-left: auto;
 }
-.player-chip {
+.you-are {
   font-size: var(--text-sm);
   opacity: 0.7;
+  color: inherit;
+  text-decoration: none;
 }
+.you-are:hover { opacity: 1; text-decoration: underline; }
 .site-header .status {
   display: flex;
   align-items: center;
@@ -844,6 +856,23 @@ body.play, body.games-view {
   font-size: 1rem;
 }
 .site-header .stat { font-variant-numeric: tabular-nums; }
+
+/* Site footer: whitespace partitions, no border or background. Links
+   like nav -- each page anchors the same set of meta destinations. */
+.site-footer {
+  /* Same container shape as .page / .hero (body's align-items: center
+     does the centering). Content right-aligned within. */
+  width: 100%;
+  max-width: 900px;
+  padding: 0 1rem;
+  box-sizing: border-box;
+  margin: 4rem 0 1.5rem;
+  text-align: right;
+  font-size: var(--text-sm);
+  opacity: 0.6;
+}
+.site-footer a { color: inherit; }
+.site-footer a:hover { opacity: 1; color: var(--accent); }
 .site-header .credit a { color: inherit; text-decoration: none; }
 .site-header .credit a:hover { text-decoration: underline; opacity: 1; }
 .site-header .credit .mascot {
@@ -862,6 +891,12 @@ body.play, body.games-view {
 body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
 body[data-conn="down"] .site-header #conn { background: #c0392b; }
 
+/* Splash: no live SSE session, so the nu2048 title (splash IS the
+   landing) and the status dot (always grey here) are noise. Keep
+   player chip + credit on the right. */
+body.splash .site-title,
+body.splash .site-header .status { display: none; }
+
 /* Inline link-styled button (e.g. undo in the footer). */
 .linklike {
   background: none;
@@ -877,17 +912,27 @@ body[data-conn="down"] .site-header #conn { background: #c0392b; }
 .linklike:hover { opacity: 0.8; background: none; }
 .linklike:active { transform: none; box-shadow: none; }
 
-/* Small status badge for game-over / you-win in the header. */
+/* Fun rotated pill stamped over a board (game cards, splash board, /play
+   when the game is decided). Anchors to the nearest positioned ancestor
+   -- ensure that's the board-wrap (.game-card and #board-wrap both
+   provide one). */
 .badge {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-weight: bold;
+  position: absolute;
+  top: 0.75rem;
+  left: 0.5rem;
+  z-index: 5;
+  padding: 0.2rem 0.7rem;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: #fff;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
+  border-radius: 4px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
+  pointer-events: none;
 }
-.badge.over { background: #c0392b; color: white; }
-.badge.win  { background: #2a9d4a; color: white; }
+.badge.won  { background: #2a9d4a; transform: rotate(-6deg); }
+.badge.over { background: #e05252; transform: rotate(-3deg); }
 
 /* ============================================================
    VT-only pipeline (experimental; supersedes the rules above)
