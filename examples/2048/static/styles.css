@@ -682,7 +682,7 @@ body.play .breadcrumb .game-id { opacity: 0.7; color: var(--fg-header); }
 body.play .board-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 1rem;
 }
 body.play .score-block {
