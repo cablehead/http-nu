@@ -3,9 +3,16 @@ use http-nu/datastar *
 use http-nu/html *
 use http-nu/http *
 
-# Pure game logic + replay helpers live in mod.nu so they're reusable from
-# `http-nu eval` for ad-hoc poking at a game store.
-use ./mod.nu *
+# The tfe/ module is split into submodules: game (pure logic), render
+# (HTML output), sse (server pipeline), store (.cat/.last helpers).
+# render.nu's `export-env` compiles the board template once -- and
+# export-env only fires on direct `use module/sub.nu`, not via
+# `export use` in a parent mod.nu -- so we import each submodule here
+# rather than going through tfe/mod.nu.
+use ./tfe/game.nu *
+use ./tfe/render.nu *
+use ./tfe/sse.nu *
+use ./tfe/store.nu *
 
 const SCRIPT_DIR = path self | path dirname
 const STATIC_DIR = $SCRIPT_DIR | path join "static"
@@ -21,180 +28,8 @@ let REV = random uuid | str substring 0..7
 # happy. Re-registering on each startup replaces the running actor (per
 # xs's `<name>.register` semantics), so this is restart-safe.
 if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default false) {
-  open ($SCRIPT_DIR | path join "game.nu") | .append game.nu
-  open ($SCRIPT_DIR | path join "snapshot-actor.nu") | .append snapshot-actor.register
-}
-
-# 2048 over the Local Bus, with View Transition tile slides.
-#
-# State is a list of tiles `{id, r, c, value}` -- not a flat grid -- so each
-# tile keeps a stable identity across moves. Render emits each tile as an
-# absolutely-positioned div with `view-transition-name: tile-<id>`. When the
-# board re-renders, the browser pairs old and new snapshots by name and
-# animates the position interpolation for free.
-
-# --- rendering ------------------------------------------------------------
-
-def color-for [v: int]: nothing -> string {
-  match $v {
-    2 => "#eee4da"
-    4 => "#ede0c8"
-    8 => "#f2b179"
-    16 => "#f59563"
-    32 => "#f67c5f"
-    64 => "#f65e3b"
-    128 => "#edcf72"
-    256 => "#edcc61"
-    512 => "#edc850"
-    1024 => "#edc53f"
-    _ => "#edc22e"
-  }
-}
-
-const CELL = 100
-const GAP = 10
-const PAD = 15
-# inner = 4*CELL + 3*GAP = 430, total = inner + 2*PAD = 460
-const TOTAL = 460
-
-# The board: a self-contained component. Single class `.board` on the
-# root; layout, palette, and cell styling live in `.board > *` /
-# `.board > div:not(:empty)` selectors in styles.css. Used at full
-# size on /play and inside game-card thumbnails on /games.
-#
-# Per-cell inline styles are limited to what's data-driven: grid
-# placement (r,c), tile bg/color/font-size (value), and view-
-# transition-name (tile id). Empty cells render as `<div></div>` and
-# pick up their look from the `.board > div:empty` selector.
-#
-# Compiled once into a minijinja template since render-board is hot --
-# every snapshot push re-renders one or more boards, and the runtime
-# HTML DSL is significantly slower per tile.
-#
-# Template layers, in DOM order (later layers paint on top):
-#   1. 16 hardcoded empty cells (background grid; never change).
-#   2. Ghosts -- one per tile consumed by a merge on this snapshot's
-#      move. Same view-transition-name as the consumed tile, placed at
-#      the merge cell with opacity 0. The browser pairs the visible
-#      old tile with this invisible new ghost and slides it into the
-#      merge cell while fading, instead of popping out of existence.
-#   3. Tiles (live game-state tiles).
-let BOARD_TPL = .mj compile --inline (
-  DIV {class: "board"}
-    (0..3 | each {|r| 0..3 | each {|c|
-      DIV {style: $"grid-column: ($c + 1); grid-row: ($r + 1);"} ""
-    } } | flatten)
-    (_for {g: "ghosts"} (DIV {
-      style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; view-transition-name: {{ g.vt }}; view-transition-class: ghost; opacity: 0; pointer-events: none;"
-    } ""))
-    (_for {t: "tiles"} (DIV {
-      style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw; view-transition-name: {{ t.vt }};"
-    } (_var "t.value")))
-)
-
-def render-board [scope?: string]: record -> record {
-  let state = $in
-  let s = $scope | default ""
-  # view-transition-name is page-global; on /games multiple boards share
-  # a page, so the optional scope (game id) keeps names unique.
-  let vt_name = {|id| if ($s | is-empty) { $"tile-($id)" } else { $"tile-($s)-($id)" }}
-  # Per-tile arithmetic in nushell (cheap); loop body emitted by the
-  # compiled template in Rust (fast).
-  let tiles = $state.tiles | each {|t|
-    {
-      col: ($t.c + 1)
-      row: ($t.r + 1)
-      bg: (color-for $t.value)
-      fg: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
-      fs: (if $t.value >= 1024 { 5 } else if $t.value >= 128 { 6 } else { 7 })
-      vt: (do $vt_name $t.id)
-      value: $t.value
-    }
-  }
-  # `ghosts` may be absent on snapshots written before the merge-ghosts
-  # feature -- default to empty so old games still render.
-  let ghosts = ($state | get ghosts? | default []) | each {|g|
-    {col: ($g.c + 1) row: ($g.r + 1) bg: (color-for $g.value) vt: (do $vt_name $g.id)}
-  }
-  {__html: ({tiles: $tiles, ghosts: $ghosts} | .mj render $BOARD_TPL)}
-}
-
-# Small targeted SSE fragments. The top tracker bar lives statically at
-# the body level; these spans inside it have stable ids and are morphed
-# in place on each state change. Keeping the bar out of #game means the
-# board patch is small and the bar's layout doesn't need to round-trip
-# nav links and the game-id chip on every move.
-def render-score [score: int]: nothing -> record {
-  (SPAN {id: "score"} ($score | into string))
-}
-
-def render-state-badge [won: bool, game_over: bool]: nothing -> record {
-  if $game_over {
-    (SPAN {id: "state-badge" class: "badge over"} "game over")
-  } else if $won {
-    (SPAN {id: "state-badge" class: "badge win"} "you win!")
-  } else {
-    (SPAN {id: "state-badge"} "")
-  }
-}
-
-# Shared site footer used by both /play and /games so SSE liveness shows
-# everywhere. Optional `actions` go on the left (e.g. undo button + key
-# hint on /play); the status bits + credit are always on the right.
-def render-footer [req: record, actions: list = []]: nothing -> record {
-  (FOOTER {class: "site-footer"}
-    ...$actions
-    (SPAN {class: "spacer"} "")
-    (SPAN {id: "conn" class: "stat"} "")
-    (SPAN {id: "rtt" class: "stat"} "")
-    (SPAN {class: "credit"}
-      (A {href: "https://http-nu.cross.stream"}
-        "served by http-nu "
-        (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))
-}
-
-def render-game [direction?: string, changed?: bool, req_id?: string]: record -> record {
-  let state = $in
-  # The edge-glow color rides the highest-value tile, pushed as an inline
-  # CSS variable so it cascades to #board-wrap and the ::after pseudo.
-  let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
-  let dir = $direction | default ""
-  let did_change = $changed | default false
-  let rid = $req_id | default ""
-  let wrap_children = if ($did_change and $dir in [h j k l]) {
-    [
-      ($state | render-board)
-      (DIV {id: $"flash-(random uuid)" class: "edge-flash" "data-dir": $dir} "")
-    ]
-  } else {
-    [($state | render-board)]
-  }
-  (DIV {
-    id: "game"
-    style: $"--glow: ($glow); view-transition-name: view-game;"
-    "data-rev": (if ($rid | is-empty) { random uuid } else { $rid })
-    "data-from": $dir
-    "data-changed": (if $did_change { "1" } else { "" })
-  }
-    (DIV {id: "board-wrap" "data-preserve-attr": "class"} ...$wrap_children))
-}
-
-# Render a card from already-known state. The SSE handler calls this with
-# state straight out of the snapshot frame's meta, avoiding a redundant
-# resume-game lookup per live update.
-def render-card-from-state [req: record game_id: string state: record moves: int]: nothing -> record {
-  let max_tile = if ($state.tiles | is-empty) { 0 } else {
-    $state.tiles | get value | math max
-  }
-  let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
-  let caption_bits = [
-    $"score ($state.score)"
-    $"moves ($moves)"
-    (if ($status | is-not-empty) { $status } else { null })
-  ] | compact
-  (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
-    (DIV {class: "thumb"} ($state | render-board $game_id))
-    (DIV {class: "caption"} ($caption_bits | str join " · ")))
+  open ($SCRIPT_DIR | path join "tfe" "game.nu") | .append game.nu
+  open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu") | .append snapshot-actor.register
 }
 
 # Render a card from a games_topic frame (the initial page render). Resumes
@@ -202,104 +37,6 @@ def render-card-from-state [req: record game_id: string state: record moves: int
 def render-game-card [req: record game_frame: record]: nothing -> record {
   let resumed = (resume-game $game_frame.id)
   render-card-from-state $req $game_frame.id $resumed.state $resumed.moves
-}
-
-# Render the whole .games-list from an in-memory {game_id: snapshot_meta}
-# record. Sort by game_id (scru128, time-ordered) desc so newest is first.
-def render-games-list-from-data [req: record, data: record]: nothing -> record {
-  let entries = $data | transpose game_id meta | sort-by game_id --reverse
-  (DIV {class: "games-list"} ($entries | each {|e|
-    render-card-from-state $req $e.game_id $e.meta.state ($e.meta | get moves? | default 0)
-  }))
-}
-
-# --- pipeline boxes ------------------------------------------------------
-# The SSE handler is a tight composition of:
-#   .cat --follow -> filter-for-player -> impulses-to-states
-#   -> threshold-gate-states -> states-to-html
-#   -> html-to-patches -> to sse
-# Snapshot writes happen out-of-band in the xs snapshot-actor.
-# Each stage has one job.
-
-# Box A. impulses-to-states (and filter-for-player) live in mod.nu so they're
-# reusable from `http-nu eval`. The remaining boxes here are SSE-specific:
-# threshold gating, render, and patch wrapping.
-
-# Top-of-pipeline keepalive. xs.pulse frames are turned into ready-to-send
-# datastar-patch-signals event records immediately, so downstream rendering
-# stages never have to know about pulses -- they just pass through anything
-# that already has an `event` field. Reused by every SSE handler in this
-# file.
-def pulse-keepalive [] {
-  each {|f|
-    if ($f.topic? | default "") == "xs.pulse" {
-      ({} | to datastar-patch-signals)
-    } else { $f }
-  }
-}
-
-# Box B. Buffers states pre-threshold (only the last is retained); on
-# threshold marker emits the last buffered state; then forwards everything.
-# Pre-converted SSE event records pass through untouched (they're already
-# ready for `to sse`).
-def threshold-gate-states [] {
-  generate {|item state = {}|
-    if ('event' in $item) {
-      return {out: $item, next: $state}
-    }
-    if ($item.threshold? | default false) {
-      let emit = $state.last? | default ($item | upsert threshold false)
-      return {out: $emit, next: {reached: true}}
-    }
-    if ("reached" in $state) {
-      return {out: $item, next: $state}
-    }
-    {next: ($state | upsert last $item)}
-  }
-}
-
-# Box C. Pure rendering. Each state expands into a list of 4 small renders
-# (board + score + badge + mode-toggle). The board patch uses view-
-# transition (so tiles slide); the bar fragments are tagged {vt: false}
-# so they morph in place without kicking off their own VT (multiple VTs
-# per state interrupt the tile slide animation). Already-event items
-# pass through unchanged.
-def states-to-html [] {
-  each {|s|
-    if ('event' in $s) {
-      [$s]
-    } else if ('signals' in $s) {
-      [$s]
-    } else {
-      let state = $s.state
-      let won = $state.tiles | any {|t| $t.value >= 2048 }
-      let board = ($state | render-game ($s.direction? | default "") ($s.changed? | default false) ($s.req_id? | default ""))
-      [
-        {vt: true, el: $board}
-        {vt: false, el: (render-score $state.score)}
-        {vt: false, el: (render-state-badge $won $state.game_over)}
-      ]
-    }
-  }
-  | flatten
-}
-
-# Box D. Wrap each render in a datastar patch event. Unique id per patch
-# so morphdom recreates the .edge-flash element and its animation re-fires
-# each step. Already-event items pass through unchanged.
-def html-to-patches [] {
-  each {|item|
-    if ('event' in $item) {
-      $item
-    } else if ('signals' in $item) {
-      $item.signals | to datastar-patch-signals
-    } else if (('vt' in $item) and not $item.vt) {
-      $item.el | to datastar-patch-elements --id (random uuid)
-    } else {
-      let el = if ('el' in $item) { $item.el } else { $item }
-      $el | to datastar-patch-elements --use-view-transition --id (random uuid)
-    }
-  }
 }
 
 # --- routes ---------------------------------------------------------------

@@ -8,7 +8,7 @@
 #   nu examples/2048/test/bench.nu
 
 const BENCH_DIR = path self | path dirname
-overlay use -r ($BENCH_DIR | path join ".." "mod.nu") as twentyfortyeight
+overlay use -r ($BENCH_DIR | path join ".." "tfe" "game.nu") as twentyfortyeight
 
 const N = 400
 const GAME_ID = "bench-game"

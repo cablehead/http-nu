@@ -1,68 +1,22 @@
-# 2048 game logic + replay helpers, designed for interactive use from a
-# standard nu shell against a vanilla `xs serve` store.
+# Store-touching helpers for the 2048 example, designed for interactive
+# use from a standard nu shell against a vanilla `xs serve` store:
 #
 #   $env.XS_ADDR = (realpath ./store)
-#   overlay use -r examples/2048
+#   use examples/2048/tfe *
 #   list-games
 #   replay-game-state "<id>"
 #   follow-game "<id>" | each { reject state.tiles }   # live tail
 #
-# Pure game logic (no store deps) lives in game.nu and is re-exported here
-# so callers see one surface. The store-dependent helpers below add
-# `.cat` / `.last` / `.append` -- the xs snapshot-actor uses game.nu
+# Pure game logic (no store deps) lives in game.nu and is consumed by
+# this module via `use ./game.nu *`. The xs snapshot-actor uses game.nu
 # directly to avoid module-parse failures.
-#
-# serve.nu does `use mod.nu *` for everything; this module is the primary
-# surface and works without the server.
 
-export use ./game.nu *
+use ./game.nu *
 
 # Snapshot writing lives in the xs snapshot-actor (snapshot-actor.nu),
 # registered at serve.nu startup. The actor is the single writer to
-# `game.<id>.snapshot`; the SSE handler is a pure reader.
-
-# Read-side fold for the SSE pipeline. Takes raw frames from
-# `game.<id>.*` (plus xs.threshold / xs.pulse) and yields the
-# `{state, threshold?, ...}` record shape that the renderer
-# expects, so the rest of the pipeline (threshold-gate-states,
-# states-to-html, html-to-patches) is unchanged.
-#
-# Snapshot frames -> state record.
-# xs.threshold / xs.pulse -> pass-through markers.
-# Everything else -> drop.
-export def frames-to-states [] {
-  generate {|f, acc = {state: null}|
-    # Pre-converted SSE event records (e.g. from `pulse-keepalive`) just
-    # flow through -- they're already shaped for `to sse`.
-    if ('event' in $f) {
-      return {out: $f, next: $acc}
-    }
-    let t = $f.topic
-    if $t == "xs.threshold" {
-      {out: {state: $acc.state, threshold: true}, next: $acc}
-    } else if ($t | str ends-with ".snapshot") {
-      let state = $f.meta.state
-      let intent = $f.meta | get intent? | default ""
-      let req_id = $f.meta | get req_id? | default ""
-      {
-        out: {state: $state, direction: $intent, changed: true, threshold: false, req_id: $req_id, move_id: ($f.meta | get last_move_id? | default "")}
-        next: ($acc | upsert state $state)
-      }
-    } else if ($t | str ends-with ".move") {
-      # Every move frame emits a state record carrying its req_id. The
-      # render flips #game's data-rev to that req_id, which is the
-      # client's signal that its pending RTT probe has resolved.
-      # State-changing moves also produce a snapshot frame (emitted
-      # downstream as its own record), and that one re-renders new
-      # tiles. No-op moves produce no snapshot, so this echo is their
-      # only resolution.
-      let req_id = $f.meta | get req_id? | default ""
-      {out: {state: $acc.state, req_id: $req_id, threshold: false}, next: $acc}
-    } else {
-      {next: $acc}
-    }
-  }
-}
+# `game.<id>.snapshot`; readers (SSE + helpers below) treat it as
+# authoritative HEAD.
 
 # Replay a game's move log into its final state. Used by serve.nu's /games
 # view to render each past game's resting board, and by ad-hoc poking from

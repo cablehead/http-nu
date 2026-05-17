@@ -1,11 +1,12 @@
 use std/assert
 
-# Source serve.nu so its `def` commands (apply-move, slide-row-tiles,
-# tiles-equal, impulses-to-states, roll, ...) become callable in this scope.
-# The returned closure is the request handler -- not exercised here; the
-# end-to-end route behavior is covered by tests-browser/2048.test.mjs.
+# Import the pure pieces of the 2048 module: roll, slide-tiles,
+# apply-move, tiles-equal, initial-state, impulses-to-states, ... The
+# store-touching helpers (frames-to-states, list-games, ...) aren't
+# exercised here -- those are covered by the browser e2e.
 const script_dir = path self | path dirname
-let _handler = source ($script_dir | path join ".." serve.nu)
+use ($script_dir | path join ".." "tfe" "game.nu") *
+use ($script_dir | path join ".." "tfe" "sse.nu") *
 
 # A fixed game id so every test is deterministic.
 const GID = "test-game-aaaa"
