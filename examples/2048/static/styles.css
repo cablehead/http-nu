@@ -711,8 +711,10 @@ body.play .help {
   position: relative;
   align-self: start;
   display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: 0.4rem 0.75rem;
+  /* label takes remaining width on the left; two equal-width button
+     columns hug the right edge. */
+  grid-template-columns: 1fr auto auto;
+  gap: 0.4rem 0.5rem;
   align-items: center;
   align-content: start;
   padding: 0.9rem 0.9rem 0.9rem 1.1rem;
@@ -734,7 +736,7 @@ body.play .help .kbd-btn {
   font-family: "Source Code Pro", ui-monospace, monospace;
   font-weight: 700;
   font-size: 1rem;
-  color: var(--fg-header);
+  color: #fff;
   background: rgba(0, 0, 0, 0.3);
   padding: 0.2rem 0.55rem;
   border: 0;
@@ -742,9 +744,14 @@ body.play .help .kbd-btn {
   cursor: pointer;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
   transition: transform 80ms, box-shadow 80ms, opacity 0.2s;
+  /* Uniform button width across rows so the arrow column aligns whether
+     the content is `[ h ]` or `fx`. Center-justify within the box. */
   display: inline-flex;
   align-items: baseline;
+  justify-content: center;
+  min-width: 3.25rem;
   line-height: 1;
+  box-sizing: border-box;
 }
 body.play .help .kbd-btn:hover { opacity: 0.85; }
 body.play .help .kbd-btn:active {
@@ -758,13 +765,7 @@ body.play .help .kbd-btn .bracket { opacity: 0.55; }
 body.play .help .kbd-btn .bracket:first-child { margin-right: 0.2em; }
 body.play .help .kbd-btn .bracket:last-child  { margin-left:  0.2em; }
 body.play .help .kbd-btn .key { color: #fff; }
-body.play .help .arrow {
-  font-size: 1.125rem;
-  opacity: 0.85;
-  min-width: 1.2em;
-  text-align: center;
-}
-body.play .help .label { opacity: 0.75; }
+body.play .help .label { opacity: 0.8; }
 /* fx toggle row sits slightly apart -- it's a meta control, not a move. */
 body.play .help .help-fx {
   margin-top: 0.4rem;

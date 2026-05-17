@@ -241,30 +241,38 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
             # floating tab.
             (ASIDE {class: "help"}
               (DIV {class: "help-row"}
+                (SPAN {class: "label"} "left")
                 (BUTTON {type: "button" "data-intent": "h" class: "kbd-btn"}
                   (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "h") (SPAN {class: "bracket"} "]"))
-                (SPAN {class: "arrow"} "←") (SPAN {class: "label"} "left"))
+                (BUTTON {type: "button" "data-intent": "h" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "←") (SPAN {class: "bracket"} "]")))
               (DIV {class: "help-row"}
+                (SPAN {class: "label"} "down")
                 (BUTTON {type: "button" "data-intent": "j" class: "kbd-btn"}
                   (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "j") (SPAN {class: "bracket"} "]"))
-                (SPAN {class: "arrow"} "↓") (SPAN {class: "label"} "down"))
+                (BUTTON {type: "button" "data-intent": "j" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "↓") (SPAN {class: "bracket"} "]")))
               (DIV {class: "help-row"}
+                (SPAN {class: "label"} "up")
                 (BUTTON {type: "button" "data-intent": "k" class: "kbd-btn"}
                   (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "k") (SPAN {class: "bracket"} "]"))
-                (SPAN {class: "arrow"} "↑") (SPAN {class: "label"} "up"))
+                (BUTTON {type: "button" "data-intent": "k" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "↑") (SPAN {class: "bracket"} "]")))
               (DIV {class: "help-row"}
+                (SPAN {class: "label"} "right")
                 (BUTTON {type: "button" "data-intent": "l" class: "kbd-btn"}
                   (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "l") (SPAN {class: "bracket"} "]"))
-                (SPAN {class: "arrow"} "→") (SPAN {class: "label"} "right"))
+                (BUTTON {type: "button" "data-intent": "l" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "→") (SPAN {class: "bracket"} "]")))
               (DIV {class: "help-row"}
+                (SPAN {class: "label"} "undo")
                 (BUTTON {type: "button" "data-intent": "undo" class: "kbd-btn"}
                   (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "u") (SPAN {class: "bracket"} "]"))
-                (SPAN {class: "arrow"} "")
-                (SPAN {class: "label"} "undo"))
+                (SPAN {}))
               (DIV {class: "help-row help-fx"}
+                (SPAN {class: "label"} "tuner")
                 (BUTTON {type: "button" class: "kbd-btn fx-toggle"} "fx")
-                (SPAN {class: "arrow"} "")
-                (SPAN {class: "label"} "tuner"))
+                (SPAN {}))
               (render-tuner)))
         )
       ] | layout $req $REV $DATASTAR_JS_PATH
