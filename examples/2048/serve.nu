@@ -36,7 +36,7 @@ if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default fa
 # the game to get state, then defers to render-card-from-state.
 def render-game-card [req: record game_frame: record]: nothing -> record {
   let resumed = (resume-game $game_frame.id)
-  render-card-from-state $req $game_frame.id $resumed.state $resumed.moves
+  render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id
 }
 
 # --- routes ---------------------------------------------------------------

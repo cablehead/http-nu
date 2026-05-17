@@ -546,31 +546,53 @@ body.play .board > div:not(:empty) {
    column. Empty-state hint shows only when no cards. */
 .games-list:not(:empty) + .empty-state { display: none; }
 .games-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2rem;
 }
 .game-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  display: block;
+  position: relative;
   text-decoration: none;
   color: inherit;
-  transition: opacity 0.2s;
 }
-.game-card:hover { opacity: 0.85; }
+/* Mute every board in the list; the focused card lights back up on
+   hover so the eye can rest on whichever game the user is considering. */
 .game-card .thumb {
-  width: 260px;
-  height: 260px;
-  padding: 0.75rem;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 0.5rem;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  filter: saturate(0.35) opacity(0.7);
+  transition: filter 0.2s ease;
 }
-.game-card .caption {
+.game-card:hover .thumb { filter: saturate(1) opacity(1); }
+/* Four corner overlays carry the metadata on top of the board itself.
+   Translucent dark pill backdrops keep the small text readable against
+   varying tile colors. */
+.game-card .overlay {
+  position: absolute;
   font-family: "Source Code Pro", ui-monospace, monospace;
-  font-size: 1rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+.game-card .overlay.tl { top: 0.5rem;    left: 0.5rem; }
+.game-card .overlay.tr { top: 0.5rem;    right: 0.5rem; }
+.game-card .overlay.bl { bottom: 0.5rem; left: 0.5rem; }
+.game-card .overlay.br { bottom: 0.5rem; right: 0.5rem; }
+/* Bottom-right is the headline: max tile + status. Bigger, brighter. */
+.game-card .overlay.br .max-tile {
+  font-weight: 700;
+  font-size: 0.875rem;
   color: var(--fg-header);
 }
+.game-card .overlay.br .max-tile.with-status.win  { color: #7fdba0; }
+.game-card .overlay.br .max-tile.with-status.over { color: #ff9a9a; }
 
 /* /games: page may overflow vertically (many cards) -- let the document
    scroll and align .page to the top instead of centring it. The base
@@ -597,7 +619,7 @@ body.play, body.games-view {
 }
 .page {
   width: 100%;
-  max-width: 720px;
+  max-width: 900px;
   padding: 0 1rem;
   display: flex;
   flex-direction: column;
@@ -646,7 +668,7 @@ body.play, body.games-view {
    left, status + credit right. No divider lines; whitespace separates. */
 .site-header {
   width: 100%;
-  max-width: 720px;
+  max-width: 900px;
   display: flex;
   align-items: baseline;
   justify-content: space-between;

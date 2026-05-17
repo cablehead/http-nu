@@ -148,19 +148,62 @@ export def render-game [direction?: string, changed?: bool, req_id?: string]: re
 
 # Render a card from already-known state. Callers pass state straight
 # out of a snapshot frame's meta, avoiding a redundant resume-game lookup.
-export def render-card-from-state [req: record game_id: string state: record moves: int]: nothing -> record {
+# Decode a SCRU128 id to its embedded millisecond timestamp via the
+# xs subcommand. One subprocess per call -- fine for ~10-20 cards on a
+# splash render; revisit if cards balloon.
+def scru128-ms [id: string]: nothing -> int {
+  (^xs scru128 unpack $id | from json | get timestamp) * 1000 | math round | into int
+}
+
+# Render an absolute ms timestamp as a short, human-readable relative
+# string ("just now", "23s ago", "2h ago", "3d ago", "5w ago").
+def relative-time [ms: int]: nothing -> string {
+  let now_ms = (date now | into int) / 1_000_000 | into int
+  let diff = ($now_ms - $ms) / 1000 | into int
+  if $diff < 5 { "just now"
+  } else if $diff < 60 { $"($diff)s ago"
+  } else if $diff < 3600 { $"(($diff / 60) | into int)m ago"
+  } else if $diff < 86400 { $"(($diff / 3600) | into int)h ago"
+  } else if $diff < 604800 { $"(($diff / 86400) | into int)d ago"
+  } else { $"(($diff / 604800) | into int)w ago" }
+}
+
+# Each card answers "should I jump back into this one?". The thumbnail
+# is the densest signal; four corner overlays carry the metadata so the
+# card stays compact and scannable:
+#   top-left  : created ("made Xh ago")    bottom-left  : score
+#   top-right : last move ("played Xs ago") bottom-right : max tile + status
+# last_move_id falls back to game_id for games that have never moved.
+export def render-card-from-state [
+  req: record
+  game_id: string
+  state: record
+  moves: int
+  last_move_id?: string
+]: nothing -> record {
   let max_tile = if ($state.tiles | is-empty) { 0 } else {
     $state.tiles | get value | math max
   }
-  let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
-  let caption_bits = [
-    $"score ($state.score)"
-    $"moves ($moves)"
-    (if ($status | is-not-empty) { $status } else { null })
-  ] | compact
+  let won = $max_tile >= 2048
+  let status_class = if $won { "win" } else if $state.game_over { "over" } else { "" }
+  let status_label = if $won { "won" } else if $state.game_over { "over" } else { "" }
+  let lmid = $last_move_id | default $game_id
+  let made_at = relative-time (scru128-ms $game_id)
+  let played_at = relative-time (scru128-ms $lmid)
+  let max_node = if $max_tile == 0 {
+    (SPAN {class: "max-tile"} "empty")
+  } else if ($status_label | is-not-empty) {
+    (SPAN {class: $"max-tile with-status ($status_class)"} $"max ($max_tile) ($status_label)")
+  } else {
+    (SPAN {class: "max-tile"} $"max ($max_tile)")
+  }
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
-    (DIV {class: "thumb"} ($state | render-board $game_id))
-    (DIV {class: "caption"} ($caption_bits | str join " · ")))
+    (DIV {class: "thumb"}
+      ($state | render-board $game_id)
+      (SPAN {class: "overlay tl"} $"made ($made_at)")
+      (SPAN {class: "overlay tr"} $"played ($played_at)")
+      (SPAN {class: "overlay bl"} $"($state.score) pts")
+      (DIV {class: "overlay br"} $max_node)))
 }
 
 # Render the whole .games-list from an in-memory {game_id: snapshot_meta}
@@ -168,7 +211,7 @@ export def render-card-from-state [req: record game_id: string state: record mov
 export def render-games-list-from-data [req: record, data: record]: nothing -> record {
   let entries = $data | transpose game_id meta | sort-by game_id --reverse
   (DIV {class: "games-list"} ($entries | each {|e|
-    render-card-from-state $req $e.game_id $e.meta.state ($e.meta | get moves? | default 0)
+    render-card-from-state $req $e.game_id $e.meta.state ($e.meta | get moves? | default 0) ($e.meta | get last_move_id? | default $e.game_id)
   }))
 }
 
