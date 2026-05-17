@@ -49,6 +49,18 @@ function check(label, ok, detail) {
   if (!ok) failures.push(label);
 }
 
+// Regression: a fresh visitor (no cookie) on / should redirect to /new
+// rather than render an empty splash. The store is empty at this point
+// (test spawns its own /tmp store), so the player has no games and the
+// route's empty-library branch must fire. Bug surfaced as a blank 200
+// when the redirect path returned a stripped-metadata response.
+{
+  const r = await fetch(`${BASE}/`, { redirect: "manual", headers: { cookie: "" } });
+  const loc = r.headers.get("location") || "";
+  check("fresh visitor on / redirects to /new", r.status === 302 && loc.endsWith("/new"),
+    `status ${r.status}, location ${loc || "(none)"}`);
+}
+
 const browser = await chromium.launch({
   executablePath: "/usr/bin/chromium",
   args: ["--no-sandbox", "--disable-dev-shm-usage"],

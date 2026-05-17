@@ -178,12 +178,14 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let games_topic = $"player.($player_id).games"
       let games = (try { .cat -T $games_topic | reverse } catch { [] })
       # First-time visitor (or returning with an empty library): skip
-      # the empty splash and drop them into a fresh game.
+      # the empty splash and drop them into a fresh game. `if` is an
+      # expression here whose value is the response -- `return` inside
+      # a route closure doesn't reliably propagate the metadata.
       if ($games | is-empty) {
         let loc = ($req | href "/new")
-        return ("" | metadata set { merge {'http.response': {status: 302 headers: {Location: $loc}}} }
-          | cookie set "player" $player_id --max-age 31536000 --no-secure)
-      }
+        "" | metadata set { merge {'http.response': {status: 302 headers: {Location: $loc}}} }
+        | cookie set "player" $player_id --max-age 31536000 --no-secure
+      } else {
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
@@ -215,6 +217,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
               "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
             }
       | cookie set "player" $player_id --max-age 31536000 --no-secure)
+      }
     })
 
     (route {method: GET path-matches: "/play/:game_id"} {|req ctx|
