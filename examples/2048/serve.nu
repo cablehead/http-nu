@@ -214,26 +214,46 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
+      let game_id_short = $game_id | str substring 0..7
       ([
         (DIV {class: "page"}
-          (HEADER {class: "play-header"}
-            (DIV {class: "left"}
-              (A {href: $home_href} "← back")
-              (SPAN {class: "game-id"} $game_id)
-              (SPAN {class: "hint"} "keys: hjkl / arrows")
-              (BUTTON {type: "button" "data-intent": "undo" class: "linklike"} "undo"))
-            (DIV {class: "right"}
-              (SPAN {class: "score-label"} "score ")
-              (render-score 0)
-              (render-state-badge false false)))
-          # data-init lives on .column (which is never patched) so the SSE
-          # fetch + connection signal survive the morph of #game's contents.
-          (DIV {
-            class: "column"
-            "data-sse": ""
-            "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
-          }
-            $placeholder))
+          # Breadcrumb: "/" links back to splash, then a short game-id slug.
+          (NAV {class: "breadcrumb"}
+            (A {href: $home_href} "/")
+            (SPAN {class: "sep"} "·")
+            (SPAN {class: "game-id"} $game_id_short))
+          (DIV {class: "play-layout"}
+            (DIV {class: "board-controls"}
+              (BUTTON {type: "button" "data-intent": "undo" class: "undo-badge" title: "undo (u)"}
+                (SPAN {class: "bracket"} "[")
+                (SPAN {class: "key"} "u")
+                (SPAN {class: "bracket"} "]")
+                "ndo")
+              (DIV {class: "score-block"}
+                (render-score 0)
+                (render-state-badge false false)))
+            # data-init lives on .column (which is never patched) so the SSE
+            # fetch + connection signal survive the morph of #game's contents.
+            (DIV {
+              class: "column"
+              "data-sse": ""
+              "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+            }
+              $placeholder)
+            # Help panel: vim direction keys + arrow glyphs. Sits to the
+            # right of the board on wide viewports, drops below on narrow.
+            (ASIDE {class: "help"}
+              (DIV {class: "help-row"}
+                (SPAN {class: "key"} "h") (SPAN {class: "arrow"} "←") (SPAN {class: "label"} "left"))
+              (DIV {class: "help-row"}
+                (SPAN {class: "key"} "j") (SPAN {class: "arrow"} "↓") (SPAN {class: "label"} "down"))
+              (DIV {class: "help-row"}
+                (SPAN {class: "key"} "k") (SPAN {class: "arrow"} "↑") (SPAN {class: "label"} "up"))
+              (DIV {class: "help-row"}
+                (SPAN {class: "key"} "l") (SPAN {class: "arrow"} "→") (SPAN {class: "label"} "right"))
+              (DIV {class: "help-row"}
+                (SPAN {class: "key"} "u") (SPAN {class: "arrow"} "") (SPAN {class: "label"} "undo"))))
+        )
         (render-tuner)
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "2048 -- http-nu .bus demo"

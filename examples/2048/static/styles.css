@@ -337,7 +337,9 @@ body.play .board > div:not(:empty) {
    -- the tab stays put so it's always click-able. */
 .vt-tuner {
   position: fixed;
-  top: 12px;
+  /* Bottom-right corner: out of the way of the help nav above, still
+     reachable when the panel is collapsed. */
+  bottom: 12px;
   right: 0;
   z-index: 1000;
   font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
@@ -655,9 +657,123 @@ body.play, body.games-view {
   gap: 1rem;
   box-sizing: border-box;
 }
-/* Same page chrome on both pages -- only the board column itself
-   caps at 600px on /play so the board doesn't dominate. */
-body.play .column { max-width: 600px; align-self: center; }
+/* /play layout: grid with controls above the board, help to the right
+   of the board (aligned with the BOARD's top, not the controls row).
+   Stacks single-column at narrow viewports. */
+body.play .play-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "controls"
+    "board"
+    "help";
+  gap: 0.4rem 1.25rem;
+  justify-content: center;
+}
+body.play .board-controls { grid-area: controls; width: 100%; max-width: 500px; justify-self: center; }
+body.play .column        { grid-area: board;    width: 100%; max-width: 500px; justify-self: center; }
+body.play .help          { grid-area: help; justify-self: center; }
+@media (min-width: 900px) {
+  body.play .play-layout {
+    grid-template-columns: 500px auto;
+    grid-template-areas:
+      "controls ."
+      "board    help";
+  }
+  body.play .board-controls,
+  body.play .column { justify-self: start; }
+  body.play .help { align-self: start; justify-self: start; }
+}
+
+/* Breadcrumb above the board: "/" link + short game-id slug. */
+body.play .breadcrumb {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 1rem;
+}
+body.play .breadcrumb .sep { opacity: 0.5; }
+body.play .breadcrumb .game-id { opacity: 0.7; color: var(--fg-header); }
+
+/* Board controls strip: score top-left, [u]ndo button top-right. */
+body.play .board-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+body.play .score-block {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+/* Score: big mono number in the cream header color; the *number* IS
+   the label here, no word. */
+body.play #score {
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 2.5rem;
+  line-height: 1;
+  color: var(--fg-header);
+  font-variant-numeric: tabular-nums;
+}
+/* [u]ndo as a fun badge button: bracketed key + label, mono, pressable. */
+body.play .undo-badge {
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--fg-header);
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 1.125rem;
+  padding: 0.4rem 0.9rem;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+  transition: transform 80ms, box-shadow 80ms, opacity 0.2s;
+  display: inline-flex;
+  align-items: baseline;
+}
+body.play .undo-badge:hover { opacity: 0.85; background: rgba(0, 0, 0, 0.25); }
+body.play .undo-badge:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+body.play .undo-badge .bracket { opacity: 0.55; }
+body.play .undo-badge .key { color: #fff; }
+
+/* Help panel: small monospace grid documenting the vim keys + arrows. */
+body.play .help {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.4rem 0.75rem;
+  align-items: baseline;
+  padding: 1rem 1.25rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0.5rem;
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 0.9375rem;
+  color: var(--fg-header);
+}
+body.play .help .help-row {
+  display: contents;
+}
+body.play .help .key {
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  text-align: center;
+}
+body.play .help .arrow {
+  font-size: 1.125rem;
+  opacity: 0.85;
+  min-width: 1.2em;
+  text-align: center;
+}
+body.play .help .label { opacity: 0.75; }
 /* play-header: a section-heading row. Modeled on http-nu/www's
    section-header (text-3xl mb-4 font-mono font-bold text-header)
    but split left/right so secondary controls (score, undo) can ride
