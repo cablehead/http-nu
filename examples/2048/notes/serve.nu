@@ -35,10 +35,11 @@ def all-pages []: nothing -> list {
     (route {method: GET path: "/"} {|req ctx|
       # The shared layout's asset URLs (styles, script, ellie, splash,
       # my-games, design) live at the parent app's root, NOT under the
-      # /notes mount. Strip the mount_prefix so $req|href resolves
-      # against root for layout chrome. Body links keep $req with the
-      # /notes prefix so internal sub-site links stay scoped.
-      let root_req = $req | upsert mount_prefix ""
+      # /notes sub-mount. Strip just the /notes segment from
+      # mount_prefix so $req|href resolves to the parent app's root --
+      # whether that root is "" (standalone) or "/2048" (hub mount).
+      # Body links keep $req with the full prefix for sub-site links.
+      let root_req = $req | upsert mount_prefix ($req.mount_prefix | str replace -r '/notes$' '')
       let pages = all-pages
       ([
         (DIV {class: "page"}

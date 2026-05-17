@@ -61,8 +61,10 @@
 * { box-sizing: border-box; margin: 0; }
 
 html, body {
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100dvh;
+  /* Scroll by default. /play is the only page that needs to be
+     viewport-locked (board fills the column, no body scroll); it
+     re-pins height + overflow below via body.play. */
   overscroll-behavior: none;
   /* Stop iOS/Android from inflating text on narrow viewports, which would
      scale up em-sized children (like the footer mascot) unexpectedly. */
@@ -332,10 +334,16 @@ body.play .board > div:not(:empty) {
    tab and slides off-screen via translateX when .is-collapsed is set
    -- the tab stays put so it's always click-able. */
 .vt-tuner {
-  /* Overlays the .help panel (its positioned ancestor). The help [fx]
-     button opens it; the in-tuner "close" button or Esc dismisses. */
+  /* Anchored over the .help panel but allowed to grow past its right
+     edge so the full tuner is legible without forcing help to be wide.
+     position: absolute against .help (top-aligned), min-width matches
+     help, max-width caps growth. Help is the [fx] toggle; the in-tuner
+     "close" button or Esc dismisses. */
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  min-width: 100%;
+  max-width: min(22rem, 90vw);
   z-index: 10;
   font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
   font-size: 11px;
@@ -364,10 +372,10 @@ body.play .board > div:not(:empty) {
 }
 .vt-tuner-body {
   width: 100%;
-  height: 100%;
+  max-height: calc(100dvh - 6rem);
   overflow-y: auto;
   padding: 0.75rem 0.875rem;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   color: var(--fg);
   border-radius: 0.5rem;
   backdrop-filter: blur(4px);
@@ -578,15 +586,13 @@ body.play .board > div:not(:empty) {
   background: rgba(0, 0, 0, 0.6);
 }
 
-/* /games: page may overflow vertically (many cards) -- let the document
-   scroll and align .page to the top instead of centring it. The base
-   `html, body { overflow: hidden }` rule is scoped away via :has so
-   /play stays viewport-locked. */
-html:has(body.games-view),
-body.games-view {
-  height: auto;
-  min-height: 100dvh;
-  overflow: auto;
+/* /play viewport-locks its viewport so the board sits centered and
+   the page can't scroll-bounce on touch. Every other page scrolls
+   naturally (default html/body rule). */
+html:has(body.play),
+body.play {
+  height: 100dvh;
+  overflow: hidden;
 }
 body.games-view {
   justify-content: flex-start;
@@ -782,8 +788,8 @@ body.play, body.games-view {
    /design markdown story. */
 .prose {
   max-width: 65ch;
-  font-size: var(--text-md);
-  line-height: 1.65;
+  font-size: 1.2em;  /* ~21.6px relative to body's 18px -- article body */
+  line-height: 1.6;
 }
 .prose > * + * { margin-top: 1em; }
 .prose h2 {

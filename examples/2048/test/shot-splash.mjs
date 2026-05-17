@@ -42,6 +42,12 @@ async function shoot(label, viewport, fullPage = false) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+  // For the OG capture, nudge the content downward so the framing has
+  // a little more breathing room at the top, correspondingly less at
+  // the bottom. Body is flex-centered, so we shift the inner flow.
+  await page.addStyleTag({ content: `
+    body.splash { justify-content: flex-start; padding-top: 1.5rem; }
+  `});
   const path = `/tmp/2048-splash-${label}.png`;
   await page.screenshot({ path, fullPage });
   console.log(`saved: ${path}`);
