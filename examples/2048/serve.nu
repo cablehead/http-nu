@@ -262,8 +262,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
                 (SPAN {class: "arrow"} "")
                 (SPAN {class: "label"} "undo"))
               (DIV {class: "help-row help-fx"}
-                (BUTTON {type: "button" class: "kbd-btn fx-toggle"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "fx") (SPAN {class: "bracket"} "]"))
+                (BUTTON {type: "button" class: "kbd-btn fx-toggle"} "fx")
                 (SPAN {class: "arrow"} "")
                 (SPAN {class: "label"} "tuner"))
               (render-tuner)))

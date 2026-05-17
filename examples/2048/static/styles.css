@@ -715,7 +715,7 @@ body.play .help {
   gap: 0.4rem 0.75rem;
   align-items: center;
   align-content: start;
-  padding: 1rem 1.25rem;
+  padding: 0.9rem 0.9rem 0.9rem 1.1rem;
   background: rgba(0, 0, 0, 0.2);
   border-radius: 0.5rem;
   font-family: "Source Code Pro", ui-monospace, monospace;
@@ -751,7 +751,12 @@ body.play .help .kbd-btn:active {
   transform: translateY(2px);
   box-shadow: none;
 }
+/* Micro space between brackets and the key glyph: `[ h ]` reads more
+   like a key-cap than `[h]`. Margins on the brackets, not letter-
+   spacing, so the gap is symmetric and tight. */
 body.play .help .kbd-btn .bracket { opacity: 0.55; }
+body.play .help .kbd-btn .bracket:first-child { margin-right: 0.2em; }
+body.play .help .kbd-btn .bracket:last-child  { margin-left:  0.2em; }
 body.play .help .kbd-btn .key { color: #fff; }
 body.play .help .arrow {
   font-size: 1.125rem;
