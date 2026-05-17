@@ -551,29 +551,22 @@ body.play .board > div:not(:empty) {
 /* (tile-spawn :only-child rule removed; the VT-only pipeline at the
    bottom of this file owns spawn animation via .spawned.) */
 
-/* Edge flash: server emits a fresh .edge-flash element with a unique id per
-   patch (whenever the patch carries a direction). Morphdom recreates the
-   element, so its CSS animation re-fires each move. The keyframes start
-   near-invisible so the snapshot captured during the view-transition
-   doesn't show a "stuck" glow, then ramps to peak around the time
-   view-transition completes, then fades. */
-.edge-flash {
+/* Pending indicator: a static edge glow on the side the player swiped
+   toward, shown while a move request is in flight. JS sets
+   `#board-wrap[data-pending="<dir>"]` on keydown and clears it when the
+   SSE patch lands. No animation -- the presence/absence of the
+   attribute IS the signal. */
+#board-wrap[data-pending]::before {
+  content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   border-radius: 6px;
-  opacity: 0;
-  animation: edge-flash 500ms ease-out forwards;
 }
-.edge-flash[data-dir="l"] { background: linear-gradient(to left,   rgb(from var(--glow) r g b / 0.85), transparent 8%); }
-.edge-flash[data-dir="h"] { background: linear-gradient(to right,  rgb(from var(--glow) r g b / 0.85), transparent 8%); }
-.edge-flash[data-dir="k"] { background: linear-gradient(to bottom, rgb(from var(--glow) r g b / 0.85), transparent 8%); }
-.edge-flash[data-dir="j"] { background: linear-gradient(to top,    rgb(from var(--glow) r g b / 0.85), transparent 8%); }
-@keyframes edge-flash {
-  0%   { opacity: 0; }
-  40%  { opacity: 1; }
-  100% { opacity: 0; }
-}
+#board-wrap[data-pending="h"]::before { background: linear-gradient(to right,  rgb(from var(--glow) r g b / 0.85), transparent 8%); }
+#board-wrap[data-pending="l"]::before { background: linear-gradient(to left,   rgb(from var(--glow) r g b / 0.85), transparent 8%); }
+#board-wrap[data-pending="k"]::before { background: linear-gradient(to bottom, rgb(from var(--glow) r g b / 0.85), transparent 8%); }
+#board-wrap[data-pending="j"]::before { background: linear-gradient(to top,    rgb(from var(--glow) r g b / 0.85), transparent 8%); }
 
 /* /games splash: list of board thumbnails inside the shared .page
    column. Empty-state hint shows only when no cards. */

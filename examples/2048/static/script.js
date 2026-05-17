@@ -35,15 +35,25 @@ const move = (intent) => {
   // so reconnect-replay patches don't get misattributed to a probe.
   const reqId = crypto.randomUUID();
   pending = { id: reqId, t: performance.now() };
+  // Light the directional edge glow for the duration of the round trip.
+  // Cleared in the MutationObserver below when the SSE patch lands.
+  if (intent && "hjkl".includes(intent)) {
+    document.querySelector("#board-wrap")?.setAttribute("data-pending", intent);
+  }
   requestAnimationFrame(tickRtt);  // live-tick the RTT indicator while in flight
   return fetch(moveUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ playerId, gameId, intent, reqId }),
   }).then((r) => {
-    if (!r.ok) { pending = null; flashRed(); }
+    if (!r.ok) {
+      pending = null;
+      document.querySelector("#board-wrap")?.removeAttribute("data-pending");
+      flashRed();
+    }
   }).catch(() => {
     pending = null;
+    document.querySelector("#board-wrap")?.removeAttribute("data-pending");
     flashRed();
   });
 };
@@ -112,11 +122,11 @@ new MutationObserver(() => {
   if (game.dataset.rev !== pending.id) return;
   const rtt = Math.round(performance.now() - pending.t);
   pending = null;
-  // SSE patch landed: release the "still lit" edge glow. The patch's own
-  // .edge-flash element carries the per-step visual from here on.
+  // SSE patch landed: clear pointer-drag glow and the pending indicator.
   const w = document.querySelector("#board-wrap");
   w?.style.setProperty("--glow-x", "0px");
   w?.style.setProperty("--glow-y", "0px");
+  w?.removeAttribute("data-pending");
   document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
   rtts.push(rtt);
   if (rtts.length > RTT_HISTORY) rtts.shift();

@@ -116,14 +116,6 @@ export def render-game [direction?: string, changed?: bool, req_id?: string]: re
   let dir = $direction | default ""
   let did_change = $changed | default false
   let rid = $req_id | default ""
-  let wrap_children = if ($did_change and $dir in [h j k l]) {
-    [
-      ($state | render-board)
-      (DIV {id: $"flash-(random uuid)" class: "edge-flash" "data-dir": $dir} "")
-    ]
-  } else {
-    [($state | render-board)]
-  }
   (DIV {
     id: "game"
     style: $"--glow: ($glow); view-transition-name: view-game;"
@@ -131,7 +123,10 @@ export def render-game [direction?: string, changed?: bool, req_id?: string]: re
     "data-from": $dir
     "data-changed": (if $did_change { "1" } else { "" })
   }
-    (DIV {id: "board-wrap" "data-preserve-attr": "class"} ...$wrap_children))
+    # data-pending is set client-side on keydown and cleared when the SSE
+    # patch lands; preserve it across morphs so the edge glow stays lit
+    # for the duration of the round trip.
+    (DIV {id: "board-wrap" "data-preserve-attr": "class data-pending"} ($state | render-board)))
 }
 
 # Render a card from already-known state. Callers pass state straight
