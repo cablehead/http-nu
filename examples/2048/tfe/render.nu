@@ -7,20 +7,101 @@ use http-nu/html *
 # Used by `layout` below to resolve templates relative to this module.
 const TEMPLATES_DIR = path self | path dirname | path join "templates"
 
-export def color-for [v: int]: nothing -> string {
-  match $v {
-    2 => "#eee4da"
-    4 => "#ede0c8"
-    8 => "#f2b179"
-    16 => "#f59563"
-    32 => "#f67c5f"
-    64 => "#f65e3b"
-    128 => "#edcf72"
-    256 => "#edcc61"
-    512 => "#edc850"
-    1024 => "#edc53f"
-    _ => "#edc22e"
+# --- color palette: spectral cascade -----------------------------------
+#
+# Each tile is an octave of light, walking the EM spectrum from
+# low-energy red (~1.8 eV) through the visible band into UV. The
+# doubling of tile values is the doubling of photon energy. Hue, chroma
+# and lightness are tabulated at spectral landmarks rather than fitted
+# to a curve. Chromas are pushed a hair past the original swatch
+# explorer to make each tile commit to its color.
+#
+# Foreground is picked at table-build time via in-hue + WCAG gate:
+# propose a fg in the same hue family (same H, low C, opposite L);
+# verify contrast ratio >= 4.5:1 against the bg; push L further until
+# it passes. Result: numbers stay tinted with their tile's color, never
+# bleached white or black, and contrast is provable.
+
+const SPECTRAL_STOPS = [
+  #  L     C    H      value: description
+  [0.50 0.21  30.0]   # 2:    deep red          (~656nm, H-alpha)
+  [0.62 0.22  40.0]   # 4:    orange-red
+  [0.70 0.21  55.0]   # 8:    orange
+  [0.78 0.20  85.0]   # 16:   yellow            (~580nm, sodium D)
+  [0.85 0.19 110.0]   # 32:   yellow-green
+  [0.82 0.23 140.0]   # 64:   green             (peak eye sensitivity)
+  [0.75 0.18 200.0]   # 128:  cyan              (~486nm, H-beta)
+  [0.62 0.23 245.0]   # 256:  blue
+  [0.50 0.24 280.0]   # 512:  indigo            (~434nm, H-gamma)
+  [0.42 0.23 305.0]   # 1024: violet            (~410nm, H-delta)
+  [0.32 0.21 320.0]   # 2048: deep violet       (visible edge)
+  [0.22 0.14 320.0]   # 4096: near-UV           (fading from sight)
+  [0.10 0.06 320.0]   # 8192: deep UV           (off-spectrum void)
+]
+const SPECTRAL_VALUES = [2 4 8 16 32 64 128 256 512 1024 2048 4096 8192]
+
+# String interpolation `$"oklch(($a) ($b) ...)"` confuses nu's parser
+# (adjacent `($x) ($y)` reads as function application). Join args first.
+def oklch [l: float, c: float, h: float]: nothing -> string {
+  'oklch(' + ([$l $c $h] | str join ' ') + ')'
+}
+
+# OKLCH -> linear sRGB -> WCAG relative luminance Y. Bjorn Ottosson's
+# OKLab matrices; out-of-gamut channels clip to [0,1] before the
+# luminance sum -- coarse but enough for a pass/fail contrast check.
+def oklch-to-luminance [l: float, c: float, h: float]: nothing -> float {
+  let hr = $h * 3.141592653589793 / 180
+  let a = $c * ($hr | math cos)
+  let b = $c * ($hr | math sin)
+  let lp = $l + 0.3963377774 * $a + 0.2158037573 * $b
+  let mp = $l - 0.1055613458 * $a - 0.0638541728 * $b
+  let sp = $l - 0.0894841775 * $a - 1.2914855480 * $b
+  let ll = $lp * $lp * $lp
+  let mm = $mp * $mp * $mp
+  let ss = $sp * $sp * $sp
+  let r =  4.0767416621 * $ll - 3.3077115913 * $mm + 0.2309699292 * $ss
+  let g = -1.2684380046 * $ll + 2.6097574011 * $mm - 0.3413193965 * $ss
+  let b2 = -0.0041960863 * $ll - 0.7034186147 * $mm + 1.7076147010 * $ss
+  let clamp = {|v| if $v < 0 { 0.0 } else if $v > 1 { 1.0 } else { $v } }
+  0.2126 * (do $clamp $r) + 0.7152 * (do $clamp $g) + 0.0722 * (do $clamp $b2)
+}
+
+def wcag-ratio [y1: float, y2: float]: nothing -> float {
+  let lo = if $y1 < $y2 { $y1 } else { $y2 }
+  let hi = if $y1 < $y2 { $y2 } else { $y1 }
+  ($hi + 0.05) / ($lo + 0.05)
+}
+
+# In-hue fg proposal, WCAG-gated. Same H as bg, low C (0.06), L pushed
+# toward the opposite extreme until contrast >= 4.5:1.
+def fg-pick [bg_l: float, bg_c: float, bg_h: float]: nothing -> string {
+  let bg_y = oklch-to-luminance $bg_l $bg_c $bg_h
+  let candidates = if $bg_l > 0.5 { [0.20 0.15 0.10 0.05] } else { [0.95 0.97 0.99 1.0] }
+  mut picked = $candidates | last
+  for lp in $candidates {
+    let y = oklch-to-luminance $lp 0.06 $bg_h
+    if (wcag-ratio $bg_y $y) >= 4.5 { $picked = $lp; break }
   }
+  oklch $picked 0.06 $bg_h
+}
+
+# {value: {bg, fg}} lookup, built once at module load.
+def build-palette-lut []: nothing -> record {
+  $SPECTRAL_VALUES | enumerate | reduce -f {} {|p acc|
+    let s = $SPECTRAL_STOPS | get $p.index
+    let l = $s | get 0
+    let c = $s | get 1
+    let h = $s | get 2
+    $acc | upsert ($p.item | into string) {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Look up the palette pair for a tile value. Past the largest tabulated
+# value, clamp to the last entry (the off-spectrum void).
+export def palette-for [v: int]: nothing -> record {
+  let max_v = $SPECTRAL_VALUES | last
+  let key = if $v > $max_v { $max_v } else { $v } | into string
+  $env.PALETTE_LUT | get $key
 }
 
 # The board: a self-contained component. Single class `.board` on the
@@ -63,6 +144,9 @@ export-env {
   # Fx tuner overlay (vt-tuner.html). Static markup + script; rendered
   # with no template vars. See `render-tuner` below.
   $env.TUNER_TPL = .mj compile ($TEMPLATES_DIR | path join "vt-tuner.html")
+  # Spectral cascade palette LUT. Computing fg-pick per render would
+  # iterate WCAG contrast for every tile; precompute once here.
+  $env.PALETTE_LUT = build-palette-lut
 }
 
 export def render-board [scope?: string]: record -> record {
@@ -72,11 +156,12 @@ export def render-board [scope?: string]: record -> record {
   # a page, so the optional scope (game id) keeps names unique.
   let vt_name = {|id| if ($s | is-empty) { $"tile-($id)" } else { $"tile-($s)-($id)" }}
   let tiles = $state.tiles | each {|t|
+    let p = palette-for $t.value
     {
       col: ($t.c + 1)
       row: ($t.r + 1)
-      bg: (color-for $t.value)
-      fg: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
+      bg: $p.bg
+      fg: $p.fg
       fs: (if $t.value >= 1024 { 5 } else if $t.value >= 128 { 6 } else { 7 })
       vt: (do $vt_name $t.id)
       vt_class: (
@@ -90,7 +175,7 @@ export def render-board [scope?: string]: record -> record {
   # `ghosts` may be absent on snapshots written before the merge-ghosts
   # feature -- default to empty so old games still render.
   let ghosts = ($state | get ghosts? | default []) | each {|g|
-    {col: ($g.c + 1) row: ($g.r + 1) bg: (color-for $g.value) vt: (do $vt_name $g.id)}
+    {col: ($g.c + 1) row: ($g.r + 1) bg: ((palette-for $g.value).bg) vt: (do $vt_name $g.id)}
   }
   {__html: ({tiles: $tiles, ghosts: $ghosts} | .mj render $env.BOARD_TPL)}
 }
@@ -122,7 +207,7 @@ export def render-game [direction?: string, changed?: bool, req_id?: string]: re
   let state = $in
   # The edge-glow color rides the highest-value tile, pushed as an inline
   # CSS variable so it cascades to #board-wrap and the ::after pseudo.
-  let glow = color-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })
+  let glow = (palette-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })).bg
   let dir = $direction | default ""
   let did_change = $changed | default false
   let rid = $req_id | default ""

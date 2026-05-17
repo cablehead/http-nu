@@ -61,6 +61,11 @@ html, body {
   text-size-adjust: 100%;
 }
 
+html {
+  /* Subtle vignette: same color flat fill via radial gradient, matches
+     the parent site at http-nu.cross.stream. */
+  background: radial-gradient(ellipse at center, var(--bg) 0%, var(--bg) 100%);
+}
 body {
   display: flex;
   flex-direction: column;
@@ -70,18 +75,21 @@ body {
   gap: 12px;
   background: var(--bg);
   color: var(--fg);
-  font-family: sans-serif;
+  font: 1.125rem/1.6 "Source Sans 3", sans-serif;
 }
 
-h1 { font-size: clamp(24px, 6vmin, 40px); }
-h1 a {
+/* Inherit color + underline + hover-dim, mirrors http-nu.cross.stream.
+   Per-element rules can still override (e.g. .credit a uses no underline,
+   .game-card uses none and lights its own visual). */
+a {
   color: inherit;
   text-decoration: underline;
-  text-decoration-color: var(--brand);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
+  transition: opacity 0.2s;
 }
-h1 a:hover { text-decoration-color: var(--brand-hover); }
+a:hover { opacity: 0.8; }
+
+h1 { font-size: clamp(24px, 6vmin, 40px); }
+h1 a { color: inherit; }
 p  { font-size: 14px; }
 
 kbd {
@@ -340,21 +348,21 @@ body.play .board > div:not(:empty) {
   position: relative;
   z-index: 2;          /* stays above the body so the body slides UNDER it */
   width: 32px;
-  background: var(--brand);
-  color: var(--light);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--fg-header);
   border: 0;
   border-radius: 6px 0 0 6px;
   cursor: pointer;
   font: inherit;
-  font-weight: bold;
+  font-weight: 700;
   padding: 12px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.2s;
 }
-.vt-tuner-tab:hover { background: var(--brand-hover); }
+.vt-tuner-tab:hover { opacity: 0.8; }
 .vt-tuner-tab .vt-tuner-tab-arrow {
   font-size: 18px;
   line-height: 1;
@@ -376,14 +384,14 @@ body.play .board > div:not(:empty) {
   top: 0;
   right: 32px;  /* anchor to the left of the tab */
   z-index: 1;   /* below the tab so collapse slides UNDER */
-  width: 240px;
+  width: 260px;
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
-  padding: 6px 10px 10px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-right: none;
-  box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.1);
+  padding: 0.75rem 0.875rem;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--fg);
+  border-radius: 0.5rem 0 0 0.5rem;
+  backdrop-filter: blur(4px);
   transition: transform 220ms ease;
 }
 .vt-tuner.is-collapsed .vt-tuner-body {
@@ -550,16 +558,18 @@ body.play .board > div:not(:empty) {
   text-decoration: none;
   color: inherit;
 }
-.game-card:hover .thumb { outline: 2px solid var(--brand); }
+.game-card { transition: opacity 0.2s; }
+.game-card:hover { opacity: 0.85; }
 .game-card .thumb {
   width: 230px;
   height: 230px;
-  border-radius: 6px;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0.5rem;
 }
 .game-card .caption {
-  font-size: 13px;
-  color: var(--fg);
-  opacity: 0.7;
+  font-size: 0.875rem;
+  color: var(--fg-header);
 }
 
 /* /games: page may overflow vertically (many cards) -- let the document
@@ -600,8 +610,10 @@ body.play, body.games-view {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.75rem 0;
-  font-size: 14px;
+  padding: 0.5rem 0 1rem;
+  font-size: 0.875rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  margin-bottom: 0.5rem;
 }
 .play-header .left,
 .play-header .right {
@@ -615,10 +627,17 @@ body.play, body.games-view {
   align-items: center;
   gap: 0.4rem;
 }
-.play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
-.play-header .score-label { opacity: 0.6; }
-.play-header .page-title { font-weight: bold; }
-.play-header .game-id { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; opacity: 0.55; }
+/* Cream emphasis everywhere `strong` would land: score number,
+   "past games" page title, the score-label, the game-id slug. */
+.play-header #score { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--fg-header); }
+.play-header .score-label { color: var(--fg-header); }
+.play-header .page-title { font-weight: 700; color: var(--fg-header); }
+.play-header .game-id {
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  color: var(--fg-header);
+  opacity: 0.8;
+}
 
 /* Site header: shared by / and /play. Title left, status + credit right.
    The right side is its own flex row so the conn/rtt group and the
@@ -631,10 +650,11 @@ body.play, body.games-view {
   align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.5rem 1rem 0.75rem;
+  padding: 2rem 1rem 1.25rem;
   margin-bottom: 1.5rem;
-  font-size: 14px;
+  font-size: 0.9375rem;
   color: var(--fg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
   box-sizing: border-box;
 }
 .site-header-left {
@@ -642,20 +662,15 @@ body.play, body.games-view {
   align-items: center;
 }
 .site-header .site-title {
-  font-weight: bold;
-  font-size: 28px;
+  font-weight: 700;
+  font-size: 1.75rem;
   color: var(--fg-header);
-  text-decoration: underline;
-  text-decoration-color: var(--brand);
-  text-decoration-thickness: 3px;
-  text-underline-offset: 5px;
+  /* underline + hover-opacity inherited from base `a` rule */
 }
-.site-header .site-title:hover { text-decoration-color: var(--brand-hover); }
 .site-header-right {
   display: flex;
   align-items: flex-end;
   gap: 1rem;
-  opacity: 0.85;
 }
 .site-header .status {
   display: flex;
@@ -690,12 +705,13 @@ body.play .column {
   border: 0;
   padding: 0;
   font: inherit;
-  color: var(--brand);
+  color: inherit;
   text-decoration: underline;
   cursor: pointer;
   box-shadow: none;
+  transition: opacity 0.2s;
 }
-.linklike:hover { color: var(--brand-hover); background: none; }
+.linklike:hover { opacity: 0.8; background: none; }
 .linklike:active { transform: none; box-shadow: none; }
 
 /* Small status badge for game-over / you-win in the header. */
