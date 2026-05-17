@@ -112,27 +112,36 @@ export def list-games [] {
 # and the game's start time (decoded from its SCRU128 frame id).
 export def leaderboard [--since: duration = 7day, --limit: int = 5] {
   let cutoff = (date now) - $since
-  .cat
-  | where ($it.topic | str starts-with "game.") and (($it.topic | str ends-with ".move") or ($it.topic | str ends-with ".snapshot"))
-  | insert game {|f| $f.topic | split row "." | get 1 }
-  | insert kind {|f| $f.topic | split row "." | last }
-  | group-by game
-  | items {|game frames|
-      let moves = $frames | where kind == "move"
-      let head = $frames | where kind == "snapshot" | last
+  # Walk players -> their games (indexed by topic), pulling each game's
+  # HEAD snapshot (indexed by topic). The snapshot's id timestamp is the
+  # last activity -- gate on that before keeping the row, so games that
+  # went quiet earlier than `--since` cost only one `.last` each.
+  # Move counts (for the undo column) are scanned only for the top N.
+  list-players | each {|p|
+    .cat -T $"player.($p.player).games" | each {|f|
+      let snap = .last $"game.($f.id).snapshot"
+      if $snap == null { return null }
+      let when = $snap.id | .id unpack | get timestamp
+      if $when < $cutoff { return null }
       {
-        game: ($game | str substring 0..7)
-        when: ($game | .id unpack | get timestamp)
-        player: ($head.meta.player_id? | default "" | str substring 0..7)
-        moves: ($moves | where ($it.meta?.kind? | default "") != "undo" | length)
-        score: ($head.meta.score? | default 0)
-        max: ($head.meta.max_tile? | default 0)
-        undos: ($moves | where ($it.meta?.kind? | default "") == "undo" | length)
+        game: ($f.id | str substring 0..7)
+        game_id: $f.id
+        when: $when
+        player: ($p.player | str substring 0..7)
+        score: ($snap.meta.score? | default 0)
+        max: ($snap.meta.max_tile? | default 0)
+        moves: ($snap.meta.moves? | default 0)
       }
     }
-  | where when >= $cutoff
+  }
+  | flatten | compact
   | sort-by score -r
   | first $limit
+  | insert undos {|row|
+      .cat -T $"game.($row.game_id).move"
+      | where ($it.meta?.kind? | default "") == "undo" | length
+    }
+  | reject game_id
 }
 
 # List every player seen in the store with their game count and latest game id.
