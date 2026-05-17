@@ -582,17 +582,13 @@ body.play .board > div:not(:empty) {
   100% { opacity: 0; }
 }
 
-/* /games splash: simple plain page. No tracker chrome. Boards in a
-   flex-wrap row, plain caption under each. */
-
-/* The "no games yet" hint hides whenever .games-list has a card. */
+/* /games splash: list of board thumbnails inside the shared .page
+   column. Empty-state hint shows only when no cards. */
 .games-list:not(:empty) + .empty-state { display: none; }
-
 .games-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.5rem;
-  padding: 0 1rem 1.5rem;
+  gap: 1rem;
 }
 .game-card {
   display: flex;
@@ -614,50 +610,27 @@ body.play .board > div:not(:empty) {
   opacity: 0.7;
 }
 
-/* /games -- override body so the page scrolls and content flows top-down. */
+/* /games: page may overflow vertically (many cards) -- let the document
+   scroll and align .page to the top instead of centring it. The base
+   `html, body { overflow: hidden }` rule is scoped away via :has so
+   /play stays viewport-locked. */
+html:has(body.games-view),
 body.games-view {
   height: auto;
   min-height: 100dvh;
   overflow: auto;
+}
+body.games-view {
   justify-content: flex-start;
 }
-body.games-view h1 { padding-top: 16px; }
 
-/* /play: a plain flex column with a small header and footer. The middle
-   .column flex-centers the board. No slate chrome, no tracker palette. */
-body.play {
-  /* base body is already flex-column centered (align-items: center,
-     justify-content: center). .page (the only child) sizes itself by
-     content so header + board + footer cluster tightly together,
-     centred in the viewport. */
+/* Shared page chrome -- both /play and /games use a 600px-max centred
+   column with the same small header / footer pattern. */
+body.play, body.games-view {
   padding: 0;
   gap: 0;
 }
-/* Footer used by /games (and any other plain-flow page). /play has its
-   own structured footer; see body.play .play-footer rules below. */
-.site-footer {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1.25rem;
-  font-size: 12px;
-  color: var(--fg);
-  opacity: 0.8;
-}
-.site-footer .spacer { flex: 1; }
-.site-footer .stat { font-variant-numeric: tabular-nums; }
-.site-footer .credit a { color: inherit; text-decoration: none; }
-.site-footer .credit a:hover { text-decoration: underline; }
-.site-footer .credit .mascot { width: 22px; height: 12px; vertical-align: -2px; }
-.site-footer #conn::before { content: "•"; margin-right: 4px; font-size: 16px; vertical-align: -2px; color: #888; }
-body[data-conn="ok"]   .site-footer #conn::before { color: #2a9d4a; }
-body[data-conn="down"] .site-footer #conn::before { color: #c0392b; }
-
-/* /play layout: single 800px-max centred column. Header has two
-   groups (left: back/keys/undo, right: score+badge). Footer mirrors
-   (left: SSE/RTT, right: served-by credit). Page shrinks to mobile
-   widths naturally via max-width + padding. */
-body.play .page {
+.page {
   width: 100%;
   max-width: 600px;
   padding: 0 1rem;
@@ -666,8 +639,8 @@ body.play .page {
   gap: 0.5rem;
   box-sizing: border-box;
 }
-body.play .play-header,
-body.play .play-footer {
+.play-header,
+.play-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -675,35 +648,36 @@ body.play .play-footer {
   padding: 0.75rem 0;
   font-size: 14px;
 }
-body.play .play-header .left,
-body.play .play-header .right {
+.play-header .left,
+.play-header .right {
   display: flex;
   align-items: center;
   gap: 1rem;
 }
-body.play .play-footer .left,
-body.play .play-footer .right {
+.play-footer .left,
+.play-footer .right {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
-body.play .play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
-body.play .play-header .score-label { opacity: 0.6; }
+.play-header #score { font-weight: bold; font-variant-numeric: tabular-nums; }
+.play-header .score-label { opacity: 0.6; }
+.play-header .page-title { font-weight: bold; }
 
-body.play .play-footer { color: var(--fg); opacity: 0.8; font-size: 12px; }
-body.play .play-footer .stat { font-variant-numeric: tabular-nums; }
-body.play .play-footer .credit a { color: inherit; text-decoration: none; }
-body.play .play-footer .credit a:hover { text-decoration: underline; }
-body.play .play-footer .credit .mascot { width: 22px; height: 12px; }
-body.play .play-footer #conn {
+.play-footer { color: var(--fg); opacity: 0.8; font-size: 12px; }
+.play-footer .stat { font-variant-numeric: tabular-nums; }
+.play-footer .credit a { color: inherit; text-decoration: none; }
+.play-footer .credit a:hover { text-decoration: underline; }
+.play-footer .credit .mascot { width: 22px; height: 12px; }
+.play-footer #conn {
   display: inline-block;
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background: #888;
 }
-body.play[data-conn="ok"]   .play-footer #conn { background: #2a9d4a; }
-body.play[data-conn="down"] .play-footer #conn { background: #c0392b; }
+body[data-conn="ok"]   .play-footer #conn { background: #2a9d4a; }
+body[data-conn="down"] .play-footer #conn { background: #c0392b; }
 
 body.play .column {
   width: 100%;

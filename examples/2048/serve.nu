@@ -452,15 +452,26 @@ def html-to-patches [] {
         "data-sse": ""
         "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
       }
-        (H1 "past games")
-        (P (A {href: ($req | href "/new")} "+ new game"))
-        # Always render .games-list (even if empty) so the SSE handler
-        # has a stable target to prepend new-game cards into. The hint
-        # below is a sibling, hidden via CSS when .games-list has any
-        # children.
-        (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
-        (P {class: "hint empty-state"} "no games yet.")
-        (render-footer $req))
+        (DIV {class: "page"}
+          (HEADER {class: "play-header"}
+            (DIV {class: "left"}
+              (SPAN {class: "page-title"} "past games")
+              (A {href: ($req | href "/new")} "+ new game")))
+          # Always render .games-list (even if empty) so the SSE handler
+          # has a stable target to prepend new-game cards into. The hint
+          # below is a sibling, hidden via CSS when .games-list has any
+          # children.
+          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
+          (P {class: "hint empty-state"} "no games yet.")
+          (FOOTER {class: "play-footer"}
+            (DIV {class: "left"}
+              (SPAN {id: "conn" class: "stat"} "")
+              (SPAN {id: "rtt" class: "stat"} ""))
+            (DIV {class: "right"}
+              (SPAN {class: "credit"}
+                (A {href: "https://http-nu.cross.stream"}
+                  "served by http-nu "
+                  (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))))
       | cookie set "player" $player_id --max-age 31536000 --no-secure)
     })
 
