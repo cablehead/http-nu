@@ -148,18 +148,12 @@ export def render-game [direction?: string, changed?: bool, req_id?: string]: re
 
 # Render a card from already-known state. Callers pass state straight
 # out of a snapshot frame's meta, avoiding a redundant resume-game lookup.
-# Decode a SCRU128 id to its embedded millisecond timestamp via the
-# xs subcommand. One subprocess per call -- fine for ~10-20 cards on a
-# splash render; revisit if cards balloon.
-def scru128-ms [id: string]: nothing -> int {
-  (^xs scru128 unpack $id | from json | get timestamp) * 1000 | math round | into int
-}
-
-# Render an absolute ms timestamp as a short, human-readable relative
-# string ("just now", "23s ago", "2h ago", "3d ago", "5w ago").
-def relative-time [ms: int]: nothing -> string {
-  let now_ms = (date now | into int) / 1_000_000 | into int
-  let diff = ($now_ms - $ms) / 1000 | into int
+# Render a SCRU128 id's embedded timestamp as a short, human-readable
+# relative string ("just now", "23s ago", "2h ago", "3d ago", "5w ago").
+# `.id unpack` is the http-nu builtin (no subprocess).
+def relative-time-from-id [id: string]: nothing -> string {
+  let ts = .id unpack $id | get timestamp
+  let diff = ((date now) - $ts | into int) / 1_000_000_000 | math floor
   if $diff < 5 { "just now"
   } else if $diff < 60 { $"($diff)s ago"
   } else if $diff < 3600 { $"(($diff / 60) | into int)m ago"
@@ -188,8 +182,8 @@ export def render-card-from-state [
   let status_class = if $won { "win" } else if $state.game_over { "over" } else { "" }
   let status_label = if $won { "won" } else if $state.game_over { "over" } else { "" }
   let lmid = $last_move_id | default $game_id
-  let made_at = relative-time (scru128-ms $game_id)
-  let played_at = relative-time (scru128-ms $lmid)
+  let made_at = relative-time-from-id $game_id
+  let played_at = relative-time-from-id $lmid
   let max_node = if $max_tile == 0 {
     (SPAN {class: "max-tile"} "empty")
   } else if ($status_label | is-not-empty) {
