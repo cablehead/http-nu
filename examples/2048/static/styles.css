@@ -704,12 +704,17 @@ body.play #score {
 
 /* Help panel: small monospace grid documenting the vim keys + arrows. */
 body.play .help {
-  /* position: relative so the tuner can anchor to the right of this panel */
+  /* position: relative so the tuner can anchor to the right of this panel.
+     align-self: start so the panel doesn't stretch to match the board's
+     height; align-content: start keeps rows packed at the top of the
+     panel instead of spreading. */
   position: relative;
+  align-self: start;
   display: grid;
   grid-template-columns: auto auto 1fr;
   gap: 0.4rem 0.75rem;
-  align-items: baseline;
+  align-items: center;
+  align-content: start;
   padding: 1rem 1.25rem;
   background: rgba(0, 0, 0, 0.2);
   border-radius: 0.5rem;
