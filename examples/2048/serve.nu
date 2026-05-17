@@ -45,11 +45,16 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
 # notes/content/*.md; each h1 becomes its own page at runtime.
 let notes = source notes/serve.nu
 
+# The /design component viewer. 2-col sidebar + focused preview; Ctrl-N/P
+# navigate the catalog.
+let design = source design/serve.nu
+
 # --- routes ---------------------------------------------------------------
 
 {|req|
   dispatch $req [
     (mount "/notes" $notes)
+    (mount "/design" $design)
     (route {method: POST path: "/move"} {|req ctx|
       # The client carries the game id (URL-routed play view, so the
       # page knows which game it's on). Body shape: {playerId, gameId,
@@ -289,17 +294,18 @@ let notes = source notes/serve.nu
               (kbd-btn "n" --href ($req | href "/new"))
             ])
           (DIV {class: "play-layout"}
-            (DIV {class: "board-controls"}
-              (DIV {class: "score-block"}
-                (render-score 0)
-                (render-state-badge false false)))
             # data-init lives on .column (which is never patched) so the SSE
             # fetch + connection signal survive the morph of #game's contents.
+            # Column = controls row above the board; flex 2:1 with help.
             (DIV {
               class: "column"
               "data-sse": ""
               "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
             }
+              (DIV {class: "board-controls"}
+                (DIV {class: "score-block"}
+                  (render-score 0)
+                  (render-state-badge false false)))
               $placeholder)
             # Help panel: each key is a real button that triggers the move
             # via the existing [data-intent] click delegate in script.js.

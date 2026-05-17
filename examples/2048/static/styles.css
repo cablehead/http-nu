@@ -123,15 +123,7 @@ button:active {
   box-shadow: none;
 }
 
-#game, .column {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--gap);
-  width: 100%;
-}
-
-#game { position: relative; }
+#game { position: relative; width: 100%; }
 
 #board-wrap {
   position: relative;
@@ -637,25 +629,15 @@ body.play, body.games-view {
    left-aligned with the breadcrumb's left edge -- the board hugs the
    .page left margin rather than centering. */
 .play-layout {
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-areas:
-    "controls"
-    "board"
-    "help";
-  gap: 0.4rem 1.25rem;
-  justify-content: start;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
-.board-controls { grid-area: controls; width: 100%; max-width: 500px; justify-self: start; }
-.column        { grid-area: board;    width: 100%; max-width: 500px; justify-self: start; }
-.help          { grid-area: help; justify-self: start; }
-@media (min-width: 900px) {
-  body.play .play-layout {
-    grid-template-columns: 500px auto;
-    grid-template-areas:
-      "controls ."
-      "board    help";
-  }
+.column { display: flex; flex-direction: column; gap: 0.5rem; }
+@media (min-width: 700px) {
+  .play-layout { flex-direction: row; align-items: flex-start; gap: 1.5rem; }
+  .column { flex: 2; min-width: 0; }
+  .help   { flex: 1; min-width: 0; }
 }
 
 /* Breadcrumb header (used on both / and /play): left = nav crumb +
@@ -844,10 +826,6 @@ body.play, body.games-view {
 }
 body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
 body[data-conn="down"] .site-header #conn { background: #c0392b; }
-
-.column {
-  width: 100%;
-}
 
 /* Inline link-styled button (e.g. undo in the footer). */
 .linklike {

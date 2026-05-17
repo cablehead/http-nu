@@ -1,0 +1,78 @@
+/* /design viewer layout. 2-col: sidebar list + focused preview. */
+
+body.design {
+  /* Override the global viewport-locked body for this page -- the
+     preview can be tall and should scroll naturally. */
+  height: auto;
+  min-height: 100dvh;
+  overflow: auto;
+  display: block;
+  padding: 0;
+  gap: 0;
+}
+
+.design-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: var(--text-sm);
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.design-header .sep { opacity: 0.5; }
+.design-header .current { color: var(--fg-header); }
+
+.design-main {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: calc(100dvh - 4rem);
+}
+
+.design-nav {
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+}
+.design-nav a {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.6rem 1.5rem;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+.design-nav a:hover { background: rgba(0, 0, 0, 0.2); color: inherit; }
+.design-nav a.current {
+  background: rgba(0, 0, 0, 0.3);
+  border-left-color: var(--brand);
+  color: var(--fg-header);
+}
+.design-nav .title { font-weight: 700; }
+.design-nav .desc { font-size: var(--text-sm); opacity: 0.7; }
+
+.design-preview {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.story {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.story .label {
+  font-size: var(--text-sm);
+  opacity: 0.7;
+  font-family: var(--font-mono);
+}
+.story .render {
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
