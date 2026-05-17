@@ -561,12 +561,29 @@ body.play .board > div:not(:empty) {
 /* On splash thumbnails, every tile fades except the headline (the
    max-value tile, marked .is-max). The bright tile *is* the indicator
    of how far this game got. Hover lights the rest back up. */
-.game-card .board > div:not(:empty) {
-  opacity: 0.2;
+/* Dim the entire board -- frame, empty cells, all tiles -- via a dark
+   overlay layered on top of the grid. The max tile gets lifted above
+   the mask with z-index, so it pops out as the headline. Hover fades
+   the mask so the focused card reads in full color.
+   The mask is a sibling of grid items inside .board (via ::after with
+   position: absolute), so .is-max can stack above it within the same
+   context. */
+.game-card .board { position: relative; }
+.game-card .board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
   transition: opacity 0.2s ease;
 }
-.game-card .board > div.is-max { opacity: 1; }
-.game-card:hover .board > div:not(:empty) { opacity: 1; }
+.game-card:hover .board::after { opacity: 0; }
+.game-card .board > div.is-max {
+  position: relative;
+  z-index: 2;
+}
 .game-card .overlay {
   position: absolute;
   font-family: "Source Code Pro", ui-monospace, monospace;
