@@ -189,20 +189,32 @@ let design = source design/serve.nu
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
+      # A real won-then-played-on snapshot from a finished game (4096
+      # in the corner, score 61640). Pulled from a production frame --
+      # see notes/in-nushell for why even the splash teaser is real data.
       let teaser_state = {
         tiles: [
-          {id: 1 r: 0 c: 0 value: 2}
-          {id: 2 r: 0 c: 1 value: 4}
-          {id: 3 r: 1 c: 1 value: 8}
-          {id: 4 r: 1 c: 2 value: 16}
-          {id: 5 r: 2 c: 2 value: 32}
-          {id: 6 r: 2 c: 3 value: 64}
-          {id: 7 r: 3 c: 3 value: 128}
+          {id: 2881 r: 0 c: 0 value: 2}
+          {id: 2873 r: 1 c: 0 value: 4}
+          {id: 2864 r: 2 c: 0 value: 8}
+          {id: 2882 r: 3 c: 0 value: 2}
+          {id: 2879 r: 0 c: 1 value: 4}
+          {id: 2874 r: 1 c: 1 value: 8}
+          {id: 2861 r: 2 c: 1 value: 16}
+          {id: 2850 r: 3 c: 1 value: 32}
+          {id: 2844 r: 0 c: 2 value: 8}
+          {id: 2749 r: 1 c: 2 value: 64}
+          {id: 2678 r: 2 c: 2 value: 256}
+          {id: 2779 r: 3 c: 2 value: 64}
+          {id: 581  r: 0 c: 3 value: 4096}
+          {id: 1866 r: 1 c: 3 value: 1024}
+          {id: 2327 r: 2 c: 3 value: 512}
+          {id: 2564 r: 3 c: 3 value: 256}
         ]
         ghosts: []
-        next_id: 8
-        score: 254
-        game_over: false
+        next_id: 2883
+        score: 61640
+        game_over: true
       }
       ([
         (SECTION {class: "hero"}

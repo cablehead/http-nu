@@ -13,10 +13,15 @@
 
 use http-nu/router *
 use http-nu/html *
+use http-nu/datastar *
 use ./pages.nu *
+use ../tfe/render.nu *
 
 const HERE = path self | path dirname
 const CONTENT = $HERE | path join "content"
+
+# Per-server-start cache-buster, mirrors the parent serve.nu pattern.
+let REV = random uuid | str substring 0..7
 
 # Every section across every .md in content/. Single concatenated index.
 def all-pages []: nothing -> list {
@@ -25,35 +30,26 @@ def all-pages []: nothing -> list {
   } | flatten
 }
 
-# Minimal page chrome. Links to the parent site's styles via a
-# relative-up path so the same markup works whether the site is
-# deployed standalone (nu2048.com) or mounted under another prefix
-# (the examples hub puts 2048 at /2048).
-def notes-layout [title: string, body_children: list]: nothing -> record {
-  (HTML
-    (HEAD
-      (META {charset: "UTF-8"})
-      (META {name: "viewport" content: "width=device-width, initial-scale=1"})
-      (TITLE $title)
-      (LINK {rel: "preconnect" href: "https://fonts.googleapis.com"})
-      (LINK {rel: "preconnect" href: "https://fonts.gstatic.com" crossorigin: true})
-      (LINK {rel: "stylesheet" href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap"})
-      (LINK {rel: "stylesheet" href: "../styles.css"}))
-    (BODY {class: "notes"}
-      (MAIN {class: "page"} ...$body_children)))
-}
-
 {|req|
   dispatch $req [
     (route {method: GET path: "/"} {|req ctx|
+      # The shared layout's asset URLs (styles, script, ellie, splash,
+      # my-games, design) live at the parent app's root, NOT under the
+      # /notes mount. Strip the mount_prefix so $req|href resolves
+      # against root for layout chrome. Body links keep $req with the
+      # /notes prefix so internal sub-site links stay scoped.
+      let root_req = $req | upsert mount_prefix ""
       let pages = all-pages
-      (notes-layout "nu2048 notes" [
-        (H1 "notes")
-        (P "a wandering set of pages about 2048 -- the game, its history, and how this implementation works.")
-        (UL ($pages | each {|p|
-          (LI (A {href: ($req | href $"/($p.slug)")} $p.title))
-        }))
-      ])
+      ([
+        (DIV {class: "page"}
+          (H1 "notes")
+          (P "a wandering set of pages about 2048 -- the game, its history, and how this implementation works.")
+          (UL ($pages | each {|p|
+            (LI (A {href: ($req | href $"/($p.slug)")} $p.title))
+          })))
+      ] | layout $root_req $REV $DATASTAR_JS_PATH
+            --title "nu2048 / notes"
+            --body-class "notes")
     })
 
     (route {method: GET path-matches: "/:slug"} {|req ctx|
@@ -61,11 +57,15 @@ def notes-layout [title: string, body_children: list]: nothing -> record {
       if $page == null {
         "Not Found" | metadata set { merge {'http.response': {status: 404}} }
       } else {
+        let root_req = $req | upsert mount_prefix ""
         let rendered = $page.body | .md | get __html
-        (notes-layout $"nu2048 - ($page.title)" [
-          (H1 $page.title)
-          {__html: $rendered}
-        ])
+        ([
+          (DIV {class: "page"}
+            (H1 $page.title)
+            (DIV {class: "prose"} {__html: $rendered}))
+        ] | layout $root_req $REV $DATASTAR_JS_PATH
+              --title $"nu2048 / ($page.title)"
+              --body-class "notes")
       }
     })
   ]

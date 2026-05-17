@@ -14,6 +14,57 @@ use ../tfe/game.nu *
 
 const HERE = path self | path dirname
 
+# A markdown sample that exercises every construct the /notes pages
+# actually render. Edit this when adding a new construct to the notes.
+const MD_SAMPLE = "## A section heading
+
+The opening paragraph sets the topic. Sentences run a couple of clauses
+long, mixing **bold** lead-ins with the occasional *italic* aside. Inline
+[links](./backstory) thread through the text -- you can hover them, and
+they pick up the accent color.
+
+### A deeper subsection
+
+Sometimes a single h2 needs more structure. h3s break out sub-topics
+without claiming page-level weight.
+
+A second paragraph follows. It runs long enough that line-height
+matters: comfortable reading on a 65-character measure means the eye
+returns cleanly to the next line.
+
+**Bulleted lists** sit between paragraphs:
+
+- A single-line bullet.
+- A bullet with **bold** to mark its lead-in -- then a clause that runs
+  a sentence long.
+- A bullet that itself contains a [link](./the-rules) so the link
+  treatment looks right inside a list too.
+
+**Numbered lists** for explicit sequences:
+
+1. First, the precondition.
+2. Then, the move.
+3. Finally, the consequence.
+
+> Block quotes pull a sentence out of the flow. They give a passage
+> different weight -- a callout for someone else's words or a key idea
+> you want the eye to land on.
+
+Inline `code` appears mid-sentence when a flag or symbol is the thing
+under discussion (e.g. the `--raw` switch). Whole blocks of code earn
+their own indent:
+
+```
+.cat --follow --pulse 450
+| pulse-keepalive
+| frames-to-states
+| states-to-html
+| to sse
+```
+
+A closing paragraph lands the section. The space below it before the
+next h2 is the breathing room the page needs."
+
 # Catalog: every component on the site, in nav order. Order = the
 # sequence Ctrl-N / Ctrl-P walks through.
 const CATALOG = [
@@ -21,6 +72,7 @@ const CATALOG = [
   {slug: "breadcrumb" title: "breadcrumb" desc: "header nav row. left = path crumbs, right = action shortcuts."}
   {slug: "board"      title: "board"      desc: "4x4 game grid. tiles, ghosts, dim mask, max-tile highlight."}
   {slug: "badge"      title: "badge"      desc: "rotated pill stamped on a board. won/over variants."}
+  {slug: "markdown"   title: "markdown"   desc: "the full set of markdown the /notes pages render: headings, prose, lists, links, code, quotes."}
 ]
 
 # Render one or more stories (sample invocations) for a slug. Returns a
@@ -90,6 +142,11 @@ def render-stories [slug: string]: nothing -> list {
       ])
       (story "over (rotated -3deg, red)" [
         (SPAN {class: "badge over"} "over")
+      ])
+    ]
+    "markdown" => [
+      (story "rendered via .md, wrapped in .prose (same path as /notes pages)" [
+        (DIV {class: "prose"} {__html: ($MD_SAMPLE | .md | get __html)})
       ])
     ]
     _ => []
