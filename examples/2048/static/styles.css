@@ -754,24 +754,56 @@ body.play, body.games-view {
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
-/* Splash hero. Two-up on wide viewports (lede on the left, board on
-   the right via row-reverse), stacked column on narrow with the board
-   first. Plain flexbox, no specificity tricks. */
+/* Splash hero. Two-up on wide viewports: lede + PLAY NOW on the left,
+   teaser board on the right (row-reverse so source order is board-first
+   for the stacked mobile case). */
 .hero {
   display: flex;
   flex-direction: column;
   gap: 2rem;
   margin: 1rem 0 2.5rem;
+  max-width: 900px;
+  width: 100%;
+  padding: 0 1rem;
+  box-sizing: border-box;
 }
 .hero .preview { width: 100%; max-width: 380px; align-self: center; }
-/* .lede is inside a section; the h2 lives in prose context (sans by default).
-   We want it mono + cream; one-off styling, no class. */
-.hero .lede h2 { font-family: var(--font-mono); font-size: 1.75rem; color: var(--fg-header); margin-bottom: 0.75rem; }
+.hero .lede h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 1.75rem; margin-bottom: 1rem; }
 .hero .lede p { margin-bottom: 1rem; }
+.hero .kicker { font-size: var(--text-sm); opacity: 0.85; margin-top: 1.25rem; }
 @media (min-width: 760px) {
   .hero { flex-direction: row-reverse; align-items: center; }
   .hero > * { flex: 1; }
   .hero .preview { max-width: none; }
+}
+
+/* PLAY NOW: the splash CTA. Big orange pressable badge, slight tilt,
+   shadow-offset for weight -- borrowed from http-nu/www's wedge pills. */
+.play-now {
+  display: inline-block;
+  padding: 0.6rem 1.6rem;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.75rem;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.3);
+  transform: rotate(-2deg);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+.play-now:hover {
+  color: #fff;
+  background: var(--accent-hover);
+  transform: rotate(-2deg) translate(-1px, -1px);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.35);
+}
+.play-now:active {
+  transform: rotate(-2deg) translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* Site header: shared by / and /play. Mirrors the http-nu/www header
@@ -789,18 +821,21 @@ body.play, body.games-view {
   font-size: var(--text-sm);
   box-sizing: border-box;
 }
-.site-header-left { display: flex; align-items: baseline; }
 .site-header .site-title {
-  font-family: var(--font-mono);
   font-weight: 700;
   font-size: clamp(2rem, 5vw, 2.75rem);
   color: var(--fg-header);
-  /* underline + hover-opacity inherited from base `a` rule */
 }
+.site-nav { display: flex; gap: 1.25rem; }
 .site-header-right {
   display: flex;
   align-items: baseline;
-  gap: 1.5rem;
+  gap: 1.25rem;
+  margin-left: auto;
+}
+.player-chip {
+  font-size: var(--text-sm);
+  opacity: 0.7;
 }
 .site-header .status {
   display: flex;

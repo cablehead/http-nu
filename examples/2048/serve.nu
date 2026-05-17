@@ -181,31 +181,14 @@ let design = source design/serve.nu
     })
 
     (route {method: GET path: "/"} {|req ctx|
-      # Splash = past games + New game link. The play view lives at
-      # /play/<game_id>. Mint a cookie on first visit so subsequent
-      # actions (creating games, etc.) have a player identity.
-      let cookies = $req | cookie parse
-      let prior = $cookies | get player? | default ""
-      let player_id = if ($prior | is-empty) { random uuid } else { $prior }
-      let games_topic = $"player.($player_id).games"
-      let games = (try { .cat -T $games_topic | reverse } catch { [] })
-      # First-time visitor (or returning with an empty library): skip
-      # the empty splash and drop them into a fresh game. `if` is an
-      # expression here whose value is the response -- `return` inside
-      # a route closure doesn't reliably propagate the metadata.
-      if ($games | is-empty) {
-        let loc = ($req | href "/new")
-        "" | metadata set { merge {'http.response': {status: 302 headers: {Location: $loc}}} }
-        | cookie set "player" $player_id --max-age 31536000 --no-secure
-      } else {
+      # Splash: marketing landing. PLAY NOW is the only thing the
+      # visitor needs to see. Cookie is minted on /new, not here --
+      # nothing to attribute to a player on the splash.
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
-      # A static teaser board for the splash hero. Picks a mid-game
-      # state with a clear high tile so the visitor sees what 2048 IS
-      # at a glance. Replaced later by a live replay of a recent game.
       let teaser_state = {
         tiles: [
           {id: 1 r: 0 c: 0 value: 2}
@@ -222,41 +205,51 @@ let design = source design/serve.nu
         game_over: false
       }
       ([
+        (SECTION {class: "hero"}
+          (ASIDE {class: "preview"} ($teaser_state | render-board "teaser"))
+          (DIV {class: "lede"}
+            (H2 "2048, in Nushell!")
+            (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
+            (A {class: "play-now" href: ($req | href "/new")} "play now")
+            (P {class: "kicker"} (A {href: ($req | href "/notes/what-is-2048")} "never played? \u{2192}"))))
+      ] | layout $req $REV $DATASTAR_JS_PATH
+            --title "nu2048"
+            --og-image $og_image
+            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
+            --body-class "splash")
+    })
+
+    (route {method: GET path: "/my/games"} {|req ctx|
+      # The player's game library -- moved from / so the splash can
+      # stay marketing-oriented. Cookie-required: no cookie = empty.
+      let cookies = $req | cookie parse
+      let player_id = $cookies | get player? | default ""
+      let games_topic = $"player.($player_id).games"
+      let games = if ($player_id | is-empty) { [] } else {
+        try { .cat -T $games_topic | reverse } catch { [] }
+      }
+      ([
         (DIV {class: "page"}
           (breadcrumb
             --left [
-              (A {class: "page-title" href: ($req | href "/")} "past games")
+              (A {href: ($req | href "/")} "home")
+              (kbd-btn "esc" --href ($req | href "/"))
+              (SPAN {class: "sep"} "·")
+              (A {href: ($req | href "/my/games")} "my games")
             ]
             --right [
               (A {href: ($req | href "/new")} "new game")
               (kbd-btn "n" --href ($req | href "/new"))
             ])
-          # Hero: lede + teaser board. Two-up on wide viewports (board
-          # on the right via flex-direction: row-reverse), stacked on
-          # narrow with the board first.
-          (SECTION {class: "hero"}
-            (ASIDE {class: "preview"} ($teaser_state | render-board "teaser"))
-            (DIV {class: "lede"}
-              (H2 "2048, in Nushell!")
-              (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
-              (A {href: ($req | href "/notes/what-is-2048")} "never played? \u{2192}")))
-          # Always render .games-list (even if empty) so the SSE handler
-          # has a stable target to prepend new-game cards into. The hint
-          # below is a sibling, hidden via CSS when .games-list has any
-          # children.
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
           (P {class: "hint empty-state"} "no games yet."))
       ] | layout $req $REV $DATASTAR_JS_PATH
-            --title "nu2048"
-            --og-image $og_image
-            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
+            --title "my games -- nu2048"
             --body-class "games-view"
             --body-attrs {
               "data-sse": ""
               "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
-            }
-      | cookie set "player" $player_id --max-age 31536000 --no-secure)
-      }
+            })
     })
 
     (route {method: GET path-matches: "/play/:game_id"} {|req ctx|
@@ -284,8 +277,10 @@ let design = source design/serve.nu
           # copy a bookmarkable URL.
           (breadcrumb
             --left [
-              (A {href: $home_href} "past games")
+              (A {href: $home_href} "home")
               (kbd-btn "esc" --href $home_href)
+              (SPAN {class: "sep"} "·")
+              (A {href: ($req | href "/my/games")} "my games")
               (SPAN {class: "sep"} "·")
               (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short)
             ]

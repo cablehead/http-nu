@@ -3,6 +3,7 @@
 # /games routes are the consumers.
 
 use http-nu/html *
+use http-nu/http *
 
 # Used by `layout` below to resolve templates relative to this module.
 const TEMPLATES_DIR = path self | path dirname | path join "templates"
@@ -264,6 +265,10 @@ export def layout [
 ]: list -> string {
   let children = $in
   let body_html = $children | each {|c| $c.__html } | str join
+  # Short player slug for the header chip; empty string = no chip shown
+  # (template guards on `{% if player_id %}`).
+  let pid = $req | cookie parse | get player? | default ""
+  let pid_short = if ($pid | is-empty) { "" } else { $pid | str substring 0..7 }
   {
     title: $title
     og_image: $og_image
@@ -273,6 +278,9 @@ export def layout [
     script_src: ($req | href $"/script.js?v=($rev)")
     ellie_href: ($req | href "/ellie.png")
     splash_href: ($req | href "/")
+    my_games_href: ($req | href "/my/games")
+    notes_href: ($req | href "/notes/what-is-2048")
+    player_id: $pid_short
     body_class: $body_class
     body_attrs: ($body_attrs | transpose key value)
     body_html: $body_html

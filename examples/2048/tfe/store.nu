@@ -107,6 +107,33 @@ export def list-games [] {
   | sort-by moves --reverse
 }
 
+# Top games by score within `--since` (default 7day), limited to `--limit`
+# (default 5). Each row carries player, moves, score, max tile, undo count,
+# and the game's start time (decoded from its SCRU128 frame id).
+export def leaderboard [--since: duration = 7day, --limit: int = 5] {
+  let cutoff = (date now) - $since
+  let undos = .cat
+    | where ($it.topic | str starts-with "game.") and ($it.topic | str ends-with ".move")
+    | where ($it.meta? | default {} | get kind? | default "") == "undo"
+    | group-by topic
+    | items {|t fs| {game: ($t | str replace "game." "" | str replace ".move" ""), n: ($fs | length)} }
+  list-games | each {|g|
+      let snap = .last $"game.($g.game).snapshot"
+      {
+        game: ($g.game | str substring 0..7)
+        when: ($g.game | .id unpack | get timestamp)
+        player: ($snap | get -o meta.player_id | default "" | str substring 0..7)
+        moves: $g.moves
+        score: ($snap | get -o meta.score)
+        max: ($snap | get -o meta.max_tile)
+        undos: ($undos | where game == $g.game | get n? | default [0] | first)
+      }
+    }
+    | where when >= $cutoff
+    | sort-by score -r
+    | first $limit
+}
+
 # List every player seen in the store with their game count and latest game id.
 export def list-players [] {
   .cat
