@@ -113,12 +113,17 @@ def design-page [current: string]: nothing -> record {
       (LINK {rel: "stylesheet" href: "../styles.css"})
       (LINK {rel: "stylesheet" href: "./design.css"}))
     (BODY {class: "design" "data-slug": $current}
-      (HEADER {class: "design-header"}
-        (A {href: "/"} "nu2048")
-        (SPAN {class: "sep"} "/")
-        (SPAN "design")
-        (SPAN {class: "sep"} "/")
-        (SPAN {class: "current"} $entry.title))
+      # Browser-relative hrefs: we're at /design/<slug>, so ../.. -> /,
+      # ../ -> /design, and the current slug self-links.
+      (breadcrumb
+        --left [
+          (A {href: "../../"} "nu2048")
+          (SPAN {class: "sep"} "·")
+          (A {href: "../"} "design")
+          (SPAN {class: "sep"} "·")
+          (A {href: $current} $entry.title)
+        ]
+        --right [])
       (MAIN {class: "design-main"}
         (NAV {class: "design-nav"}
           ($CATALOG | each {|c|

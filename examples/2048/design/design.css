@@ -7,20 +7,16 @@ body.design {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  align-items: stretch;     /* override body default align-items: center */
   padding: 0;
   gap: 0;
 }
 
-.design-header {
+body.design > .breadcrumb {
   padding: 1rem 1.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.15);
   font-size: var(--text-sm);
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
 }
-.design-header .sep { opacity: 0.5; }
-.design-header .current { color: var(--fg-header); }
 
 .design-main {
   flex: 1;
@@ -35,6 +31,9 @@ body.design {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  /* Reserve scrollbar space so design pages don't shift width when
+     the preview's overflow toggles. */
+  scrollbar-gutter: stable;
 }
 .design-nav a {
   display: grid;
@@ -58,6 +57,7 @@ body.design {
   flex-direction: column;
   gap: 2rem;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .story {
