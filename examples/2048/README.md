@@ -53,6 +53,10 @@ plain nu shell against a vanilla `xs serve` store.
 
 ## CLI
 
+The running http-nu server supervises the store (its socket is at
+`<store>/sock`). `.cat` / `.last` are HTTP calls over that socket --
+load them via `xs.nu` (`xs nu --install`, or `use /path/to/xs.nu *`).
+
 ```nushell
 $env.XS_ADDR = (realpath ./store)
 overlay use -r examples/2048/tfe
@@ -65,6 +69,16 @@ follow-game "03g54..." | each { reject state.tiles }
 # Replay from raw move frames (no snapshots needed):
 .cat -T "game.03g54.move" | project-game "03g54" | reject tiles
 ```
+
+### Frame topics
+
+| topic                       | written by      | meta                                                              |
+| --------------------------- | --------------- | ----------------------------------------------------------------- |
+| `player.<uuid>.games`       | `GET /new`      | (none) -- frame id is the game id                                 |
+| `game.<id>.move`            | `POST /move`    | `{intent, req_id, kind?}` -- `intent` in `h,j,k,l`; `kind: undo`  |
+| `game.<id>.snapshot`        | snapshot-actor  | `{state, score, max_tile, moves, game_over, player_id, prev, ...}` |
+
+`.last game.<id>.snapshot` is the canonical HEAD for a game.
 
 ## Animation
 
