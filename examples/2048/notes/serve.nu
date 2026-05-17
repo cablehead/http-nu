@@ -13,31 +13,10 @@
 
 use http-nu/router *
 use http-nu/html *
+use ./pages.nu *
 
 const HERE = path self | path dirname
 const CONTENT = $HERE | path join "content"
-
-# Slugify a heading: lowercase, non-alphanumeric runs become single
-# hyphens, trim leading/trailing hyphens.
-def slugify [s: string]: nothing -> string {
-  $s | str downcase | str replace -ar '[^a-z0-9]+' '-' | str trim --char '-'
-}
-
-# Split a markdown file on h1 boundaries. Returns [{slug, title, body}].
-def split-md [path: string]: nothing -> list {
-  open $path
-  | split row "\n# "
-  | skip 1
-  | each {|sec|
-      let lines = $sec | lines
-      let title = $lines | first
-      {
-        slug: (slugify $title)
-        title: $title
-        body: ($lines | skip 1 | str join "\n")
-      }
-    }
-}
 
 # Every section across every .md in content/. Single concatenated index.
 def all-pages []: nothing -> list {

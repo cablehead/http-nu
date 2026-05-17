@@ -7,6 +7,7 @@ use std/assert
 const script_dir = path self | path dirname
 use ($script_dir | path join ".." "tfe" "game.nu") *
 use ($script_dir | path join ".." "tfe" "sse.nu") *
+use ($script_dir | path join ".." "notes" "pages.nu") split-md
 
 # A fixed game id so every test is deterministic.
 const GID = "test-game-aaaa"
@@ -301,5 +302,23 @@ assert (($r14 | first | get req_id) == "probe-42") "snapshot carries req_id"
 let evt = {event: "datastar-patch-signals" data: ["signals {}"]}
 let r15 = drive-frames [$evt]
 assert (($r15 | first) == $evt) "event records pass through unchanged"
+
+# --- notes/split-md --------------------------------------------------------
+#
+# Regression: bare `open` on a .md file parses it into a structured
+# table (the commonmark AST), so `split row` then errored with
+# "Input type not supported". Fix is `open --raw | decode utf-8`.
+# Test loads the actual content file used by the notes sub-site.
+
+let notes_md = $script_dir | path join ".." "notes" "content" "what-is-2048.md"
+let sections = split-md $notes_md
+assert (($sections | length) >= 1) "split-md returns at least one section"
+let slugs = $sections | get slug
+assert ("the-rules" in $slugs) "the-rules section present"
+assert ("backstory" in $slugs) "backstory section present"
+assert ("in-nushell" in $slugs) "in-nushell section present"
+let rules = $sections | where slug == "the-rules" | first
+assert ($rules.title == "The Rules") "title preserved verbatim"
+assert (($rules.body | str length) > 0) "body is non-empty"
 
 print "examples/2048/test.nu: all assertions passed"
