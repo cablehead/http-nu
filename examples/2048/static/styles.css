@@ -553,46 +553,50 @@ body.play .board > div:not(:empty) {
 .game-card {
   display: block;
   position: relative;
+  aspect-ratio: 1 / 1;
   text-decoration: none;
   color: inherit;
 }
-/* Mute every board in the list; the focused card lights back up on
-   hover so the eye can rest on whichever game the user is considering. */
-.game-card .thumb {
-  position: relative;
+/* Only the board itself mutes -- chips + timestamp ride above and stay
+   vibrant. Hover restores the focused board to full saturation. */
+.game-card .board-wrap {
   width: 100%;
-  aspect-ratio: 1 / 1;
-  filter: saturate(0.35) opacity(0.7);
-  transition: filter 0.2s ease;
+  height: 100%;
+  filter: saturate(0.55);
+  opacity: 0.65;
+  transition: filter 0.2s ease, opacity 0.2s ease;
 }
-.game-card:hover .thumb { filter: saturate(1) opacity(1); }
-/* Four corner overlays carry the metadata on top of the board itself.
-   Translucent dark pill backdrops keep the small text readable against
-   varying tile colors. */
+.game-card:hover .board-wrap { filter: saturate(1); opacity: 1; }
 .game-card .overlay {
   position: absolute;
   font-family: "Source Code Pro", ui-monospace, monospace;
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(0, 0, 0, 0.55);
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
-  white-space: nowrap;
   pointer-events: none;
   z-index: 1;
 }
-.game-card .overlay.tl { top: 0.5rem;    left: 0.5rem; }
-.game-card .overlay.tr { top: 0.5rem;    right: 0.5rem; }
-.game-card .overlay.bl { bottom: 0.5rem; left: 0.5rem; }
-.game-card .overlay.br { bottom: 0.5rem; right: 0.5rem; }
-/* Bottom-right is the headline: max tile + status. Bigger, brighter. */
-.game-card .overlay.br .max-tile {
-  font-weight: 700;
-  font-size: 0.875rem;
+/* Last active -- small dim text top-right, no chip backdrop. */
+.game-card .overlay.active {
+  top: 0.4rem;
+  right: 0.5rem;
+  font-size: 0.7rem;
   color: var(--fg-header);
+  opacity: 0.85;
 }
-.game-card .overlay.br .max-tile.with-status.win  { color: #7fdba0; }
-.game-card .overlay.br .max-tile.with-status.over { color: #ff9a9a; }
+/* Score + max -- a paired pair of small chips bottom corners, both
+   colored by the max tile's palette so the eye reads them as the game's
+   "level signature". Max sits to the right, slightly larger and bolder. */
+.game-card .overlay.score,
+.game-card .overlay.max {
+  bottom: 0.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+.game-card .overlay.score { left: 0.4rem; font-size: 0.75rem; opacity: 0.85; }
+.game-card .overlay.max   { right: 0.4rem; font-size: 0.95rem; }
+.game-card .overlay.max.win  { outline: 2px solid #2a9d4a; outline-offset: 1px; }
+.game-card .overlay.max.over { outline: 2px solid #e05252; outline-offset: 1px; }
 
 /* /games: page may overflow vertically (many cards) -- let the document
    scroll and align .page to the top instead of centring it. The base

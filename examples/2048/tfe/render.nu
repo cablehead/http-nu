@@ -149,13 +149,13 @@ export def render-game [direction?: string, changed?: bool, req_id?: string]: re
 # Render a card from already-known state. Callers pass state straight
 # out of a snapshot frame's meta, avoiding a redundant resume-game lookup.
 # Render a SCRU128 id's embedded timestamp as a short, human-readable
-# relative string ("just now", "23s ago", "2h ago", "3d ago", "5w ago").
+# string. Under a minute reads as "in play" (the game is still warm);
+# beyond that it's "Xm ago" / "Xh ago" / "Xd ago" / "Xw ago".
 # `.id unpack` is the http-nu builtin (no subprocess).
-def relative-time-from-id [id: string]: nothing -> string {
+def last-active-from-id [id: string]: nothing -> string {
   let ts = .id unpack $id | get timestamp
   let diff = ((date now) - $ts | into int) / 1_000_000_000 | math floor
-  if $diff < 5 { "just now"
-  } else if $diff < 60 { $"($diff)s ago"
+  if $diff < 60 { "in play"
   } else if $diff < 3600 { $"(($diff / 60) | into int)m ago"
   } else if $diff < 86400 { $"(($diff / 3600) | into int)h ago"
   } else if $diff < 604800 { $"(($diff / 86400) | into int)d ago"
@@ -163,11 +163,12 @@ def relative-time-from-id [id: string]: nothing -> string {
 }
 
 # Each card answers "should I jump back into this one?". The thumbnail
-# is the densest signal; four corner overlays carry the metadata so the
-# card stays compact and scannable:
-#   top-left  : created ("made Xh ago")    bottom-left  : score
-#   top-right : last move ("played Xs ago") bottom-right : max tile + status
-# last_move_id falls back to game_id for games that have never moved.
+# is the densest signal; three overlays sit on top:
+#   top-right     : last active ("in play" / "5m ago" / "2h ago")
+#   bottom-left   : score chip   (palette color of the max tile)
+#   bottom-right  : max-tile chip (same palette color, slightly bigger)
+# The board is muted so the eye can rest; chips and timestamp ride on
+# top of the mute so the headline info stays vibrant.
 export def render-card-from-state [
   req: record
   game_id: string
@@ -175,29 +176,20 @@ export def render-card-from-state [
   moves: int
   last_move_id?: string
 ]: nothing -> record {
-  let max_tile = if ($state.tiles | is-empty) { 0 } else {
+  let max_tile = if ($state.tiles | is-empty) { 2 } else {
     $state.tiles | get value | math max
   }
   let won = $max_tile >= 2048
   let status_class = if $won { "win" } else if $state.game_over { "over" } else { "" }
-  let status_label = if $won { "won" } else if $state.game_over { "over" } else { "" }
   let lmid = $last_move_id | default $game_id
-  let made_at = relative-time-from-id $game_id
-  let played_at = relative-time-from-id $lmid
-  let max_node = if $max_tile == 0 {
-    (SPAN {class: "max-tile"} "empty")
-  } else if ($status_label | is-not-empty) {
-    (SPAN {class: $"max-tile with-status ($status_class)"} $"max ($max_tile) ($status_label)")
-  } else {
-    (SPAN {class: "max-tile"} $"max ($max_tile)")
-  }
+  let active = last-active-from-id $lmid
+  let p = palette-for $max_tile
+  let chip_style = $"background: ($p.bg); color: ($p.fg);"
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
-    (DIV {class: "thumb"}
-      ($state | render-board $game_id)
-      (SPAN {class: "overlay tl"} $"made ($made_at)")
-      (SPAN {class: "overlay tr"} $"played ($played_at)")
-      (SPAN {class: "overlay bl"} $"($state.score) pts")
-      (DIV {class: "overlay br"} $max_node)))
+    (DIV {class: "board-wrap"} ($state | render-board $game_id))
+    (SPAN {class: "overlay active"} $active)
+    (SPAN {class: "overlay score" style: $chip_style} ($state.score | into string))
+    (SPAN {class: $"overlay max ($status_class)" style: $chip_style} ($max_tile | into string)))
 }
 
 # Render the whole .games-list from an in-memory {game_id: snapshot_meta}
