@@ -4,8 +4,8 @@
 
 use http-nu/html *
 
-# Used by `layout` below to resolve layout.html relative to this module.
-const HERE = path self | path dirname
+# Used by `layout` below to resolve templates relative to this module.
+const TEMPLATES_DIR = path self | path dirname | path join "templates"
 
 export def color-for [v: int]: nothing -> string {
   match $v {
@@ -59,7 +59,7 @@ export-env {
   )
   # Page-shell template (layout.html). Used once per request to wrap the
   # body content in <html><head>...</head><body>. See `layout` below.
-  $env.LAYOUT_TPL = .mj compile ($HERE | path join "layout.html")
+  $env.LAYOUT_TPL = .mj compile ($TEMPLATES_DIR | path join "layout.html")
 }
 
 export def render-board [scope?: string]: record -> record {
