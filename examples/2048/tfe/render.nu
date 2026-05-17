@@ -121,6 +121,35 @@ export def render-tuner []: nothing -> record {
   {__html: ({} | .mj render $env.TUNER_TPL)}
 }
 
+# Bracketed key-cap button: `[ h ]`, `[ esc ]`, etc. The reusable shape
+# behind every kbd hint in the UI (help panel rows, breadcrumb esc hint,
+# new-game shortcut on /). Renders as either a <button> (with optional
+# data-intent picked up by the click delegate in script.js) or an <a>
+# (when --href is supplied -- navigation shortcuts).
+#   --bracketless: drop the [ ] frame entirely (for `fx`, which isn't a
+#   keypress so the brackets would be misleading).
+export def kbd-btn [
+  label: string
+  --intent: string = ""
+  --href: string = ""
+  --class: string = ""
+  --bracketless
+]: nothing -> record {
+  let inner = if $bracketless {
+    [(SPAN {class: "key"} $label)]
+  } else {
+    [(SPAN {class: "bracket"} "[") (SPAN {class: "key"} $label) (SPAN {class: "bracket"} "]")]
+  }
+  let cls = ["kbd-btn" $class] | where {|c| ($c | str trim | is-not-empty)} | str join " "
+  if ($href | is-not-empty) {
+    (A {class: $cls href: $href} ...$inner)
+  } else if ($intent | is-not-empty) {
+    (BUTTON {type: "button" class: $cls "data-intent": $intent} ...$inner)
+  } else {
+    (BUTTON {type: "button" class: $cls} ...$inner)
+  }
+}
+
 export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
   if $game_over {
     (SPAN {id: "state-badge" class: "badge over"} "game over")

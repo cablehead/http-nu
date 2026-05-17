@@ -673,16 +673,25 @@ body.play .help          { grid-area: help; justify-self: start; }
   }
 }
 
-/* Breadcrumb above the board: "/" link + short game-id slug. */
-body.play .breadcrumb {
+/* Breadcrumb header (used on both / and /play): left = nav crumb +
+   keyboard shortcut, right = action/identity, baseline-aligned on one
+   row. Same shape so the two pages share a header rhythm. */
+.breadcrumb {
   display: flex;
   align-items: baseline;
-  gap: 0.6rem;
+  justify-content: space-between;
+  gap: 1rem;
   font-family: "Source Code Pro", ui-monospace, monospace;
   font-size: 1rem;
 }
-body.play .breadcrumb .sep { opacity: 0.5; }
-body.play .breadcrumb .game-id { opacity: 0.7; color: var(--fg-header); }
+.breadcrumb .left,
+.breadcrumb .right {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.breadcrumb .game-id { color: var(--brand); }
+.breadcrumb .page-title { color: var(--fg-header); }
 
 /* Board controls strip: score top-left, [u]ndo button top-right. */
 body.play .board-controls {
@@ -733,12 +742,12 @@ body.play .help {
 body.play .help .help-row {
   display: contents;
 }
-/* kbd-btn: the [h]/[j]/[k]/[l]/[u]/[fx] buttons in the help panel.
-   Same bracketed visual as the old [u]ndo badge -- dimmed brackets
-   frame a prominent key letter, mono font, pressable on mobile. The
-   existing [data-intent] click delegate in script.js fires the same
-   move() as the keyboard. */
-body.play .help .kbd-btn {
+/* kbd-btn: bracketed key-cap button. Used by the help panel ([h], [u],
+   fx, ...), the breadcrumb shortcuts ([esc], [n]), and anywhere else
+   we want a clickable key. Dimmed brackets frame a prominent key
+   glyph; mono font, pressable on mobile; [data-intent] is picked up by
+   the click delegate in script.js. */
+.kbd-btn {
   font-family: "Source Code Pro", ui-monospace, monospace;
   font-weight: 700;
   font-size: 1rem;
@@ -750,27 +759,26 @@ body.play .help .kbd-btn {
   cursor: pointer;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
   transition: transform 80ms, box-shadow 80ms, opacity 0.2s;
-  /* Uniform button width across rows so the arrow column aligns whether
-     the content is `[ h ]` or `fx`. Center-justify within the box. */
+  /* Uniform width so columns align whether content is `[ h ]` or `fx`. */
   display: inline-flex;
   align-items: baseline;
   justify-content: center;
   min-width: 3.25rem;
   line-height: 1;
   box-sizing: border-box;
+  text-decoration: none;  /* in case it's rendered as <a> for navigation */
 }
-body.play .help .kbd-btn:hover { opacity: 0.85; }
-body.play .help .kbd-btn:active {
+.kbd-btn:hover { opacity: 0.85; }
+.kbd-btn:active {
   transform: translateY(2px);
   box-shadow: none;
 }
 /* Micro space between brackets and the key glyph: `[ h ]` reads more
-   like a key-cap than `[h]`. Margins on the brackets, not letter-
-   spacing, so the gap is symmetric and tight. */
-body.play .help .kbd-btn .bracket { opacity: 0.55; }
-body.play .help .kbd-btn .bracket:first-child { margin-right: 0.2em; }
-body.play .help .kbd-btn .bracket:last-child  { margin-left:  0.2em; }
-body.play .help .kbd-btn .key { color: #fff; }
+   like a key-cap than `[h]`. */
+.kbd-btn .bracket { opacity: 0.55; }
+.kbd-btn .bracket:first-child { margin-right: 0.2em; }
+.kbd-btn .bracket:last-child  { margin-left:  0.2em; }
+.kbd-btn .key { color: #fff; }
 body.play .help .label { opacity: 0.8; }
 /* fx toggle row sits slightly apart -- it's a meta control, not a move. */
 body.play .help .help-fx {

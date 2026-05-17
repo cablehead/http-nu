@@ -177,6 +177,13 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let player_id = if ($prior | is-empty) { random uuid } else { $prior }
       let games_topic = $"player.($player_id).games"
       let games = (try { .cat -T $games_topic | reverse } catch { [] })
+      # First-time visitor (or returning with an empty library): skip
+      # the empty splash and drop them into a fresh game.
+      if ($games | is-empty) {
+        let loc = ($req | href "/new")
+        return ("" | metadata set { merge {'http.response': {status: 302 headers: {Location: $loc}}} }
+          | cookie set "player" $player_id --max-age 31536000 --no-secure)
+      }
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
@@ -184,11 +191,14 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
       ([
         (DIV {class: "page"}
-          (HEADER {class: "play-header"}
+          # Same breadcrumb shape as /play: nav label on the left, action
+          # (new game + [n] shortcut) right-aligned on the same row.
+          (NAV {class: "breadcrumb"}
             (DIV {class: "left"}
               (SPAN {class: "page-title"} "past games"))
             (DIV {class: "right"}
-              (A {class: "new-game" href: ($req | href "/new")} "+ new game")))
+              (A {href: ($req | href "/new")} "new game")
+              (kbd-btn "n" --href ($req | href "/new"))))
           # Always render .games-list (even if empty) so the SSE handler
           # has a stable target to prepend new-game cards into. The hint
           # below is a sibling, hidden via CSS when .games-list has any
@@ -225,11 +235,17 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let game_id_short = $game_id | str substring 0..7
       ([
         (DIV {class: "page"}
-          # Breadcrumb: "/" links back to splash, then a short game-id slug.
+          # Breadcrumb header: left = path (past games -> short id),
+          # right = the [esc] shortcut button (same kbd-btn component as
+          # the help panel). The game-id is a self-link so it can be
+          # right-clicked to copy a bookmarkable URL.
           (NAV {class: "breadcrumb"}
-            (A {href: $home_href} "/")
-            (SPAN {class: "sep"} "·")
-            (SPAN {class: "game-id"} $game_id_short))
+            (DIV {class: "left"}
+              (A {href: $home_href} "past games")
+              (SPAN {class: "sep"} "·")
+              (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short))
+            (DIV {class: "right"}
+              (kbd-btn "esc" --href $home_href)))
           (DIV {class: "play-layout"}
             (DIV {class: "board-controls"}
               (DIV {class: "score-block"}
@@ -250,36 +266,23 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
             (ASIDE {class: "help"}
               (DIV {class: "help-row"}
                 (SPAN {class: "label"} "left")
-                (BUTTON {type: "button" "data-intent": "h" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "h") (SPAN {class: "bracket"} "]"))
-                (BUTTON {type: "button" "data-intent": "h" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "←") (SPAN {class: "bracket"} "]")))
+                (kbd-btn "h" --intent "h") (kbd-btn "←" --intent "h"))
               (DIV {class: "help-row"}
                 (SPAN {class: "label"} "down")
-                (BUTTON {type: "button" "data-intent": "j" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "j") (SPAN {class: "bracket"} "]"))
-                (BUTTON {type: "button" "data-intent": "j" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "↓") (SPAN {class: "bracket"} "]")))
+                (kbd-btn "j" --intent "j") (kbd-btn "↓" --intent "j"))
               (DIV {class: "help-row"}
                 (SPAN {class: "label"} "up")
-                (BUTTON {type: "button" "data-intent": "k" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "k") (SPAN {class: "bracket"} "]"))
-                (BUTTON {type: "button" "data-intent": "k" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "↑") (SPAN {class: "bracket"} "]")))
+                (kbd-btn "k" --intent "k") (kbd-btn "↑" --intent "k"))
               (DIV {class: "help-row"}
                 (SPAN {class: "label"} "right")
-                (BUTTON {type: "button" "data-intent": "l" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "l") (SPAN {class: "bracket"} "]"))
-                (BUTTON {type: "button" "data-intent": "l" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "→") (SPAN {class: "bracket"} "]")))
+                (kbd-btn "l" --intent "l") (kbd-btn "→" --intent "l"))
               (DIV {class: "help-row"}
                 (SPAN {class: "label"} "undo")
-                (BUTTON {type: "button" "data-intent": "undo" class: "kbd-btn"}
-                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "u") (SPAN {class: "bracket"} "]"))
+                (kbd-btn "u" --intent "undo")
                 (SPAN {}))
               (DIV {class: "help-row help-fx"}
                 (SPAN {class: "label"} "tuner")
-                (BUTTON {type: "button" class: "kbd-btn fx-toggle"} "fx")
+                (kbd-btn "fx" --class "fx-toggle" --bracketless)
                 (SPAN {}))
               (render-tuner)))
         )

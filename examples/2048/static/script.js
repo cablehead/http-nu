@@ -154,9 +154,14 @@ const keymap = {
 const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
 const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 addEventListener("keydown", (e) => {
-  // Esc always escapes back to the splash (matches the [Esc] All games hint).
+  // Esc -> splash, n -> new game. Both match kbd hints in the breadcrumbs.
   if (e.key === "Escape") {
     location.href = "/";
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "n" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    location.href = "/new";
     e.preventDefault();
     return;
   }
