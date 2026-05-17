@@ -72,6 +72,8 @@ pulldown-cmark = "0.12.2"
 notify = "8"
 portable-pty = "0.9"
 base64 = "0.22"
+nix = { version = "0.30", features = ["term", "fs", "ioctl", "signal", "process"] }
+libc = "0.2"
 
 [dependencies.cross-stream]
 version = "0.12.0"

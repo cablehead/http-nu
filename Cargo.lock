@@ -2590,6 +2590,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ipnet",
+ "libc",
  "miette 7.6.0",
  "minijinja",
  "nix 0.30.1",
