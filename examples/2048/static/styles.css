@@ -504,14 +504,23 @@ body.play .board > div:not(:empty) {
 /* Pending indicator: a static edge glow on the side the player swiped
    toward, shown while a move request is in flight. JS sets
    `#board-wrap[data-pending="<dir>"]` on keydown and clears it when the
-   SSE patch lands. No animation -- the presence/absence of the
-   attribute IS the signal. */
-#board-wrap[data-pending]::before {
+   SSE patch lands. Asymmetric transition: reveal is delayed so
+   sub-threshold round-trips never paint the glow at all (it'd read as
+   a flash); release is immediate so the glow vanishes the instant the
+   response actually arrives. Net effect: glow only appears when you're
+   genuinely waiting on the wire. */
+#board-wrap::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   border-radius: 6px;
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+#board-wrap[data-pending]::before {
+  opacity: 1;
+  transition: opacity 80ms ease-out 80ms;
 }
 #board-wrap[data-pending="h"]::before { background: linear-gradient(to right,  rgb(from var(--glow) r g b / 0.85), transparent 8%); }
 #board-wrap[data-pending="l"]::before { background: linear-gradient(to left,   rgb(from var(--glow) r g b / 0.85), transparent 8%); }
