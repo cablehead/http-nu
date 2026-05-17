@@ -108,6 +108,20 @@ export def render-tuner []: nothing -> record {
   {__html: ({} | .mj render $env.TUNER_TPL)}
 }
 
+export def render-header [req: record]: nothing -> record {
+  (HEADER {class: "site-header"}
+    (DIV {class: "site-header-left"}
+      (A {class: "site-title" href: "https://http-nu.cross.stream/examples/2048/"} "2048.nu"))
+    (DIV {class: "site-header-right"}
+      (DIV {class: "status"}
+        (SPAN {id: "conn" class: "stat"} "")
+        (SPAN {id: "rtt" class: "stat"} ""))
+      (SPAN {class: "credit"}
+        (A {href: "https://http-nu.cross.stream"}
+          "served by "
+          (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))
+}
+
 export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
   if $game_over {
     (SPAN {id: "state-badge" class: "badge over"} "game over")

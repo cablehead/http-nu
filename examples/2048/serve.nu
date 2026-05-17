@@ -172,6 +172,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let games_topic = $"player.($player_id).games"
       let games = (try { .cat -T $games_topic | reverse } catch { [] })
       ([
+        (render-header $req)
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
@@ -182,16 +183,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
           # below is a sibling, hidden via CSS when .games-list has any
           # children.
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
-          (P {class: "hint empty-state"} "no games yet.")
-          (FOOTER {class: "play-footer"}
-            (DIV {class: "left"}
-              (SPAN {id: "conn" class: "stat"} "")
-              (SPAN {id: "rtt" class: "stat"} ""))
-            (DIV {class: "right"}
-              (SPAN {class: "credit"}
-                (A {href: "https://http-nu.cross.stream"}
-                  "served by http-nu "
-                  (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))))
+          (P {class: "hint empty-state"} "no games yet."))
       ] | layout $req $REV $DATASTAR_JS_PATH
             --body-class "games-view"
             --body-attrs {
@@ -217,6 +209,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
       ([
+        (render-header $req)
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
@@ -235,16 +228,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
             "data-sse": ""
             "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
           }
-            $placeholder)
-          (FOOTER {class: "play-footer"}
-            (DIV {class: "left"}
-              (SPAN {id: "conn" class: "stat"} "")
-              (SPAN {id: "rtt" class: "stat"} ""))
-            (DIV {class: "right"}
-              (SPAN {class: "credit"}
-                (A {href: "https://http-nu.cross.stream"}
-                  "served by http-nu "
-                  (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))))
+            $placeholder))
         (render-tuner)
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "2048 -- http-nu .bus demo"

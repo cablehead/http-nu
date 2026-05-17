@@ -1,4 +1,6 @@
-<aside class="vt-tuner">
+<!-- Default to is-collapsed in the markup so the panel isn't briefly
+     visible on page load before the JS reads localStorage. -->
+<aside class="vt-tuner is-collapsed">
   <button class="vt-tuner-tab" aria-label="toggle tuner"><span class="vt-tuner-tab-arrow" aria-hidden="true">&#9656;</span><span class="vt-tuner-tab-label">fx</span></button>
   <div class="vt-tuner-body">
     <div class="vt-tuner-actions">
@@ -115,8 +117,10 @@
   // Slide-out behaviour: the tab on the right edge of the viewport stays
   // visible; clicking it toggles the body in/out via a class on the aside.
   // localStorage keeps the panel state across reloads.
+  // Default is collapsed (set in the HTML). Open only if localStorage
+  // says the user explicitly opened it last session.
   const KEY = "vt-tuner-collapsed";
-  if (localStorage.getItem(KEY) === "1") tuner.classList.add("is-collapsed");
+  if (localStorage.getItem(KEY) === "0") tuner.classList.remove("is-collapsed");
   tuner.querySelector(".vt-tuner-tab").addEventListener("click", () => {
     const collapsed = tuner.classList.toggle("is-collapsed");
     localStorage.setItem(KEY, collapsed ? "1" : "0");

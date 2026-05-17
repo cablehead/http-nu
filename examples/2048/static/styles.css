@@ -610,20 +610,64 @@ body.play, body.games-view {
 .play-header .page-title { font-weight: bold; }
 .play-header .game-id { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; opacity: 0.55; }
 
-.play-footer { color: var(--fg); opacity: 0.8; font-size: 12px; }
-.play-footer .stat { font-variant-numeric: tabular-nums; }
-.play-footer .credit a { color: inherit; text-decoration: none; }
-.play-footer .credit a:hover { text-decoration: underline; }
-.play-footer .credit .mascot { width: 22px; height: 12px; }
-.play-footer #conn {
+/* Site header: shared by / and /play. Title left, status + credit right.
+   The right side is its own flex row so the conn/rtt group and the
+   served-by group sit side-by-side. Width-matched to .page so the title
+   sits at the same left edge as the page content. */
+.site-header {
+  width: 100%;
+  max-width: 600px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1rem 0.25rem;
+  font-size: 12px;
+  color: var(--fg);
+  box-sizing: border-box;
+}
+.site-header-left {
+  display: flex;
+  align-items: center;
+}
+.site-header .site-title {
+  font-weight: bold;
+  font-size: 14px;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--brand);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.site-header .site-title:hover { text-decoration-color: var(--brand-hover); }
+.site-header-right {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  opacity: 0.85;
+}
+.site-header .status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.site-header .stat { font-variant-numeric: tabular-nums; }
+.site-header .credit a { color: inherit; text-decoration: none; }
+.site-header .credit a:hover { text-decoration: underline; }
+.site-header .credit .mascot {
+  width: 36px;
+  height: 20px;
+  vertical-align: bottom;
+}
+.site-header #conn {
   display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: #888;
 }
-body[data-conn="ok"]   .play-footer #conn { background: #2a9d4a; }
-body[data-conn="down"] .play-footer #conn { background: #c0392b; }
+body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
+body[data-conn="down"] .site-header #conn { background: #c0392b; }
 
 body.play .column {
   width: 100%;
