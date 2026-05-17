@@ -217,7 +217,7 @@ export def layout [
   req: record
   rev: string
   datastar_src: string
-  --title: string = "2048.nu"
+  --title: string = "nu2048"
   --og-image: string = ""
   --og-description: string = ""
   --body-class: string = ""

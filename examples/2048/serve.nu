@@ -177,6 +177,11 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let player_id = if ($prior | is-empty) { random uuid } else { $prior }
       let games_topic = $"player.($player_id).games"
       let games = (try { .cat -T $games_topic | reverse } catch { [] })
+      let scheme = $req.headers
+        | get x-forwarded-proto?
+        | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
+      let host = $req.headers | get host? | default "localhost"
+      let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
       ([
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
@@ -191,6 +196,9 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
           (P {class: "hint empty-state"} "no games yet."))
       ] | layout $req $REV $DATASTAR_JS_PATH
+            --title "nu2048"
+            --og-image $og_image
+            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
             --body-class "games-view"
             --body-attrs {
               "data-sse": ""
@@ -276,9 +284,9 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
               (render-tuner)))
         )
       ] | layout $req $REV $DATASTAR_JS_PATH
-            --title "2048 -- http-nu .bus demo"
+            --title "nu2048"
             --og-image $og_image
-            --og-description "Solo-tab 2048 driven by .bus pub/sub with view-transition tile slides."
+            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
             --body-class "play"
             --body-attrs {
               "data-player-id": $player_id
