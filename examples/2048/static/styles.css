@@ -648,13 +648,17 @@ body.play, body.games-view {
 }
 .page {
   width: 100%;
-  max-width: 900px;
+  /* /play stays a single-column board, max 600px so the board doesn't
+     dominate the viewport. Splash overrides below to fit the 3-up grid. */
+  max-width: 600px;
   padding: 0 1rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   box-sizing: border-box;
 }
+body.games-view .page,
+body.games-view .site-header { max-width: 900px; }
 /* play-header: a section-heading row. Modeled on http-nu/www's
    section-header (text-3xl mb-4 font-mono font-bold text-header)
    but split left/right so secondary controls (score, undo) can ride
@@ -697,7 +701,7 @@ body.play, body.games-view {
    left, status + credit right. No divider lines; whitespace separates. */
 .site-header {
   width: 100%;
-  max-width: 900px;
+  max-width: 600px;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
