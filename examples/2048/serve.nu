@@ -171,24 +171,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let player_id = if ($prior | is-empty) { random uuid } else { $prior }
       let games_topic = $"player.($player_id).games"
       let games = (try { .cat -T $games_topic | reverse } catch { [] })
-      (HTML
-      (HEAD
-        (META {charset: "utf-8"})
-        (META {name: "viewport" content: "width=device-width, initial-scale=1"})
-        (LINK {rel: "icon" href: "data:,"})
-        (TITLE "2048.nu")
-        (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
-        (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true})
-        (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")}))
-      (BODY {
-        class: "games-view"
-        # Live updates: subscribe to snapshot events for this player's games
-        # and morph each #card-<game_id> in place as moves land. The
-        # data-sse marker matches what script.js's connection-state tracker
-        # listens to, so the #conn indicator works on this page too.
-        "data-sse": ""
-        "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
-      }
+      ([
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
@@ -208,7 +191,13 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
               (SPAN {class: "credit"}
                 (A {href: "https://http-nu.cross.stream"}
                   "served by http-nu "
-                  (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"})))))))
+                  (IMG {src: ($req | href "/ellie.png") alt: "ellie" class: "mascot"}))))))
+      ] | layout $req $REV $DATASTAR_JS_PATH
+            --body-class "games-view"
+            --body-attrs {
+              "data-sse": ""
+              "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
+            }
       | cookie set "player" $player_id --max-age 31536000 --no-secure)
     })
 
@@ -227,33 +216,7 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
-      (HTML
-      (HEAD
-      (META {charset: "utf-8"})
-      (META {name: "viewport" content: "width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"})
-      (LINK {rel: "icon" href: "data:,"})
-      (TITLE "2048 -- http-nu .bus demo")
-      (META {property: "og:type" content: "website"})
-      (META {property: "og:title" content: "2048.nu"})
-      (META {property: "og:description" content: "Solo-tab 2048 driven by .bus pub/sub with view-transition tile slides."})
-      (META {property: "og:image" content: $og_image})
-      (META {name: "twitter:card" content: "summary_large_image"})
-      (META {name: "twitter:image" content: $og_image})
-      (LINK {rel: "stylesheet" href: ($req | href $"/styles.css?v=($REV)")})
-      (SCRIPT-ICONIFY)
-      (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
-      (SCRIPT {src: ($req | href $"/script.js?v=($REV)") defer: true}))
-      (BODY {
-        class: "play"
-        # playerId from cookie, gameId from URL path. Both ride along on
-        # every datastar POST so /move doesn't need to look them up
-        # server-side. data-conn is managed by script.js based on SSE
-        # heartbeats; CSS reacts via body[data-conn="down"] selectors.
-        "data-player-id": $player_id
-        "data-game-id": $game_id
-        "data-move-url": ($req | href "/move")
-        "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
-      }
+      ([
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
@@ -547,9 +510,18 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
     localStorage.setItem(KEY, collapsed ? "1" : "0");
   });
 })();
-</script>'})
-      # Persist the player id for a year, refreshing on every visit.
-      # --no-secure so the cookie works over plain HTTP for local dev.
+</script>'}
+      ] | layout $req $REV $DATASTAR_JS_PATH
+            --title "2048 -- http-nu .bus demo"
+            --og-image $og_image
+            --og-description "Solo-tab 2048 driven by .bus pub/sub with view-transition tile slides."
+            --body-class "play"
+            --body-attrs {
+              "data-player-id": $player_id
+              "data-game-id": $game_id
+              "data-move-url": ($req | href "/move")
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
+            }
       | cookie set "player" $player_id --max-age 31536000 --no-secure)
     })
   ]

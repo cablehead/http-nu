@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <link rel="icon" href="data:,">
+  <title>{{ title }}</title>
+  {% if og_image %}
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ title }}">
+  <meta property="og:description" content="{{ og_description }}">
+  <meta property="og:image" content="{{ og_image }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{{ og_image }}">
+  {% endif %}
+  <link rel="stylesheet" href="{{ styles_href }}">
+  <script type="module" src="{{ datastar_src }}"></script>
+  <script src="{{ script_src }}" defer></script>
+</head>
+<body class="{{ body_class }}"{% for a in body_attrs %} {{ a.key }}="{{ a.value }}"{% endfor %}>
+{{ body_html | safe }}
+</body>
+</html>

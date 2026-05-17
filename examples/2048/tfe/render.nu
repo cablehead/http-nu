@@ -4,6 +4,9 @@
 
 use http-nu/html *
 
+# Used by `layout` below to resolve layout.html relative to this module.
+const HERE = path self | path dirname
+
 export def color-for [v: int]: nothing -> string {
   match $v {
     2 => "#eee4da"
@@ -38,8 +41,9 @@ export def color-for [v: int]: nothing -> string {
 #      merge cell while fading, instead of popping out of existence.
 #   3. Tiles (live game-state tiles).
 # Module-level `let` isn't allowed, and `.mj compile` isn't const-eval'able,
-# so the template is built once per `use` via export-env and stashed in
-# $env.BOARD_TPL. render-board reads it back from there.
+# so templates are built once per `use` via export-env and stashed in $env.
+# Nushell allows only one export-env block per module, so both templates
+# get compiled here.
 export-env {
   $env.BOARD_TPL = .mj compile --inline (
     DIV {class: "board"}
@@ -53,6 +57,9 @@ export-env {
         style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw; view-transition-name: {{ t.vt }};"
       } (_var "t.value")))
   )
+  # Page-shell template (layout.html). Used once per request to wrap the
+  # body content in <html><head>...</head><body>. See `layout` below.
+  $env.LAYOUT_TPL = .mj compile ($HERE | path join "layout.html")
 }
 
 export def render-board [scope?: string]: record -> record {
@@ -146,4 +153,36 @@ export def render-games-list-from-data [req: record, data: record]: nothing -> r
   (DIV {class: "games-list"} ($entries | each {|e|
     render-card-from-state $req $e.game_id $e.meta.state ($e.meta | get moves? | default 0)
   }))
+}
+
+# Page shell. Takes a list of body children (html DSL records) and wraps
+# them in the shared <html><head>...</head><body> from layout.html.
+#
+#   [(DIV ...) (FOOTER ...)] | layout $req $REV --title "..." --body-class "play"
+#
+# DATASTAR_JS_PATH is a const exported by http-nu/datastar; pass it in so
+# this module doesn't depend on http-nu/datastar being in scope.
+export def layout [
+  req: record
+  rev: string
+  datastar_src: string
+  --title: string = "2048.nu"
+  --og-image: string = ""
+  --og-description: string = ""
+  --body-class: string = ""
+  --body-attrs: record = {}
+]: list -> string {
+  let children = $in
+  let body_html = $children | each {|c| $c.__html } | str join
+  {
+    title: $title
+    og_image: $og_image
+    og_description: $og_description
+    styles_href: ($req | href $"/styles.css?v=($rev)")
+    datastar_src: $datastar_src
+    script_src: ($req | href $"/script.js?v=($rev)")
+    body_class: $body_class
+    body_attrs: ($body_attrs | transpose key value)
+    body_html: $body_html
+  } | .mj render $env.LAYOUT_TPL
 }
