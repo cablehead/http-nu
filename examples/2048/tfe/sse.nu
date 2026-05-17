@@ -92,6 +92,13 @@ export def states-to-html [] {
       [$s]
     } else if ('signals' in $s) {
       [$s]
+    } else if (($s | get -o state) == null) {
+      # Fresh game whose snapshot-actor hasn't yet written a snapshot:
+      # frames-to-states' acc.state is null when the pulse-threshold
+      # arrives. Drop the record -- the /play page's server-rendered
+      # placeholder board stays in the DOM until the next real snapshot
+      # frame lands. Guarded by test 0a.
+      []
     } else {
       let state = $s.state
       let changed = $s.changed? | default false
