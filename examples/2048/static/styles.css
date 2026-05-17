@@ -690,8 +690,11 @@ body.play .help          { grid-area: help; justify-self: start; }
   align-items: baseline;
   gap: 0.6rem;
 }
-.breadcrumb .game-id { color: var(--brand); }
-.breadcrumb .page-title { color: var(--fg-header); }
+/* The last anchor in the path is the focus of the breadcrumb (the page
+   you're on): cyan accent. Hover beats it via source order at matching
+   specificity -- no override needed per-class. */
+.breadcrumb .left > a:last-of-type { color: var(--brand); }
+.breadcrumb a:hover { color: var(--accent); }
 
 /* Board controls strip: score top-left, [u]ndo button top-right. */
 body.play .board-controls {
