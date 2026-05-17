@@ -553,22 +553,22 @@ body.play .board > div:not(:empty) {
 .game-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   text-decoration: none;
   color: inherit;
+  transition: opacity 0.2s;
 }
-.game-card { transition: opacity 0.2s; }
 .game-card:hover { opacity: 0.85; }
 .game-card .thumb {
-  width: 230px;
-  height: 230px;
-  padding: 0.5rem;
+  width: 260px;
+  height: 260px;
+  padding: 0.75rem;
   background: rgba(0, 0, 0, 0.2);
   border-radius: 0.5rem;
 }
 .game-card .caption {
-  font-size: 0.875rem;
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-size: 1rem;
   color: var(--fg-header);
 }
 
@@ -597,100 +597,98 @@ body.play, body.games-view {
 }
 .page {
   width: 100%;
-  max-width: 600px;
+  max-width: 720px;
   padding: 0 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 1rem;
   box-sizing: border-box;
 }
-.play-header,
-.play-footer {
+/* play-header: a section-heading row. Modeled on http-nu/www's
+   section-header (text-3xl mb-4 font-mono font-bold text-header)
+   but split left/right so secondary controls (score, undo) can ride
+   along. No divider; whitespace separates. */
+.play-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.5rem 0 1rem;
-  font-size: 0.875rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  margin-bottom: 0.5rem;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
 }
 .play-header .left,
 .play-header .right {
   display: flex;
-  align-items: center;
-  gap: 1rem;
+  align-items: baseline;
+  gap: 1.5rem;
 }
-.play-footer .left,
-.play-footer .right {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
+/* Section-heading style for the prominent piece (page-title on /, score on /play). */
+.play-header .page-title,
+.play-header .score-label,
+.play-header #score {
+  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-weight: 700;
+  color: var(--fg-header);
 }
-/* Cream emphasis everywhere `strong` would land: score number,
-   "past games" page title, the score-label, the game-id slug. */
-.play-header #score { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--fg-header); }
-.play-header .score-label { color: var(--fg-header); }
-.play-header .page-title { font-weight: 700; color: var(--fg-header); }
+.play-header .page-title { font-size: 1.875rem; }
+.play-header .score-label,
+.play-header #score { font-size: 1.5rem; }
+.play-header #score { font-variant-numeric: tabular-nums; }
 .play-header .game-id {
   font-family: "Source Code Pro", ui-monospace, monospace;
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
   color: var(--fg-header);
-  opacity: 0.8;
+  opacity: 0.7;
 }
 
-/* Site header: shared by / and /play. Title left, status + credit right.
-   The right side is its own flex row so the conn/rtt group and the
-   served-by group sit side-by-side. Width-matched to .page so the title
-   sits at the same left edge as the page content. */
+/* Site header: shared by / and /play. Mirrors the http-nu/www header
+   pattern -- `flex items-baseline justify-between mt-10 mb-2`. Title
+   left, status + credit right. No divider lines; whitespace separates. */
 .site-header {
   width: 100%;
-  max-width: 600px;
+  max-width: 720px;
   display: flex;
-  align-items: flex-end;
+  align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding: 2rem 1rem 1.25rem;
-  margin-bottom: 1.5rem;
-  font-size: 0.9375rem;
-  color: var(--fg);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  margin: 2.5rem 0 2.5rem;
+  padding: 0 1rem;
   box-sizing: border-box;
 }
-.site-header-left {
-  display: flex;
-  align-items: center;
-}
+.site-header-left { display: flex; align-items: baseline; }
 .site-header .site-title {
+  font-family: "Source Code Pro", ui-monospace, monospace;
   font-weight: 700;
-  font-size: 1.75rem;
+  font-size: clamp(2rem, 5vw, 2.75rem);
   color: var(--fg-header);
   /* underline + hover-opacity inherited from base `a` rule */
 }
 .site-header-right {
   display: flex;
-  align-items: flex-end;
-  gap: 1rem;
+  align-items: baseline;
+  gap: 1.5rem;
 }
 .site-header .status {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
+  font-size: 1rem;
 }
 .site-header .stat { font-variant-numeric: tabular-nums; }
 .site-header .credit a { color: inherit; text-decoration: none; }
-.site-header .credit a:hover { text-decoration: underline; }
+.site-header .credit a:hover { text-decoration: underline; opacity: 1; }
 .site-header .credit .mascot {
-  width: 56px;
-  height: 32px;
+  width: 64px;
+  height: 36px;
   vertical-align: bottom;
 }
 .site-header #conn {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #888;
+  align-self: center;
 }
 body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
 body[data-conn="down"] .site-header #conn { background: #c0392b; }
