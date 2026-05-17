@@ -47,6 +47,15 @@
   --gap: 8px;
   --radius: 4px;
   --glow: #fffdc2;
+  --font-sans: "Source Sans 3", sans-serif;
+  --font-mono: "Source Code Pro", ui-monospace, monospace;
+  /* Type scale -- declared as vars so sites that reuse a size can share
+     the token. One-offs that appear in a single rule stay inline. */
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-md:   1.125rem;
+  --text-lg:   1.5rem;
+  --text-xl:   2rem;
 }
 
 * { box-sizing: border-box; margin: 0; }
@@ -75,8 +84,11 @@ body {
   gap: 12px;
   background: var(--bg);
   color: var(--fg);
-  font: 1.125rem/1.6 "Source Sans 3", sans-serif;
+  font: var(--text-md)/1.6 var(--font-sans);
 }
+/* Semantic chrome elements + intrinsically-technical leaves are mono.
+   Everything else inherits the body's sans default. */
+header, nav, code, kbd, samp, output { font-family: var(--font-mono); }
 
 /* Inherit color + underline. On hover, links pick up the same orange
    accent used for kbd-btn hover backgrounds -- one accent gesture
@@ -91,14 +103,6 @@ a:hover { color: var(--accent); }
 h1 { font-size: clamp(24px, 6vmin, 40px); }
 h1 a { color: inherit; }
 p  { font-size: 14px; }
-
-kbd {
-  background: var(--tile);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 13px;
-}
 
 button {
   background: var(--accent);
@@ -498,9 +502,6 @@ body.play .board > div:not(:empty) {
   opacity: 0.7;
   word-break: break-all;
 }
-/* (tile-spawn :only-child rule removed; the VT-only pipeline at the
-   bottom of this file owns spawn animation via .spawned.) */
-
 /* Pending indicator: a static edge glow on the side the player swiped
    toward, shown while a move request is in flight. JS sets
    `#board-wrap[data-pending="<dir>"]` on keydown and clears it when the
@@ -577,9 +578,13 @@ body.play .board > div:not(:empty) {
   position: relative;
   z-index: 2;
 }
+.game-card {
+  /* Captions and overlay text are technical/numeric -- mono on the
+     container, all descendants inherit. */
+  font-family: var(--font-mono);
+}
 .game-card .overlay {
   position: absolute;
-  font-family: "Source Code Pro", ui-monospace, monospace;
   pointer-events: none;
   z-index: 5;
 }
@@ -681,8 +686,8 @@ body.play .help          { grid-area: help; justify-self: start; }
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  font-family: "Source Code Pro", ui-monospace, monospace;
-  font-size: 1rem;
+  font-size: var(--text-base);
+  /* font-family inherits from <nav> element rule (header,nav,code,kbd,... mono) */
 }
 .breadcrumb .left,
 .breadcrumb .right {
@@ -710,15 +715,15 @@ body.play .score-block {
 }
 /* Score: big mono number in the cream header color; the *number* IS
    the label here, no word. */
-body.play #score {
-  font-family: "Source Code Pro", ui-monospace, monospace;
+/* Score: big readout on /play. Marked up as <output> so mono comes
+   from the element rule; just size + color + tabular nums. */
+#score {
   font-weight: 700;
   font-size: 2.5rem;
   line-height: 1;
   color: var(--fg-header);
   font-variant-numeric: tabular-nums;
 }
-/* (undo-badge removed -- [u]ndo lives in the help panel as a kbd-btn) */
 
 /* Help panel: small monospace grid documenting the vim keys + arrows. */
 body.play .help {
@@ -738,8 +743,8 @@ body.play .help {
   padding: 0.9rem 0.9rem 0.9rem 1.1rem;
   background: rgba(0, 0, 0, 0.2);
   border-radius: 0.5rem;
-  font-family: "Source Code Pro", ui-monospace, monospace;
-  font-size: 0.9375rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
   color: var(--fg-header);
 }
 body.play .help .help-row {
@@ -751,9 +756,8 @@ body.play .help .help-row {
    glyph; mono font, pressable on mobile; [data-intent] is picked up by
    the click delegate in script.js. */
 .kbd-btn {
-  font-family: "Source Code Pro", ui-monospace, monospace;
   font-weight: 700;
-  font-size: 1rem;
+  font-size: var(--text-base);
   color: #fff;
   background: rgba(0, 0, 0, 0.3);
   padding: 0.2rem 0.55rem;
@@ -788,41 +792,24 @@ body.play .help .help-fx {
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
-/* play-header: a section-heading row. Modeled on http-nu/www's
-   section-header (text-3xl mb-4 font-mono font-bold text-header)
-   but split left/right so secondary controls (score, undo) can ride
-   along. No divider; whitespace separates. */
-.play-header {
+/* Splash hero. Two-up on wide viewports (lede on the left, board on
+   the right via row-reverse), stacked column on narrow with the board
+   first. Plain flexbox, no specificity tricks. */
+.hero {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.5rem;
+  flex-direction: column;
+  gap: 2rem;
+  margin: 1rem 0 2.5rem;
 }
-.play-header .left,
-.play-header .right {
-  display: flex;
-  align-items: baseline;
-  gap: 1.5rem;
-}
-/* Section-heading style for the prominent piece (page-title on /, score on /play). */
-.play-header .page-title,
-.play-header .score-label,
-.play-header #score {
-  font-family: "Source Code Pro", ui-monospace, monospace;
-  font-weight: 700;
-  color: var(--fg-header);
-}
-.play-header .page-title { font-size: 1.875rem; }
-.play-header .score-label,
-.play-header #score { font-size: 1.5rem; }
-.play-header #score { font-variant-numeric: tabular-nums; }
-.play-header .game-id {
-  font-family: "Source Code Pro", ui-monospace, monospace;
-  font-size: 0.9375rem;
-  color: var(--fg-header);
-  opacity: 0.7;
+.hero .preview { width: 100%; max-width: 380px; align-self: center; }
+/* .lede is inside a section; the h2 lives in prose context (sans by default).
+   We want it mono + cream; one-off styling, no class. */
+.hero .lede h2 { font-family: var(--font-mono); font-size: 1.75rem; color: var(--fg-header); margin-bottom: 0.75rem; }
+.hero .lede p { margin-bottom: 1rem; }
+@media (min-width: 760px) {
+  .hero { flex-direction: row-reverse; align-items: center; }
+  .hero > * { flex: 1; }
+  .hero .preview { max-width: none; }
 }
 
 /* Site header: shared by / and /play. Mirrors the http-nu/www header
@@ -837,11 +824,12 @@ body.play .help .help-fx {
   gap: 1rem;
   margin: 2rem 0 0.75rem;
   padding: 0 1rem;
+  font-size: var(--text-sm);
   box-sizing: border-box;
 }
 .site-header-left { display: flex; align-items: baseline; }
 .site-header .site-title {
-  font-family: "Source Code Pro", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-weight: 700;
   font-size: clamp(2rem, 5vw, 2.75rem);
   color: var(--fg-header);

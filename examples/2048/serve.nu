@@ -39,10 +39,17 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
   render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id
 }
 
+# --- sub-handlers ---------------------------------------------------------
+
+# The /notes digital-garden sub-site. One file per topic in
+# notes/content/*.md; each h1 becomes its own page at runtime.
+let notes = source notes/serve.nu
+
 # --- routes ---------------------------------------------------------------
 
 {|req|
   dispatch $req [
+    (mount "/notes" $notes)
     (route {method: POST path: "/move"} {|req ctx|
       # The client carries the game id (URL-routed play view, so the
       # page knows which game it's on). Body shape: {playerId, gameId,
@@ -191,6 +198,24 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
+      # A static teaser board for the splash hero. Picks a mid-game
+      # state with a clear high tile so the visitor sees what 2048 IS
+      # at a glance. Replaced later by a live replay of a recent game.
+      let teaser_state = {
+        tiles: [
+          {id: 1 r: 0 c: 0 value: 2}
+          {id: 2 r: 0 c: 1 value: 4}
+          {id: 3 r: 1 c: 1 value: 8}
+          {id: 4 r: 1 c: 2 value: 16}
+          {id: 5 r: 2 c: 2 value: 32}
+          {id: 6 r: 2 c: 3 value: 64}
+          {id: 7 r: 3 c: 3 value: 128}
+        ]
+        ghosts: []
+        next_id: 8
+        score: 254
+        game_over: false
+      }
       ([
         (DIV {class: "page"}
           (breadcrumb
@@ -201,6 +226,15 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
               (A {href: ($req | href "/new")} "new game")
               (kbd-btn "n" --href ($req | href "/new"))
             ])
+          # Hero: lede + teaser board. Two-up on wide viewports (board
+          # on the right via flex-direction: row-reverse), stacked on
+          # narrow with the board first.
+          (SECTION {class: "hero"}
+            (ASIDE {class: "preview"} ($teaser_state | render-board "teaser"))
+            (DIV {class: "lede"}
+              (H2 "2048, in Nushell!")
+              (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
+              (A {href: ($req | href "/notes/what-is-2048")} "never played? \u{2192}")))
           # Always render .games-list (even if empty) so the SSE handler
           # has a stable target to prepend new-game cards into. The hint
           # below is a sibling, hidden via CSS when .games-list has any
