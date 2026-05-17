@@ -121,6 +121,19 @@ export def render-tuner []: nothing -> record {
   {__html: ({} | .mj render $env.TUNER_TPL)}
 }
 
+# Breadcrumb header: a one-row nav element shared by / and /play. Left
+# side holds the path (page title + optional crumbs); right side holds
+# action shortcuts (kbd-btns). Callers pass each side as a list of HTML
+# DSL records.
+export def breadcrumb [
+  --left: list = []
+  --right: list = []
+]: nothing -> record {
+  (NAV {class: "breadcrumb"}
+    (DIV {class: "left"} ...$left)
+    (DIV {class: "right"} ...$right))
+}
+
 # Bracketed key-cap button: `[ h ]`, `[ esc ]`, etc. The reusable shape
 # behind every kbd hint in the UI (help panel rows, breadcrumb esc hint,
 # new-game shortcut on /). Renders as either a <button> (with optional

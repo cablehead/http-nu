@@ -191,14 +191,14 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
       ([
         (DIV {class: "page"}
-          # Same breadcrumb shape as /play: nav label on the left, action
-          # (new game + [n] shortcut) right-aligned on the same row.
-          (NAV {class: "breadcrumb"}
-            (DIV {class: "left"}
-              (SPAN {class: "page-title"} "past games"))
-            (DIV {class: "right"}
+          (breadcrumb
+            --left [
+              (A {class: "page-title" href: ($req | href "/")} "past games")
+            ]
+            --right [
               (A {href: ($req | href "/new")} "new game")
-              (kbd-btn "n" --href ($req | href "/new"))))
+              (kbd-btn "n" --href ($req | href "/new"))
+            ])
           # Always render .games-list (even if empty) so the SSE handler
           # has a stable target to prepend new-game cards into. The hint
           # below is a sibling, hidden via CSS when .games-list has any
@@ -235,17 +235,22 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let game_id_short = $game_id | str substring 0..7
       ([
         (DIV {class: "page"}
-          # Breadcrumb header: left = path (past games -> short id),
-          # right = the [esc] shortcut button (same kbd-btn component as
-          # the help panel). The game-id is a self-link so it can be
-          # right-clicked to copy a bookmarkable URL.
-          (NAV {class: "breadcrumb"}
-            (DIV {class: "left"}
+          # Breadcrumb header: left = path with shortcuts adjacent to
+          # their link targets ([esc] sits next to "past games" because
+          # esc is its keyboard shortcut). Right = top-level actions.
+          # The game-id is a self-link so it can be right-clicked to
+          # copy a bookmarkable URL.
+          (breadcrumb
+            --left [
               (A {href: $home_href} "past games")
+              (kbd-btn "esc" --href $home_href)
               (SPAN {class: "sep"} "·")
-              (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short))
-            (DIV {class: "right"}
-              (kbd-btn "esc" --href $home_href)))
+              (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short)
+            ]
+            --right [
+              (A {href: ($req | href "/new")} "new game")
+              (kbd-btn "n" --href ($req | href "/new"))
+            ])
           (DIV {class: "play-layout"}
             (DIV {class: "board-controls"}
               (DIV {class: "score-block"}
