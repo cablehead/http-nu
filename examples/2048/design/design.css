@@ -1,12 +1,12 @@
 /* /design viewer layout. 2-col: sidebar list + focused preview. */
 
 body.design {
-  /* Override the global viewport-locked body for this page -- the
-     preview can be tall and should scroll naturally. */
-  height: auto;
-  min-height: 100dvh;
-  overflow: auto;
-  display: block;
+  /* Two-pane viewport: header at top, then nav + preview filling the
+     rest. Only the preview scrolls; nav stays put. */
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 0;
   gap: 0;
 }
@@ -23,9 +23,10 @@ body.design {
 .design-header .current { color: var(--fg-header); }
 
 .design-main {
+  flex: 1;
   display: grid;
   grid-template-columns: 260px 1fr;
-  min-height: calc(100dvh - 4rem);
+  min-height: 0;
 }
 
 .design-nav {
@@ -33,6 +34,7 @@ body.design {
   padding: 1rem 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 .design-nav a {
   display: grid;
@@ -55,6 +57,7 @@ body.design {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  overflow-y: auto;
 }
 
 .story {
