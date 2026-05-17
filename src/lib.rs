@@ -6,6 +6,7 @@ pub mod engine;
 pub mod handler;
 pub mod listener;
 pub mod logging;
+pub mod pty;
 pub mod request;
 pub mod response;
 pub mod stdlib;

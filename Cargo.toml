@@ -70,6 +70,8 @@ syntect = "5.3.0"
 syntect-assets = "0.23.6"
 pulldown-cmark = "0.12.2"
 notify = "8"
+portable-pty = "0.9"
+base64 = "0.22"
 
 [dependencies.cross-stream]
 version = "0.12.0"
