@@ -68,6 +68,30 @@ follow-game "03g54..." | each { reject state.tiles }
 
 # Replay from raw move frames (no snapshots needed):
 .cat -T "game.03g54.move" | project-game "03g54" | reject tiles
+
+# Leaderboard: top 5 games from the last week, with undo counts.
+# `.id unpack` decodes a SCRU128 frame id to a datetime.
+let cutoff = (date now) - 7day
+let undos = .cat
+  | where ($it.topic | str starts-with "game.") and ($it.topic | str ends-with ".move")
+  | where ($it.meta? | default {} | get kind? | default "") == "undo"
+  | group-by topic
+  | items {|t fs| {game: ($t | str replace "game." "" | str replace ".move" ""), n: ($fs | length)} }
+list-games | each {|g|
+    let snap = .last $"game.($g.game).snapshot"
+    {
+      game: ($g.game | str substring 0..7)
+      when: ($g.game | .id unpack | get timestamp)
+      player: ($snap | get -o meta.player_id | default "" | str substring 0..7)
+      moves: $g.moves
+      score: ($snap | get -o meta.score)
+      max: ($snap | get -o meta.max_tile)
+      undos: ($undos | where game == $g.game | get n? | default [0] | first)
+    }
+  }
+  | where when >= $cutoff
+  | sort-by score -r
+  | first 5
 ```
 
 ### Frame topics
