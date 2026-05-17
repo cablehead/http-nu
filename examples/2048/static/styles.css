@@ -672,9 +672,9 @@ body.play .column {
 /* Knobs. The fx tuner writes these on :root. Defaults match the
    values the pipeline was first committed at. */
 :root {
-  --slide-duration:   130ms;
-  --ghost-duration:   130ms;
-  --merge-duration:   200ms;
+  --slide-duration:   180ms;
+  --ghost-duration:   160ms;
+  --merge-duration:   240ms;
   --merge-scale:      1.2;
   --spawn-duration:   200ms;
   --spawn-from-scale: 0.2;

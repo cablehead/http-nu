@@ -13,23 +13,25 @@
       <div>&nbsp;&nbsp;3. spawn (delay = slide + merge)</div>
     </div>
 
+    <!-- No `value="..."` on inputs: defaults live in styles.css :root and
+         get pulled in via getComputedStyle on boot. Single source of truth. -->
     <div class="vt-tuner-section">slide duration <span class="vt-tuner-sub">how long every surviving tile takes to move (ms)</span></div>
-    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" value="130" data-var="--slide-duration" data-unit="ms"></label>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" data-var="--slide-duration" data-unit="ms"></label>
 
     <div class="vt-tuner-section">ghost duration <span class="vt-tuner-sub">how long the consumed merge tile takes to fade (ms)</span></div>
-    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="20" max="400" step="10" value="130" data-var="--ghost-duration" data-unit="ms"></label>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="20" max="400" step="10" data-var="--ghost-duration" data-unit="ms"></label>
 
     <div class="vt-tuner-section">merge duration <span class="vt-tuner-sub">how long the survivor's scale-pop takes (ms)</span></div>
-    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" value="200" data-var="--merge-duration" data-unit="ms"></label>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" data-var="--merge-duration" data-unit="ms"></label>
 
     <div class="vt-tuner-section">merge scale <span class="vt-tuner-sub">peak scale at the top of the pop (1 = no pop)</span></div>
-    <label><span class="hdr">x</span><span data-readout></span><input type="range" min="1" max="1.6" step="0.01" value="1.2" data-var="--merge-scale"></label>
+    <label><span class="hdr">x</span><span data-readout></span><input type="range" min="1" max="1.6" step="0.01" data-var="--merge-scale"></label>
 
     <div class="vt-tuner-section">spawn duration <span class="vt-tuner-sub">how long the new tile takes to fade + scale in (ms)</span></div>
-    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" value="200" data-var="--spawn-duration" data-unit="ms"></label>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" data-var="--spawn-duration" data-unit="ms"></label>
 
     <div class="vt-tuner-section">spawn from-scale <span class="vt-tuner-sub">how small the new tile starts (1 = no scale)</span></div>
-    <label><span class="hdr">x</span><span data-readout></span><input type="range" min="0" max="1" step="0.05" value="0.2" data-var="--spawn-from-scale"></label>
+    <label><span class="hdr">x</span><span data-readout></span><input type="range" min="0" max="1" step="0.05" data-var="--spawn-from-scale"></label>
   </div>
 </aside>
 <script>
@@ -43,12 +45,26 @@
     root.style.setProperty(input.dataset.var, v);
     input.previousElementSibling.textContent = v;
   };
-  // Persistence: serialise every input value (keyed by --css-var name) to
-  // localStorage on every change. Load on boot before the initial update()
-  // pass so the CSS vars take the stored values.
-  const KEY_SETTINGS = "fx-tuner-settings";
+  // Read a value from the cascade (styles.css :root) for an input. Strips
+  // the input's data-unit suffix so the numeric value fits the range slider.
+  // Returns null if the var isn't defined on :root.
+  const readCss = (input) => {
+    const raw = getComputedStyle(root).getPropertyValue(input.dataset.var).trim();
+    if (!raw) return null;
+    const unit = input.dataset.unit || "";
+    return unit && raw.endsWith(unit) ? raw.slice(0, -unit.length) : raw;
+  };
+  // Pull initial values from CSS so the stylesheet is the single source of
+  // truth for defaults. Stash them as the reset target.
   const defaults = {};
-  inputs.forEach(i => { defaults[i.dataset.var] = i.value; });
+  inputs.forEach(i => {
+    const v = readCss(i);
+    if (v != null) { defaults[i.dataset.var] = v; i.value = v; }
+  });
+  // Persistence: per-input value keyed by --css-var name. Loaded over the
+  // stylesheet defaults; reset wipes localStorage + the inline overrides on
+  // :root so the cascade values come back through.
+  const KEY_SETTINGS = "fx-tuner-settings";
   const loadSettings = () => {
     try {
       const stored = JSON.parse(localStorage.getItem(KEY_SETTINGS) || "{}");
@@ -83,8 +99,16 @@
     catch { flashMsg("copy failed"); }
   });
   tuner.querySelector(".vt-tuner-reset").addEventListener("click", () => {
-    inputs.forEach(i => { i.value = defaults[i.dataset.var]; update(i); });
-    saveSettings();
+    // Wipe both layers we wrote to: localStorage and the inline overrides on
+    // :root. That lets the stylesheet defaults shine back through, then we
+    // re-read them so the inputs and the readouts match.
+    try { localStorage.removeItem(KEY_SETTINGS); } catch {}
+    inputs.forEach(i => root.style.removeProperty(i.dataset.var));
+    inputs.forEach(i => {
+      const v = readCss(i);
+      if (v != null) { defaults[i.dataset.var] = v; i.value = v; }
+      i.previousElementSibling.textContent = i.value + (i.dataset.unit || "");
+    });
     flashMsg("reset");
   });
 
