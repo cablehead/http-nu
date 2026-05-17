@@ -1,0 +1,101 @@
+<aside class="vt-tuner">
+  <button class="vt-tuner-tab" aria-label="toggle tuner"><span class="vt-tuner-tab-arrow" aria-hidden="true">&#9656;</span><span class="vt-tuner-tab-label">fx</span></button>
+  <div class="vt-tuner-body">
+    <div class="vt-tuner-actions">
+      <button class="vt-tuner-btn vt-tuner-copy">copy json</button>
+      <button class="vt-tuner-btn vt-tuner-reset">reset</button>
+      <span class="vt-tuner-flash" data-flash></span>
+    </div>
+    <div class="vt-tuner-legend">
+      <div>three sequential phases on one view-transition:</div>
+      <div>&nbsp;&nbsp;1. slide (+ ghost fade)</div>
+      <div>&nbsp;&nbsp;2. merge pop (delay = slide)</div>
+      <div>&nbsp;&nbsp;3. spawn (delay = slide + merge)</div>
+    </div>
+
+    <div class="vt-tuner-section">slide duration <span class="vt-tuner-sub">how long every surviving tile takes to move (ms)</span></div>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" value="130" data-var="--slide-duration" data-unit="ms"></label>
+
+    <div class="vt-tuner-section">ghost duration <span class="vt-tuner-sub">how long the consumed merge tile takes to fade (ms)</span></div>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="20" max="400" step="10" value="130" data-var="--ghost-duration" data-unit="ms"></label>
+
+    <div class="vt-tuner-section">merge duration <span class="vt-tuner-sub">how long the survivor's scale-pop takes (ms)</span></div>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" value="200" data-var="--merge-duration" data-unit="ms"></label>
+
+    <div class="vt-tuner-section">merge scale <span class="vt-tuner-sub">peak scale at the top of the pop (1 = no pop)</span></div>
+    <label><span class="hdr">x</span><span data-readout></span><input type="range" min="1" max="1.6" step="0.01" value="1.2" data-var="--merge-scale"></label>
+
+    <div class="vt-tuner-section">spawn duration <span class="vt-tuner-sub">how long the new tile takes to fade + scale in (ms)</span></div>
+    <label><span class="hdr">ms</span><span data-readout></span><input type="range" min="40" max="400" step="10" value="200" data-var="--spawn-duration" data-unit="ms"></label>
+
+    <div class="vt-tuner-section">spawn from-scale <span class="vt-tuner-sub">how small the new tile starts (1 = no scale)</span></div>
+    <label><span class="hdr">x</span><span data-readout></span><input type="range" min="0" max="1" step="0.05" value="0.2" data-var="--spawn-from-scale"></label>
+  </div>
+</aside>
+<script>
+(() => {
+  const root = document.documentElement;
+  const tuner = document.querySelector(".vt-tuner");
+  const inputs = tuner.querySelectorAll("input[data-var]");
+  const update = (input) => {
+    const unit = input.dataset.unit || "";
+    const v = input.value + unit;
+    root.style.setProperty(input.dataset.var, v);
+    input.previousElementSibling.textContent = v;
+  };
+  // Persistence: serialise every input value (keyed by --css-var name) to
+  // localStorage on every change. Load on boot before the initial update()
+  // pass so the CSS vars take the stored values.
+  const KEY_SETTINGS = "fx-tuner-settings";
+  const defaults = {};
+  inputs.forEach(i => { defaults[i.dataset.var] = i.value; });
+  const loadSettings = () => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(KEY_SETTINGS) || "{}");
+      inputs.forEach(i => {
+        if (i.dataset.var in stored) i.value = stored[i.dataset.var];
+      });
+    } catch {}
+  };
+  const saveSettings = () => {
+    const out = {};
+    inputs.forEach(i => { out[i.dataset.var] = i.value; });
+    try { localStorage.setItem(KEY_SETTINGS, JSON.stringify(out)); } catch {}
+  };
+  loadSettings();
+  inputs.forEach(i => { update(i); i.addEventListener("input", () => { update(i); saveSettings(); }); });
+
+  // Copy + reset buttons.
+  const flash = tuner.querySelector("[data-flash]");
+  const flashMsg = (msg) => {
+    flash.textContent = msg;
+    clearTimeout(flash.__t);
+    flash.__t = setTimeout(() => { flash.textContent = ""; }, 1500);
+  };
+  tuner.querySelector(".vt-tuner-copy").addEventListener("click", async () => {
+    const out = {};
+    inputs.forEach(i => {
+      const v = i.value;
+      out[i.dataset.var] = /^-?\d+(\.\d+)?$/.test(v) ? parseFloat(v) : v;
+    });
+    const json = JSON.stringify(out, null, 2);
+    try { await navigator.clipboard.writeText(json); flashMsg("copied"); }
+    catch { flashMsg("copy failed"); }
+  });
+  tuner.querySelector(".vt-tuner-reset").addEventListener("click", () => {
+    inputs.forEach(i => { i.value = defaults[i.dataset.var]; update(i); });
+    saveSettings();
+    flashMsg("reset");
+  });
+
+  // Slide-out behaviour: the tab on the right edge of the viewport stays
+  // visible; clicking it toggles the body in/out via a class on the aside.
+  // localStorage keeps the panel state across reloads.
+  const KEY = "vt-tuner-collapsed";
+  if (localStorage.getItem(KEY) === "1") tuner.classList.add("is-collapsed");
+  tuner.querySelector(".vt-tuner-tab").addEventListener("click", () => {
+    const collapsed = tuner.classList.toggle("is-collapsed");
+    localStorage.setItem(KEY, collapsed ? "1" : "0");
+  });
+})();
+</script>

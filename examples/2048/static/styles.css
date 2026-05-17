@@ -310,59 +310,9 @@ body.play .board > div:not(:empty) {
   h1 { font-size: 20px; }
 }
 
-/* Tile-slide tuning. The browser auto-generates the transform animation
-   from old-rect to new-rect; we control the timing function and
-   duration. Each dial is `base + (latency_k * --rtt-mean)`, clamped to
-   sensible bounds. script.js writes --rtt-mean (unitless ms) after each
-   move; setting the k-coefficients to 0 turns off latency scaling.
-   *
-   * --vt-duration: total slide time.
-   * --vt-y1: overshoot magnitude (1.0 = none; >1 = bounce past target).
-   * --vt-x1: when the peak hits (smaller = sooner).
-   * --vt-x2: when the curve returns to target (larger = softer landing).
-   * --vt-y2: end value; pinned to 1 so the curve lands on the target.
-   */
-:root {
-  --rtt-mean: 0;
-
-  --vt-duration-base: 100ms;
-  --vt-duration-k:    0.1;      /* +ms of slide per ms of RTT */
-  --vt-y1-base:       1.2;
-  --vt-y1-k:          0.001;    /* unit change per ms of RTT */
-  --vt-x1-base:       0.34;
-  --vt-x1-k:          0;
-  --vt-x2-base:       0.64;
-  --vt-x2-k:          0;
-  --vt-y2-base:       1;
-  --vt-y2-k:          0;
-  --ghost-duration-base: 120ms;  /* how long the consumed tile lingers */
-  --ghost-duration-k:    0;
-
-  --vt-duration: clamp(80ms,  calc(var(--vt-duration-base) + var(--rtt-mean) * var(--vt-duration-k) * 1ms), 600ms);
-  --ghost-duration: clamp(120ms, calc(var(--ghost-duration-base) + var(--rtt-mean) * var(--ghost-duration-k) * 1ms), 2000ms);
-  --vt-y1:       clamp(1.0,   calc(var(--vt-y1-base)       + var(--rtt-mean) * var(--vt-y1-k)),             3.0);
-  --vt-x1:       clamp(0.05,  calc(var(--vt-x1-base)       + var(--rtt-mean) * var(--vt-x1-k)),             0.95);
-  --vt-x2:       clamp(0.05,  calc(var(--vt-x2-base)       + var(--rtt-mean) * var(--vt-x2-k)),             0.95);
-  --vt-y2:       clamp(0.5,   calc(var(--vt-y2-base)       + var(--rtt-mean) * var(--vt-y2-k)),             1.5);
-}
-::view-transition-group(*) {
-  animation-duration: var(--vt-duration);
-  animation-timing-function: cubic-bezier(var(--vt-x1), var(--vt-y1), var(--vt-x2), var(--vt-y2));
-}
-/* Merge ghosts (the consumed tile sliding into the merge cell, then
-   disappearing) linger a beat longer than the survivor's slide so the
-   fade is legible. Same bezier on the slide so motion shape matches the
-   surviving tile; only the duration differs. */
-::view-transition-group(*.ghost) {
-  animation-duration: var(--ghost-duration);
-}
-::view-transition-old(*.ghost) {
-  animation: ghost-fade var(--ghost-duration) ease-out forwards;
-}
-@keyframes ghost-fade {
-  0%   { opacity: 1; }
-  100% { opacity: 0; }
-}
+/* --rtt-mean is still written by script.js for the RTT readout; keep
+   the declaration so getComputedStyle reads back a number. */
+:root { --rtt-mean: 0; }
 
 /* TEMPORARY: fx tuner overlay. Remove when the dial values are
    settled.
@@ -710,53 +660,63 @@ body.play .column {
    overshoot on slides. Targets the original 2048 pipeline.
    ============================================================ */
 
-/* slide: groups translate via UA-default animation; we only
-   retune duration + easing. */
+/* Knobs. The fx tuner writes these on :root. Defaults match the
+   values the pipeline was first committed at. */
+:root {
+  --slide-duration:   130ms;
+  --ghost-duration:   130ms;
+  --merge-duration:   200ms;
+  --merge-scale:      1.2;
+  --spawn-duration:   200ms;
+  --spawn-from-scale: 0.2;
+}
+
+/* slide: groups translate via UA-default animation; we only retune
+   duration + easing. */
 ::view-transition-group(*) {
-  animation-duration: 130ms;
+  animation-duration: var(--slide-duration);
   animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
-/* The UA cross-fade on old/new pseudos defaults to ~250ms,
-   which would outlast our 130ms slide and leave ghost-traces
-   after tiles land. Sync them. */
+/* The UA cross-fade on old/new pseudos defaults to ~250ms, which
+   would outlast our slide and leave ghost-traces after tiles land.
+   Sync them. */
 ::view-transition-old(*),
 ::view-transition-new(*) {
-  animation-duration: 130ms;
+  animation-duration: var(--slide-duration);
   animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-/* ghost: consumed tile slides into the merge cell, fades out
-   slightly faster than the slide so the fade reads as the merge
-   landing. */
+/* ghost: consumed tile fades out slightly inside the slide window so
+   the fade reads as the merge landing. */
 ::view-transition-old(*.ghost) {
-  animation: vt-ghost-fade 90ms ease-out 40ms both;
+  animation: vt-ghost-fade var(--ghost-duration) ease-out 40ms both;
 }
 @keyframes vt-ghost-fade {
   0%   { opacity: 1; }
   100% { opacity: 0; }
 }
 
-/* merge pop: survivor's new pseudo scales after it lands.
-   opacity:1 in every keyframe because writing `animation:`
-   replaces the UA fade-in -- without an explicit value the
-   pseudo would be invisible until the delay elapsed. */
+/* merge pop: survivor's new pseudo scales after it lands. opacity:1
+   in every keyframe because writing `animation:` replaces the UA
+   fade-in -- without an explicit value the pseudo would be invisible
+   until the delay elapsed. */
 ::view-transition-new(*.merged) {
-  animation: vt-merge-pop 140ms cubic-bezier(0.34, 1.56, 0.64, 1) 130ms both;
+  animation: vt-merge-pop var(--merge-duration) cubic-bezier(0.34, 1.56, 0.64, 1) var(--slide-duration) both;
 }
 @keyframes vt-merge-pop {
   0%   { opacity: 1; transform: scale(1); }
-  50%  { opacity: 1; transform: scale(1.18); }
+  50%  { opacity: 1; transform: scale(var(--merge-scale)); }
   100% { opacity: 1; transform: scale(1); }
 }
 
-/* spawn: cell stays empty for the full slide + merge window,
-   then fades + scales in. Targeting .spawned only so we don't
-   sweep up any other never-paired pseudos (e.g. lingering
-   ghosts the next move clears). */
+/* spawn: cell stays empty for the slide + merge window, then fades +
+   scales in. Targeting .spawned only so we don't sweep up other
+   never-paired pseudos (e.g. lingering ghosts the next move clears). */
 ::view-transition-new(*.spawned) {
-  animation: vt-spawn-in 140ms cubic-bezier(0.25, 0.46, 0.45, 0.94) 270ms both;
+  animation: vt-spawn-in var(--spawn-duration) cubic-bezier(0.25, 0.46, 0.45, 0.94)
+             calc(var(--slide-duration) + var(--merge-duration)) both;
 }
 @keyframes vt-spawn-in {
-  0%   { opacity: 0; transform: scale(0.5); }
+  0%   { opacity: 0; transform: scale(var(--spawn-from-scale)); }
   100% { opacity: 1; transform: scale(1); }
 }

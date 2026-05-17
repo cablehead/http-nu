@@ -60,6 +60,9 @@ export-env {
   # Page-shell template (layout.html). Used once per request to wrap the
   # body content in <html><head>...</head><body>. See `layout` below.
   $env.LAYOUT_TPL = .mj compile ($TEMPLATES_DIR | path join "layout.html")
+  # Fx tuner overlay (vt-tuner.html). Static markup + script; rendered
+  # with no template vars. See `render-tuner` below.
+  $env.TUNER_TPL = .mj compile ($TEMPLATES_DIR | path join "vt-tuner.html")
 }
 
 export def render-board [scope?: string]: record -> record {
@@ -96,6 +99,13 @@ export def render-board [scope?: string]: record -> record {
 # each state change.
 export def render-score [score: int]: nothing -> record {
   (SPAN {id: "score"} ($score | into string))
+}
+
+# TEMPORARY: floating fx tuner overlay. Six dials controlling the VT-only
+# pipeline (slide -> merge pop -> spawn). Remove this once the dial values
+# are settled and the knobs become plain CSS constants.
+export def render-tuner []: nothing -> record {
+  {__html: ({} | .mj render $env.TUNER_TPL)}
 }
 
 export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
