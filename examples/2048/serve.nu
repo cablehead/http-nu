@@ -108,8 +108,14 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
               $data | upsert $game_id $item.meta
             } else { $data }
             if $new_data == $data { return {next: $data} }
+            # No --use-view-transition: morphdom diffs in place, only the
+            # changed card actually mutates. With VT, every card got swept
+            # into the snapshot/cross-fade -- which (a) re-ran the mute
+            # animation on every board even when its content was unchanged,
+            # and (b) flashed the entire list un-dimmed for one
+            # transition-length while the cross-fade played.
             let patch = (render-games-list-from-data $req $new_data
-                          | to datastar-patch-elements --selector ".games-list" --use-view-transition --id (random uuid))
+                          | to datastar-patch-elements --selector ".games-list" --id (random uuid))
             {out: $patch, next: $new_data}
           } $initial_data
         | to sse
