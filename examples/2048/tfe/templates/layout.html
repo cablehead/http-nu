@@ -18,6 +18,20 @@
   <script src="{{ script_src }}" defer></script>
 </head>
 <body class="{{ body_class }}"{% for a in body_attrs %} {{ a.key }}="{{ a.value }}"{% endfor %}>
+<header class="site-header">
+  <div class="site-header-left">
+    <a class="site-title" href="https://http-nu.cross.stream/examples/2048/">2048.nu</a>
+  </div>
+  <div class="site-header-right">
+    <div class="status">
+      <span id="conn" class="stat"></span>
+      <span id="rtt" class="stat"></span>
+    </div>
+    <span class="credit">
+      <a href="https://http-nu.cross.stream">served by <img src="{{ ellie_href }}" alt="ellie" class="mascot"></a>
+    </span>
+  </div>
+</header>
 {{ body_html | safe }}
 </body>
 </html>

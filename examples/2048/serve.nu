@@ -172,7 +172,6 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let games_topic = $"player.($player_id).games"
       let games = (try { .cat -T $games_topic | reverse } catch { [] })
       ([
-        (render-header $req)
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
@@ -209,7 +208,6 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
       ([
-        (render-header $req)
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
