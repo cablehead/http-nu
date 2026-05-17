@@ -562,7 +562,7 @@ body.play .board > div:not(:empty) {
    max-value tile, marked .is-max). The bright tile *is* the indicator
    of how far this game got. Hover lights the rest back up. */
 .game-card .board > div:not(:empty) {
-  opacity: 0.35;
+  opacity: 0.2;
   transition: opacity 0.2s ease;
 }
 .game-card .board > div.is-max { opacity: 1; }
@@ -573,26 +573,33 @@ body.play .board > div:not(:empty) {
   pointer-events: none;
   z-index: 1;
 }
-/* Last active -- small dim text top-right. */
+/* Last active -- small monospace label top-right. Big enough to read
+   without leaning in, but not competing with the highlighted tile. */
 .game-card .overlay.active {
-  top: 0.4rem;
-  right: 0.5rem;
-  font-size: 0.7rem;
-  color: var(--fg-header);
-  opacity: 0.85;
-}
-/* Score chip -- bottom-left, palette color of the max tile so it reads
-   as part of the same "level signature" as the highlighted board tile. */
-.game-card .overlay.score {
-  bottom: 0.4rem;
-  left: 0.4rem;
-  font-size: 0.8rem;
+  top: 0.5rem;
+  right: 0.6rem;
+  font-size: 0.875rem;
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  line-height: 1.2;
+  color: var(--fg-header);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
+/* Status badge -- fun rotated pill stamped over the top-left of the
+   board when the game is decided. Won = green, over = red. Borrows the
+   shadow-offset look from http-nu/www's wedge badges. */
+.game-card .overlay.badge {
+  top: 0.75rem;
+  left: 0.5rem;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 4px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
+}
+.game-card .overlay.badge.won  { background: #2a9d4a; transform: rotate(-6deg); }
+.game-card .overlay.badge.over { background: #e05252; transform: rotate(-3deg); }
 
 /* /games: page may overflow vertically (many cards) -- let the document
    scroll and align .page to the top instead of centring it. The base

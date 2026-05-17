@@ -172,8 +172,8 @@ def last-active-from-id [id: string]: nothing -> string {
 # is the densest signal; the board itself mutes every tile except the
 # highest value, so the headline ("how far this game got") emerges from
 # the board without needing a separate max-tile badge. Two overlays sit
-# on top: a score chip in the max tile's palette color, and the last-
-# active relative time ("in play" when fresh).
+# on top: the last-active relative time ("in play" when fresh) and, when
+# applicable, a fun rotated status badge (won / over).
 export def render-card-from-state [
   req: record
   game_id: string
@@ -186,11 +186,11 @@ export def render-card-from-state [
   }
   let lmid = $last_move_id | default $game_id
   let active = last-active-from-id $lmid
-  let p = palette-for $max_tile
+  let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
     (DIV {class: "board-wrap"} ($state | render-board $game_id))
     (SPAN {class: "overlay active"} $active)
-    (SPAN {class: "overlay score" style: $"background: ($p.bg); color: ($p.fg);"} ($state.score | into string)))
+    (if ($status | is-not-empty) { (SPAN {class: $"overlay badge ($status)"} $status) } else { "" }))
 }
 
 # Render the whole .games-list from an in-memory {game_id: snapshot_meta}
@@ -229,6 +229,7 @@ export def layout [
     datastar_src: $datastar_src
     script_src: ($req | href $"/script.js?v=($rev)")
     ellie_href: ($req | href "/ellie.png")
+    splash_href: ($req | href "/")
     body_class: $body_class
     body_attrs: ($body_attrs | transpose key value)
     body_html: $body_html

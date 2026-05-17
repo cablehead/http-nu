@@ -181,8 +181,9 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
         (DIV {class: "page"}
           (HEADER {class: "play-header"}
             (DIV {class: "left"}
-              (SPAN {class: "page-title"} "past games")
-              (A {href: ($req | href "/new")} "+ new game")))
+              (SPAN {class: "page-title"} "past games"))
+            (DIV {class: "right"}
+              (A {class: "new-game" href: ($req | href "/new")} "+ new game")))
           # Always render .games-list (even if empty) so the SSE handler
           # has a stable target to prepend new-game cards into. The hint
           # below is a sibling, hidden via CSS when .games-list has any
