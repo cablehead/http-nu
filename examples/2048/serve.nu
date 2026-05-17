@@ -224,11 +224,6 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
             (SPAN {class: "game-id"} $game_id_short))
           (DIV {class: "play-layout"}
             (DIV {class: "board-controls"}
-              (BUTTON {type: "button" "data-intent": "undo" class: "undo-badge" title: "undo (u)"}
-                (SPAN {class: "bracket"} "[")
-                (SPAN {class: "key"} "u")
-                (SPAN {class: "bracket"} "]")
-                "ndo")
               (DIV {class: "score-block"}
                 (render-score 0)
                 (render-state-badge false false)))
@@ -240,21 +235,39 @@ def render-game-card [req: record game_frame: record]: nothing -> record {
               "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
             }
               $placeholder)
-            # Help panel: vim direction keys + arrow glyphs. Sits to the
-            # right of the board on wide viewports, drops below on narrow.
+            # Help panel: each key is a real button that triggers the move
+            # via the existing [data-intent] click delegate in script.js.
+            # The fx-tuner toggle lives here too instead of as a separate
+            # floating tab.
             (ASIDE {class: "help"}
               (DIV {class: "help-row"}
-                (SPAN {class: "key"} "h") (SPAN {class: "arrow"} "←") (SPAN {class: "label"} "left"))
+                (BUTTON {type: "button" "data-intent": "h" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "h") (SPAN {class: "bracket"} "]"))
+                (SPAN {class: "arrow"} "←") (SPAN {class: "label"} "left"))
               (DIV {class: "help-row"}
-                (SPAN {class: "key"} "j") (SPAN {class: "arrow"} "↓") (SPAN {class: "label"} "down"))
+                (BUTTON {type: "button" "data-intent": "j" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "j") (SPAN {class: "bracket"} "]"))
+                (SPAN {class: "arrow"} "↓") (SPAN {class: "label"} "down"))
               (DIV {class: "help-row"}
-                (SPAN {class: "key"} "k") (SPAN {class: "arrow"} "↑") (SPAN {class: "label"} "up"))
+                (BUTTON {type: "button" "data-intent": "k" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "k") (SPAN {class: "bracket"} "]"))
+                (SPAN {class: "arrow"} "↑") (SPAN {class: "label"} "up"))
               (DIV {class: "help-row"}
-                (SPAN {class: "key"} "l") (SPAN {class: "arrow"} "→") (SPAN {class: "label"} "right"))
+                (BUTTON {type: "button" "data-intent": "l" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "l") (SPAN {class: "bracket"} "]"))
+                (SPAN {class: "arrow"} "→") (SPAN {class: "label"} "right"))
               (DIV {class: "help-row"}
-                (SPAN {class: "key"} "u") (SPAN {class: "arrow"} "") (SPAN {class: "label"} "undo"))))
+                (BUTTON {type: "button" "data-intent": "undo" class: "kbd-btn"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "u") (SPAN {class: "bracket"} "]"))
+                (SPAN {class: "arrow"} "")
+                (SPAN {class: "label"} "undo"))
+              (DIV {class: "help-row help-fx"}
+                (BUTTON {type: "button" class: "kbd-btn fx-toggle"}
+                  (SPAN {class: "bracket"} "[") (SPAN {class: "key"} "fx") (SPAN {class: "bracket"} "]"))
+                (SPAN {class: "arrow"} "")
+                (SPAN {class: "label"} "tuner"))
+              (render-tuner)))
         )
-        (render-tuner)
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "2048 -- http-nu .bus demo"
             --og-image $og_image

@@ -121,9 +121,14 @@
   // says the user explicitly opened it last session.
   const KEY = "vt-tuner-collapsed";
   if (localStorage.getItem(KEY) === "0") tuner.classList.remove("is-collapsed");
-  tuner.querySelector(".vt-tuner-tab").addEventListener("click", () => {
+  const toggleTuner = () => {
     const collapsed = tuner.classList.toggle("is-collapsed");
     localStorage.setItem(KEY, collapsed ? "1" : "0");
-  });
+  };
+  tuner.querySelector(".vt-tuner-tab").addEventListener("click", toggleTuner);
+  // The .fx-toggle button lives in the /play help panel as a sibling
+  // entry next to the move keys; clicking it slides the same tuner
+  // panel in/out.
+  document.querySelectorAll(".fx-toggle").forEach(b => b.addEventListener("click", toggleTuner));
 })();
 </script>

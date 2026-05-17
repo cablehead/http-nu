@@ -336,35 +336,21 @@ body.play .board > div:not(:empty) {
    tab and slides off-screen via translateX when .is-collapsed is set
    -- the tab stays put so it's always click-able. */
 .vt-tuner {
-  position: fixed;
-  /* Bottom-right corner: out of the way of the help nav above, still
-     reachable when the panel is collapsed. */
-  bottom: 12px;
-  right: 0;
+  /* Anchored to the right of .help so the panel slides out from there.
+     There is no floating tab anymore -- the help panel's [fx] button is
+     the only toggle. */
+  position: absolute;
+  top: 0;
+  left: calc(100% + 1rem);
   z-index: 1000;
   font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
   font-size: 11px;
   color: var(--fg);
 }
-.vt-tuner-tab {
-  position: relative;
-  z-index: 2;          /* stays above the body so the body slides UNDER it */
-  width: 32px;
-  background: rgba(0, 0, 0, 0.2);
-  color: var(--fg-header);
-  border: 0;
-  border-radius: 6px 0 0 6px;
-  cursor: pointer;
-  font: inherit;
-  font-weight: 700;
-  padding: 12px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  transition: opacity 0.2s;
-}
-.vt-tuner-tab:hover { opacity: 0.8; }
+/* The floating tab is no longer the toggle -- the [fx] button in the
+   help panel is. Hide it; existing JS still references it for the
+   click handler but the handler also fires from .fx-toggle. */
+.vt-tuner-tab { display: none; }
 .vt-tuner-tab .vt-tuner-tab-arrow {
   font-size: 18px;
   line-height: 1;
@@ -382,23 +368,20 @@ body.play .board > div:not(:empty) {
   font-size: 11px;
 }
 .vt-tuner-body {
-  position: absolute;
-  top: 0;
-  right: 32px;  /* anchor to the left of the tab */
-  z-index: 1;   /* below the tab so collapse slides UNDER */
   width: 260px;
-  max-height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 6rem);
   overflow-y: auto;
   padding: 0.75rem 0.875rem;
   background: rgba(0, 0, 0, 0.3);
   color: var(--fg);
-  border-radius: 0.5rem 0 0 0.5rem;
+  border-radius: 0.5rem;
   backdrop-filter: blur(4px);
-  transition: transform 220ms ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .vt-tuner.is-collapsed .vt-tuner-body {
-  /* slide entirely off-screen to the right, past where the tab sits */
-  transform: translateX(calc(100% + 32px));
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-1rem);
 }
 .vt-tuner-actions {
   display: flex;
@@ -659,7 +642,9 @@ body.play, body.games-view {
 }
 /* /play layout: grid with controls above the board, help to the right
    of the board (aligned with the BOARD's top, not the controls row).
-   Stacks single-column at narrow viewports. */
+   At narrow viewports help drops below the board. Everything is
+   left-aligned with the breadcrumb's left edge -- the board hugs the
+   .page left margin rather than centering. */
 body.play .play-layout {
   display: grid;
   grid-template-columns: 1fr;
@@ -668,11 +653,11 @@ body.play .play-layout {
     "board"
     "help";
   gap: 0.4rem 1.25rem;
-  justify-content: center;
+  justify-content: start;
 }
-body.play .board-controls { grid-area: controls; width: 100%; max-width: 500px; justify-self: center; }
-body.play .column        { grid-area: board;    width: 100%; max-width: 500px; justify-self: center; }
-body.play .help          { grid-area: help; justify-self: center; }
+body.play .board-controls { grid-area: controls; width: 100%; max-width: 500px; justify-self: start; }
+body.play .column        { grid-area: board;    width: 100%; max-width: 500px; justify-self: start; }
+body.play .help          { grid-area: help; justify-self: start; }
 @media (min-width: 900px) {
   body.play .play-layout {
     grid-template-columns: 500px auto;
@@ -680,9 +665,6 @@ body.play .help          { grid-area: help; justify-self: center; }
       "controls ."
       "board    help";
   }
-  body.play .board-controls,
-  body.play .column { justify-self: start; }
-  body.play .help { align-self: start; justify-self: start; }
 }
 
 /* Breadcrumb above the board: "/" link + short game-id slug. */
@@ -690,7 +672,6 @@ body.play .breadcrumb {
   display: flex;
   align-items: baseline;
   gap: 0.6rem;
-  margin-bottom: 1rem;
   font-family: "Source Code Pro", ui-monospace, monospace;
   font-size: 1rem;
 }
@@ -719,32 +700,12 @@ body.play #score {
   color: var(--fg-header);
   font-variant-numeric: tabular-nums;
 }
-/* [u]ndo as a fun badge button: bracketed key + label, mono, pressable. */
-body.play .undo-badge {
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--fg-header);
-  font-family: "Source Code Pro", ui-monospace, monospace;
-  font-weight: 700;
-  font-size: 1.125rem;
-  padding: 0.4rem 0.9rem;
-  border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
-  transition: transform 80ms, box-shadow 80ms, opacity 0.2s;
-  display: inline-flex;
-  align-items: baseline;
-}
-body.play .undo-badge:hover { opacity: 0.85; background: rgba(0, 0, 0, 0.25); }
-body.play .undo-badge:active {
-  transform: translateY(2px);
-  box-shadow: none;
-}
-body.play .undo-badge .bracket { opacity: 0.55; }
-body.play .undo-badge .key { color: #fff; }
+/* (undo-badge removed -- [u]ndo lives in the help panel as a kbd-btn) */
 
 /* Help panel: small monospace grid documenting the vim keys + arrows. */
 body.play .help {
+  /* position: relative so the tuner can anchor to the right of this panel */
+  position: relative;
   display: grid;
   grid-template-columns: auto auto 1fr;
   gap: 0.4rem 0.75rem;
@@ -759,14 +720,34 @@ body.play .help {
 body.play .help .help-row {
   display: contents;
 }
-body.play .help .key {
+/* kbd-btn: the [h]/[j]/[k]/[l]/[u]/[fx] buttons in the help panel.
+   Same bracketed visual as the old [u]ndo badge -- dimmed brackets
+   frame a prominent key letter, mono font, pressable on mobile. The
+   existing [data-intent] click delegate in script.js fires the same
+   move() as the keyboard. */
+body.play .help .kbd-btn {
+  font-family: "Source Code Pro", ui-monospace, monospace;
   font-weight: 700;
-  color: #fff;
+  font-size: 1rem;
+  color: var(--fg-header);
   background: rgba(0, 0, 0, 0.3);
-  padding: 0.05rem 0.4rem;
-  border-radius: 3px;
-  text-align: center;
+  padding: 0.2rem 0.55rem;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  transition: transform 80ms, box-shadow 80ms, opacity 0.2s;
+  display: inline-flex;
+  align-items: baseline;
+  line-height: 1;
 }
+body.play .help .kbd-btn:hover { opacity: 0.85; }
+body.play .help .kbd-btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+body.play .help .kbd-btn .bracket { opacity: 0.55; }
+body.play .help .kbd-btn .key { color: #fff; }
 body.play .help .arrow {
   font-size: 1.125rem;
   opacity: 0.85;
@@ -774,6 +755,12 @@ body.play .help .arrow {
   text-align: center;
 }
 body.play .help .label { opacity: 0.75; }
+/* fx toggle row sits slightly apart -- it's a meta control, not a move. */
+body.play .help .help-fx {
+  margin-top: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
 /* play-header: a section-heading row. Modeled on http-nu/www's
    section-header (text-3xl mb-4 font-mono font-bold text-header)
    but split left/right so secondary controls (score, undo) can ride
@@ -821,7 +808,7 @@ body.play .help .label { opacity: 0.75; }
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  margin: 2.5rem 0 2.5rem;
+  margin: 2rem 0 0.75rem;
   padding: 0 1rem;
   box-sizing: border-box;
 }
