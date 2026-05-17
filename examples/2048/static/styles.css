@@ -78,15 +78,15 @@ body {
   font: 1.125rem/1.6 "Source Sans 3", sans-serif;
 }
 
-/* Inherit color + underline + hover-dim, mirrors http-nu.cross.stream.
-   Per-element rules can still override (e.g. .credit a uses no underline,
-   .game-card uses none and lights its own visual). */
+/* Inherit color + underline. On hover, links pick up the same orange
+   accent used for kbd-btn hover backgrounds -- one accent gesture
+   across the whole UI for "active surface under the cursor". */
 a {
   color: inherit;
   text-decoration: underline;
-  transition: opacity 0.2s;
+  transition: color 0.2s;
 }
-a:hover { opacity: 0.8; }
+a:hover { color: var(--accent); }
 
 h1 { font-size: clamp(24px, 6vmin, 40px); }
 h1 a { color: inherit; }
@@ -766,15 +766,8 @@ body.play .help .help-row {
   min-width: 3.25rem;
   line-height: 1;
   box-sizing: border-box;
-  text-decoration: none;  /* in case it's rendered as <a> for navigation */
 }
-/* Explicit hover so the <a> form (navigation: [esc], [n]) matches the
-   <button> form (move actions: [h]/[u]/...). Without this, only the
-   <button> form picks up the base `button:hover` orange background. */
-.kbd-btn:hover {
-  background: var(--accent);
-  opacity: 1;
-}
+.kbd-btn:hover { background: var(--accent); }
 .kbd-btn:active {
   transform: translateY(2px);
   box-shadow: none;

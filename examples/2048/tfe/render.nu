@@ -134,13 +134,13 @@ export def breadcrumb [
     (DIV {class: "right"} ...$right))
 }
 
-# Bracketed key-cap button: `[ h ]`, `[ esc ]`, etc. The reusable shape
-# behind every kbd hint in the UI (help panel rows, breadcrumb esc hint,
-# new-game shortcut on /). Renders as either a <button> (with optional
-# data-intent picked up by the click delegate in script.js) or an <a>
-# (when --href is supplied -- navigation shortcuts).
-#   --bracketless: drop the [ ] frame entirely (for `fx`, which isn't a
-#   keypress so the brackets would be misleading).
+# Bracketed key-cap button: `[ h ]`, `[ esc ]`, etc. Always renders as
+# a <button> so styling can never drift between forms. Behavior is
+# carried by data attributes that script.js's click delegate dispatches:
+#   --intent "h"|"undo"|...  fires move(intent)        (game action)
+#   --href   "/new"|"/"|...  navigates location.href   (nav shortcut)
+#   neither                  caller wires a custom handler (e.g. fx-toggle)
+#   --bracketless            drops the [ ] frame (for `fx`, not a key)
 export def kbd-btn [
   label: string
   --intent: string = ""
@@ -154,13 +154,10 @@ export def kbd-btn [
     [(SPAN {class: "bracket"} "[") (SPAN {class: "key"} $label) (SPAN {class: "bracket"} "]")]
   }
   let cls = ["kbd-btn" $class] | where {|c| ($c | str trim | is-not-empty)} | str join " "
-  if ($href | is-not-empty) {
-    (A {class: $cls href: $href} ...$inner)
-  } else if ($intent | is-not-empty) {
-    (BUTTON {type: "button" class: $cls "data-intent": $intent} ...$inner)
-  } else {
-    (BUTTON {type: "button" class: $cls} ...$inner)
-  }
+  mut attrs = {type: "button" class: $cls}
+  if ($intent | is-not-empty) { $attrs = ($attrs | upsert "data-intent" $intent) }
+  if ($href | is-not-empty)   { $attrs = ($attrs | upsert "data-href" $href) }
+  (BUTTON $attrs ...$inner)
 }
 
 export def render-state-badge [won: bool, game_over: bool]: nothing -> record {

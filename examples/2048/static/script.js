@@ -185,11 +185,16 @@ addEventListener("keydown", (e) => {
   }
 });
 
-// Delegated handler so it works for buttons that live in the static top
-// tracker bar (e.g. undo) as well as any morphed-in [data-intent] buttons.
+// Delegated click handlers for the kbd-btn family. All kbd-btns are
+// <button> (uniform styling, no <a>/<button> drift) and carry their
+// behavior on a data attribute:
+//   [data-intent]  game move (move keys, undo)
+//   [data-href]    navigation shortcut (esc -> /, n -> /new)
 document.addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-intent]");
-  if (b) move(b.dataset.intent);
+  const intent = e.target.closest("button[data-intent]");
+  if (intent) { move(intent.dataset.intent); return; }
+  const nav = e.target.closest("button[data-href]");
+  if (nav) { location.href = nav.dataset.href; }
 });
 
 
