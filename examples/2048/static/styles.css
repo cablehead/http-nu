@@ -573,11 +573,13 @@ body.play .board > div:not(:empty) {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  /* Tinted with the body bg color (--bg #0077b6) so dimmed boards
+     recede into the page rather than calling attention as dark voids. */
+  background: rgba(0, 119, 182, 0.75);
   border-radius: inherit;
   pointer-events: none;
   z-index: 1;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.12s ease-out;
 }
 .game-card:hover .board::after { opacity: 0; }
 .game-card .board > div.is-max {
