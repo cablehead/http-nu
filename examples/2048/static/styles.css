@@ -31,14 +31,18 @@
 }
 
 :root {
-  --bg: #faf8ef;
-  --fg: #776e65;
+  /* Palette aligned with http-nu/www: deep blue body, warm-cream headers,
+     off-white primary text. Tile colors live in render.nu (untouched --
+     the wood-grain palette reads fine against blue). */
+  --bg: #0077b6;
+  --fg: rgba(255, 255, 255, 0.85);
+  --fg-header: #f4d9a0;
   --tile: #eee4da;
   --accent: #f59563;
   --accent-hover: #f67c5f;
   --accent-press: #d97a45;
-  --brand: #0077b6;
-  --brand-hover: #005a8a;
+  --brand: #00d4ff;          /* cyan from http-nu/www -- the link/underline accent that pops on blue */
+  --brand-hover: #5ae5ff;
   --light: #f9f6f2;
   --gap: 8px;
   --radius: 4px;
@@ -249,6 +253,9 @@ body[data-conn="down"] button {
 /* Hide the stale RTT readout while disconnected; the conn dot
    represents the status on its own. */
 body[data-conn="down"] #rtt { visibility: hidden; }
+/* / has no game to probe, so the rtt readout stays empty -- hide it
+   and let the conn dot speak for itself. */
+body.games-view #rtt { display: none; }
 #board-wrap { transition: filter 320ms ease; }
 button { transition: opacity 320ms ease; }
 
@@ -637,7 +644,7 @@ body.play, body.games-view {
 .site-header .site-title {
   font-weight: bold;
   font-size: 28px;
-  color: inherit;
+  color: var(--fg-header);
   text-decoration: underline;
   text-decoration-color: var(--brand);
   text-decoration-thickness: 3px;
