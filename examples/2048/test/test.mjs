@@ -126,13 +126,9 @@ check(
   boardTouchAction,
 );
 
-// Pressing a direction key adds .key-<dir> to #board-wrap which kicks off
-// the synthetic anticipation animation. Press 'h' and verify the class is
-// applied (the animation fires immediately on keydown).
-await page.keyboard.press("h");
-await page.waitForTimeout(20);
-const hasKeyClass = await page.evaluate(() => document.querySelector("#board-wrap")?.classList.contains("key-h") ?? false);
-check("board-wrap gains .key-h after pressing h", hasKeyClass);
+// Anticipation lean (key-<dir> class on #board-wrap) is currently
+// disabled while iterating on the VT-only pipeline. Re-enable this
+// assertion when the lean is restored.
 
 // Same kind of check for the per-tile transform rule. A matching
 // selector always sets transform to *something* (even matrix identity

@@ -94,10 +94,14 @@ export def states-to-html [] {
       [$s]
     } else {
       let state = $s.state
+      let changed = $s.changed? | default false
       let won = $state.tiles | any {|t| $t.value >= 2048 }
-      let board = ($state | render-game ($s.direction? | default "") ($s.changed? | default false) ($s.req_id? | default ""))
+      let board = ($state | render-game ($s.direction? | default "") $changed ($s.req_id? | default ""))
+      # Only state-changing renders ride a view-transition. Echo patches
+      # for no-op moves morph in place (data-rev attribute flip, identical
+      # children) -- no pseudos, no re-pop of merged/spawned animations.
       [
-        {vt: true, el: $board}
+        {vt: $changed, el: $board}
         {vt: false, el: (render-score $state.score)}
         {vt: false, el: (render-state-badge $won $state.game_over)}
       ]

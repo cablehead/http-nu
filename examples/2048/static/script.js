@@ -161,17 +161,9 @@ addEventListener("keydown", (e) => {
       const [prop, val] = glowFor[intent];
       const w = document.querySelector("#board-wrap");
       w?.style.setProperty(prop, `${val}px`);
-      // Synthetic anticipation: restart the directional lean animation by
-      // clearing any prior key-* class, forcing a reflow, then adding the
-      // new one. animationend then cleans it up.
-      if (w) {
-        w.classList.remove(...keyClasses);
-        void w.offsetWidth;
-        w.classList.add(`key-${intent}`);
-        w.addEventListener("animationend", () => {
-          w.classList.remove(`key-${intent}`);
-        }, { once: true });
-      }
+      // Anticipation lean disabled while iterating on the VT-only
+      // pipeline. To restore: re-enable the key-${intent} class flip.
+      void w;
     }
     move(intent);
     e.preventDefault();

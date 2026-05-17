@@ -54,7 +54,7 @@ export-env {
         style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; view-transition-name: {{ g.vt }}; view-transition-class: ghost; opacity: 0; pointer-events: none;"
       } ""))
       (_for {t: "tiles"} (DIV {
-        style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw; view-transition-name: {{ t.vt }};"
+        style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw; view-transition-name: {{ t.vt }}; view-transition-class: {{ t.vt_class }};"
       } (_var "t.value")))
   )
   # Page-shell template (layout.html). Used once per request to wrap the
@@ -76,6 +76,11 @@ export def render-board [scope?: string]: record -> record {
       fg: (if $t.value <= 4 { "#776e65" } else { "#f9f6f2" })
       fs: (if $t.value >= 1024 { 5 } else if $t.value >= 128 { 6 } else { 7 })
       vt: (do $vt_name $t.id)
+      vt_class: (
+        if ($t | get -o spawned | default false) { "spawned" }
+        else if ($t | get -o merged | default false) { "merged" }
+        else { "none" }
+      )
       value: $t.value
     }
   }

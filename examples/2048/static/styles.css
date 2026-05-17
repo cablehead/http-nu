@@ -548,15 +548,8 @@ body.play .board > div:not(:empty) {
   opacity: 0.7;
   word-break: break-all;
 }
-/* :only-child fires when there's no paired old pseudo -- a fresh tile. */
-::view-transition-new(*):only-child {
-  animation: tile-spawn 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-@keyframes tile-spawn {
-  0%   { transform: scale(0.2); opacity: 0; }
-  60%  { transform: scale(1.25); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
+/* (tile-spawn :only-child rule removed; the VT-only pipeline at the
+   bottom of this file owns spawn animation via .spawned.) */
 
 /* Edge flash: server emits a fresh .edge-flash element with a unique id per
    patch (whenever the patch carries a direction). Morphdom recreates the
@@ -709,3 +702,68 @@ body.play .column {
 }
 .badge.over { background: #c0392b; color: white; }
 .badge.win  { background: #2a9d4a; color: white; }
+
+/* ============================================================
+   VT-only pipeline (experimental; supersedes the rules above)
+   ------------------------------------------------------------
+   Sequenced choreography per move, three phases on the same
+   view-transition:
+
+     phase 1   0 -> 130ms   slide + ghost fade
+     phase 2  130 -> 270ms  merge pop on survivor
+     phase 3  270 -> 410ms  spawn enters
+
+   Hardcoded values during iteration; no anticipation, no
+   overshoot on slides. Targets the original 2048 pipeline.
+   ============================================================ */
+
+/* slide: groups translate via UA-default animation; we only
+   retune duration + easing. */
+::view-transition-group(*) {
+  animation-duration: 130ms;
+  animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+/* The UA cross-fade on old/new pseudos defaults to ~250ms,
+   which would outlast our 130ms slide and leave ghost-traces
+   after tiles land. Sync them. */
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 130ms;
+  animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ghost: consumed tile slides into the merge cell, fades out
+   slightly faster than the slide so the fade reads as the merge
+   landing. */
+::view-transition-old(*.ghost) {
+  animation: vt-ghost-fade 90ms ease-out 40ms both;
+}
+@keyframes vt-ghost-fade {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* merge pop: survivor's new pseudo scales after it lands.
+   opacity:1 in every keyframe because writing `animation:`
+   replaces the UA fade-in -- without an explicit value the
+   pseudo would be invisible until the delay elapsed. */
+::view-transition-new(*.merged) {
+  animation: vt-merge-pop 140ms cubic-bezier(0.34, 1.56, 0.64, 1) 130ms both;
+}
+@keyframes vt-merge-pop {
+  0%   { opacity: 1; transform: scale(1); }
+  50%  { opacity: 1; transform: scale(1.18); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* spawn: cell stays empty for the full slide + merge window,
+   then fades + scales in. Targeting .spawned only so we don't
+   sweep up any other never-paired pseudos (e.g. lingering
+   ghosts the next move clears). */
+::view-transition-new(*.spawned) {
+  animation: vt-spawn-in 140ms cubic-bezier(0.25, 0.46, 0.45, 0.94) 270ms both;
+}
+@keyframes vt-spawn-in {
+  0%   { opacity: 0; transform: scale(0.5); }
+  100% { opacity: 1; transform: scale(1); }
+}

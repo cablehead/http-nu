@@ -36,7 +36,7 @@ export def spawn-tile [seeds: record]: record -> record {
   let pick_idx = $empties | get ($seeds.idx mod ($empties | length))
   let value = if ($seeds.value == 0) { 4 } else { 2 }
   $s
-  | update tiles { append {id: $s.next_id r: ($pick_idx // 4) c: ($pick_idx mod 4) value: $value} }
+  | update tiles { append {id: $s.next_id r: ($pick_idx // 4) c: ($pick_idx mod 4) value: $value merged: false spawned: true} }
   | update next_id { $in + 1 }
 }
 
@@ -72,13 +72,13 @@ export def slide-row-tiles [row_idx: int]: list -> record {
     let nxt = if $has_next { $in_row | get ($i + 1) } else { null }
     if $has_next and $cur.value == $nxt.value {
       let merged = $cur.value * 2
-      $out = $out | append {id: $cur.id r: $row_idx c: $col value: $merged}
+      $out = $out | append {id: $cur.id r: $row_idx c: $col value: $merged merged: true spawned: false}
       $ghosts = $ghosts | append {id: $nxt.id r: $row_idx c: $col value: $nxt.value}
       $score = $score + $merged
       $col = $col + 1
       $i = $i + 2
     } else {
-      $out = $out | append {id: $cur.id r: $row_idx c: $col value: $cur.value}
+      $out = $out | append {id: $cur.id r: $row_idx c: $col value: $cur.value merged: false spawned: false}
       $col = $col + 1
       $i = $i + 1
     }
@@ -130,7 +130,10 @@ export def slide-tiles [dir: string]: list -> record {
 }
 
 export def tiles-equal [a: list b: list]: nothing -> bool {
-  ($a | sort-by id) == ($b | sort-by id)
+  # Compare on game-meaningful fields only; ignore animation hints like
+  # merged/spawned which apply-move stamps on every tile.
+  let proj = {|ts| $ts | each {|t| {id: $t.id r: $t.r c: $t.c value: $t.value} } | sort-by id }
+  (do $proj $a) == (do $proj $b)
 }
 
 export def is-game-over []: record -> bool {
@@ -145,9 +148,11 @@ export def is-game-over []: record -> bool {
 }
 
 export def apply-move [dir: string, game_id: string]: record -> record {
-  # Ghosts live for one snapshot only -- the move that produced them.
-  # Clear them at the start of every move so they don't carry over.
-  let s = $in | upsert ghosts []
+  # Ghosts, merged, and spawned flags live for one snapshot only -- the
+  # move that produced them. Clear at the start so they don't carry over.
+  let s = $in
+    | upsert ghosts []
+    | update tiles { each {|t| $t | upsert merged false | upsert spawned false } }
   let r = $s.tiles | slide-tiles $dir
   if $s.game_over or (tiles-equal $s.tiles $r.tiles) { return $s }
   let next = ($s
