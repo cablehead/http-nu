@@ -3,7 +3,7 @@
 2048 with a per-player game library, durable state, and animated SSE
 patches. Built on http-nu + cross.stream + Datastar.
 
-https://github.com/user-attachments/assets/d2e9d1a1-4df6-46c1-b27b-33db7dda132e
+https://github.com/user-attachments/assets/3b1a1cb6-375d-4a62-8988-f31b3c86d7da
 
 ## Run
 
