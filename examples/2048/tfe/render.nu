@@ -60,6 +60,7 @@ export-env {
         style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; view-transition-name: {{ g.vt }}; view-transition-class: ghost; opacity: 0; pointer-events: none;"
       } ""))
       (_for {t: "tiles"} (DIV {
+        class: "{{ t.cls }}"
         style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw; view-transition-name: {{ t.vt }}; view-transition-class: {{ t.vt_class }};"
       } (_var "t.value")))
   )
@@ -77,6 +78,7 @@ export def render-board [scope?: string]: record -> record {
   # view-transition-name is page-global; on /games multiple boards share
   # a page, so the optional scope (game id) keeps names unique.
   let vt_name = {|id| if ($s | is-empty) { $"tile-($id)" } else { $"tile-($s)-($id)" }}
+  let max_v = if ($state.tiles | is-empty) { 0 } else { $state.tiles | get value | math max }
   let tiles = $state.tiles | each {|t|
     let p = palette-for $t.value
     {
@@ -91,6 +93,10 @@ export def render-board [scope?: string]: record -> record {
         else if ($t | get -o merged | default false) { "merged" }
         else { "none" }
       )
+      # `is-max` marks the highest-value tile(s). On splash thumbnails the
+      # board mutes everything except this class, so the headline tile
+      # pops out without a separate max-tile badge.
+      cls: (if $t.value == $max_v { "is-max" } else { "" })
       value: $t.value
     }
   }
@@ -163,12 +169,11 @@ def last-active-from-id [id: string]: nothing -> string {
 }
 
 # Each card answers "should I jump back into this one?". The thumbnail
-# is the densest signal; three overlays sit on top:
-#   top-right     : last active ("in play" / "5m ago" / "2h ago")
-#   bottom-left   : score chip   (palette color of the max tile)
-#   bottom-right  : max-tile chip (same palette color, slightly bigger)
-# The board is muted so the eye can rest; chips and timestamp ride on
-# top of the mute so the headline info stays vibrant.
+# is the densest signal; the board itself mutes every tile except the
+# highest value, so the headline ("how far this game got") emerges from
+# the board without needing a separate max-tile badge. Two overlays sit
+# on top: a score chip in the max tile's palette color, and the last-
+# active relative time ("in play" when fresh).
 export def render-card-from-state [
   req: record
   game_id: string
@@ -179,17 +184,13 @@ export def render-card-from-state [
   let max_tile = if ($state.tiles | is-empty) { 2 } else {
     $state.tiles | get value | math max
   }
-  let won = $max_tile >= 2048
-  let status_class = if $won { "win" } else if $state.game_over { "over" } else { "" }
   let lmid = $last_move_id | default $game_id
   let active = last-active-from-id $lmid
   let p = palette-for $max_tile
-  let chip_style = $"background: ($p.bg); color: ($p.fg);"
   (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
     (DIV {class: "board-wrap"} ($state | render-board $game_id))
     (SPAN {class: "overlay active"} $active)
-    (SPAN {class: "overlay score" style: $chip_style} ($state.score | into string))
-    (SPAN {class: $"overlay max ($status_class)" style: $chip_style} ($max_tile | into string)))
+    (SPAN {class: "overlay score" style: $"background: ($p.bg); color: ($p.fg);"} ($state.score | into string)))
 }
 
 # Render the whole .games-list from an in-memory {game_id: snapshot_meta}
