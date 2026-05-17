@@ -58,7 +58,7 @@ def all-pages []: nothing -> list {
       if $page == null {
         "Not Found" | metadata set { merge {'http.response': {status: 404}} }
       } else {
-        let root_req = $req | upsert mount_prefix ""
+        let root_req = $req | upsert mount_prefix ($req.mount_prefix | str replace -r '/notes$' '')
         let rendered = $page.body | .md | get __html
         ([
           (DIV {class: "page"}

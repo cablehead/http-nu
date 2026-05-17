@@ -765,6 +765,21 @@ body.play, body.games-view {
   box-sizing: border-box;
 }
 .hero .preview { width: 100%; max-width: 380px; align-self: center; }
+.splash-credit {
+  margin-top: 0.75rem;
+  font-size: var(--text-sm);
+  opacity: 0.7;
+  text-align: center;
+}
+/* Progress slider above the splash board -- thin track, accent thumb,
+   keeps the chrome out of the way of the board itself. */
+.splash-slider {
+  display: block;
+  width: 100%;
+  margin: 0 0 0.5rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .hero .lede h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 3rem; line-height: 1.1; margin-bottom: 1.25rem; }
 .hero .lede p { font-size: var(--text-lg); margin-bottom: 1.25rem; }
 .hero .kicker { font-size: var(--text-sm); opacity: 0.85; margin-top: 1.25rem; }

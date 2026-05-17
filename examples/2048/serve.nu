@@ -21,6 +21,22 @@ const STATIC_DIR = $SCRIPT_DIR | path join "static"
 # on the next server restart.
 let REV = random uuid | str substring 0..7
 
+# Splash board replays this real game's snapshot stream on loop. Each
+# visit picks a random starting frame so two simultaneous viewers see
+# different moves. See notes/in-nushell for why even the splash is real
+# data (it is the SSE pipeline -- pointed at a stored game instead of
+# a live one).
+const SPLASH_GAME_ID = "03g561k2p2p4ftv9p9iykb1kf"
+# Load the snapshot stream ONCE at server start (closures inherit this
+# binding). 2880-ish frames, all in memory, indexable in O(1).
+let SPLASH_STATES = if ($HTTP_NU.store? | default null) == null { [] } else {
+  try { .cat -T $"game.($SPLASH_GAME_ID).snapshot" | get meta.state } catch { [] }
+}
+# YYYY-MM-DD of the run (SCRU128 timestamp 1779014675.541 = 2026-05-17).
+# Hardcoded for now -- `.id unpack` isn't in scope at module-init time;
+# upstream fix pending. Re-derive when the splash game changes.
+let SPLASH_DATE = "2026-05-17"
+
 # Register the xs snapshot-actor (singleton): it watches every
 # `player.*.games` + `game.*.move` frame and writes the canonical
 # `game.<id>.snapshot` (ttl: last:1). Requires `--store` + `--services`;
@@ -80,6 +96,51 @@ let design = source design/serve.nu
         }
         null | metadata set { merge {'http.response': {status: 204}} }
       }
+    })
+
+    (route {method: GET path: "/sse/splash"} {|req ctx|
+      # Replay the splash game's snapshot stream on loop. Each
+      # connection picks a random start frame; ~600ms per step so the
+      # board feels deliberate. Each patch rides a view-transition so
+      # tiles slide between states (paired by vt-name on tile.id).
+      #
+      # Multiplexes two patch streams per tick:
+      #   1. <#splash-board> -- the board state
+      #   2. <#splash-slider> -- the progress slider value
+      let states = $SPLASH_STATES
+      if ($states | is-empty) {
+        null | metadata set { merge {'http.response': {status: 204}} }
+      } else {
+        let n = $states | length
+        let start = random int 0..($n - 1)
+        # Stream forever; `to sse` consumes lazily.
+        1..
+        | each {|i|
+            sleep 600ms
+            let idx = (($start + $i) mod $n)
+            let state = $states | get $idx
+            [
+              (DIV {id: "splash-board"} ($state | render-board "splash"))
+              | to datastar-patch-elements --use-view-transition --id (random uuid)
+              (INPUT {id: "splash-slider" type: "range" min: "0" max: ($n - 1 | into string) value: ($idx | into string) "data-preserve-attr": "value"})
+              | to datastar-patch-elements --id (random uuid)
+            ]
+          }
+        | flatten
+        | to sse
+      }
+    })
+
+    (route {method: POST path: "/splash/seek"} {|req ctx|
+      # Scrub the splash slider. Datastar sends `{pos: <int>}`; we
+      # pub-broadcast it onto the bus topic so any active SSE loops
+      # could pick it up and jump. (Stub for now: ephemeral frame, no
+      # consumer wired in. Mechanism is what matters; loops can opt in
+      # to bus-sync later.)
+      let signals = $in | from datastar-signals $req
+      let pos = $signals | get pos? | default 0 | into int
+      null | .append "bus.splash.seek" --ttl ephemeral --meta {pos: $pos}
+      null | metadata set { merge {'http.response': {status: 204}} }
     })
 
     (route {method: GET path: "/sse/games"} {|req ctx|
@@ -189,36 +250,54 @@ let design = source design/serve.nu
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
       let host = $req.headers | get host? | default "localhost"
       let og_image = $"($scheme)://($host)" + ($req | href "/og.png")
-      # A real won-then-played-on snapshot from a finished game (4096
-      # in the corner, score 61640). Pulled from a production frame --
-      # see notes/in-nushell for why even the splash teaser is real data.
-      let teaser_state = {
+      # Splash board: replay oleksii_lisovyi's 4096 / score-61640 run.
+      # Pick a random starting frame so each viewer enters at a
+      # different moment in the game. SSE streams subsequent states.
+      # Fallback to the final-state snapshot if the store has no frames
+      # (dev server / preview environments).
+      let all_states = $SPLASH_STATES
+      let fallback_state = {
         tiles: [
-          {id: 2881 r: 0 c: 0 value: 2}
-          {id: 2873 r: 1 c: 0 value: 4}
-          {id: 2864 r: 2 c: 0 value: 8}
-          {id: 2882 r: 3 c: 0 value: 2}
-          {id: 2879 r: 0 c: 1 value: 4}
-          {id: 2874 r: 1 c: 1 value: 8}
-          {id: 2861 r: 2 c: 1 value: 16}
-          {id: 2850 r: 3 c: 1 value: 32}
-          {id: 2844 r: 0 c: 2 value: 8}
-          {id: 2749 r: 1 c: 2 value: 64}
-          {id: 2678 r: 2 c: 2 value: 256}
-          {id: 2779 r: 3 c: 2 value: 64}
-          {id: 581  r: 0 c: 3 value: 4096}
-          {id: 1866 r: 1 c: 3 value: 1024}
-          {id: 2327 r: 2 c: 3 value: 512}
-          {id: 2564 r: 3 c: 3 value: 256}
+          {id: 2881 r: 0 c: 0 value: 2}    {id: 2873 r: 1 c: 0 value: 4}
+          {id: 2864 r: 2 c: 0 value: 8}    {id: 2882 r: 3 c: 0 value: 2}
+          {id: 2879 r: 0 c: 1 value: 4}    {id: 2874 r: 1 c: 1 value: 8}
+          {id: 2861 r: 2 c: 1 value: 16}   {id: 2850 r: 3 c: 1 value: 32}
+          {id: 2844 r: 0 c: 2 value: 8}    {id: 2749 r: 1 c: 2 value: 64}
+          {id: 2678 r: 2 c: 2 value: 256}  {id: 2779 r: 3 c: 2 value: 64}
+          {id: 581  r: 0 c: 3 value: 4096} {id: 1866 r: 1 c: 3 value: 1024}
+          {id: 2327 r: 2 c: 3 value: 512}  {id: 2564 r: 3 c: 3 value: 256}
         ]
-        ghosts: []
-        next_id: 2883
-        score: 61640
-        game_over: true
+        ghosts: [] next_id: 2883 score: 61640 game_over: true
+      }
+      let initial_state = if ($all_states | is-empty) {
+        $fallback_state
+      } else {
+        $all_states | get (random int 0..(($all_states | length) - 1))
       }
       ([
         (SECTION {class: "hero"}
-          (ASIDE {class: "preview"} ($teaser_state | render-board "teaser"))
+          # Outer wrapper holds the SSE subscription (never morphed);
+          # #splash-board + #splash-slider inside are the patch targets.
+          (DIV {
+            class: "preview"
+            "data-sse": ""
+            "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+          }
+            (INPUT {
+              id: "splash-slider"
+              class: "splash-slider"
+              type: "range"
+              min: "0"
+              max: (($SPLASH_STATES | length | default 1) - 1 | into string)
+              value: "0"
+              "data-preserve-attr": "value"
+              "data-on-input": ("@post('" + ($req | href "/splash/seek") + "', {pos: parseInt(event.target.value, 10)})")
+            })
+            (DIV {id: "splash-board"} ($initial_state | render-board "splash"))
+            (P {class: "splash-credit"}
+              "replay of " (A {href: "https://discord.com/users/1026824731036504164"} "oleksii_lisovyi") "'s "
+              (if ($SPLASH_DATE | is-empty) { "" } else { $"($SPLASH_DATE) " })
+              "run -- 4096 in the corner, score 61,640 (best on the site to date)"))
           (DIV {class: "lede"}
             (H2 "2048, in Nushell!")
             (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
