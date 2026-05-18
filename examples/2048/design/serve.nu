@@ -259,12 +259,9 @@ def design-page [req: record current: string]: nothing -> string {
   let head_extra = [
     # design.css is served by an explicit route below; browser-relative
     # `./design.css` resolves to /design/design.css from /design/<slug>.
+    # game-board.js is now loaded by the shared layout, so no per-slug
+    # extra is needed here.
     (LINK {rel: "stylesheet" href: "./design.css"})
-    # WC module only on its own slug. Defining the element is cheap, but
-    # no reason to ship the bytes on every design page.
-    (if $current == "board-wc" {
-      (SCRIPT {type: "module" src: "../game-board.js"} "")
-    } else { "" })
   ]
   # Slug breadcrumb sits BELOW the layout's site-header. Browser-relative
   # hrefs: at /design/<slug>, `../` is /design/ and the bare slug self-

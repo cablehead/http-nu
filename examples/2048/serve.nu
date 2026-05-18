@@ -248,6 +248,21 @@ let design = source design/serve.nu
       | to sse
     })
 
+    (route {method: GET path-matches: "/sse-wc/:game_id"} {|req ctx|
+      let game_id = $ctx.game_id
+      # WC-friendly variant: emits only signal patches so a client
+      # running <game-board> can drive its rendering from $boardState.
+      # Same upstream stages as /sse/<id>; only the final mapping
+      # differs.
+      .cat --follow --pulse 450 -T $"game.($game_id).*" --from $game_id
+      | pulse-keepalive
+      | frames-to-states
+      | threshold-gate-states
+      | states-to-wc-signals
+      | html-to-patches
+      | to sse
+    })
+
     (route {method: GET path: "/new"} {|req ctx|
       # Mint a games_topic frame for this user and 302 to /play/<id>.
       # Session is auto-claimed from any legacy `player` cookie or
@@ -404,9 +419,11 @@ let design = source design/serve.nu
 
     (route {method: GET path-matches: "/watch/:game_id"} {|req ctx|
       # Public spectator view. No auth, no kbd controls -- just the
-      # board + score + state badge wired to the same /sse/<game_id>
-      # stream the owner's /play page uses. Owner can watch their own
-      # game too; this URL never confers write access.
+      # board + score + state badge. Renders the <game-board> WC and
+      # subscribes to /sse-wc/<game_id> which patches $boardState,
+      # $score, and $gameStatus signals. The WC observes its `state`
+      # attribute (mirrored from $boardState via data-attr:state) and
+      # owns the 3-phase slide/merge/spawn animation internally.
       let game_id = $ctx.game_id
       let owner_frame = try { .get $game_id } catch { null }
       if $owner_frame == null {
@@ -416,7 +433,6 @@ let design = source design/serve.nu
         let owner_short = $owner_id | str substring 0..7
         let game_id_short = $game_id | str substring 0..7
         let home_href = ($req | href "/")
-        let placeholder = {tiles: [] next_id: 1 score: 0 game_over: false} | render-game
         ([
           (DIV {class: "page"}
             (breadcrumb
@@ -437,9 +453,18 @@ let design = source design/serve.nu
               (DIV {
                 class: "column"
                 "data-sse": ""
-                "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+                "data-init": ("@get('" + ($req | href $"/sse-wc/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+                # Seed the WC + chrome signals so first paint is sane
+                # before SSE lands.
+                "data-signals": "{boardState: {tiles: []}, score: 0, gameStatus: ''}"
               }
-                $placeholder)))
+                (DIV {id: "board-wrap"}
+                  (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})
+                  (SPAN {
+                    id: "state-badge"
+                    "data-attr:class": "$gameStatus === 'won' ? 'badge won' : ($gameStatus === 'over' ? 'badge over' : '')"
+                    "data-text": "$gameStatus === 'won' ? 'you win!' : ($gameStatus === 'over' ? 'game over' : '')"
+                  } "")))))
         ] | layout $req $REV $DATASTAR_JS_PATH
               --title $"watching ($game_id_short) -- nu2048"
               --body-class "watch"
@@ -526,6 +551,8 @@ let design = source design/serve.nu
               (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short)
             ]
             --right [
+              # Same game, spectator view -- right-click to share.
+              (A {href: ($req | href $"/watch/($game_id)")} "watch")
               (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
             ])
           (DIV {class: "play-layout"}

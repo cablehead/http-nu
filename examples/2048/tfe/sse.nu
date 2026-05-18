@@ -129,6 +129,39 @@ export def states-to-html [] {
   | flatten
 }
 
+# WC-friendly variant of states-to-html: emits only signal patches so a
+# client running <game-board> can drive its rendering from $boardState.
+# Same gating shape as states-to-html (no state -> drop, no-op move ->
+# lastReqId ack, changed -> {boardState, score, gameStatus}). Strips
+# the snapshot's animation hints (spawned / merged / ghosts) from the
+# wire payload -- the WC diffs by tile id and doesn't read them.
+export def states-to-wc-signals [] {
+  each {|s|
+    if ('event' in $s) {
+      [$s]
+    } else if ('signals' in $s) {
+      [$s]
+    } else if (($s | get -o state) == null) {
+      []
+    } else {
+      let state = $s.state
+      let changed = $s.changed? | default false
+      let req_id = $s.req_id? | default ""
+      if $changed {
+        let won = $state.tiles | any {|t| $t.value >= 2048 }
+        let status = if $won { "won" } else if $state.game_over { "over" } else { "" }
+        let board = {
+          tiles: ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+        }
+        [{signals: {boardState: $board, score: $state.score, gameStatus: $status, lastReqId: $req_id}}]
+      } else {
+        [{signals: {lastReqId: $req_id}}]
+      }
+    }
+  }
+  | flatten
+}
+
 # Wrap each render in a datastar patch event. Unique id per patch so
 # morphdom replays each step independently (no event dedup).
 export def html-to-patches [] {

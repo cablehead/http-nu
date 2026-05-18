@@ -340,4 +340,11 @@ assert (not (move-authorized $anon_move "alice")) "anonymous move on owned game 
 assert (move-authorized $alice_move "") "no-owner game accepts any user"
 assert (move-authorized $anon_move "")  "no-owner game accepts anonymous"
 
+# Smoke check: serve.nu (and its sourced sub-sites) parse + evaluate up
+# to the route closure that the file returns. Catches paren/bracket
+# imbalance and other syntax errors that the unit tests above wouldn't
+# trip because they only import the pure pieces. The closure itself is
+# discarded -- exercising routes needs a running server.
+source ($script_dir | path join ".." "serve.nu")
+
 print "examples/2048/test.nu: all assertions passed"

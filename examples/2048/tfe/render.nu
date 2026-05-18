@@ -321,6 +321,7 @@ export def layout [
     styles_href: ($req | href $"/styles.css?v=($rev)")
     datastar_src: $datastar_src
     script_src: ($req | href $"/script.js?v=($rev)")
+    game_board_src: ($req | href $"/game-board.js?v=($rev)")
     ellie_href: ($req | href "/ellie.png")
     splash_href: ($req | href "/")
     my_games_href: ($req | href "/my/games")
