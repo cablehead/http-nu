@@ -63,19 +63,47 @@
   --text-xl:   2rem;
 }
 
-* { box-sizing: border-box; margin: 0; }
+/* ============================================================
+   Normalize. Minimal house reset -- not normalize.css.
+   Everything below this block is app styling and assumes these
+   defaults are in place.
+   ============================================================ */
 
+/* Universal box-model + zeroed margins. ::before/::after included so
+   border-box applies to pseudo elements too. */
+*, *::before, *::after { box-sizing: border-box; margin: 0; }
+
+/* Page baseline. dvh tracks the visible viewport on mobile (UA chrome
+   resize). text-size-adjust pins iOS/Android from inflating em-sized
+   children on narrow viewports. */
 html, body {
   min-height: 100dvh;
-  /* Scroll by default. /play is the only page that needs to be
-     viewport-locked (board fills the column, no body scroll); it
-     re-pins height + overflow below via body.play. */
   overscroll-behavior: none;
-  /* Stop iOS/Android from inflating text on narrow viewports, which would
-     scale up em-sized children (like the footer mascot) unexpectedly. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
+
+/* UA form controls don't inherit font/color -- fix at the source so
+   buttons, inputs, etc. take body type without per-element overrides. */
+button, input, textarea, select { font: inherit; color: inherit; }
+
+/* Replaced elements: bound to container, preserve aspect ratio. Left
+   as `display: inline` (UA default) so they flow with text -- the
+   mascot in the site-header credit relies on it. */
+img, picture, video, canvas, svg { max-width: 100%; height: auto; }
+
+/* Anchors inherit text color and stay underlined; hover picks up the
+   accent. Single source of truth for link color across the UI. */
+a { color: inherit; text-decoration: underline; transition: color 0.2s; }
+a:hover { color: var(--accent); }
+
+/* Semantic chrome + intrinsically-technical leaves are mono;
+   everything else inherits the body's sans default. */
+header, nav, code, kbd, samp, output { font-family: var(--font-mono); }
+
+/* ============================================================
+   App styles.
+   ============================================================ */
 
 html {
   /* Subtle vignette: same color flat fill via radial gradient, matches
@@ -93,22 +121,8 @@ body {
   color: var(--fg);
   font: var(--text-md)/1.6 var(--font-sans);
 }
-/* Semantic chrome elements + intrinsically-technical leaves are mono.
-   Everything else inherits the body's sans default. */
-header, nav, code, kbd, samp, output { font-family: var(--font-mono); }
-
-/* Inherit color + underline. On hover, links pick up the same orange
-   accent used for kbd-btn hover backgrounds -- one accent gesture
-   across the whole UI for "active surface under the cursor". */
-a {
-  color: inherit;
-  text-decoration: underline;
-  transition: color 0.2s;
-}
-a:hover { color: var(--accent); }
 
 h1 { font-size: clamp(24px, 6vmin, 40px); }
-h1 a { color: inherit; }
 p  { font-size: 14px; }
 
 button {
@@ -117,7 +131,6 @@ button {
   border: 0;
   padding: 4px 14px;
   border-radius: var(--radius);
-  font: inherit;
   font-weight: bold;
   cursor: pointer;
   box-shadow: 0 2px 0 var(--accent-press);
@@ -192,7 +205,6 @@ body.flash-red { animation: flash-red 300ms ease; }
   aspect-ratio: 1 / 1;
   background: #bbada0;
   border-radius: 0.5rem;
-  box-sizing: border-box;
   container-type: inline-size;
 }
 .board > div {
@@ -269,7 +281,6 @@ body.play .board { touch-action: none; }
   border-radius: 0.5rem;
   backdrop-filter: blur(4px);
   transition: opacity 0.2s ease;
-  box-sizing: border-box;
 }
 .vt-tuner.is-collapsed .vt-tuner-body {
   opacity: 0;
@@ -288,7 +299,6 @@ body.play .board { touch-action: none; }
   border: 1px solid rgba(0, 0, 0, 0.15);
   border-radius: 3px;
   padding: 2px 8px;
-  font: inherit;
   font-size: 10px;
   cursor: pointer;
   box-shadow: none;
@@ -478,7 +488,6 @@ body.play, body.games-view {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  box-sizing: border-box;
 }
 /* /play layout: grid with controls above the board, help to the right
    of the board (aligned with the BOARD's top, not the controls row).
@@ -599,7 +608,6 @@ body.play, body.games-view {
   align-items: baseline;
   gap: 0.25em;
   line-height: 1;
-  box-sizing: border-box;
 }
 .kbd-btn:hover,
 .kbd-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
@@ -761,7 +769,6 @@ body.play, body.games-view {
   margin: 2rem 0 0.75rem;
   padding: 0 1rem;
   font-size: var(--text-sm);
-  box-sizing: border-box;
 }
 .site-header .site-title {
   font-weight: 700;
@@ -798,7 +805,6 @@ body.play, body.games-view {
   width: 100%;
   max-width: 900px;
   padding: 0 1rem;
-  box-sizing: border-box;
   margin: 4rem 0 1.5rem;
   text-align: right;
   font-size: var(--text-sm);
@@ -828,8 +834,6 @@ body.splash .site-title { display: none; }
   background: none;
   border: 0;
   padding: 0;
-  font: inherit;
-  color: inherit;
   text-decoration: underline;
   cursor: pointer;
   box-shadow: none;
