@@ -263,4 +263,12 @@ if (audioToggle && splashAudio) {
       toggleAudio();
     }
   });
+  // Each splash-slider drag-release jumps the audio to a random spot
+  // when playing -- ties the soundtrack mood to the user-driven scrub.
+  document.querySelector("#splash-slider")?.addEventListener("change", () => {
+    if (splashAudio.paused) return;
+    if (Number.isFinite(splashAudio.duration) && splashAudio.duration > 0) {
+      splashAudio.currentTime = Math.random() * splashAudio.duration;
+    }
+  });
 }

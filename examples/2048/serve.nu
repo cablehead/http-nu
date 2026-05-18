@@ -289,10 +289,13 @@ let design = source design/serve.nu
         ]
         ghosts: [] next_id: 2883 score: 61640 game_over: true
       }
+      let start_pos = if ($all_states | is-empty) { 0 } else {
+        random int 0..(($all_states | length) - 1)
+      }
       let initial_state = if ($all_states | is-empty) {
         $fallback_state
       } else {
-        $all_states | get (random int 0..(($all_states | length) - 1))
+        $all_states | get $start_pos
       }
       ([
         # Splash hero. Two stacked flex rows:
@@ -338,12 +341,12 @@ let design = source design/serve.nu
                   # `n` carries the state count so the interval can wrap.
                   # The auto-tick advances $pos and posts; the input
                   # handler posts the user's drag. The bus does the rest.
-                  "data-signals": $'{"pos": 0, "n": (($SPLASH_STATES | length | default 1))}'
+                  "data-signals": $'{"pos": ($start_pos), "n": (($SPLASH_STATES | length | default 1))}'
                   "data-bind:pos": ""
                   "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
                   "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
                 })
-                (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))
+                (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"move: ($start_pos) of (($SPLASH_STATES | length) - 1)" })))
               # Audio toggle renders as <a href="#"> (kbd-btn does this when
               # --href is set); JS preventDefaults the click. Avoids webkit's
               # VT button-opacity bug -- see CLAUDE.md.

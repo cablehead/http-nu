@@ -105,6 +105,10 @@ header, nav, code, kbd, samp, output { font-family: var(--font-mono); }
    App styles.
    ============================================================ */
 
+/* MPA view-transitions: same-origin nav animates as a soft page
+   transition (Chromium 126+; Safari 18+ behind a flag). */
+@view-transition { navigation: auto; }
+
 html {
   /* Subtle vignette: same color flat fill via radial gradient, matches
      the parent site at http-nu.cross.stream. */
