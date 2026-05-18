@@ -32,37 +32,75 @@ weekend project that ate March 2014.
 
 # Backstory
 
-Gabriele Cirulli wrote 2048 in a weekend in March 2014. Inside a week,
-four million people had played it. Inside a month, copies of it were
-among the most downloaded games on the App Store -- and Cirulli's own
-version was open source, free, and ad-free on the web.
+**Threes! had a 14-month design process.** Asher Vollmer and Greg
+Wohlwend exchanged 570 emails between December 2012 and early 2014,
+iterating through prototypes that involved monsters, holes, arrows,
+and merge mechanics before the doubling system emerged around June
+2013. They wrapped it in the 1+2=3 quirk, character tiles, and sound
+design. Their stated goal: *"We wanted players to be able to play
+Threes over many months, if not years."* Their critique of 2048 is
+that a scripted alternation of up and right beats it -- the strategic
+depth they spent fourteen months protecting is exactly what the clone
+strips away. The full exchange is in their post,
+*[Threes! -- the rumination on game design](http://asherv.com/threes/threemails/)*.
+
+[Gabriele Cirulli](https://gabrielecirulli.com/) wrote
+[2048](https://gabrielecirulli.github.io/2048/) in a weekend in March
+2014. Inside a week, four million people had played it. Inside a
+month, copies of it were among the most downloaded games on the App
+Store -- and Cirulli's own version was open source, free, and ad-free
+on the web.
 
 **The lineage.** Cirulli built 2048 as a clone of *1024*, a free
 ad-supported iOS app by Veewo Studio. 1024 was itself a riff on
-*Threes!*, a $1.99 paid app by Asher Vollmer and Greg Wohlwend
-released six weeks earlier. Vollmer and Wohlwend had spent fourteen
-months on Threes! -- iterating, playtesting, eventually settling on
-the merge mechanic that 2048 inherited via 1024.
+Threes!, released six weeks earlier. Cirulli has been explicit about
+this: he described 2048 as "a clone of 1024, which is a clone of
+Threes!" and pointed people to the original.
 
 **The clone wars.** Within weeks of 2048 going viral, the App Store
-filled with copies of copies. Vollmer and Wohlwend published a long
-public post-mortem -- partly a defense of the design choices that 1024
-and 2048 had stripped away, partly a meditation on what it feels like
-to spend a year crafting a game and watch a weekend project eclipse
-it. The post is candid and worth reading: *[Threes! -- the rumination
-on game design](http://asherv.com/threes/threemails/)*.
+filled with copies of copies. The Threes! post is partly a defense of
+the design choices that 1024 and 2048 had stripped away, partly a
+meditation on what it feels like to spend a year crafting a game and
+watch a weekend project eclipse it. *"Threes was cloned and beat to a
+different market within 6 days of release on iOS. 2048 isn't that
+clone. But it's sort of the Commander Keen to Super Mario Bros.
+situation."*
 
-**Cirulli's framing.** He initially described 2048 as "a clone of
-1024, which is a clone of Threes!" and pointed people to the original.
-He later said he hadn't expected anyone to play it -- it was a thing
-he made over a weekend to learn JavaScript. The open-source repo on
-GitHub became the canonical version; people forked and remixed it for
-years.
+**Cirulli's framing.** He [later wrote](https://medium.com/@gabrielecirulli/2048-success-and-me-7dc664f7a9bd)
+that he hadn't expected anyone to play 2048 -- it was a thing he made
+over a weekend to learn JavaScript. The
+[open-source repo](https://github.com/gabrielecirulli/2048) on GitHub
+became the canonical version; people forked and remixed it for years.
 
 **Why it caught.** Doubling. The math is simple enough to hold in your
 head and rich enough to surprise you. Each merge is a tiny dopamine
 hit. The board is small enough that every move feels consequential.
 And it's free -- no install, no account, no ads.
+
+Next: [the ones worth playing](./best-of-2048) -- the ancestor, the
+canonical version, and a variant worth your time.
+
+# Best of 2048
+
+**Threes!** -- the careful 14-month original. Pay for it. It's the
+version made by people who hoped you'd put it down sometimes.
+
+- [iOS](https://apps.apple.com/us/app/threes/id779157948)
+- [Threes!+ on Apple Arcade](https://apps.apple.com/us/app/threes/id1551561086)
+- [Threes! Freeplay (ad-supported)](https://apps.apple.com/us/app/threes-freeplay/id976851174)
+- [Android](https://play.google.com/store/apps/details?id=vo.threes.exclaim)
+- [Steam](https://store.steampowered.com/app/1818570/Threes/)
+- [official site](https://asherv.com/threes/)
+
+**2048 by Gabriele Cirulli** -- the canonical version. Open source,
+free, in any browser tab.
+
+- [play](https://gabrielecirulli.github.io/2048/) ·
+  [source](https://github.com/gabrielecirulli/2048)
+
+**[2048 Numberwang](https://louh.github.io/2048-numberwang/)** -- a
+parody variant where merges resolve by absurdist British game-show
+logic instead of arithmetic. Worth a few rounds for the joke alone.
 
 Next: [how this is built](./in-nushell) -- the same game on top of
 event-sourcing, SSE, and view transitions.

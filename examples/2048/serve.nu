@@ -318,8 +318,8 @@ let design = source design/serve.nu
             (UL {class: "callouts"}
               (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
                   (SPAN {class: "callout-desc"} "the basic rules"))
-              (LI (A {href: ($req | href "/notes/backstory")} "what the heck is 2048?")
-                  (SPAN {class: "callout-desc"} "where it came from"))
+              (LI (A {href: ($req | href "/notes/backstory")} "2048 is a broken game")
+                  (SPAN {class: "callout-desc"} "how a clone of a clone ate Threes!"))
               (LI (A {href: ($req | href "/notes/in-nushell")} "in Nushell?")
                   (SPAN {class: "callout-desc"} "how this is built")))))
       ] | layout $req $REV $DATASTAR_JS_PATH
