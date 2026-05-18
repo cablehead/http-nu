@@ -298,11 +298,12 @@ let design = source design/serve.nu
         (SECTION {class: "hero"}
           (DIV {class: "preview"}
             # Credit above the board.
-            (P {class: "splash-credit"}
+            (P
               "replay of " (A {href: ($req | href $"/by/($SPLASH_PLAYER_ID)")} "oleksii_lisovyi") "'s "
               (if ($SPLASH_DATE | is-empty) { "" } else { $"($SPLASH_DATE) " })
               "run")
-            (P {class: "splash-credit"} "4096 in the top, right corner, score 61,640")
+            (P "4096 in the top, right corner, score 61,640, on move 1874")
+            (P "best on the site to date")
             # data-sse is scoped to just what gets morphed: #splash-board
             # + #splash-counter (and the slider's signals). Everything
             # else in .preview -- credits, audio control -- lives
