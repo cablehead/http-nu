@@ -278,6 +278,20 @@ let design = source design/serve.nu
       .static $STATIC_DIR "/mobygratis-license.txt"
     })
 
+    # Self-hosted fonts. Single variable-axis woff2 per family covers
+    # both weights -- the @font-face rules in styles.css point both 400
+    # and 700 declarations at the same file; the browser picks the
+    # axis. Latin + smart-quotes/dashes subset only (U+0000-00FF +
+    # U+2000-206F + currency/symbol singletons). Files were downloaded
+    # from fonts.gstatic.com on 2026-05-18 with a modern UA so we got
+    # woff2 not ttf.
+    (route {method: GET path: "/fonts/source-code-pro-latin.woff2"} {|req ctx|
+      .static $STATIC_DIR "/fonts/source-code-pro-latin.woff2"
+    })
+    (route {method: GET path: "/fonts/source-sans-3-latin.woff2"} {|req ctx|
+      .static $STATIC_DIR "/fonts/source-sans-3-latin.woff2"
+    })
+
     (route {method: GET path: "/new"} {|req ctx|
       # Mint a games_topic frame for this user and 302 to /play/<id>.
       # Session is auto-claimed from any legacy `player` cookie or
