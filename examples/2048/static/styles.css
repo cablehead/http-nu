@@ -822,76 +822,33 @@ body.play, body.games-view {
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
-/* Splash hero. Flat grid: each content element is a direct child with
-   a grid-area assignment. Source order is the narrow stack order;
-   the wide-viewport rule below remaps via grid-template-areas to
-   anchor cross-column (title <-> credit, cta <-> mid-board, callouts
-   <-> slider+audio). */
+/* Splash hero. Title on its own row; below it, .splits is a flex row
+   of two columns (.lede + .preview) that wraps to a single column on
+   narrow viewports. Each column is a flex column. */
 .hero {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-  margin: 1rem 0 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
   max-width: 900px;
   width: 100%;
   padding: 0 1rem;
-  box-sizing: border-box;
-  grid-template-areas:
-    "title"
-    "desc"
-    "board"
-    "credit"
-    "slider"
-    "audio"
-    "cta"
-    "callouts";
+  margin: 1rem 0 2.5rem;
 }
-.hero > h2 {
-  grid-area: title;
-  font-family: var(--font-mono);
-  color: var(--fg-header);
-  font-size: 3rem;
-  line-height: 1.1;
-  margin: 0;
-}
-.hero > .desc       { grid-area: desc;     font-size: var(--text-lg); margin: 0; }
-.hero > .credit     { grid-area: credit;   font-size: var(--text-sm); }
-.hero > .credit p   { margin: 0; }
-.hero > #splash-board { grid-area: board; width: 100%; max-width: 380px; justify-self: center; }
-.hero > .splash-progress { grid-area: slider; }
-.hero > .splash-audio-credit { grid-area: audio; }
-.hero > .kbd-btn.primary  { grid-area: cta; justify-self: start; }
-.hero > .callouts   { grid-area: callouts; }
-.hero > audio       { display: none; }
+.hero > h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 3rem; line-height: 1.1; }
+.hero > audio { display: none; }
 
-.splash-audio-credit {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: rgba(255, 255, 255, 0.7);
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-/* Progress strip: slider (flex 1) + counter. Mono counter so digit
-   width is stable as numbers tick. */
-.splash-progress {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-.splash-slider {
-  flex: 1;
-  min-width: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-.splash-counter {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  opacity: 0.7;
-  font-variant-numeric: tabular-nums;
-}
+.splits { display: flex; flex-wrap: wrap; gap: 1.5rem 2rem; }
+.splits > * { flex: 1 1 360px; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.kbd-btn.primary { align-self: flex-start; }
+
+.desc                { font-size: var(--text-lg); }
+.credit              { font-size: var(--text-sm); }
+.splash-audio-credit { font-size: var(--text-sm); color: rgba(255, 255, 255, 0.7); }
+#splash-board        { max-width: 380px; width: 100%; }
+
+.splash-progress { display: flex; align-items: center; gap: 0.6rem; }
+.splash-slider   { flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer; }
+.splash-counter  { font-family: var(--font-mono); font-size: var(--text-sm); opacity: 0.7; font-variant-numeric: tabular-nums; }
 /* Three rabbit-hole callouts under the PLAY NOW button. Just list +
    whitespace, no borders or backgrounds -- each item is a link with a
    muted explanatory clause. */
@@ -963,22 +920,6 @@ body.play, body.games-view {
   background: none;
   border-radius: 0;
   font-size: inherit;
-}
-@media (min-width: 760px) {
-  /* 2-column layout with explicit cross-column row anchors. Board spans
-     two rows so desc + cta sit alongside it; callouts span two rows so
-     they sit opposite the slider + audio control. */
-  .hero {
-    grid-template-columns: 1fr auto;
-    column-gap: 2rem;
-    align-items: start;
-    grid-template-areas:
-      "title    credit"
-      "desc     board"
-      "cta      board"
-      "callouts slider"
-      "callouts audio";
-  }
 }
 
 /* Site header: shared by / and /play. Mirrors the http-nu/www header
