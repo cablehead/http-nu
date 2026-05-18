@@ -162,6 +162,7 @@ export def kbd-btn [
   --suffix: string = ""           # text after the ]
   --variant: string = "default"   # "default" | "primary"
   --aria-label: string = ""
+  --style: string = ""            # inline per-instance tweak (margin, etc.)
 ]: nothing -> record {
   let bracketed = [
     (SPAN {class: "bracket"} "[")
@@ -180,6 +181,7 @@ export def kbd-btn [
   if ($intent | is-not-empty) { $attrs = ($attrs | upsert "data-intent" $intent) }
   if ($href | is-not-empty)   { $attrs = ($attrs | upsert "href" $href) }
   if ($aria_label | is-not-empty) { $attrs = ($attrs | upsert "aria-label" $aria_label) }
+  if ($style | is-not-empty)      { $attrs = ($attrs | upsert "style" $style) }
   if $elem == "A" { (A $attrs ...$inner) } else { (BUTTON $attrs ...$inner) }
 }
 

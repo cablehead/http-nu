@@ -157,7 +157,7 @@ let design = source design/serve.nu
             # don't echo it back here. Server just renders the board +
             # counter for the pos the bus told us about.
             let counter_patch = (
-              (SPAN {id: "splash-counter" class: "splash-counter"} $"($pos) of ($n - 1)")
+              (SPAN {id: "splash-counter" class: "splash-counter"} $"move: ($pos) of ($n - 1)")
               | to datastar-patch-elements --id (random uuid)
             )
             [$board_patch $counter_patch]
@@ -311,7 +311,7 @@ let design = source design/serve.nu
           (DIV {class: "splits"}
             (DIV {class: "lede"}
               (P {class: "desc"} "The sliding-tile puzzle, served from a few hundred lines of shell script.")
-              (kbd-btn "n" --prefix "Play " --suffix "ow" --variant primary --href ($req | href "/new"))
+              (kbd-btn "n" --prefix "Play " --suffix "ow" --variant primary --href ($req | href "/new") --style "margin-top: 1rem;")
               (UL {class: "callouts"}
                 (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
                     (SPAN {class: "callout-desc"} "the basic rules"))
