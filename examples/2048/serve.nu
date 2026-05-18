@@ -502,11 +502,15 @@ let design = source design/serve.nu
       let game_id_short = $game_id | str substring 0..7
       ([
         (DIV {class: "page"}
-          # $lastReqId signal fires for every move (echo or snapshot).
-          # window.onAck in script.js no-ops unless reqId matches the
-          # local pending probe -- this is what clears the pending edge
-          # and records RTT now that #game has no data-rev attribute.
-          (DIV {"data-effect": "window.onAck($lastReqId)" hidden: ""})
+          # $lastReqId signal fires for every move (echo or snapshot)
+          # from the SSE pipeline. window.onAck (script.js) no-ops
+          # unless reqId matches the local pending probe; this is what
+          # clears the pending edge and records RTT now that #game has
+          # no data-rev attribute. data-on-signal-patch fires only on
+          # signal patches (not on mount), so it's safe even though the
+          # deferred script.js defines window.onAck after Datastar
+          # initializes.
+          (DIV {"data-on-signal-patch": "window.onAck($lastReqId)" hidden: ""})
           # Breadcrumb header: left = path with shortcuts adjacent to
           # their link targets ([esc] sits next to "past games" because
           # esc is its keyboard shortcut). Right = top-level actions.

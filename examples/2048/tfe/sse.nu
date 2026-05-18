@@ -109,15 +109,16 @@ export def states-to-html [] {
       let state = $s.state
       let changed = $s.changed? | default false
       let req_id = $s.req_id? | default ""
-      # State-change: one signals patch (score + ack), one VT-wrapped
-      # board patch. The board patch arrives in its own task with no
-      # sibling DOM mutations; the signal patch updates #score via
-      # data-text and fires window.onAck via the $lastReqId effect.
-      # No-op: signals patch only -- the DOM is already correct, the
-      # ack just clears the pending edge.
+      # Split by frame kind so each signal has one source:
+      #   move frame (changed:false)  -> {lastReqId}     (the ack)
+      #   snapshot   (changed:true)   -> {score} + board (the state)
+      # The ack lands the moment the SSE pipeline sees the move frame,
+      # before the snapshot-actor runs. The snapshot's req_id stays in
+      # the appended frame's meta (audit trail) but doesn't ride the
+      # wire a second time.
       if $changed {
         [
-          {signals: {score: $state.score, lastReqId: $req_id}}
+          {signals: {score: $state.score}}
           {vt: true, el: ($state | render-game)}
         ]
       } else {

@@ -101,12 +101,25 @@ document.addEventListener("datastar-fetch", (e) => {
 // be loaded on /games (where we just want the SSE connection tracker
 // above to update #conn).
 if (game) {
-// Move acks ride the $lastReqId signal, fired from the SSE pipeline as
-// soon as it sees the move frame. Called via data-effect on the hidden
-// element in the /play body. No-op until reqId matches a pending probe
-// we issued (so the initial mount call, replay patches, and spectator
-// streams all just fall through). #rtt stays blank until the user
-// makes their first move -- that move populates it.
+// First mutation inside #game = SSE threshold flush replacing the
+// placeholder board. Morphdom preserves #game + #board-wrap (same
+// ids) and rewrites their interior, so we have to watch subtree, not
+// just direct children. Once the stream's open, seed an RTT probe;
+// subsequent move acks arrive via the $lastReqId signal effect
+// (window.onAck below), so disconnect on the first fire.
+const initObserver = new MutationObserver(() => {
+  initObserver.disconnect();
+  initSeen = true;
+  move("");
+});
+initObserver.observe(game, { childList: true, subtree: true });
+
+// Called by data-effect="window.onAck($lastReqId)" on the hidden
+// element in the /play body. The SSE pipeline ships a $lastReqId
+// signal patch the instant it sees the move frame -- so every move
+// (state-changing or no-op) round-trips through here. No-op unless
+// reqId matches the pending probe we issued (replay / spectator
+// streams carry reqIds we never issued; ignore them).
 window.onAck = (reqId) => {
   if (pending == null || reqId !== pending.id) return;
   const rtt = Math.round(performance.now() - pending.t);
