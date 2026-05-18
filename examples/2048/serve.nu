@@ -144,11 +144,27 @@ let design = source design/serve.nu
       } else {
         let n = $states | length
         let start = random int 0..($n - 1)
-        # Stream forever; `to sse` consumes lazily.
+        # Stream forever; `to sse` consumes lazily. `generate` carries
+        # idx and the id of the most-recently-seen seek frame. Each
+        # tick polls `.last bus.splash.seek`; a new id means a viewer
+        # dragged the slider, so we jump to that pos instead of
+        # advancing by one. First tick uses $start and baselines the
+        # seek_id so we don't jump to a stale frame on connect.
         1..
-        | each {|i|
+        | generate {|_ acc = {idx: -1 seek_id: ""}|
             sleep 1200ms
-            let idx = (($start + $i) mod $n)
+            let seek = try { .last "bus.splash.seek" } catch { null }
+            let cur_seek_id = if $seek == null { "" } else { $seek.id }
+            let first = ($acc.idx == -1)
+            let new_seek = (not $first) and ($seek != null) and ($seek.id != $acc.seek_id)
+            let idx = if $first {
+              $start
+            } else if $new_seek {
+              ($seek.meta.pos | into int) mod $n
+            } else {
+              ($acc.idx + 1) mod $n
+            }
+            let seek_id = $cur_seek_id
             let state = $states | get $idx
             let board_patch = (
               # view-transition-name scopes the VT to the board only --
@@ -159,14 +175,16 @@ let design = source design/serve.nu
               | to datastar-patch-elements --use-view-transition --id (random uuid)
             )
             let slider_patch = (
-              (INPUT {id: "splash-slider" type: "range" min: "0" max: ($n - 1 | into string) value: ($idx | into string)})
-              | to datastar-patch-elements --id (random uuid)
+              # Push idx into the `pos` signal; data-bind-pos on the
+              # slider element drives input.value off it, so we don't
+              # need to re-patch the element each tick.
+              {pos: $idx} | to datastar-patch-signals --id (random uuid)
             )
             let counter_patch = (
               (SPAN {id: "splash-counter" class: "splash-counter"} $"($idx) of ($n - 1)")
               | to datastar-patch-elements --id (random uuid)
             )
-            [$board_patch $slider_patch $counter_patch]
+            {out: [$board_patch $slider_patch $counter_patch], next: {idx: $idx, seek_id: $seek_id}}
           }
         | flatten
         | to sse
@@ -175,13 +193,12 @@ let design = source design/serve.nu
 
     (route {method: POST path: "/splash/seek"} {|req ctx|
       # Scrub the splash slider. Datastar sends `{pos: <int>}`; we
-      # pub-broadcast it onto the bus topic so any active SSE loops
-      # could pick it up and jump. (Stub for now: ephemeral frame, no
-      # consumer wired in. Mechanism is what matters; loops can opt in
-      # to bus-sync later.)
+      # pub-broadcast it onto the bus topic so SSE loops can pick it
+      # up and jump. `--ttl last:1` keeps only the freshest seek, which
+      # is what /sse/splash polls each tick via `.last`.
       let signals = $in | from datastar-signals $req
       let pos = $signals | get pos? | default 0 | into int
-      null | .append "bus.splash.seek" --ttl ephemeral --meta {pos: $pos}
+      null | .append "bus.splash.seek" --ttl last:1 --meta {pos: $pos}
       null | metadata set { merge {'http.response': {status: 204}} }
     })
 
@@ -354,8 +371,9 @@ let design = source design/serve.nu
                 type: "range"
                 min: "0"
                 max: (($SPLASH_STATES | length | default 1) - 1 | into string)
-                value: "0"
-                "data-on-input": ("@post('" + ($req | href "/splash/seek") + "', {pos: parseInt(event.target.value, 10)})")
+                "data-signals": '{"pos": 0}'
+                "data-bind:pos": ""
+                "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
               })
               (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))
             (DIV {class: "splash-board-wrap"}
