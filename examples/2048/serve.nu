@@ -295,73 +295,63 @@ let design = source design/serve.nu
         $all_states | get (random int 0..(($all_states | length) - 1))
       }
       ([
-        (SECTION {class: "hero"}
-          (DIV {class: "preview"}
-            # Credit above the board.
+        # Splash hero. Flat: every child is a content element with a
+        # grid-area assignment. Source order = narrow stack order;
+        # styles.css remaps via grid-template-areas on wide. data-sse
+        # lives on the section so the SSE patches (targeting
+        # #splash-board + #splash-counter by id) flow into descendants.
+        (SECTION {
+          class: "hero"
+          "data-sse": ""
+          "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+        }
+          (H2 "2048, in Nushell!")
+          (P {class: "desc"} "The sliding-tile puzzle, served from a few hundred lines of shell script.")
+          (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($initial_state | render-board "splash"))
+          (DIV {class: "credit"}
             (P
               "replay of " (A {href: ($req | href $"/by/($SPLASH_PLAYER_ID)")} "oleksii_lisovyi") "'s "
               (if ($SPLASH_DATE | is-empty) { "" } else { $"($SPLASH_DATE) " })
               "run")
             (P "4096 in the top, right corner, score 61,640, on move 1874")
-            (P "best on the site to date")
-            # data-sse is scoped to just what gets morphed: #splash-board
-            # + #splash-counter (and the slider's signals). Everything
-            # else in .preview -- credits, audio control -- lives
-            # outside this stage so Datastar's morph (and the wrapping
-            # view-transition) can't touch them.
-            (DIV {
-              class: "splash-stage"
-              "data-sse": ""
-              "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
-            }
-              (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($initial_state | render-board "splash"))
-              (DIV {class: "splash-progress"}
-                (INPUT {
-                  id: "splash-slider"
-                  class: "splash-slider"
-                  type: "range"
-                  min: "0"
-                  max: (($SPLASH_STATES | length | default 1) - 1 | into string)
-                  # `n` carries the state count so the interval can wrap.
-                  # The auto-tick advances $pos and posts; the input
-                  # handler posts the user's drag. The bus does the rest.
-                  "data-signals": $'{"pos": 0, "n": (($SPLASH_STATES | length | default 1))}'
-                  "data-bind:pos": ""
-                  "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
-                  "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
-                })
-                (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" }))))
-            # NOTE: audio control + audio credit + <audio> moved out of
-            # .preview to test whether being inside .preview causes the
-            # webkit VT to capture them. See sibling block below.
-          )
-          (DIV {class: "lede"}
-            (H2 "2048, in Nushell!")
-            (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
-            (kbd-btn "n" --prefix "Play " --suffix "ow" --variant primary --href ($req | href "/new"))
-            # Audio control moved into .lede right next to play-now to
-            # test whether webkit's VT capture treats sibling columns
-            # differently.
-            (DIV {class: "splash-audio-credit"}
-              # href="#" + JS preventDefault renders as <a>, sidestepping
-              # the webkit VT bug where <button> elements get their
-              # opacity transitioned during every view-transition tick.
-              (kbd-btn "p"
-                --prefix "(()) "
-                --suffix "lay"
-                --class "audio-toggle"
-                --href "#"
-                --aria-label "play audio")
-              (SPAN " Out Stands -- ")
-              (A {href: ($req | href "/mobygratis-license.txt") target: "_blank" rel: "noopener"} "mobygratis"))
-            (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "none" loop: ""} "")
-            (UL {class: "callouts"}
-              (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
-                  (SPAN {class: "callout-desc"} "the basic rules"))
-              (LI (A {href: ($req | href "/notes/backstory")} "2048 is a broken game")
-                  (SPAN {class: "callout-desc"} "how a clone of a clone ate Threes!"))
-              (LI (A {href: ($req | href "/notes/in-nushell")} "in Nushell?")
-                  (SPAN {class: "callout-desc"} "how this is built")))))
+            (P "best on the site to date"))
+          (DIV {class: "splash-progress"}
+            (INPUT {
+              id: "splash-slider"
+              class: "splash-slider"
+              type: "range"
+              min: "0"
+              max: (($SPLASH_STATES | length | default 1) - 1 | into string)
+              # `n` carries the state count so the interval can wrap.
+              # The auto-tick advances $pos and posts; the input
+              # handler posts the user's drag. The bus does the rest.
+              "data-signals": $'{"pos": 0, "n": (($SPLASH_STATES | length | default 1))}'
+              "data-bind:pos": ""
+              "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
+              "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
+            })
+            (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))
+          # Audio toggle renders as <a href="#"> (kbd-btn does this when
+          # --href is set); JS preventDefaults the click. Avoids webkit's
+          # VT button-opacity bug -- see CLAUDE.md.
+          (P {class: "splash-audio-credit"}
+            (kbd-btn "p"
+              --prefix "(()) "
+              --suffix "lay"
+              --class "audio-toggle"
+              --href "#"
+              --aria-label "play audio")
+            (SPAN " Out Stands -- ")
+            (A {href: ($req | href "/mobygratis-license.txt") target: "_blank" rel: "noopener"} "mobygratis"))
+          (kbd-btn "n" --prefix "Play " --suffix "ow" --variant primary --href ($req | href "/new"))
+          (UL {class: "callouts"}
+            (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
+                (SPAN {class: "callout-desc"} "the basic rules"))
+            (LI (A {href: ($req | href "/notes/backstory")} "2048 is a broken game")
+                (SPAN {class: "callout-desc"} "how a clone of a clone ate Threes!"))
+            (LI (A {href: ($req | href "/notes/in-nushell")} "in Nushell?")
+                (SPAN {class: "callout-desc"} "how this is built")))
+          (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "auto" loop: ""} ""))
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "nu2048"
             --og-image $og_image

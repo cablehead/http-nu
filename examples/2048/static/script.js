@@ -312,10 +312,20 @@ updateActiveLabels();
 const audioToggle = document.querySelector(".audio-toggle");
 const splashAudio = document.querySelector("#splash-audio");
 if (audioToggle && splashAudio) {
+  let seeded = false;
   const toggleAudio = (e) => {
     if (e) e.preventDefault();
-    if (splashAudio.paused) splashAudio.play();
-    else splashAudio.pause();
+    if (splashAudio.paused) {
+      // Seed first play 48s in -- past the long ambient intro on the
+      // mobygratis track. Subsequent toggles keep their position.
+      if (!seeded) {
+        splashAudio.currentTime = 48;
+        seeded = true;
+      }
+      splashAudio.play();
+    } else {
+      splashAudio.pause();
+    }
   };
   audioToggle.addEventListener("click", toggleAudio);
   const sync = () => {

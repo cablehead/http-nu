@@ -822,27 +822,50 @@ body.play, body.games-view {
   padding-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
-/* Splash hero. Two-up on wide viewports: lede + PLAY NOW on the left,
-   teaser board on the right (row-reverse so source order is board-first
-   for the stacked mobile case). The .preview column stacks vertically:
-   credit, board, slider, audio control. */
+/* Splash hero. Flat grid: each content element is a direct child with
+   a grid-area assignment. Source order is the narrow stack order;
+   the wide-viewport rule below remaps via grid-template-areas to
+   anchor cross-column (title <-> credit, cta <-> mid-board, callouts
+   <-> slider+audio). */
 .hero {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
   margin: 1rem 0 2.5rem;
   max-width: 900px;
   width: 100%;
   padding: 0 1rem;
   box-sizing: border-box;
+  grid-template-areas:
+    "title"
+    "desc"
+    "board"
+    "credit"
+    "slider"
+    "audio"
+    "cta"
+    "callouts";
 }
-.hero .preview { width: 100%; max-width: 380px; align-self: center; }
-.splash-credit {
-  margin: 0 0 0.5rem;
-  font-size: var(--text-sm);
+.hero > h2 {
+  grid-area: title;
+  font-family: var(--font-mono);
+  color: var(--fg-header);
+  font-size: 3rem;
+  line-height: 1.1;
+  margin: 0;
 }
+.hero > .desc       { grid-area: desc;     font-size: var(--text-lg); margin: 0; }
+.hero > .credit     { grid-area: credit;   font-size: var(--text-sm); }
+.hero > .credit p   { margin: 0; }
+.hero > #splash-board { grid-area: board; width: 100%; max-width: 380px; justify-self: center; }
+.hero > .splash-progress { grid-area: slider; }
+.hero > .splash-audio-credit { grid-area: audio; }
+.hero > .kbd-btn.primary  { grid-area: cta; justify-self: start; }
+.hero > .callouts   { grid-area: callouts; }
+.hero > audio       { display: none; }
+
 .splash-audio-credit {
-  margin: 0.6rem 0 0;
+  margin: 0;
   font-size: var(--text-sm);
   color: rgba(255, 255, 255, 0.7);
   display: flex;
@@ -850,13 +873,12 @@ body.play, body.games-view {
   gap: 0.4rem;
   flex-wrap: wrap;
 }
-/* Progress strip below the splash board: slider (flex 1) + counter.
-   Mono counter so digit width is stable as numbers tick. */
+/* Progress strip: slider (flex 1) + counter. Mono counter so digit
+   width is stable as numbers tick. */
 .splash-progress {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin: 0.5rem 0 0;
 }
 .splash-slider {
   flex: 1;
@@ -870,9 +892,6 @@ body.play, body.games-view {
   opacity: 0.7;
   font-variant-numeric: tabular-nums;
 }
-.hero .lede h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 3rem; line-height: 1.1; margin-bottom: 1.25rem; }
-.hero .lede p { font-size: var(--text-lg); margin-bottom: 1.25rem; }
-.hero .kicker { font-size: var(--text-sm); opacity: 0.85; margin-top: 1.25rem; }
 /* Three rabbit-hole callouts under the PLAY NOW button. Just list +
    whitespace, no borders or backgrounds -- each item is a link with a
    muted explanatory clause. */
@@ -946,9 +965,20 @@ body.play, body.games-view {
   font-size: inherit;
 }
 @media (min-width: 760px) {
-  .hero { flex-direction: row-reverse; align-items: center; }
-  .hero > * { flex: 1; }
-  .hero .preview { max-width: none; }
+  /* 2-column layout with explicit cross-column row anchors. Board spans
+     two rows so desc + cta sit alongside it; callouts span two rows so
+     they sit opposite the slider + audio control. */
+  .hero {
+    grid-template-columns: 1fr auto;
+    column-gap: 2rem;
+    align-items: start;
+    grid-template-areas:
+      "title    credit"
+      "desc     board"
+      "cta      board"
+      "callouts slider"
+      "callouts audio";
+  }
 }
 
 /* Site header: shared by / and /play. Mirrors the http-nu/www header
