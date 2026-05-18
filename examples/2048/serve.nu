@@ -54,11 +54,11 @@ if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default fa
 
 # Render a card from a games_topic frame (the initial page render). Resumes
 # the game to get state, then defers to render-card-from-state.
-# `--href-prefix` passes through so /my/games links to /play and /by/<user>
-# links to /watch.
-def render-game-card [req: record game_frame: record --href-prefix: string = "/play"]: nothing -> record {
+# Caller chooses the destination via `--href`; defaults to /play.
+def render-game-card [req: record game_frame: record --href: string]: nothing -> record {
   let resumed = (resume-game $game_frame.id)
-  render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id --href-prefix $href_prefix
+  let h = if ($href | is-empty) { ($req | href $"/play/($game_frame.id)") } else { $href }
+  render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id --href $h
 }
 
 # --- sub-handlers ---------------------------------------------------------
@@ -456,7 +456,7 @@ let design = source design/serve.nu
               (A {href: ($req | href "/new")} "new game")
               (kbd-btn "n" --href ($req | href "/new"))
             ])
-          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f --href-prefix "/watch" }))
+          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f --href ($req | href $"/watch/($f.id)") }))
           (P {class: "hint empty-state"} "no games yet."))
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title $"games by ($pid_short) -- nu2048"
