@@ -136,15 +136,16 @@ button:active {
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  /* Pending indicator: a hard, solid line on the edge the player aimed
+  /* Pending indicator: a solid line on the edge the player aimed
      toward, shown while a move request is in flight. JS sets
      [data-pending="h|j|k|l"] on dispatch and clears it when the SSE
      patch lands (or the HTTP request fails). 80ms reveal delay so
-     sub-threshold round-trips never paint at all; release is
-     instantaneous. */
+     sub-threshold round-trips never paint at all; both reveal and
+     release fade over 150ms. */
   border: 3px solid transparent;
+  transition: border-color 150ms ease-out;
 }
-#board-wrap[data-pending]               { transition: border-color 0s 80ms; }
+#board-wrap[data-pending] { transition: border-color 150ms ease-in 80ms; }
 #board-wrap[data-pending="h"] { border-left-color: #fff; }
 #board-wrap[data-pending="l"] { border-right-color: #fff; }
 #board-wrap[data-pending="k"] { border-top-color: #fff; }
