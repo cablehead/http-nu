@@ -321,4 +321,23 @@ let rules = $sections | where slug == "the-rules" | first
 assert ($rules.title == "The Rules") "title preserved verbatim"
 assert (($rules.body | str length) > 0) "body is non-empty"
 
+# --- move-authorized: actor's owner gate -----------------------------------
+#
+# The snapshot-actor consults this on every move frame before applying.
+# HTTP-layer rejects unauthenticated /move; this is the second-line
+# gate that also covers CLI appends, replays, or third-party frames.
+
+let alice_move = {meta: {user_id: "alice" intent: "h"}}
+let mallory_move = {meta: {user_id: "mallory" intent: "h"}}
+let anon_move = {meta: {intent: "h"}}
+
+assert (move-authorized $alice_move "alice") "owner's move passes"
+assert (not (move-authorized $mallory_move "alice")) "stranger's move rejected"
+assert (not (move-authorized $anon_move "alice")) "anonymous move on owned game rejected"
+
+# Open ownership (empty owner_id) accepts anyone -- covers games
+# created before the field existed; covered by the migration path.
+assert (move-authorized $alice_move "") "no-owner game accepts any user"
+assert (move-authorized $anon_move "")  "no-owner game accepts anonymous"
+
 print "examples/2048/test.nu: all assertions passed"

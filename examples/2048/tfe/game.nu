@@ -273,3 +273,16 @@ export def project-game [game_id: string]: list -> record {
   }
   | reduce --fold (initial-state $game_id) {|item acc| $item | get state? | default $acc }
 }
+
+# Authorize a move frame against a game's owner. The HTTP-layer
+# `/move` handler stamps `meta.user_id` from the resolved session; the
+# snapshot-actor compares against the owner before applying the move.
+# Returns true if:
+#   - the game has no recorded owner (empty owner_id), OR
+#   - the frame's stamped user_id matches the owner
+# Anonymous or mismatched stamps return false -- the actor no-ops.
+export def move-authorized [frame: record, owner_id: string]: nothing -> bool {
+  if ($owner_id | is-empty) { return true }
+  let user = $frame.meta | get user_id? | default ""
+  $user == $owner_id
+}

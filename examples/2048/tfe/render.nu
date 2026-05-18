@@ -224,6 +224,7 @@ export def render-card-from-state [
   state: record
   moves: int
   last_move_id?: string
+  --href-prefix: string = "/play"  # /play for owner views, /watch for public
 ]: nothing -> record {
   let max_tile = if ($state.tiles | is-empty) { 2 } else {
     $state.tiles | get value | math max
@@ -235,7 +236,7 @@ export def render-card-from-state [
   # script.js.
   let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
   let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
-  (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"/play/($game_id)")}
+  (A {id: $"card-($game_id)" class: "game-card" href: ($req | href $"($href_prefix)/($game_id)")}
     (DIV {class: "board-wrap"} ($state | render-board $game_id))
     (SPAN {class: "overlay active" "data-played-ms": ($played_ms | into string)} $active)
     (if ($status | is-not-empty) { (SPAN {class: $"badge ($status)"} $status) } else { "" }))

@@ -58,6 +58,16 @@
     let head_state = $head.meta.state
     let player_id = $head.meta | get player_id? | default ""
 
+    # Authz: the move's stamped user_id must match the game's owner.
+    # Anonymous-or-mismatched frames are silently dropped here (no
+    # snapshot, no state change). HTTP-layer enforcement is the first
+    # line; this is the second-line gate -- frames from any source
+    # (CLI append, replay, third party) get the same treatment.
+    # See game.nu `move-authorized` for the pure rule + tests.
+    if not (move-authorized $frame $player_id) {
+      return {next: $state}
+    }
+
     let intent = $frame.meta | get intent? | default ""
     let req_id = $frame.meta | get req_id? | default ""
 

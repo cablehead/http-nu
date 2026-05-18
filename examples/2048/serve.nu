@@ -54,9 +54,11 @@ if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default fa
 
 # Render a card from a games_topic frame (the initial page render). Resumes
 # the game to get state, then defers to render-card-from-state.
-def render-game-card [req: record game_frame: record]: nothing -> record {
+# `--href-prefix` passes through so /my/games links to /play and /by/<user>
+# links to /watch.
+def render-game-card [req: record game_frame: record --href-prefix: string = "/play"]: nothing -> record {
   let resumed = (resume-game $game_frame.id)
-  render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id
+  render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id --href-prefix $href_prefix
 }
 
 # --- sub-handlers ---------------------------------------------------------
@@ -77,26 +79,48 @@ let design = source design/serve.nu
     (mount "/design" $design)
     (route {method: POST path: "/move"} {|req ctx|
       # The client carries the game id (URL-routed play view, so the
-      # page knows which game it's on). Body shape: {playerId, gameId,
-      # intent, reqId}.
+      # page knows which game it's on). Body shape: {gameId, intent,
+      # reqId}. The server stamps the resolved user_id + session_id on
+      # the frame meta -- the snapshot-actor compares user_id against
+      # the game's owner and silently drops mismatches. Anonymous
+      # requests (no session) are rejected at the HTTP layer.
       let signals = $in | from datastar-signals $req
       let game_id = $signals | get gameId? | default ""
       let intent = $signals | get intent? | default ""
       let req_id = $signals | get reqId? | default ""
+      let session = (resolve-session $req)
       if ($game_id | is-empty) {
         null | metadata set { merge {'http.response': {status: 400}} }
+      } else if $session == null {
+        # The UI never generates an unauthenticated /move. Treat it as
+        # malicious traffic: audit and 204 silently (probes get no
+        # information). External actors can subscribe to
+        # `audit.move.no-session` to alert / rate-limit.
+        null | .append "audit.move.no-session" --ttl ephemeral --meta {
+          game_id: $game_id
+          intent: $intent
+          remote_ip: ($req.remote_ip? | default "")
+          trusted_ip: ($req.trusted_ip? | default "")
+          user_agent: ($req.headers | get user-agent? | default "")
+        }
+        null | metadata set { merge {'http.response': {status: 204}} }
       } else {
         let topic = $"game.($game_id).move"
+        let meta_base = {
+          user_id: $session.user_id
+          session_id: $session.session_id
+          req_id: $req_id
+        }
         if $intent == "undo" {
-          null | .append $topic --meta {kind: "undo" req_id: $req_id}
+          null | .append $topic --meta ($meta_base | upsert kind "undo")
         } else if $intent == "" {
           # RTT-measurement ping: client sends an empty intent so the SSE
           # echoes a no-op state. Don't persist -- ephemeral keeps the
           # move log clean.
-          null | .append $topic --ttl ephemeral --meta {intent: $intent req_id: $req_id}
+          null | .append $topic --ttl ephemeral --meta ($meta_base | upsert intent $intent)
         } else {
           # Covers h/j/k/l.
-          null | .append $topic --meta {intent: $intent req_id: $req_id}
+          null | .append $topic --meta ($meta_base | upsert intent $intent)
         }
         null | metadata set { merge {'http.response': {status: 204}} }
       }
@@ -365,6 +389,52 @@ let design = source design/serve.nu
       if $session == null { $body } else { $body | session-cookies set $session }
     })
 
+    (route {method: GET path-matches: "/watch/:game_id"} {|req ctx|
+      # Public spectator view. No auth, no kbd controls -- just the
+      # board + score + state badge wired to the same /sse/<game_id>
+      # stream the owner's /play page uses. Owner can watch their own
+      # game too; this URL never confers write access.
+      let game_id = $ctx.game_id
+      let owner_frame = try { .get $game_id } catch { null }
+      if $owner_frame == null {
+        "Not Found" | metadata set { merge {'http.response': {status: 404}} }
+      } else {
+        let owner_id = $owner_frame.topic | str replace "player." "" | str replace ".games" ""
+        let owner_short = $owner_id | str substring 0..7
+        let game_id_short = $game_id | str substring 0..7
+        let home_href = ($req | href "/")
+        let placeholder = {tiles: [] next_id: 1 score: 0 game_over: false} | render-game
+        ([
+          (DIV {class: "page"}
+            (breadcrumb
+              --left [
+                (A {href: $home_href} "home")
+                (kbd-btn "esc" --href $home_href)
+                (SPAN {class: "sep"} "·")
+                (A {href: ($req | href $"/by/($owner_id)")} $"by ($owner_short)")
+                (SPAN {class: "sep"} "·")
+                (A {class: "game-id" href: ($req | href $"/watch/($game_id)")} $game_id_short)
+              ]
+              --right [
+                (A {href: ($req | href "/new")} "new game")
+                (kbd-btn "n" --href ($req | href "/new"))
+              ])
+            (DIV {class: "play-layout"}
+              # Same grid skeleton as /play, but only the score row +
+              # board column. Help cell stays empty.
+              (DIV {class: "board-controls"} (render-score 0))
+              (DIV {
+                class: "column"
+                "data-sse": ""
+                "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+              }
+                $placeholder)))
+        ] | layout $req $REV $DATASTAR_JS_PATH
+              --title $"watching ($game_id_short) -- nu2048"
+              --body-class "watch")
+      }
+    })
+
     (route {method: GET path-matches: "/by/:player_id"} {|req ctx|
       # Public per-player games view. Same shape as /my/games but
       # takes the id from the URL (no cookie required). Used for
@@ -386,7 +456,7 @@ let design = source design/serve.nu
               (A {href: ($req | href "/new")} "new game")
               (kbd-btn "n" --href ($req | href "/new"))
             ])
-          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
+          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f --href-prefix "/watch" }))
           (P {class: "hint empty-state"} "no games yet."))
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title $"games by ($pid_short) -- nu2048"

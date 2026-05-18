@@ -153,8 +153,9 @@ const keymap = {
 // is well above the alpha-saturation threshold so the edge fully lights up.
 const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
 const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
+// Global navigation: Esc -> splash, n -> new game. Registered always so
+// every page (play, watch, my games, splash, notes, design) responds.
 addEventListener("keydown", (e) => {
-  // Esc -> splash, n -> new game. Both match kbd hints in the breadcrumbs.
   if (e.key === "Escape") {
     location.href = "/";
     e.preventDefault();
@@ -163,27 +164,30 @@ addEventListener("keydown", (e) => {
   if (e.key === "n" && !e.ctrlKey && !e.metaKey && !e.altKey) {
     location.href = "/new";
     e.preventDefault();
-    return;
-  }
-  if (document.body.dataset.conn === "down") return;  // ignore input while disconnected
-  // Shift+letter sends uppercase ("H"), so fall back to the lowercased key.
-  // Arrow keys aren't affected (e.key is "ArrowLeft" regardless of Shift).
-  const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
-  const intent = dir
-    || (e.key === "u" ? "undo" : "");
-  if (intent) {
-    if (glowFor[intent]) {
-      const [prop, val] = glowFor[intent];
-      const w = document.querySelector("#board-wrap");
-      w?.style.setProperty(prop, `${val}px`);
-      // Anticipation lean disabled while iterating on the VT-only
-      // pipeline. To restore: re-enable the key-${intent} class flip.
-      void w;
-    }
-    move(intent);
-    e.preventDefault();
   }
 });
+
+// Move impulses (h/j/k/l/u). Registered ONLY on the owner's /play page;
+// spectator /watch and chrome pages don't bind this handler at all, so
+// keystrokes never reach a move() call from outside the editor.
+if (document.body.classList.contains("play")) {
+  addEventListener("keydown", (e) => {
+    if (document.body.dataset.conn === "down") return;
+    // Shift+letter sends uppercase ("H"); fall back to lowercased key.
+    const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
+    const intent = dir || (e.key === "u" ? "undo" : "");
+    if (intent) {
+      if (glowFor[intent]) {
+        const [prop, val] = glowFor[intent];
+        const w = document.querySelector("#board-wrap");
+        w?.style.setProperty(prop, `${val}px`);
+        void w;
+      }
+      move(intent);
+      e.preventDefault();
+    }
+  });
+}
 
 // Delegated click handlers for the kbd-btn family. All kbd-btns are
 // <button> (uniform styling, no <a>/<button> drift) and carry their
