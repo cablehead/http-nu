@@ -118,8 +118,7 @@ export def states-to-html [] {
 }
 
 # Wrap each render in a datastar patch event. Unique id per patch so
-# morphdom recreates the .edge-flash element and its animation re-fires
-# each step.
+# morphdom replays each step independently (no event dedup).
 export def html-to-patches [] {
   each {|item|
     if ('event' in $item) {

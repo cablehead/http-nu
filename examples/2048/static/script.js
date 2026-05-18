@@ -7,12 +7,8 @@ const homeHref = document.body.dataset.homeHref;
 const newHref = document.body.dataset.newHref;
 
 // End-to-end RTT: time from a move() call to the next DOM mutation in
-// #game (i.e. when the SSE patch lands). The mean is published on
-// :root as --rtt-mean so CSS dials can scale animation timing with
-// latency.
+// #game (i.e. when the SSE patch lands). Drives the #rtt readout.
 let pending = null;
-const rtts = [];
-const RTT_HISTORY = 5;
 const game = document.getElementById("game");
 // Always wait for the first mutation -- it's the SSE init replacing the
 // server-rendered placeholder. After that, ping for an RTT seed.
@@ -37,7 +33,7 @@ const move = (intent) => {
   // so reconnect-replay patches don't get misattributed to a probe.
   const reqId = crypto.randomUUID();
   pending = { id: reqId, t: performance.now() };
-  // Light the directional edge glow for the duration of the round trip.
+  // Light the directional edge-line indicator for the round trip.
   // Cleared in the MutationObserver below when the SSE patch lands.
   if (intent && "hjkl".includes(intent)) {
     document.querySelector("#board-wrap")?.setAttribute("data-pending", intent);
@@ -78,15 +74,11 @@ const setConn = (v) => {
     // indicator and the history so reconnect probes for a fresh
     // measurement.
     pending = null;
-    rtts.length = 0;
     rttEl()?.replaceChildren("");
   }
-  if (prevConn === "down" && v === "ok") {
-    document.body.classList.remove("reconnect-pulse");
-    void document.body.offsetWidth;
-    document.body.classList.add("reconnect-pulse");
+  if (prevConn === "down" && v === "ok" && moveUrl) {
     // Re-probe RTT after reconnect. (Only on /play -- /games has no move URL.)
-    if (moveUrl) move("");
+    move("");
   }
   prevConn = v;
 };
@@ -124,23 +116,9 @@ new MutationObserver(() => {
   if (game.dataset.rev !== pending.id) return;
   const rtt = Math.round(performance.now() - pending.t);
   pending = null;
-  // SSE patch landed: clear pointer-drag glow and the pending indicator.
-  const w = document.querySelector("#board-wrap");
-  w?.style.setProperty("--glow-x", "0px");
-  w?.style.setProperty("--glow-y", "0px");
-  w?.removeAttribute("data-pending");
+  // SSE patch landed: clear the pending indicator.
+  document.querySelector("#board-wrap")?.removeAttribute("data-pending");
   document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
-  rtts.push(rtt);
-  if (rtts.length > RTT_HISTORY) rtts.shift();
-  // The spring curve peaks around 40% through the animation. To make that
-  // peak land near (or just past) SSE arrival, target ~2x mean RTT so the
-  // overshoot bounce is still playing when view-transition picks up.
-  const mean = rtts.reduce((a, b) => a + b, 0) / rtts.length;
-  // Expose the mean RTT to CSS as a unitless number. The animation
-  // duration / bezier vars in styles.css clamp `base + k*--rtt-mean` to
-  // do their own latency scaling, so we don't set --decay-duration etc
-  // directly any more -- it all comes out of the CSS dials.
-  document.documentElement.style.setProperty("--rtt-mean", String(mean));
 }).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
 
 // Keyboard: hjkl + arrows + u-to-undo. (New game lives on the splash;
@@ -151,10 +129,6 @@ const keymap = {
   k: "k", ArrowUp: "k",
   l: "l", ArrowRight: "l",
 };
-// Per-direction peak glow values for keyboard / programmatic moves. Magnitude
-// is well above the alpha-saturation threshold so the edge fully lights up.
-const glowFor = { h: ["--glow-x", -32], l: ["--glow-x", 32], k: ["--glow-y", -32], j: ["--glow-y", 32] };
-const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 // Global navigation: Esc -> splash, n -> new game. Registered always so
 // every page (play, watch, my games, splash, notes, design) responds.
 addEventListener("keydown", (e) => {
@@ -179,12 +153,6 @@ if (document.body.classList.contains("play")) {
     const dir = keymap[e.key] || keymap[(e.key + "").toLowerCase()];
     const intent = dir || (e.key === "u" ? "undo" : "");
     if (intent) {
-      if (glowFor[intent]) {
-        const [prop, val] = glowFor[intent];
-        const w = document.querySelector("#board-wrap");
-        w?.style.setProperty(prop, `${val}px`);
-        void w;
-      }
       move(intent);
       e.preventDefault();
     }
@@ -201,80 +169,24 @@ document.addEventListener("click", (e) => {
 
 
 
-// Swipe with anticipation: while dragging, lean the tiles toward the gesture
-// (CSS reads --tilt-x / --tilt-y). On release past threshold, leave the lean
-// in place so the view-transition slide continues the motion. On cancel,
-// snap back via the `.snap` class.
-const DAMP = 0.9;
-const CAP = 26;
-const AXIS_LOCK = 8;  // once you move this far on one axis, the other locks
-let start = null;
-let wrap = null;
-let axis = null;
-let committedDir = null;     // direction the swipe committed to (null until threshold crossed)
-
+// Pointer swipe: detect a directional gesture on the board and dispatch
+// a move on release. No tilt / glow during drag; the edge-line pending
+// indicator is wired through move() -> #board-wrap[data-pending].
+const SWIPE_THRESHOLD = 30;
+let swipeStart = null;
 addEventListener("pointerdown", (e) => {
-  if (!e.target.closest(".board")) { start = null; return; }
-  start = [e.clientX, e.clientY];
-  axis = null;
-  committedDir = null;
-  wrap = document.querySelector("#board-wrap");
-  wrap?.classList.remove("snap", "decay");
+  swipeStart = e.target.closest(".board") ? [e.clientX, e.clientY] : null;
 });
-
-addEventListener("pointermove", (e) => {
-  if (!start || !wrap) return;
-  if (committedDir) return;  // committed -- ignore further movement until release
-  let dx = e.clientX - start[0];
-  let dy = e.clientY - start[1];
-  if (!axis && Math.max(Math.abs(dx), Math.abs(dy)) >= AXIS_LOCK) {
-    axis = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
-  }
-  if (axis === "h") dy = 0;
-  if (axis === "v") dx = 0;
-  const tx = Math.max(-CAP, Math.min(CAP, dx * DAMP));
-  const ty = Math.max(-CAP, Math.min(CAP, dy * DAMP));
-  wrap.style.setProperty("--tilt-x", `${tx}px`);
-  wrap.style.setProperty("--tilt-y", `${ty}px`);
-  wrap.style.setProperty("--glow-x", `${tx}px`);
-  wrap.style.setProperty("--glow-y", `${ty}px`);
-  // Commit on first threshold crossing -- the impulse fires on release;
-  // tilt + glow release with a spring so the board visibly settles back to
-  // its origin and the incoming SSE patches animate over a still board.
-  if (Math.max(Math.abs(dx), Math.abs(dy)) >= 30) {
-    committedDir = Math.abs(dx) > Math.abs(dy)
-      ? (dx > 0 ? "l" : "h")
-      : (dy > 0 ? "j" : "k");
-    wrap.style.setProperty("--tilt-x", "0px");
-    wrap.style.setProperty("--tilt-y", "0px");
-    const LIT = 5;  // alpha ~0.6 via /8 in the gradient
-    wrap.style.setProperty("--glow-x",
-      committedDir === "l" ? `${LIT}px` :
-      committedDir === "h" ? `${-LIT}px` : "0px");
-    wrap.style.setProperty("--glow-y",
-      committedDir === "j" ? `${LIT}px` :
-      committedDir === "k" ? `${-LIT}px` : "0px");
-    wrap.classList.add("decay");
-  }
-});
-
-addEventListener("pointerup", () => {
-  if (!start) return;
-  start = null;
-  if (!committedDir) {
-    // Below threshold: cancel, spring tilt + glow back to rest.
-    wrap?.style.setProperty("--tilt-x", "0px");
-    wrap?.style.setProperty("--tilt-y", "0px");
-    wrap?.style.setProperty("--glow-x", "0px");
-    wrap?.style.setProperty("--glow-y", "0px");
-    wrap?.classList.add("snap");
-    setTimeout(() => wrap?.classList.remove("snap"), 260);
-  } else {
-    // Committed and released -- send the impulse now. Lit edge stays until
-    // SSE clears it.
-    move(committedDir);
-  }
-  committedDir = null;
+addEventListener("pointerup", (e) => {
+  if (!swipeStart) return;
+  const dx = e.clientX - swipeStart[0];
+  const dy = e.clientY - swipeStart[1];
+  swipeStart = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_THRESHOLD) return;
+  const dir = Math.abs(dx) > Math.abs(dy)
+    ? (dx > 0 ? "l" : "h")
+    : (dy > 0 ? "j" : "k");
+  move(dir);
 });
 
 }

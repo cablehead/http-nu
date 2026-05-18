@@ -195,22 +195,19 @@ export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
 
 export def render-game [direction?: string, changed?: bool, req_id?: string]: record -> record {
   let state = $in
-  # The edge-glow color rides the highest-value tile, pushed as an inline
-  # CSS variable so it cascades to #board-wrap and the ::after pseudo.
-  let glow = (palette-for (if ($state.tiles | is-empty) { 2 } else { $state.tiles | get value | math max })).bg
   let dir = $direction | default ""
   let did_change = $changed | default false
   let rid = $req_id | default ""
   (DIV {
     id: "game"
-    style: $"--glow: ($glow); view-transition-name: view-game;"
+    style: "view-transition-name: view-game;"
     "data-rev": (if ($rid | is-empty) { random uuid } else { $rid })
     "data-from": $dir
     "data-changed": (if $did_change { "1" } else { "" })
   }
     # data-pending is set client-side on keydown and cleared when the SSE
-    # patch lands; preserve it across morphs so the edge glow stays lit
-    # for the duration of the round trip.
+    # patch lands; preserve it across morphs so the pending edge-line
+    # stays lit for the duration of the round trip.
     # State badge ("you win!" / "game over") rides inside board-wrap as
     # a positioned overlay -- same .badge stamp as the splash cards.
     (DIV {id: "board-wrap" "data-preserve-attr": "class data-pending"}

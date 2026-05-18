@@ -36,38 +36,6 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* Register the tilt vars as lengths so they themselves can be transitioned --
-   gradient alpha and tile transform then animate in lockstep. */
-@property --tilt-x {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-@property --tilt-y {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-/* Edge glow is driven separately from tile lean: glow stays at peak through
-   the commit decay and fades naturally via view-transition cross-fade when
-   the SSE patch lands. Cancel transitions both in sync. */
-@property --glow-x {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-@property --glow-y {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-/* All-sides pulse alpha (0..1) for the reconnect flash. */
-@property --pulse {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
-
 :root {
   /* Palette aligned with http-nu/www: deep blue body, warm-cream headers,
      off-white primary text. Tile colors live in render.nu (untouched --
@@ -84,7 +52,6 @@
   --light: #f9f6f2;
   --gap: 8px;
   --radius: 4px;
-  --glow: #fffdc2;
   --font-sans: "Source Sans 3", sans-serif;
   --font-mono: "Source Code Pro", ui-monospace, monospace;
   /* Type scale -- declared as vars so sites that reuse a size can share
@@ -169,119 +136,19 @@ button:active {
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  /* container-type: inline-size makes `cqw` resolve against this
-     element. One tile is ~25cqw, so magnitude (in tile widths) is
-     base * 25cqw -> actual viewport pixels. */
-  container-type: inline-size;
-  --ant-magnitude: clamp(
-    0px,
-    calc((var(--ant-magnitude-base) + var(--rtt-mean) * var(--ant-magnitude-k)) * 25cqw),
-    50cqw
-  );
+  /* Pending indicator: a hard, solid line on the edge the player aimed
+     toward, shown while a move request is in flight. JS sets
+     [data-pending="h|j|k|l"] on dispatch and clears it when the SSE
+     patch lands (or the HTTP request fails). 80ms reveal delay so
+     sub-threshold round-trips never paint at all; release is
+     instantaneous. */
+  border: 3px solid transparent;
 }
-/* Animate --tilt-x / --tilt-y themselves; the tile transform and the edge
-   glow then interpolate together rather than one snapping while the other
-   eases. Requires the @property registrations at the top of this file. */
-#board-wrap.snap {
-  transition:
-    --tilt-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    --tilt-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    --glow-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    --glow-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-/* Anticipation tuning (the wind-up before / spring-back after a move).
-   Each dial is `base + k * --rtt-mean`, clamped. `--ant-magnitude` is
-   how far the board leans opposite the press direction. The bezier
-   `(--ant-x1, --ant-y1, --ant-x2, --ant-y2)` applies to the whole
-   three-keyframe animation, shaping both the wind-up (0 -> peak at
-   15%) and the spring-back (peak -> 0). y1 > 1 = overshoot past peak
-   on the way up, and past zero on the way back (the recoil).
-   Keyframe selector positions (0%, 15%, 100%) are static -- CSS does
-   not substitute custom properties there. Values inside the keyframe
-   and the timing function on the element are variabilised. */
-:root {
-  --ant-duration-base:  200;    /* unitless ms */
-  --ant-duration-k:     2;
-  --ant-magnitude-base: 0.02;   /* multiplier of one tile width */
-  --ant-magnitude-k:    0;
-  --ant-y1-base:        2;
-  --ant-y1-k:           0;
-  --ant-x1-base:        0.05;
-  --ant-x1-k:           0;
-  --ant-x2-base:        0.05;
-  --ant-x2-k:           0;
-  --ant-y2-base:        1;
-  --ant-y2-k:           0;
-
-  --ant-duration:  clamp(80ms, calc((var(--ant-duration-base) + var(--rtt-mean) * var(--ant-duration-k)) * 1ms), 1500ms);
-  --ant-y1:        clamp(1.0,   calc(var(--ant-y1-base) + var(--rtt-mean) * var(--ant-y1-k)), 3.0);
-  --ant-x1:        clamp(0.05,  calc(var(--ant-x1-base) + var(--rtt-mean) * var(--ant-x1-k)), 0.95);
-  --ant-x2:        clamp(0.05,  calc(var(--ant-x2-base) + var(--rtt-mean) * var(--ant-x2-k)), 0.95);
-  --ant-y2:        clamp(0.5,   calc(var(--ant-y2-base) + var(--rtt-mean) * var(--ant-y2-k)), 1.5);
-}
-/* --ant-magnitude is in tile widths -- resolved in the #board-wrap
-   scope below where container query units (25cqw ≈ one tile) work. */
-
-/* decay transitions everything together with the RTT-tuned duration so the
-   overshoot bounce is still in motion when the SSE patch lands. */
-#board-wrap.decay {
-  transition:
-    --tilt-x var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
-    --tilt-y var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
-    --glow-x var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)),
-    --glow-y var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2));
-}
-
-/* Browser quirk: `animation-timing-function: cubic-bezier(var(...))`
-   does not honour var() *inside* a @keyframes block (Chromium falls
-   back to `ease`). The bezier must live on the element via
-   `animation-timing-function` instead -- which is where the
-   `#board-wrap.key-X` rules below put it. */
-@keyframes key-lean-h {
-  0%   { --tilt-x: 0px; }
-  15%  { --tilt-x: var(--ant-magnitude); }
-  100% { --tilt-x: 0px; }
-}
-@keyframes key-lean-l {
-  0%   { --tilt-x: 0px; }
-  15%  { --tilt-x: calc(-1 * var(--ant-magnitude)); }
-  100% { --tilt-x: 0px; }
-}
-@keyframes key-lean-k {
-  0%   { --tilt-y: 0px; }
-  15%  { --tilt-y: var(--ant-magnitude); }
-  100% { --tilt-y: 0px; }
-}
-@keyframes key-lean-j {
-  0%   { --tilt-y: 0px; }
-  15%  { --tilt-y: calc(-1 * var(--ant-magnitude)); }
-  100% { --tilt-y: 0px; }
-}
-#board-wrap.key-h { animation: key-lean-h var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
-#board-wrap.key-l { animation: key-lean-l var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
-#board-wrap.key-k { animation: key-lean-k var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
-#board-wrap.key-j { animation: key-lean-j var(--ant-duration) cubic-bezier(var(--ant-x1), var(--ant-y1), var(--ant-x2), var(--ant-y2)) both; }
-/* Edge glow: soft band of the accent color on whichever edge the gesture is
-   heading toward. Alpha is driven by tilt magnitude so it ramps with the
-   drag and bleeds off through the decay/snap animation. */
-#board-wrap::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: 6px;
-  background:
-    /* Directional glow driven by --glow-x / --glow-y (one side at a time). */
-    linear-gradient(to left,   rgb(from var(--glow) r g b / max(0, calc(var(--glow-x) / 8px))),      transparent 1.25%),
-    linear-gradient(to right,  rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-x) / 8px))), transparent 1.25%),
-    linear-gradient(to top,    rgb(from var(--glow) r g b / max(0, calc(var(--glow-y) / 8px))),      transparent 1.25%),
-    linear-gradient(to bottom, rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-y) / 8px))), transparent 1.25%),
-    /* All-sides reconnect pulse driven by --pulse. */
-    linear-gradient(to left,   rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
-    linear-gradient(to right,  rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
-    linear-gradient(to top,    rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
-    linear-gradient(to bottom, rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%);
-}
+#board-wrap[data-pending]               { transition: border-color 0s 80ms; }
+#board-wrap[data-pending="h"] { border-left-color: #fff; }
+#board-wrap[data-pending="l"] { border-right-color: #fff; }
+#board-wrap[data-pending="k"] { border-top-color: #fff; }
+#board-wrap[data-pending="j"] { border-bottom-color: #fff; }
 
 /* Disconnected: desaturate the board so tile numbers stay readable;
    disable the reset button. Keyboard input is gated in script.js;
@@ -302,14 +169,6 @@ body[data-conn="down"] #rtt { visibility: hidden; }
 body.games-view #rtt { display: none; }
 #board-wrap { transition: filter 320ms ease; }
 button { transition: opacity 320ms ease; }
-
-/* Reconnect: a brief all-sides glow flash. */
-body.reconnect-pulse { animation: reconnect-pulse 600ms ease-out; }
-@keyframes reconnect-pulse {
-  0%   { --pulse: 0; }
-  20%  { --pulse: 1; }
-  100% { --pulse: 0; }
-}
 
 /* Failed-move flash: brief red wash across the whole page. */
 body.flash-red { animation: flash-red 300ms ease; }
@@ -348,22 +207,13 @@ body.flash-red { animation: flash-red 300ms ease; }
   font-weight: bold;
 }
 
-/* /play: tile lean reads --tilt-x/--tilt-y directly (they're already in
-   viewport pixels via the magnitude computed on #board-wrap below). */
 body.play .board { touch-action: none; }
-body.play .board > div:not(:empty) {
-  transform: translate(var(--tilt-x), var(--tilt-y));
-}
 
 /* Tight viewports (landscape phones): hide the hint to give more room. */
 @media (max-height: 600px) {
   p.hint { display: none; }
   h1 { font-size: 20px; }
 }
-
-/* --rtt-mean is still written by script.js for the RTT readout; keep
-   the declaration so getComputedStyle reads back a number. */
-:root { --rtt-mean: 0; }
 
 /* TEMPORARY: fx tuner overlay. Remove when the dial values are
    settled.
@@ -538,31 +388,6 @@ body.play .board > div:not(:empty) {
   opacity: 0.7;
   word-break: break-all;
 }
-/* Pending indicator: a static edge glow on the side the player swiped
-   toward, shown while a move request is in flight. JS sets
-   `#board-wrap[data-pending="<dir>"]` on keydown and clears it when the
-   SSE patch lands. Asymmetric transition: reveal is delayed so
-   sub-threshold round-trips never paint the glow at all (it'd read as
-   a flash); release is immediate so the glow vanishes the instant the
-   response actually arrives. Net effect: glow only appears when you're
-   genuinely waiting on the wire. */
-#board-wrap::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: 6px;
-  opacity: 0;
-  transition: opacity 100ms ease-out;
-}
-#board-wrap[data-pending]::before {
-  opacity: 1;
-  transition: opacity 80ms ease-out 80ms;
-}
-#board-wrap[data-pending="h"]::before { background: linear-gradient(to right,  rgb(from var(--glow) r g b / 0.85), transparent 8%); }
-#board-wrap[data-pending="l"]::before { background: linear-gradient(to left,   rgb(from var(--glow) r g b / 0.85), transparent 8%); }
-#board-wrap[data-pending="k"]::before { background: linear-gradient(to bottom, rgb(from var(--glow) r g b / 0.85), transparent 8%); }
-#board-wrap[data-pending="j"]::before { background: linear-gradient(to top,    rgb(from var(--glow) r g b / 0.85), transparent 8%); }
 
 /* /games splash: list of board thumbnails inside the shared .page
    column. Empty-state hint shows only when no cards. */
