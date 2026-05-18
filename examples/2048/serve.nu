@@ -128,9 +128,12 @@ let design = source design/serve.nu
 
     (route {method: GET path: "/sse/splash"} {|req ctx|
       # Replay the splash game's snapshot stream on loop. Each
-      # connection picks a random start frame; ~600ms per step so the
-      # board feels deliberate. Each patch rides a view-transition so
-      # tiles slide between states (paired by vt-name on tile.id).
+      # connection picks a random start frame; 1.2s per step (50 bpm)
+      # so the VT animation chain (slide/merge/spawn = ~620ms)
+      # finishes well before the next tick. Faster cadence overlaps
+      # transitions, leaving the pseudo overlay covering the page near-
+      # continuously and rendering the hero CTAs inert. Full loop runs
+      # ~58 min over 2880 moves.
       #
       # Multiplexes two patch streams per tick:
       #   1. <#splash-board> -- the board state
@@ -144,11 +147,15 @@ let design = source design/serve.nu
         # Stream forever; `to sse` consumes lazily.
         1..
         | each {|i|
-            sleep 600ms
+            sleep 1200ms
             let idx = (($start + $i) mod $n)
             let state = $states | get $idx
             let board_patch = (
-              (DIV {id: "splash-board"} ($state | render-board "splash"))
+              # view-transition-name scopes the VT to the board only --
+              # without it, the browser snapshots the whole page as
+              # the "root" pseudo every tick, freezing the splash hero
+              # (PLAY NOW, callouts, slider) for the transition window.
+              (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($state | render-board "splash"))
               | to datastar-patch-elements --use-view-transition --id (random uuid)
             )
             let slider_patch = (
@@ -263,6 +270,14 @@ let design = source design/serve.nu
       .static $STATIC_DIR "/og.png"
     })
 
+    (route {method: GET path: "/mobygratis-out-stands.mp3"} {|req ctx|
+      .static $STATIC_DIR "/mobygratis-out-stands.mp3"
+    })
+
+    (route {method: GET path: "/mobygratis-license.txt"} {|req ctx|
+      .static $STATIC_DIR "/mobygratis-license.txt"
+    })
+
     (route {method: GET path: "/new"} {|req ctx|
       # Mint a games_topic frame for this user and 302 to /play/<id>.
       # Session is auto-claimed from any legacy `player` cookie or
@@ -330,7 +345,23 @@ let design = source design/serve.nu
                 "data-on-input": ("@post('" + ($req | href "/splash/seek") + "', {pos: parseInt(event.target.value, 10)})")
               })
               (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))
-            (DIV {id: "splash-board"} ($initial_state | render-board "splash"))
+            (DIV {class: "splash-board-wrap"}
+              (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($initial_state | render-board "splash"))
+              (BUTTON {
+                type: "button"
+                class: "audio-toggle audio-play"
+                "aria-label": "play audio"
+                style: "view-transition-name: audio-toggle;"
+              }
+                (SPAN {class: "speaker" "aria-hidden": "true"} "(()) ")
+                (SPAN {class: "bracket"} "[")
+                (SPAN {class: "key"} "p")
+                (SPAN {class: "bracket"} "]")
+                "lay")
+              (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "none" loop: ""} ""))
+            (P {class: "splash-audio-credit"}
+              "Out Stands -- "
+              (A {href: ($req | href "/mobygratis-license.txt") target: "_blank" rel: "noopener"} "mobygratis"))
             (P {class: "splash-credit"}
               "replay of " (A {href: ($req | href $"/by/($SPLASH_PLAYER_ID)")} "oleksii_lisovyi") "'s "
               (if ($SPLASH_DATE | is-empty) { "" } else { $"($SPLASH_DATE) " })

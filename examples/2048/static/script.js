@@ -306,3 +306,33 @@ function updateActiveLabels() {
 // minute boundary, slow enough to be cheap.
 setInterval(updateActiveLabels, 5000);
 updateActiveLabels();
+
+
+// Splash audio toggle: [ p ] kbd-btn next to the splash credit. Click
+// the button or press the "p" key to toggle play/pause. aria-pressed
+// reflects state so CSS can style the kbd-btn while playing.
+const audioToggle = document.querySelector(".audio-toggle");
+const splashAudio = document.querySelector("#splash-audio");
+if (audioToggle && splashAudio) {
+  const toggleAudio = () => {
+    if (splashAudio.paused) splashAudio.play();
+    else splashAudio.pause();
+  };
+  audioToggle.addEventListener("click", toggleAudio);
+  const sync = () => {
+    const playing = !splashAudio.paused;
+    audioToggle.setAttribute("aria-pressed", playing ? "true" : "false");
+    audioToggle.setAttribute("aria-label", playing ? "pause audio" : "play audio");
+  };
+  sync();
+  splashAudio.addEventListener("play", sync);
+  splashAudio.addEventListener("pause", sync);
+  splashAudio.addEventListener("ended", sync);
+  document.addEventListener("keydown", (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === "p" || e.key === "P") {
+      e.preventDefault();
+      toggleAudio();
+    }
+  });
+}

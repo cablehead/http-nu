@@ -771,6 +771,12 @@ body.play, body.games-view {
   opacity: 0.7;
   text-align: center;
 }
+.splash-audio {
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+.audio-toggle[aria-pressed="true"] { opacity: 1; }
+.audio-toggle[aria-pressed="false"] { opacity: 0.6; }
 /* Progress strip above the splash board: slider (flex 1) + counter.
    Mono counter so digit width is stable as numbers tick. */
 .splash-progress {
@@ -1039,6 +1045,28 @@ body.splash .site-header .status { display: none; }
   --spawn-duration:   200ms;
   --spawn-from-scale: 0.2;
 }
+
+/* VT snapshots sit on top of the page. By default they catch clicks --
+   so PLAY NOW would go un-clickable for the length of every transition.
+   Let pointer events fall through to the live DOM behind. */
+::view-transition,
+::view-transition-group(*),
+::view-transition-image-pair(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  pointer-events: none;
+}
+
+/* Drop <html> out of the VT capture set on splash.
+   <html> implicitly has `view-transition-name: root` (no rule, doesn't
+   show in DevTools). While a VT runs, the UA hides the live original
+   of every captured element -- for root, that's the whole page. So
+   even with the pointer-events fix above, PLAY NOW has nothing under
+   the cursor mid-transition: the live button is hidden, only the
+   snapshot is painted. Clearing the name leaves #splash-board (which
+   has its own name) as the only participant. Must target <html> -- the
+   root name lives there, not on body or any wrapper. */
+html:has(body.splash) { view-transition-name: none; }
 
 /* slide: groups translate via UA-default animation; we only retune
    duration + easing. */
