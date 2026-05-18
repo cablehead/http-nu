@@ -11,4 +11,4 @@ cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -W
 cargo build -p nu_plugin_test
 cargo test
 cargo run -- eval examples/tao/test.nu
-cargo run -- eval examples/2048/test.nu
+cargo run -- eval examples/2048/test/test.nu
