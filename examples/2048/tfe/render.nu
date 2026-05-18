@@ -280,6 +280,13 @@ export def layout [
     if $f == null { "" } else { $f.meta | get user_id? | default "" }
   }
   let pid_short = if ($pid | is-empty) { "" } else { $pid | str substring 0..7 }
+  # script.js can't see the request, so resolved nav URLs ride along as
+  # body data-* attrs. Keyboard handlers there read these instead of
+  # hardcoded "/" / "/new", so Esc and n work under any mount prefix.
+  let nav_attrs = {
+    "data-home-href": ($req | href "/")
+    "data-new-href":  ($req | href "/new")
+  }
   {
     title: $title
     og_image: $og_image
@@ -293,7 +300,7 @@ export def layout [
     design_href: ($req | href "/design/")
     player_id: $pid_short
     body_class: $body_class
-    body_attrs: ($body_attrs | transpose key value)
+    body_attrs: ($nav_attrs | merge $body_attrs | transpose key value)
     body_html: $body_html
   } | .mj render $env.LAYOUT_TPL
 }

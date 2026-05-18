@@ -159,7 +159,7 @@ let design = source design/serve.nu
               | to datastar-patch-elements --use-view-transition --id (random uuid)
             )
             let slider_patch = (
-              (INPUT {id: "splash-slider" type: "range" min: "0" max: ($n - 1 | into string) value: ($idx | into string) "data-preserve-attr": "value"})
+              (INPUT {id: "splash-slider" type: "range" min: "0" max: ($n - 1 | into string) value: ($idx | into string)})
               | to datastar-patch-elements --id (random uuid)
             )
             let counter_patch = (
@@ -355,7 +355,6 @@ let design = source design/serve.nu
                 min: "0"
                 max: (($SPLASH_STATES | length | default 1) - 1 | into string)
                 value: "0"
-                "data-preserve-attr": "value"
                 "data-on-input": ("@post('" + ($req | href "/splash/seek") + "', {pos: parseInt(event.target.value, 10)})")
               })
               (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))

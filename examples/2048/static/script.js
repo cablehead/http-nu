@@ -3,6 +3,8 @@
 const playerId = document.body.dataset.playerId;
 const gameId = document.body.dataset.gameId;
 const moveUrl = document.body.dataset.moveUrl;
+const homeHref = document.body.dataset.homeHref;
+const newHref = document.body.dataset.newHref;
 
 // End-to-end RTT: time from a move() call to the next DOM mutation in
 // #game (i.e. when the SSE patch lands). The mean is published on
@@ -157,12 +159,12 @@ const keyClasses = ["key-h", "key-j", "key-k", "key-l"];
 // every page (play, watch, my games, splash, notes, design) responds.
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    location.href = "/";
+    location.href = homeHref;
     e.preventDefault();
     return;
   }
   if (e.key === "n" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    location.href = "/new";
+    location.href = newHref;
     e.preventDefault();
   }
 });
