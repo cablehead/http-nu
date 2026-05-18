@@ -1016,11 +1016,9 @@ body.play, body.games-view {
 body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
 body[data-conn="down"] .site-header #conn { background: #c0392b; }
 
-/* Splash: no live SSE session, so the nu2048 title (splash IS the
-   landing) and the status dot (always grey here) are noise. Keep
+/* Splash: the nu2048 title is redundant (splash IS the landing). Keep
    player chip + credit on the right. */
-body.splash .site-title,
-body.splash .site-header .status { display: none; }
+body.splash .site-title { display: none; }
 
 /* Inline link-styled button (e.g. undo in the footer). */
 .linklike {

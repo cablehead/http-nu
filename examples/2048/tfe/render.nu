@@ -268,6 +268,7 @@ export def layout [
   --og-description: string = ""
   --body-class: string = ""
   --body-attrs: record = {}
+  --sse = false
 ]: list -> string {
   let children = $in
   let body_html = $children | each {|c| $c.__html } | str join
@@ -299,6 +300,7 @@ export def layout [
     my_games_href: ($req | href "/my/games")
     design_href: ($req | href "/design/")
     player_id: $pid_short
+    sse: $sse
     body_class: $body_class
     body_attrs: ($nav_attrs | merge $body_attrs | transpose key value)
     body_html: $body_html

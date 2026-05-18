@@ -442,6 +442,7 @@ let design = source design/serve.nu
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "my games -- nu2048"
             --body-class "games-view"
+            --sse ($session != null)
             --body-attrs (if $session == null { {} } else {
               {
                 "data-sse": ""
@@ -493,7 +494,8 @@ let design = source design/serve.nu
                 $placeholder)))
         ] | layout $req $REV $DATASTAR_JS_PATH
               --title $"watching ($game_id_short) -- nu2048"
-              --body-class "watch")
+              --body-class "watch"
+              --sse true)
       }
     })
 
@@ -618,6 +620,7 @@ let design = source design/serve.nu
             --og-image $og_image
             --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
             --body-class "play"
+            --sse true
             --body-attrs {
               "data-player-id": $player_id
               "data-game-id": $game_id
