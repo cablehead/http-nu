@@ -694,7 +694,7 @@ body.play, body.games-view {
   flex-direction: column;
   gap: 0.9rem;
 }
-.callouts li { display: flex; flex-direction: column; gap: 0.15rem; }
+.callouts li { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
 .callouts a { font-size: var(--text-md); }
 .callout-desc { font-size: var(--text-sm); opacity: 0.7; }
 
