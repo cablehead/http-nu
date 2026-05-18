@@ -127,64 +127,40 @@ let design = source design/serve.nu
     })
 
     (route {method: GET path: "/sse/splash"} {|req ctx|
-      # Replay the splash game's snapshot stream on loop. Each
-      # connection picks a random start frame; 1.2s per step (50 bpm)
-      # so the VT animation chain (slide/merge/spawn = ~620ms)
-      # finishes well before the next tick. Faster cadence overlaps
-      # transitions, leaving the pseudo overlay covering the page near-
-      # continuously and rendering the hero CTAs inert. Full loop runs
-      # ~58 min over 2880 moves.
+      # Pure reader: subscribe to bus.splash.seek and emit a board +
+      # pos-signal patch per frame. No sleep, no per-connection
+      # generator state -- cadence lives in the client (a Datastar
+      # `data-on:interval` on the slider posts $pos+1 every 1.2s; the
+      # `data-on:input` on the same slider posts on drag). The bus is
+      # the single source of truth; every viewer sees the same patches
+      # because they all follow the same topic.
       #
-      # Multiplexes two patch streams per tick:
-      #   1. <#splash-board> -- the board state
-      #   2. <#splash-slider> -- the progress slider value
+      # `--last 1` flushes the current pos to a freshly-connected
+      # viewer right away (no gap before they see a board).
       let states = $SPLASH_STATES
       if ($states | is-empty) {
         null | metadata set { merge {'http.response': {status: 204}} }
       } else {
         let n = $states | length
-        let start = random int 0..($n - 1)
-        # Stream forever; `to sse` consumes lazily. `generate` carries
-        # idx and the id of the most-recently-seen seek frame. Each
-        # tick polls `.last bus.splash.seek`; a new id means a viewer
-        # dragged the slider, so we jump to that pos instead of
-        # advancing by one. First tick uses $start and baselines the
-        # seek_id so we don't jump to a stale frame on connect.
-        1..
-        | generate {|_ acc = {idx: -1 seek_id: ""}|
-            sleep 1200ms
-            let seek = try { .last "bus.splash.seek" } catch { null }
-            let cur_seek_id = if $seek == null { "" } else { $seek.id }
-            let first = ($acc.idx == -1)
-            let new_seek = (not $first) and ($seek != null) and ($seek.id != $acc.seek_id)
-            let idx = if $first {
-              $start
-            } else if $new_seek {
-              ($seek.meta.pos | into int) mod $n
-            } else {
-              ($acc.idx + 1) mod $n
-            }
-            let seek_id = $cur_seek_id
-            let state = $states | get $idx
+        .cat --last 1 --follow -T "bus.splash.seek"
+        | where ($it.topic? | default "") == "bus.splash.seek"
+        | each {|f|
+            let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
+            let state = $states | get $pos
             let board_patch = (
-              # view-transition-name scopes the VT to the board only --
-              # without it, the browser snapshots the whole page as
-              # the "root" pseudo every tick, freezing the splash hero
-              # (PLAY NOW, callouts, slider) for the transition window.
+              # view-transition-name scopes the VT to the board so the
+              # rest of the splash hero doesn't get snapshotted.
               (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($state | render-board "splash"))
               | to datastar-patch-elements --use-view-transition --id (random uuid)
             )
-            let slider_patch = (
-              # Push idx into the `pos` signal; data-bind-pos on the
-              # slider element drives input.value off it, so we don't
-              # need to re-patch the element each tick.
-              {pos: $idx} | to datastar-patch-signals --id (random uuid)
-            )
+            # The client owns $pos via data-bind on the slider, so we
+            # don't echo it back here. Server just renders the board +
+            # counter for the pos the bus told us about.
             let counter_patch = (
-              (SPAN {id: "splash-counter" class: "splash-counter"} $"($idx) of ($n - 1)")
+              (SPAN {id: "splash-counter" class: "splash-counter"} $"($pos) of ($n - 1)")
               | to datastar-patch-elements --id (random uuid)
             )
-            {out: [$board_patch $slider_patch $counter_patch], next: {idx: $idx, seek_id: $seek_id}}
+            [$board_patch $counter_patch]
           }
         | flatten
         | to sse
@@ -192,10 +168,11 @@ let design = source design/serve.nu
     })
 
     (route {method: POST path: "/splash/seek"} {|req ctx|
-      # Scrub the splash slider. Datastar sends `{pos: <int>}`; we
-      # pub-broadcast it onto the bus topic so SSE loops can pick it
-      # up and jump. `--ttl last:1` keeps only the freshest seek, which
-      # is what /sse/splash polls each tick via `.last`.
+      # The splash cadence -- both auto-tick (data-on:interval) and
+      # user drag (data-on:input) -- posts here. Body: {pos: <int>}.
+      # Append onto bus.splash.seek with last:1 (the cap retains only
+      # the latest seek, but `.cat --follow` still delivers every
+      # appended frame to active viewers, so this works as a pub).
       let signals = $in | from datastar-signals $req
       let pos = $signals | get pos? | default 0 | into int
       null | .append "bus.splash.seek" --ttl last:1 --meta {pos: $pos}
@@ -371,24 +348,22 @@ let design = source design/serve.nu
                 type: "range"
                 min: "0"
                 max: (($SPLASH_STATES | length | default 1) - 1 | into string)
-                "data-signals": '{"pos": 0}'
+                # `n` carries the state count so the interval can wrap.
+                # The auto-tick advances $pos and posts; the input
+                # handler posts the user's drag. The bus does the rest.
+                "data-signals": $'{"pos": 0, "n": (($SPLASH_STATES | length | default 1))}'
                 "data-bind:pos": ""
                 "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
+                "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
               })
               (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))
             (DIV {class: "splash-board-wrap"}
               (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($initial_state | render-board "splash"))
-              (BUTTON {
-                type: "button"
-                class: "audio-toggle audio-play"
-                "aria-label": "play audio"
-                style: "view-transition-name: audio-toggle;"
-              }
-                (SPAN {class: "speaker" "aria-hidden": "true"} "(()) ")
-                (SPAN {class: "bracket"} "[")
-                (SPAN {class: "key"} "p")
-                (SPAN {class: "bracket"} "]")
-                "lay")
+              (kbd-btn "p"
+                --prefix "(()) "
+                --suffix "lay"
+                --class "audio-toggle"
+                --aria-label "play audio")
               (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "none" loop: ""} ""))
             (P {class: "splash-audio-credit"}
               "Out Stands -- "
@@ -400,7 +375,7 @@ let design = source design/serve.nu
           (DIV {class: "lede"}
             (H2 "2048, in Nushell!")
             (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
-            (A {class: "play-now" href: ($req | href "/new")} "play now")
+            (kbd-btn "play now" --variant primary --href ($req | href "/new"))
             (UL {class: "callouts"}
               (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
                   (SPAN {class: "callout-desc"} "the basic rules"))
@@ -428,14 +403,12 @@ let design = source design/serve.nu
         (DIV {class: "page"}
           (breadcrumb
             --left [
-              (A {href: ($req | href "/")} "home")
-              (kbd-btn "esc" --href ($req | href "/"))
+              (kbd-btn "esc" --suffix " home" --href ($req | href "/"))
               (SPAN {class: "sep"} "·")
               (A {href: ($req | href "/my/games")} "my games")
             ]
             --right [
-              (A {href: ($req | href "/new")} "new game")
-              (kbd-btn "n" --href ($req | href "/new"))
+              (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
             ])
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
           (P {class: "hint empty-state"} (if $session == null { "no session yet -- start a game to get one." } else { "no games yet." })))
@@ -471,16 +444,14 @@ let design = source design/serve.nu
           (DIV {class: "page"}
             (breadcrumb
               --left [
-                (A {href: $home_href} "home")
-                (kbd-btn "esc" --href $home_href)
+                (kbd-btn "esc" --suffix " home" --href $home_href)
                 (SPAN {class: "sep"} "·")
                 (A {href: ($req | href $"/by/($owner_id)")} $"by ($owner_short)")
                 (SPAN {class: "sep"} "·")
                 (A {class: "game-id" href: ($req | href $"/watch/($game_id)")} $game_id_short)
               ]
               --right [
-                (A {href: ($req | href "/new")} "new game")
-                (kbd-btn "n" --href ($req | href "/new"))
+                (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
               ])
             (DIV {class: "play-layout"}
               # Same grid skeleton as /play, but only the score row +
@@ -511,14 +482,12 @@ let design = source design/serve.nu
         (DIV {class: "page"}
           (breadcrumb
             --left [
-              (A {href: ($req | href "/")} "home")
-              (kbd-btn "esc" --href ($req | href "/"))
+              (kbd-btn "esc" --suffix " home" --href ($req | href "/"))
               (SPAN {class: "sep"} "·")
               (A {href: ($req | href $"/by/($player_id)")} $"games by ($pid_short)")
             ]
             --right [
-              (A {href: ($req | href "/new")} "new game")
-              (kbd-btn "n" --href ($req | href "/new"))
+              (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
             ])
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f --href ($req | href $"/watch/($f.id)") }))
           (P {class: "hint empty-state"} "no games yet."))
@@ -566,14 +535,12 @@ let design = source design/serve.nu
           # copy a bookmarkable URL.
           (breadcrumb
             --left [
-              (A {href: $home_href} "home")
-              (kbd-btn "esc" --href $home_href)
+              (kbd-btn "esc" --suffix " home" --href $home_href)
               (SPAN {class: "sep"} "·")
               (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short)
             ]
             --right [
-              (A {href: ($req | href "/new")} "new game")
-              (kbd-btn "n" --href ($req | href "/new"))
+              (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
             ])
           (DIV {class: "play-layout"}
             # Grid template areas (CSS): score row tops the board column,
@@ -611,7 +578,7 @@ let design = source design/serve.nu
                 (SPAN {}))
               (DIV {class: "help-row help-fx"}
                 (SPAN {class: "label"} "tuner")
-                (kbd-btn "fx" --class "fx-toggle" --bracketless)
+                (kbd-btn "fx" --class "fx-toggle")
                 (SPAN {}))
               (render-tuner)))
         )
