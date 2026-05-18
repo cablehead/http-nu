@@ -80,41 +80,40 @@ const CATALOG = [
 def render-stories [slug: string]: nothing -> list {
   match $slug {
     "kbd-btn" => [
-      (story "move key (triggers move via [data-intent])" [
+      (story "move key (the whole label is the key)" [
         (kbd-btn "h" --intent "h")
         (kbd-btn "j" --intent "j")
         (kbd-btn "k" --intent "k")
         (kbd-btn "l" --intent "l")
       ])
-      (story "navigation shortcut (links via [data-href])" [
-        (kbd-btn "esc" --href "/")
-        (kbd-btn "n" --href "/new")
+      (story "key inside a phrase: [n]ew game, [esc] home" [
+        (kbd-btn "esc" --suffix " home" --href "/")
+        (kbd-btn "n" --suffix "ew game" --href "/new")
       ])
-      (story "bracketless (the fx toggle -- not a keypress)" [
-        (kbd-btn "fx" --bracketless)
+      (story "prefix + key + suffix: audio-toggle style" [
+        (kbd-btn "p" --prefix "(()) " --suffix "lay" --aria-label "play audio")
+      ])
+      (story "primary variant: the splash CTA" [
+        (kbd-btn "play now" --variant primary --href "/new")
+      ])
+      (story "no-key label: meta controls like the fx toggle" [
+        (kbd-btn "fx" --class "fx-toggle")
       ])
     ]
     "breadcrumb" => [
       (story "splash header: page title + action" [
         (breadcrumb
           --left [(A {href: "/"} "past games")]
-          --right [
-            (A {href: "/new"} "new game")
-            (kbd-btn "n" --href "/new")
-          ])
+          --right [(kbd-btn "n" --suffix "ew game" --href "/new")])
       ])
       (story "/play header: path with shortcut + game-id" [
         (breadcrumb
           --left [
-            (A {href: "/"} "past games")
-            (kbd-btn "esc" --href "/")
+            (kbd-btn "esc" --suffix " home" --href "/")
             (SPAN {class: "sep"} "·")
             (A {href: "/play/03g5xxxx" class: "game-id"} "03g5xxxx")
           ]
-          --right [
-            (A {href: "/new"} "new game")
-            (kbd-btn "n" --href "/new")
-          ])
+          --right [(kbd-btn "n" --suffix "ew game" --href "/new")])
       ])
     ]
     "board" => [

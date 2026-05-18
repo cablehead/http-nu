@@ -191,16 +191,12 @@ if (document.body.classList.contains("play")) {
   });
 }
 
-// Delegated click handlers for the kbd-btn family. All kbd-btns are
-// <button> (uniform styling, no <a>/<button> drift) and carry their
-// behavior on a data attribute:
-//   [data-intent]  game move (move keys, undo)
-//   [data-href]    navigation shortcut (esc -> /, n -> /new)
+// Delegated click handler for kbd-btn move triggers. Game-move kbd-btns
+// render as <button data-intent="h"|"undo"|...>; nav kbd-btns render as
+// <a href> (native navigation, right-click-open-tab works).
 document.addEventListener("click", (e) => {
   const intent = e.target.closest("button[data-intent]");
-  if (intent) { move(intent.dataset.intent); return; }
-  const nav = e.target.closest("button[data-href]");
-  if (nav) { location.href = nav.dataset.href; }
+  if (intent) move(intent.dataset.intent);
 });
 
 

@@ -747,11 +747,14 @@ body.play, body.games-view {
 .help .help-row {
   display: contents;
 }
-/* kbd-btn: bracketed key-cap button. Used by the help panel ([h], [u],
-   fx, ...), the breadcrumb shortcuts ([esc], [n]), and anywhere else
-   we want a clickable key. Dimmed brackets frame a prominent key
-   glyph; mono font, pressable on mobile; [data-intent] is picked up by
-   the click delegate in script.js. */
+/* kbd-btn: every clickable is a bracketed phrase. The phrase IS the
+   button; the keyboard shortcut sits inside as `[k]`. Two variants:
+     default  subdued slab; turns orange (`--accent`) on :hover and
+              on [aria-pressed="true"] (toggle state).
+     primary  always orange (`--accent`); turns oranger (`--accent-hover`)
+              on :hover / [aria-pressed="true"]. Used for the splash CTA.
+   Used as <button> (JS-wired via [data-intent]) or <a> (real href, so
+   right-click-open-in-tab works). Same class either way. */
 .kbd-btn {
   font-weight: 700;
   font-size: var(--text-base);
@@ -761,17 +764,19 @@ body.play, body.games-view {
   border: 0;
   border-radius: 5px;
   cursor: pointer;
+  text-decoration: none;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
-  transition: transform 80ms, box-shadow 80ms, opacity 0.2s;
-  /* Uniform width so columns align whether content is `[ h ]` or `fx`. */
+  transition: transform 80ms, box-shadow 80ms, background 0.15s;
+  /* baseline so [k]ey + tail line up; gap between bracketed key and the
+     surrounding phrase fragments so `[n]ew game` doesn't run together. */
   display: inline-flex;
   align-items: baseline;
-  justify-content: center;
-  min-width: 3.25rem;
+  gap: 0.25em;
   line-height: 1;
   box-sizing: border-box;
 }
-.kbd-btn:hover { background: var(--accent); }
+.kbd-btn:hover,
+.kbd-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .kbd-btn:active {
   transform: translateY(2px);
   box-shadow: none;
@@ -782,6 +787,39 @@ body.play, body.games-view {
 .kbd-btn .bracket:first-child { margin-right: 0.2em; }
 .kbd-btn .bracket:last-child  { margin-left:  0.2em; }
 .kbd-btn .key { color: #fff; }
+/* `.phrase` wraps prefix/suffix text (e.g. "ew game" in `[n]ew game`).
+   No gap inside the phrase span so suffix sits flush against the right
+   bracket; the inter-segment gap is handled by the flex `gap` above. */
+.kbd-btn .phrase { white-space: pre; }
+/* primary variant: the splash CTA. Bigger, tilted, orange base; turns
+   oranger on hover / aria-pressed via the rule above (overridden here
+   to use accent-hover instead of accent). */
+.kbd-btn.primary {
+  background: var(--accent);
+  font-size: 1.75rem;
+  padding: 0.6rem 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.3);
+  transform: rotate(-2deg);
+  transition: transform 0.12s, box-shadow 0.12s, background 0.15s;
+}
+.kbd-btn.primary:hover,
+.kbd-btn.primary[aria-pressed="true"] {
+  background: var(--accent-hover);
+  transform: rotate(-2deg) translate(-1px, -1px);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.35);
+}
+.kbd-btn.primary:active {
+  transform: rotate(-2deg) translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
+}
+/* Scope the audio toggle out of the splash board's view-transition so
+   it doesn't get pulled into the root snapshot when #splash-board
+   re-renders. Paired with `view-transition-name: view-splash` on the
+   board itself. */
+.audio-toggle { view-transition-name: audio-toggle; }
 .help .label { opacity: 0.8; }
 /* fx toggle row sits slightly apart -- it's a meta control, not a move. */
 .help .help-fx {
@@ -809,12 +847,6 @@ body.play, body.games-view {
   opacity: 0.7;
   text-align: center;
 }
-.splash-audio {
-  margin-left: 0.5rem;
-  white-space: nowrap;
-}
-.audio-toggle[aria-pressed="true"] { opacity: 1; }
-.audio-toggle[aria-pressed="false"] { opacity: 0.6; }
 /* Progress strip above the splash board: slider (flex 1) + counter.
    Mono counter so digit width is stable as numbers tick. */
 .splash-progress {
@@ -914,35 +946,6 @@ body.play, body.games-view {
   .hero { flex-direction: row-reverse; align-items: center; }
   .hero > * { flex: 1; }
   .hero .preview { max-width: none; }
-}
-
-/* PLAY NOW: the splash CTA. Big orange pressable badge, slight tilt,
-   shadow-offset for weight -- borrowed from http-nu/www's wedge pills. */
-.play-now {
-  display: inline-block;
-  padding: 0.6rem 1.6rem;
-  background: var(--accent);
-  color: #fff;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 1.75rem;
-  text-decoration: none;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  border-radius: 6px;
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.3);
-  transform: rotate(-2deg);
-  transition: transform 0.12s, box-shadow 0.12s;
-}
-.play-now:hover {
-  color: #fff;
-  background: var(--accent-hover);
-  transform: rotate(-2deg) translate(-1px, -1px);
-  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.35);
-}
-.play-now:active {
-  transform: rotate(-2deg) translate(2px, 2px);
-  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
 }
 
 /* Site header: shared by / and /play. Mirrors the http-nu/www header

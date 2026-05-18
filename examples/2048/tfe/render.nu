@@ -135,30 +135,52 @@ export def breadcrumb [
     (DIV {class: "right"} ...$right))
 }
 
-# Bracketed key-cap button: `[ h ]`, `[ esc ]`, etc. Always renders as
-# a <button> so styling can never drift between forms. Behavior is
-# carried by data attributes that script.js's click delegate dispatches:
-#   --intent "h"|"undo"|...  fires move(intent)        (game action)
-#   --href   "/new"|"/"|...  navigates location.href   (nav shortcut)
-#   neither                  caller wires a custom handler (e.g. fx-toggle)
-#   --bracketless            drops the [ ] frame (for `fx`, not a key)
+# Bracketed key-cap button. The phrase is the button; the keyboard
+# shortcut sits inside the phrase as `[k]`. Examples:
+#   kbd-btn "h"                              -> [h]              (key is whole label)
+#   kbd-btn "esc" --suffix " home"           -> [esc] home       (key + descriptive tail)
+#   kbd-btn "n" --suffix "ew game"           -> [n]ew game       (key is first letter)
+#   kbd-btn "p" --prefix "(()) " --suffix "lay"
+#                                            -> (()) [p]lay      (key inside phrase)
+#   kbd-btn "play now" --variant primary     -> [ play now ]     (CTA, no specific key)
+#
+# Renders <a class="kbd-btn"> when --href is set (so right-click-open-tab
+# works) and <button class="kbd-btn"> otherwise. Behavior carriers:
+#   --intent "h"|"undo"|...  fires move(intent) via script.js delegate
+#   --href   "/new"|"/"|...  the <a>'s real href
+#   neither                  caller wires a custom handler via --class
+#
+# --variant "primary" picks the orange CTA palette (splash play-now).
+# Default variant is subdued; both flip to their accent on :hover and
+# on [aria-pressed="true"] (so toggle state reuses the hover treatment).
 export def kbd-btn [
-  label: string
+  label: string                  # the key (or whole label if no prefix/suffix)
   --intent: string = ""
   --href: string = ""
   --class: string = ""
-  --bracketless
+  --prefix: string = ""           # text before the [
+  --suffix: string = ""           # text after the ]
+  --variant: string = "default"   # "default" | "primary"
+  --aria-label: string = ""
 ]: nothing -> record {
-  let inner = if $bracketless {
-    [(SPAN {class: "key"} $label)]
-  } else {
-    [(SPAN {class: "bracket"} "[") (SPAN {class: "key"} $label) (SPAN {class: "bracket"} "]")]
-  }
-  let cls = ["kbd-btn" $class] | where {|c| ($c | str trim | is-not-empty)} | str join " "
-  mut attrs = {type: "button" class: $cls}
+  let bracketed = [
+    (SPAN {class: "bracket"} "[")
+    (SPAN {class: "key"} $label)
+    (SPAN {class: "bracket"} "]")
+  ]
+  mut inner = []
+  if ($prefix | is-not-empty) { $inner = ($inner | append (SPAN {class: "phrase"} $prefix)) }
+  $inner = ($inner | append $bracketed)
+  if ($suffix | is-not-empty) { $inner = ($inner | append (SPAN {class: "phrase"} $suffix)) }
+  let variant_class = if ($variant == "primary") { "primary" } else { "" }
+  let cls = ["kbd-btn" $variant_class $class] | where {|c| ($c | str trim | is-not-empty)} | str join " "
+  let elem = if ($href | is-not-empty) { "A" } else { "BUTTON" }
+  mut attrs = {class: $cls}
+  if $elem == "BUTTON" { $attrs = ($attrs | upsert "type" "button") }
   if ($intent | is-not-empty) { $attrs = ($attrs | upsert "data-intent" $intent) }
-  if ($href | is-not-empty)   { $attrs = ($attrs | upsert "data-href" $href) }
-  (BUTTON $attrs ...$inner)
+  if ($href | is-not-empty)   { $attrs = ($attrs | upsert "href" $href) }
+  if ($aria_label | is-not-empty) { $attrs = ($attrs | upsert "aria-label" $aria_label) }
+  if $elem == "A" { (A $attrs ...$inner) } else { (BUTTON $attrs ...$inner) }
 }
 
 export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
