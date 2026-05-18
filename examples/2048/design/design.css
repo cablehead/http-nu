@@ -1,28 +1,9 @@
 /* /design viewer layout. 2-col: sidebar list + focused preview. */
 
-body.design {
-  /* Two-pane viewport: header at top, then nav + preview filling the
-     rest. Only the preview scrolls; nav stays put. */
-  height: 100dvh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;     /* override body default align-items: center */
-  padding: 0;
-  gap: 0;
-}
-
-body.design > .breadcrumb {
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  font-size: var(--text-sm);
-}
-
 .design-main {
-  flex: 1;
   display: grid;
-  grid-template-columns: 260px 1fr;
-  min-height: 0;
+  grid-template-columns: 220px 1fr;
+  gap: 1.5rem;
 }
 
 .design-nav {
@@ -79,4 +60,43 @@ body.design > .breadcrumb {
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+}
+
+/* board-wc playground. Two columns: the WC on the left, controls on
+   the right. */
+.wc-playground {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 1.25rem;
+  /* Pin the playground to fill from its top down to the viewport
+     bottom. The 14rem subtract is the height of everything above the
+     playground (site-header + breadcrumb + story label + body padding);
+     tune if that chrome changes. Controls scroll inside their column;
+     the board stays in view. */
+  height: calc(100dvh - 14rem);
+}
+.wc-playground .wc-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+  min-height: 0;     /* let the flex column shrink below content height */
+  overflow-y: auto;
+  /* Reserve scrollbar space so the column width doesn't jump when the
+     overflow toggles between visible and present. */
+  scrollbar-gutter: stable;
+}
+.wc-scenario {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.wc-scenario-label {
+  font-size: var(--text-sm);
+  opacity: 0.85;
+  font-family: var(--font-mono);
+}
+.wc-btn {
+  align-self: flex-start;
+  margin-right: 0.5rem;
 }

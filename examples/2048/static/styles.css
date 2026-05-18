@@ -464,27 +464,6 @@ body.play .board { touch-action: none; }
   background: rgba(0, 0, 0, 0.6);
 }
 
-/* /play viewport-locks its viewport so the board sits centered and
-   the page can't scroll-bounce on touch. Every other page scrolls
-   naturally (default html/body rule). */
-html:has(body.play),
-body.play {
-  height: 100dvh;
-  overflow: hidden;
-}
-body.games-view {
-  justify-content: flex-start;
-}
-
-/* Shared page chrome -- both /play and /games use a 600px-max centred
-   column with the same small header / footer pattern. */
-body.play, body.games-view {
-  padding: 0;
-  gap: 0;
-  /* Both pages start at the top; the shared site-header in layout.html
-     is the first child and visually anchors the page. */
-  justify-content: flex-start;
-}
 .page {
   width: 100%;
   max-width: 900px;

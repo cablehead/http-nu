@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="{{ styles_href }}">
   <script type="module" src="{{ datastar_src }}"></script>
   <script src="{{ script_src }}" defer></script>
+  {{ head_extra | safe }}
 </head>
 <body class="{{ body_class }}"{% for a in body_attrs %} {{ a.key }}="{{ a.value }}"{% endfor %}>
 <header class="site-header">

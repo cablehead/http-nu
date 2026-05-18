@@ -287,9 +287,17 @@ export def layout [
   --body-class: string = ""
   --body-attrs: record = {}
   --sse = false
+  --head-extra: list = []   # extra HTML records spliced into <head> (after the
+                            # core <link>/<script> tags). Used by sub-sites
+                            # like /design to add per-section stylesheets or
+                            # ES modules without forking the page shell.
 ]: list -> string {
   let children = $in
   let body_html = $children | each {|c| $c.__html } | str join
+  let head_extra_html = $head_extra | each {|c|
+    let d = $c | describe -d | get type
+    if $d == "record" and ('__html' in $c) { $c.__html } else { "" }
+  } | str join
   # Short user slug for the header chip; empty string = no chip shown
   # (template guards on `{% if player_id %}`). Reads the `session`
   # cookie and looks up the bound user_id -- never the cookie token.
@@ -321,6 +329,7 @@ export def layout [
     sse: $sse
     body_class: $body_class
     body_attrs: ($nav_attrs | merge $body_attrs | transpose key value)
+    head_extra: $head_extra_html
     body_html: $body_html
   } | .mj render $env.LAYOUT_TPL
 }

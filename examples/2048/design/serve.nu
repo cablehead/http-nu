@@ -9,10 +9,16 @@
 
 use http-nu/router *
 use http-nu/html *
+use http-nu/datastar *
 use ../tfe/render.nu *
 use ../tfe/game.nu *
 
 const HERE = path self | path dirname
+
+# Cache-buster shared with the main site's REV idiom. Fresh per server
+# start, stable within a session. Lives at module level so it's set once
+# when serve.nu sources this file.
+let REV = random uuid | str substring 0..7
 
 # A markdown sample that exercises every construct the /notes pages
 # actually render. Edit this when adding a new construct to the notes.
@@ -72,8 +78,51 @@ const CATALOG = [
   {slug: "breadcrumb" title: "breadcrumb" desc: "header nav row. left = path crumbs, right = action shortcuts."}
   {slug: "board"      title: "board"      desc: "4x4 game grid. tiles, ghosts, dim mask, max-tile highlight."}
   {slug: "badge"      title: "badge"      desc: "rotated pill stamped on a board. won/over variants."}
+  {slug: "board-wc"   title: "board (wc)" desc: "encapsulated <game-board> custom element. state in as a signal-driven attribute; component owns slide/merge/spawn animation."}
   {slug: "markdown"   title: "markdown"   desc: "the full set of markdown the /notes pages render: headings, prose, lists, links, code, quotes."}
 ]
+
+# Curated board states for the WC playground. Each scenario has a
+# `pre` (setup) and `post` (play) state. Tile ids match between pre/post
+# inside a scenario so the WC diff produces a clean slide/merge/spawn;
+# ids deliberately DON'T match across scenarios, so jumping between
+# scenarios shows tiles fading out and respawning -- a useful stress
+# test of the "consumed tile with no merge target" path.
+const WC_STATES = {
+  empty:      {tiles: []}
+  two:        {tiles: [{id: 11, r: 1, c: 0, value: 2}, {id: 12, r: 2, c: 3, value: 2}]}
+  slide:      {tiles: [{id: 11, r: 1, c: 0, value: 2}, {id: 12, r: 2, c: 0, value: 2}]}
+  merge_pre:  {tiles: [{id: 21, r: 0, c: 0, value: 2}, {id: 22, r: 0, c: 1, value: 2}]}
+  merge_post: {tiles: [{id: 21, r: 0, c: 0, value: 4}]}
+  chain_pre:  {tiles: [{id: 31, r: 0, c: 0, value: 2}, {id: 32, r: 0, c: 1, value: 2}, {id: 33, r: 0, c: 2, value: 2}, {id: 34, r: 0, c: 3, value: 2}]}
+  chain_post: {tiles: [{id: 31, r: 0, c: 0, value: 4}, {id: 33, r: 0, c: 1, value: 4}]}
+  # A real-looking slide-left move: the row-0 pair merges (51 survives,
+  # 52 consumed into it), 53/54/55 each slide one or two cells left
+  # without merging, and tile 60 spawns into the now-empty (0, 3) cell.
+  # Shows all three phases on one transition.
+  move_pre:   {tiles: [
+    {id: 51 r: 0 c: 1 value: 2}
+    {id: 52 r: 0 c: 3 value: 2}
+    {id: 53 r: 1 c: 2 value: 4}
+    {id: 54 r: 2 c: 2 value: 8}
+    {id: 55 r: 3 c: 1 value: 16}
+  ]}
+  move_post:  {tiles: [
+    {id: 51 r: 0 c: 0 value: 4}
+    {id: 53 r: 1 c: 0 value: 4}
+    {id: 54 r: 2 c: 0 value: 8}
+    {id: 55 r: 3 c: 0 value: 16}
+    {id: 60 r: 0 c: 3 value: 2}
+  ]}
+  big:        {tiles: [
+    {id: 41 r: 0 c: 0 value: 2}    {id: 42 r: 0 c: 1 value: 4}
+    {id: 43 r: 0 c: 2 value: 8}    {id: 44 r: 0 c: 3 value: 16}
+    {id: 45 r: 1 c: 0 value: 32}   {id: 46 r: 1 c: 1 value: 64}
+    {id: 47 r: 1 c: 2 value: 128}  {id: 48 r: 1 c: 3 value: 256}
+    {id: 49 r: 2 c: 0 value: 512}  {id: 50 r: 2 c: 1 value: 1024}
+    {id: 51 r: 2 c: 2 value: 2048} {id: 52 r: 2 c: 3 value: 4}
+  ]}
+}
 
 # Render one or more stories (sample invocations) for a slug. Returns a
 # list of HTML DSL records to drop into the right column.
@@ -143,6 +192,39 @@ def render-stories [slug: string]: nothing -> list {
         (SPAN {class: "badge over"} "over")
       ])
     ]
+    "board-wc" => [
+      (SECTION {class: "story"
+                "data-signals": $"{boardState: ($WC_STATES.empty | to json --raw)}"}
+        (P {class: "label"} "click setup then play. the WC diffs by tile id and runs slide -> merge-pop -> spawn-in. switching scenarios resets ids so consumed tiles fade in place (no merge target).")
+        (DIV {class: "wc-playground"}
+          (DIV {class: "wc-board"}
+            (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"}))
+          (DIV {class: "wc-controls"}
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "spawn -- two tiles appear on an empty board")
+              (BUTTON {class: "wc-btn" "data-on:click": $"$boardState = ($WC_STATES.empty | to json --raw)"} "setup")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$boardState = ($WC_STATES.two | to json --raw)"} "play"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "slide -- one tile travels across an empty row")
+              (BUTTON {class: "wc-btn" "data-on:click": $"$boardState = ($WC_STATES.two | to json --raw)"} "setup")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$boardState = ($WC_STATES.slide | to json --raw)"} "play"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "merge -- two 2s slide together, double, pop")
+              (BUTTON {class: "wc-btn" "data-on:click": $"$boardState = ($WC_STATES.merge_pre | to json --raw)"} "setup")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$boardState = ($WC_STATES.merge_post | to json --raw)"} "play"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "chain -- four 2s in a row become two 4s")
+              (BUTTON {class: "wc-btn" "data-on:click": $"$boardState = ($WC_STATES.chain_pre | to json --raw)"} "setup")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$boardState = ($WC_STATES.chain_post | to json --raw)"} "play"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "move -- slide-left over a populated board: one merge, three pure slides, one spawn. all three phases on one transition.")
+              (BUTTON {class: "wc-btn" "data-on:click": $"$boardState = ($WC_STATES.move_pre | to json --raw)"} "setup")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$boardState = ($WC_STATES.move_post | to json --raw)"} "play"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "big board -- palette + font-size ramp across all tile values")
+              (BUTTON {class: "wc-btn" "data-on:click": $"$boardState = ($WC_STATES.empty | to json --raw)"} "clear")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$boardState = ($WC_STATES.big | to json --raw)"} "fill")))))
+    ]
     "markdown" => [
       (story "rendered via .md, wrapped in .prose (same path as /notes pages)" [
         (DIV {class: "prose"} {__html: ($MD_SAMPLE | .md | get __html)})
@@ -161,29 +243,36 @@ def story [label: string children: list]: nothing -> record {
 
 # Page chrome. Two columns: sidebar with the catalog, main with the
 # focused stories. Sidebar entries get .current on the active slug.
-def design-page [current: string]: nothing -> record {
+# Goes through the shared `layout` so Datastar (and the site header /
+# footer) are present on every design page.
+def design-page [req: record current: string]: nothing -> string {
   let stories = render-stories $current
   let entry = $CATALOG | where slug == $current | first
-  # Build a JS array literal with single-quoted strings -- avoids the
-  # double-quotes in to-json clobbering the outer $"..." interpolation.
+  # JS array literal with single-quoted strings -- avoids double-quote
+  # collision with the outer $"..." interpolation.
   let slugs_js = "[" + ($CATALOG | get slug | each {|s| $"'($s)'"} | str join ", ") + "]"
-  (HTML
-    (HEAD
-      (META {charset: "UTF-8"})
-      (META {name: "viewport" content: "width=device-width, initial-scale=1"})
-      (TITLE $"nu2048 / design / ($entry.title)")
-      (LINK {rel: "preconnect" href: "https://fonts.googleapis.com"})
-      (LINK {rel: "preconnect" href: "https://fonts.gstatic.com" crossorigin: true})
-      (LINK {rel: "stylesheet" href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap"})
-      (LINK {rel: "stylesheet" href: "../styles.css"})
-      (LINK {rel: "stylesheet" href: "./design.css"}))
-    (BODY {class: "design" "data-slug": $current}
-      # Browser-relative hrefs: we're at /design/<slug>, so ../.. -> /,
-      # ../ -> /design, and the current slug self-links.
+  # The shared layout's asset URLs (styles, datastar, script, ellie,
+  # splash, my-games) live at the parent app's root, NOT under /design.
+  # Strip just the /design segment so $req|href in layout resolves to
+  # the parent app's root. Body links keep $req with the full prefix.
+  let root_req = $req | upsert mount_prefix ($req.mount_prefix | str replace -r '/design$' '')
+  let head_extra = [
+    # design.css is served by an explicit route below; browser-relative
+    # `./design.css` resolves to /design/design.css from /design/<slug>.
+    (LINK {rel: "stylesheet" href: "./design.css"})
+    # WC module only on its own slug. Defining the element is cheap, but
+    # no reason to ship the bytes on every design page.
+    (if $current == "board-wc" {
+      (SCRIPT {type: "module" src: "../game-board.js"} "")
+    } else { "" })
+  ]
+  # Slug breadcrumb sits BELOW the layout's site-header. Browser-relative
+  # hrefs: at /design/<slug>, `../` is /design/ and the bare slug self-
+  # links inside /design/.
+  ([
+    (DIV {class: "page"}
       (breadcrumb
         --left [
-          (A {href: "../../"} "nu2048")
-          (SPAN {class: "sep"} "·")
           (A {href: "../"} "design")
           (SPAN {class: "sep"} "·")
           (A {href: $current} $entry.title)
@@ -197,15 +286,20 @@ def design-page [current: string]: nothing -> record {
               (SPAN {class: "desc"} $c.desc))
           }))
         (SECTION {class: "design-preview"}
-          ...$stories))
-      (SCRIPT {} {__html: ($"const slugs = ($slugs_js);\n" + (r#'const current = document.body.dataset.slug;
+          ...$stories)))
+    (SCRIPT {} {__html: ($"const slugs = ($slugs_js);\n" + (r#'const current = document.body.dataset.slug;
 document.addEventListener('keydown', e => {
   if (!e.ctrlKey || e.metaKey || e.altKey) return;
   const i = slugs.indexOf(current);
   if (i < 0) return;
   if (e.key === 'n') { location.href = slugs[(i + 1) % slugs.length]; e.preventDefault(); }
   if (e.key === 'p') { location.href = slugs[(i - 1 + slugs.length) % slugs.length]; e.preventDefault(); }
-});'#))})))
+});'#))})
+  ] | layout $root_req $REV $DATASTAR_JS_PATH
+        --title $"nu2048 / design / ($entry.title)"
+        --body-class "design"
+        --body-attrs {"data-slug": $current}
+        --head-extra $head_extra)
 }
 
 {|req|
@@ -224,7 +318,7 @@ document.addEventListener('keydown', e => {
       if ($ctx.slug not-in $known) {
         "Not Found" | metadata set { merge {'http.response': {status: 404}} }
       } else {
-        design-page $ctx.slug
+        design-page $req $ctx.slug
       }
     })
   ]
