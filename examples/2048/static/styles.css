@@ -771,14 +771,25 @@ body.play, body.games-view {
   opacity: 0.7;
   text-align: center;
 }
-/* Progress slider above the splash board -- thin track, accent thumb,
-   keeps the chrome out of the way of the board itself. */
-.splash-slider {
-  display: block;
-  width: 100%;
+/* Progress strip above the splash board: slider (flex 1) + counter.
+   Mono counter so digit width is stable as numbers tick. */
+.splash-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   margin: 0 0 0.5rem;
+}
+.splash-slider {
+  flex: 1;
+  min-width: 0;
   accent-color: var(--accent);
   cursor: pointer;
+}
+.splash-counter {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
 }
 .hero .lede h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 3rem; line-height: 1.1; margin-bottom: 1.25rem; }
 .hero .lede p { font-size: var(--text-lg); margin-bottom: 1.25rem; }

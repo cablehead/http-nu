@@ -8,10 +8,12 @@ https://github.com/user-attachments/assets/3b1a1cb6-375d-4a62-8988-f31b3c86d7da
 ## Run
 
 Requires `--store` (for `.append` / `.cat`) and `--services` (for the
-snapshot-actor):
+snapshot-actor). Add `--dev` when running over plain HTTP -- the
+`session` cookie defaults to `Secure`, so the browser drops it on
+`http://localhost` without `--dev`:
 
 ```bash
-http-nu --datastar --services --store ./store :3002 examples/2048/serve.nu
+http-nu --dev --datastar --services --store ./store :3002 examples/2048/serve.nu
 ```
 
 http://localhost:3002.

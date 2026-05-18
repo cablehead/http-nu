@@ -13,6 +13,7 @@ use ./tfe/game.nu *
 use ./tfe/render.nu *
 use ./tfe/sse.nu *
 use ./tfe/store.nu *
+use ./auth.nu *
 
 const SCRIPT_DIR = path self | path dirname
 const STATIC_DIR = $SCRIPT_DIR | path join "static"
@@ -36,6 +37,9 @@ let SPLASH_STATES = if ($HTTP_NU.store? | default null) == null { [] } else {
 # Hardcoded for now -- `.id unpack` isn't in scope at module-init time;
 # upstream fix pending. Re-derive when the splash game changes.
 let SPLASH_DATE = "2026-05-17"
+# Player id whose game we are replaying. Used to deep-link the credit
+# to /by/<id> so visitors can see oleksii_lisovyi's other games.
+const SPLASH_PLAYER_ID = "542221d8-be77-4fac-91cb-1bfa49ae3b2a"
 
 # Register the xs snapshot-actor (singleton): it watches every
 # `player.*.games` + `game.*.move` frame and writes the canonical
@@ -119,12 +123,19 @@ let design = source design/serve.nu
             sleep 600ms
             let idx = (($start + $i) mod $n)
             let state = $states | get $idx
-            [
+            let board_patch = (
               (DIV {id: "splash-board"} ($state | render-board "splash"))
               | to datastar-patch-elements --use-view-transition --id (random uuid)
+            )
+            let slider_patch = (
               (INPUT {id: "splash-slider" type: "range" min: "0" max: ($n - 1 | into string) value: ($idx | into string) "data-preserve-attr": "value"})
               | to datastar-patch-elements --id (random uuid)
-            ]
+            )
+            let counter_patch = (
+              (SPAN {id: "splash-counter" class: "splash-counter"} $"($idx) of ($n - 1)")
+              | to datastar-patch-elements --id (random uuid)
+            )
+            [$board_patch $slider_patch $counter_patch]
           }
         | flatten
         | to sse
@@ -153,12 +164,12 @@ let design = source design/serve.nu
       # wrote and add it. Either path re-renders the whole .games-list
       # from $data and emits a single morph patch. morphdom diffs the
       # new HTML against the DOM so unchanged cards don't mutate.
-      let cookies = $req | cookie parse
-      let player_id = $cookies | get player? | default ""
-      let games_topic = $"player.($player_id).games"
-      if ($player_id | is-empty) {
-        null | metadata set { merge {'http.response': {status: 400}} }
+      let session = (resolve-session $req)
+      if $session == null {
+        null | metadata set { merge {'http.response': {status: 401}} }
       } else {
+        let player_id = $session.user_id
+        let games_topic = $"player.($player_id).games"
         let head = (try { .cat | last | get id? } catch { null })
         # Seed $data with the player's existing games + their latest
         # snapshots so the first push is consistent with the initial
@@ -229,16 +240,16 @@ let design = source design/serve.nu
     })
 
     (route {method: GET path: "/new"} {|req ctx|
-      # Mint a games_topic frame for this player and 302 to /play/<id>.
-      # Cookie minted on first visit.
-      let cookies = $req | cookie parse
-      let prior = $cookies | get player? | default ""
-      let player_id = if ($prior | is-empty) { random uuid } else { $prior }
-      let games_topic = $"player.($player_id).games"
+      # Mint a games_topic frame for this user and 302 to /play/<id>.
+      # Session is auto-claimed from any legacy `player` cookie or
+      # minted fresh. The user_id stays stable across `/new` calls.
+      let existing = (resolve-session $req)
+      let session = if $existing == null { mint-session (random uuid) } else { $existing }
+      let games_topic = $"player.($session.user_id).games"
       let new_frame = (null | .append $games_topic)
       let location = ($req | href $"/play/($new_frame.id)")
       "" | metadata set { merge {'http.response': {status: 302 headers: {Location: $location}}} }
-      | cookie set "player" $player_id --max-age 31536000 --no-secure
+      | session-cookies set $session
     })
 
     (route {method: GET path: "/"} {|req ctx|
@@ -283,19 +294,21 @@ let design = source design/serve.nu
             "data-sse": ""
             "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
           }
-            (INPUT {
-              id: "splash-slider"
-              class: "splash-slider"
-              type: "range"
-              min: "0"
-              max: (($SPLASH_STATES | length | default 1) - 1 | into string)
-              value: "0"
-              "data-preserve-attr": "value"
-              "data-on-input": ("@post('" + ($req | href "/splash/seek") + "', {pos: parseInt(event.target.value, 10)})")
-            })
+            (DIV {class: "splash-progress"}
+              (INPUT {
+                id: "splash-slider"
+                class: "splash-slider"
+                type: "range"
+                min: "0"
+                max: (($SPLASH_STATES | length | default 1) - 1 | into string)
+                value: "0"
+                "data-preserve-attr": "value"
+                "data-on-input": ("@post('" + ($req | href "/splash/seek") + "', {pos: parseInt(event.target.value, 10)})")
+              })
+              (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))
             (DIV {id: "splash-board"} ($initial_state | render-board "splash"))
             (P {class: "splash-credit"}
-              "replay of " (A {href: "https://discord.com/users/1026824731036504164"} "oleksii_lisovyi") "'s "
+              "replay of " (A {href: ($req | href $"/by/($SPLASH_PLAYER_ID)")} "oleksii_lisovyi") "'s "
               (if ($SPLASH_DATE | is-empty) { "" } else { $"($SPLASH_DATE) " })
               "run -- 4096 in the corner, score 61,640 (best on the site to date)"))
           (DIV {class: "lede"}
@@ -317,15 +330,15 @@ let design = source design/serve.nu
     })
 
     (route {method: GET path: "/my/games"} {|req ctx|
-      # The player's game library -- moved from / so the splash can
-      # stay marketing-oriented. Cookie-required: no cookie = empty.
-      let cookies = $req | cookie parse
-      let player_id = $cookies | get player? | default ""
-      let games_topic = $"player.($player_id).games"
-      let games = if ($player_id | is-empty) { [] } else {
-        try { .cat -T $games_topic | reverse } catch { [] }
+      # Your library. Session-required: no session = nothing to show
+      # (visitors get a "start a game" prompt rather than someone
+      # else's data). A legacy `player` cookie is one-shot claimed
+      # into a session here.
+      let session = (resolve-session $req)
+      let games = if $session == null { [] } else {
+        try { .cat -T $"player.($session.user_id).games" | reverse } catch { [] }
       }
-      ([
+      let body = ([
         (DIV {class: "page"}
           (breadcrumb
             --left [
@@ -339,19 +352,64 @@ let design = source design/serve.nu
               (kbd-btn "n" --href ($req | href "/new"))
             ])
           (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
-          (P {class: "hint empty-state"} "no games yet."))
+          (P {class: "hint empty-state"} (if $session == null { "no session yet -- start a game to get one." } else { "no games yet." })))
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "my games -- nu2048"
             --body-class "games-view"
-            --body-attrs {
-              "data-sse": ""
-              "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
-            })
+            --body-attrs (if $session == null { {} } else {
+              {
+                "data-sse": ""
+                "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
+              }
+            }))
+      if $session == null { $body } else { $body | session-cookies set $session }
+    })
+
+    (route {method: GET path-matches: "/by/:player_id"} {|req ctx|
+      # Public per-player games view. Same shape as /my/games but
+      # takes the id from the URL (no cookie required). Used for
+      # crediting featured games on the splash.
+      let player_id = $ctx.player_id
+      let pid_short = $player_id | str substring 0..7
+      let games_topic = $"player.($player_id).games"
+      let games = try { .cat -T $games_topic | reverse } catch { [] }
+      ([
+        (DIV {class: "page"}
+          (breadcrumb
+            --left [
+              (A {href: ($req | href "/")} "home")
+              (kbd-btn "esc" --href ($req | href "/"))
+              (SPAN {class: "sep"} "·")
+              (A {href: ($req | href $"/by/($player_id)")} $"games by ($pid_short)")
+            ]
+            --right [
+              (A {href: ($req | href "/new")} "new game")
+              (kbd-btn "n" --href ($req | href "/new"))
+            ])
+          (DIV {class: "games-list"} ($games | each {|f| render-game-card $req $f }))
+          (P {class: "hint empty-state"} "no games yet."))
+      ] | layout $req $REV $DATASTAR_JS_PATH
+            --title $"games by ($pid_short) -- nu2048"
+            --body-class "games-view")
     })
 
     (route {method: GET path-matches: "/play/:game_id"} {|req ctx|
-      let player_id = ($req | cookie parse | get player? | default (random uuid))
       let game_id = $ctx.game_id
+      # Owner-or-404. Anonymous visitors and visitors whose session
+      # doesn't own this game get a not-found -- /watch/<game_id> is
+      # the public read-only path.
+      let session = (resolve-session $req)
+      # Owner = the player on whose `player.<id>.games` topic this
+      # game's creating frame was appended. Read directly so we don't
+      # race the snapshot-actor.
+      let owner_frame = try { .get $game_id } catch { null }
+      let owner_id = if $owner_frame == null { "" } else {
+        $owner_frame.topic | str replace "player." "" | str replace ".games" ""
+      }
+      if $session == null or ($session.user_id != $owner_id) {
+        "Not Found" | metadata set { merge {'http.response': {status: 404}} }
+      } else {
+        let player_id = $session.user_id
       # Render an EMPTY board as the placeholder: same dimensions (grid cells
       # fill it) so no layout jump, but no tiles in the DOM yet. When the SSE
       # init patch arrives with the real tiles, they're unpaired (:only-child)
@@ -434,7 +492,8 @@ let design = source design/serve.nu
               "data-move-url": ($req | href "/move")
               "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
             }
-      | cookie set "player" $player_id --max-age 31536000 --no-secure)
+        | session-cookies set $session)
+      }
     })
   ]
 }

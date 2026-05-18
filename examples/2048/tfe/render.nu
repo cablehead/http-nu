@@ -269,9 +269,14 @@ export def layout [
 ]: list -> string {
   let children = $in
   let body_html = $children | each {|c| $c.__html } | str join
-  # Short player slug for the header chip; empty string = no chip shown
-  # (template guards on `{% if player_id %}`).
-  let pid = $req | cookie parse | get player? | default ""
+  # Short user slug for the header chip; empty string = no chip shown
+  # (template guards on `{% if player_id %}`). Reads the `session`
+  # cookie and looks up the bound user_id -- never the cookie token.
+  let token = ($req | cookie parse | get session? | default "")
+  let pid = if ($token | is-empty) { "" } else {
+    let f = try { .last $"session.($token)" } catch { null }
+    if $f == null { "" } else { $f.meta | get user_id? | default "" }
+  }
   let pid_short = if ($pid | is-empty) { "" } else { $pid | str substring 0..7 }
   {
     title: $title
