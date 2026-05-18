@@ -375,7 +375,7 @@ let design = source design/serve.nu
           (DIV {class: "lede"}
             (H2 "2048, in Nushell!")
             (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
-            (kbd-btn "play now" --variant primary --href ($req | href "/new"))
+            (kbd-btn "n" --prefix "Play " --suffix "ow" --variant primary --href ($req | href "/new"))
             (UL {class: "callouts"}
               (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
                   (SPAN {class: "callout-desc"} "the basic rules"))

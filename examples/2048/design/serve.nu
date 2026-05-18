@@ -94,7 +94,7 @@ def render-stories [slug: string]: nothing -> list {
         (kbd-btn "p" --prefix "(()) " --suffix "lay" --aria-label "play audio")
       ])
       (story "primary variant: the splash CTA" [
-        (kbd-btn "play now" --variant primary --href "/new")
+        (kbd-btn "n" --prefix "Play " --suffix "ow" --variant primary --href "/new")
       ])
       (story "no-key label: meta controls like the fx toggle" [
         (kbd-btn "fx" --class "fx-toggle")
