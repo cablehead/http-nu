@@ -815,11 +815,6 @@ body.play, body.games-view {
   transform: rotate(-2deg) translate(2px, 2px);
   box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
 }
-/* Scope the audio toggle out of the splash board's view-transition so
-   it doesn't get pulled into the root snapshot when #splash-board
-   re-renders. Paired with `view-transition-name: view-splash` on the
-   board itself. */
-.audio-toggle { view-transition-name: audio-toggle; }
 .help .label { opacity: 0.8; }
 /* fx toggle row sits slightly apart -- it's a meta control, not a move. */
 .help .help-fx {
@@ -829,7 +824,8 @@ body.play, body.games-view {
 }
 /* Splash hero. Two-up on wide viewports: lede + PLAY NOW on the left,
    teaser board on the right (row-reverse so source order is board-first
-   for the stacked mobile case). */
+   for the stacked mobile case). The .preview column stacks vertically:
+   credit, board, slider, audio control. */
 .hero {
   display: flex;
   flex-direction: column;
@@ -842,18 +838,25 @@ body.play, body.games-view {
 }
 .hero .preview { width: 100%; max-width: 380px; align-self: center; }
 .splash-credit {
-  margin-top: 0.75rem;
+  margin: 0 0 0.5rem;
+  font-size: var(--text-sm);
+}
+.splash-audio-credit {
+  margin: 0.6rem 0 0;
   font-size: var(--text-sm);
   opacity: 0.7;
-  text-align: center;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
-/* Progress strip above the splash board: slider (flex 1) + counter.
+/* Progress strip below the splash board: slider (flex 1) + counter.
    Mono counter so digit width is stable as numbers tick. */
 .splash-progress {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin: 0 0 0.5rem;
+  margin: 0.5rem 0 0;
 }
 .splash-slider {
   flex: 1;

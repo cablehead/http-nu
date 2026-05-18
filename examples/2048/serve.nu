@@ -248,44 +248,6 @@ let design = source design/serve.nu
       | to sse
     })
 
-    (route {method: GET path: "/script.js"} {|req ctx|
-      .static $STATIC_DIR "/script.js"
-    })
-
-    (route {method: GET path: "/styles.css"} {|req ctx|
-      .static $STATIC_DIR "/styles.css"
-    })
-
-    (route {method: GET path: "/ellie.png"} {|req ctx|
-      .static $STATIC_DIR "/ellie.png"
-    })
-
-    (route {method: GET path: "/og.png"} {|req ctx|
-      .static $STATIC_DIR "/og.png"
-    })
-
-    (route {method: GET path: "/mobygratis-out-stands.mp3"} {|req ctx|
-      .static $STATIC_DIR "/mobygratis-out-stands.mp3"
-    })
-
-    (route {method: GET path: "/mobygratis-license.txt"} {|req ctx|
-      .static $STATIC_DIR "/mobygratis-license.txt"
-    })
-
-    # Self-hosted fonts. Single variable-axis woff2 per family covers
-    # both weights -- the @font-face rules in styles.css point both 400
-    # and 700 declarations at the same file; the browser picks the
-    # axis. Latin + smart-quotes/dashes subset only (U+0000-00FF +
-    # U+2000-206F + currency/symbol singletons). Files were downloaded
-    # from fonts.gstatic.com on 2026-05-18 with a modern UA so we got
-    # woff2 not ttf.
-    (route {method: GET path: "/fonts/source-code-pro-latin.woff2"} {|req ctx|
-      .static $STATIC_DIR "/fonts/source-code-pro-latin.woff2"
-    })
-    (route {method: GET path: "/fonts/source-sans-3-latin.woff2"} {|req ctx|
-      .static $STATIC_DIR "/fonts/source-sans-3-latin.woff2"
-    })
-
     (route {method: GET path: "/new"} {|req ctx|
       # Mint a games_topic frame for this user and 302 to /play/<id>.
       # Session is auto-claimed from any legacy `player` cookie or
@@ -334,44 +296,51 @@ let design = source design/serve.nu
       }
       ([
         (SECTION {class: "hero"}
-          # Outer wrapper holds the SSE subscription (never morphed);
-          # #splash-board + #splash-slider inside are the patch targets.
-          (DIV {
-            class: "preview"
-            "data-sse": ""
-            "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
-          }
-            (DIV {class: "splash-progress"}
-              (INPUT {
-                id: "splash-slider"
-                class: "splash-slider"
-                type: "range"
-                min: "0"
-                max: (($SPLASH_STATES | length | default 1) - 1 | into string)
-                # `n` carries the state count so the interval can wrap.
-                # The auto-tick advances $pos and posts; the input
-                # handler posts the user's drag. The bus does the rest.
-                "data-signals": $'{"pos": 0, "n": (($SPLASH_STATES | length | default 1))}'
-                "data-bind:pos": ""
-                "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
-                "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
-              })
-              (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" })))
-            (DIV {class: "splash-board-wrap"}
+          (DIV {class: "preview"}
+            # Credit above the board.
+            (P {class: "splash-credit"}
+              "replay of " (A {href: ($req | href $"/by/($SPLASH_PLAYER_ID)")} "oleksii_lisovyi") "'s "
+              (if ($SPLASH_DATE | is-empty) { "" } else { $"($SPLASH_DATE) " })
+              "run")
+            (P {class: "splash-credit"} "4096 in the top, right corner, score 61,640")
+            # data-sse is scoped to just what gets morphed: #splash-board
+            # + #splash-counter (and the slider's signals). Everything
+            # else in .preview -- credits, audio control -- lives
+            # outside this stage so Datastar's morph (and the wrapping
+            # view-transition) can't touch them.
+            (DIV {
+              class: "splash-stage"
+              "data-sse": ""
+              "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+            }
               (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($initial_state | render-board "splash"))
+              (DIV {class: "splash-progress"}
+                (INPUT {
+                  id: "splash-slider"
+                  class: "splash-slider"
+                  type: "range"
+                  min: "0"
+                  max: (($SPLASH_STATES | length | default 1) - 1 | into string)
+                  # `n` carries the state count so the interval can wrap.
+                  # The auto-tick advances $pos and posts; the input
+                  # handler posts the user's drag. The bus does the rest.
+                  "data-signals": $'{"pos": 0, "n": (($SPLASH_STATES | length | default 1))}'
+                  "data-bind:pos": ""
+                  "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
+                  "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
+                })
+                (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" }))))
+            # Audio control + its credit, sibling of the SSE stage --
+            # outside the morph scope.
+            (P {class: "splash-audio-credit"}
               (kbd-btn "p"
                 --prefix "(()) "
                 --suffix "lay"
                 --class "audio-toggle"
                 --aria-label "play audio")
-              (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "none" loop: ""} ""))
-            (P {class: "splash-audio-credit"}
-              "Out Stands -- "
+              " Out Stands -- "
               (A {href: ($req | href "/mobygratis-license.txt") target: "_blank" rel: "noopener"} "mobygratis"))
-            (P {class: "splash-credit"}
-              "replay of " (A {href: ($req | href $"/by/($SPLASH_PLAYER_ID)")} "oleksii_lisovyi") "'s "
-              (if ($SPLASH_DATE | is-empty) { "" } else { $"($SPLASH_DATE) " })
-              "run -- 4096 in the corner, score 61,640 (best on the site to date)"))
+            (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "none" loop: ""} ""))
           (DIV {class: "lede"}
             (H2 "2048, in Nushell!")
             (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
@@ -597,5 +566,7 @@ let design = source design/serve.nu
         | session-cookies set $session)
       }
     })
+
+    (route {method: GET} {|req ctx| .static $STATIC_DIR $req.path})
   ]
 }
