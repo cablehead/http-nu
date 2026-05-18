@@ -844,7 +844,7 @@ body.play, body.games-view {
 .splash-audio-credit {
   margin: 0.6rem 0 0;
   font-size: var(--text-sm);
-  opacity: 0.7;
+  color: rgba(255, 255, 255, 0.7);
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
@@ -1090,25 +1090,29 @@ body.splash .site-title { display: none; }
 
 /* VT snapshots sit on top of the page. By default they catch clicks --
    so PLAY NOW would go un-clickable for the length of every transition.
-   Let pointer events fall through to the live DOM behind. */
+   Let pointer events fall through to the live DOM behind.
+   Groups are intentionally excluded: pointer-events on
+   ::view-transition-group(*) interferes with Chrome's UA translate
+   animation (the tile slide stops working). */
 ::view-transition,
-::view-transition-group(*),
 ::view-transition-image-pair(*),
 ::view-transition-old(*),
 ::view-transition-new(*) {
   pointer-events: none;
 }
 
-/* Drop <html> out of the VT capture set on splash.
+/* Drop <html> out of the VT capture set on pages that run tile VTs.
    <html> implicitly has `view-transition-name: root` (no rule, doesn't
    show in DevTools). While a VT runs, the UA hides the live original
-   of every captured element -- for root, that's the whole page. So
-   even with the pointer-events fix above, PLAY NOW has nothing under
-   the cursor mid-transition: the live button is hidden, only the
-   snapshot is painted. Clearing the name leaves #splash-board (which
-   has its own name) as the only participant. Must target <html> -- the
-   root name lives there, not on body or any wrapper. */
-html:has(body.splash) { view-transition-name: none; }
+   of every captured element -- for root, that's the whole page. On
+   /play this causes the root group's cross-fade to cover tile-group
+   translate animations, so tiles appear to teleport rather than slide.
+   Clearing the name makes the named board element (#game / #splash-board)
+   the top-level VT participant; tiles inside it slide correctly.
+   Must target <html> -- the root name lives there, not on body or any
+   wrapper. */
+html:has(body.splash),
+html:has(body.play) { view-transition-name: none; }
 
 /* slide: groups translate via UA-default animation; we only retune
    duration + easing. */

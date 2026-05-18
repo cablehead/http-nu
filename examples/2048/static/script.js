@@ -312,7 +312,8 @@ updateActiveLabels();
 const audioToggle = document.querySelector(".audio-toggle");
 const splashAudio = document.querySelector("#splash-audio");
 if (audioToggle && splashAudio) {
-  const toggleAudio = () => {
+  const toggleAudio = (e) => {
+    if (e) e.preventDefault();
     if (splashAudio.paused) splashAudio.play();
     else splashAudio.pause();
   };

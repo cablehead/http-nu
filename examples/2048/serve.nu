@@ -331,21 +331,30 @@ let design = source design/serve.nu
                   "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
                 })
                 (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"0 of (($SPLASH_STATES | length) - 1)" }))))
-            # Audio control + its credit, sibling of the SSE stage --
-            # outside the morph scope.
-            (P {class: "splash-audio-credit"}
-              (kbd-btn "p"
-                --prefix "(()) "
-                --suffix "lay"
-                --class "audio-toggle"
-                --aria-label "play audio")
-              " Out Stands -- "
-              (A {href: ($req | href "/mobygratis-license.txt") target: "_blank" rel: "noopener"} "mobygratis"))
-            (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "none" loop: ""} ""))
+            # NOTE: audio control + audio credit + <audio> moved out of
+            # .preview to test whether being inside .preview causes the
+            # webkit VT to capture them. See sibling block below.
+          )
           (DIV {class: "lede"}
             (H2 "2048, in Nushell!")
             (P "The sliding-tile puzzle, served from a few hundred lines of shell script.")
             (kbd-btn "n" --prefix "Play " --suffix "ow" --variant primary --href ($req | href "/new"))
+            # Audio control moved into .lede right next to play-now to
+            # test whether webkit's VT capture treats sibling columns
+            # differently.
+            (DIV {class: "splash-audio-credit"}
+              # href="#" + JS preventDefault renders as <a>, sidestepping
+              # the webkit VT bug where <button> elements get their
+              # opacity transitioned during every view-transition tick.
+              (kbd-btn "p"
+                --prefix "(()) "
+                --suffix "lay"
+                --class "audio-toggle"
+                --href "#"
+                --aria-label "play audio")
+              (SPAN " Out Stands -- ")
+              (A {href: ($req | href "/mobygratis-license.txt") target: "_blank" rel: "noopener"} "mobygratis"))
+            (AUDIO {id: "splash-audio" src: ($req | href "/mobygratis-out-stands.mp3") preload: "none" loop: ""} "")
             (UL {class: "callouts"}
               (LI (A {href: ($req | href "/notes/the-rules")} "never played?")
                   (SPAN {class: "callout-desc"} "the basic rules"))
