@@ -502,6 +502,11 @@ let design = source design/serve.nu
       let game_id_short = $game_id | str substring 0..7
       ([
         (DIV {class: "page"}
+          # $lastReqId signal fires for every move (echo or snapshot).
+          # window.onAck in script.js no-ops unless reqId matches the
+          # local pending probe -- this is what clears the pending edge
+          # and records RTT now that #game has no data-rev attribute.
+          (DIV {"data-effect": "window.onAck($lastReqId)" hidden: ""})
           # Breadcrumb header: left = path with shortcuts adjacent to
           # their link targets ([esc] sits next to "past games" because
           # esc is its keyboard shortcut). Right = top-level actions.
@@ -566,7 +571,7 @@ let design = source design/serve.nu
               "data-player-id": $player_id
               "data-game-id": $game_id
               "data-move-url": ($req | href "/move")
-              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)'}"
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: ''}"
             }
         | session-cookies set $session)
       }

@@ -65,13 +65,19 @@ export def frames-to-states [] {
 
 # Buffers states pre-threshold (only the last is retained); on threshold
 # marker emits the last buffered state; then forwards everything.
+# Forces `changed: true` on the emitted record so the threshold flush
+# always paints the board -- otherwise a game whose last frame was a
+# no-op move would flush as a {changed: false} echo and states-to-html
+# would emit a signals-only patch, leaving the placeholder in place.
 export def threshold-gate-states [] {
   generate {|item state = {}|
     if ('event' in $item) {
       return {out: $item, next: $state}
     }
     if ($item.threshold? | default false) {
-      let emit = $state.last? | default ($item | upsert threshold false)
+      let emit = $state.last?
+        | default ($item | upsert threshold false)
+        | upsert changed true
       return {out: $emit, next: {reached: true}}
     }
     if ("reached" in $state) {
@@ -82,10 +88,10 @@ export def threshold-gate-states [] {
 }
 
 # Each state expands into a list of three small renders (board + score
-# + state-badge). The board patch uses view-transition (so tiles slide);
-# the bar fragments are tagged {vt: false} so they morph in place without
-# kicking off their own VT (multiple VTs per state interrupt the tile
-# slide animation).
+# + signals). The board patch uses view-transition (so tiles slide);
+# score + move-ack ride as a separate signals patch so there's no
+# sibling DOM mutation racing with startViewTransition's capture window
+# (Safari is sensitive to this; Chrome happens to tolerate it).
 export def states-to-html [] {
   each {|s|
     if ('event' in $s) {
@@ -102,16 +108,21 @@ export def states-to-html [] {
     } else {
       let state = $s.state
       let changed = $s.changed? | default false
-      let board = ($state | render-game ($s.direction? | default "") $changed ($s.req_id? | default ""))
-      # Only state-changing renders ride a view-transition. Echo patches
-      # for no-op moves morph in place (data-rev attribute flip, identical
-      # children) -- no pseudos, no re-pop of merged/spawned animations.
-      # render-game already includes the state-badge as a board overlay,
-      # so it patches alongside the board on every state change.
-      [
-        {vt: $changed, el: $board}
-        {vt: false, el: (render-score $state.score)}
-      ]
+      let req_id = $s.req_id? | default ""
+      # State-change: one signals patch (score + ack), one VT-wrapped
+      # board patch. The board patch arrives in its own task with no
+      # sibling DOM mutations; the signal patch updates #score via
+      # data-text and fires window.onAck via the $lastReqId effect.
+      # No-op: signals patch only -- the DOM is already correct, the
+      # ack just clears the pending edge.
+      if $changed {
+        [
+          {signals: {score: $state.score, lastReqId: $req_id}}
+          {vt: true, el: ($state | render-game)}
+        ]
+      } else {
+        [{signals: {lastReqId: $req_id}}]
+      }
     }
   }
   | flatten

@@ -112,7 +112,10 @@ export def render-board [scope?: string]: record -> record {
 # Small targeted SSE fragments. Spans with stable ids morph in place on
 # each state change.
 export def render-score [score: int]: nothing -> record {
-  (SPAN {id: "score"} ($score | into string))
+  # Bound to the $score signal: Datastar's text plugin overwrites
+  # textContent on mount and on every signal patch, so post-init
+  # score updates flow as signals patches rather than element morphs.
+  (SPAN {id: "score" "data-text": "$score"} ($score | into string))
 }
 
 # TEMPORARY: floating fx tuner overlay. Six dials controlling the VT-only
@@ -195,23 +198,17 @@ export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
   }
 }
 
-export def render-game [direction?: string, changed?: bool, req_id?: string]: record -> record {
+export def render-game []: record -> record {
   let state = $in
-  let dir = $direction | default ""
-  let did_change = $changed | default false
-  let rid = $req_id | default ""
   (DIV {
     id: "game"
     style: "view-transition-name: view-game;"
-    "data-rev": (if ($rid | is-empty) { random uuid } else { $rid })
-    "data-from": $dir
-    "data-changed": (if $did_change { "1" } else { "" })
   }
-    # data-pending is set client-side on keydown and cleared when the SSE
-    # patch lands; preserve it across morphs so the pending edge-line
-    # stays lit for the duration of the round trip.
     # State badge ("you win!" / "game over") rides inside board-wrap as
-    # a positioned overlay -- same .badge stamp as the splash cards.
+    # a positioned overlay. data-pending is set client-side on keydown
+    # and cleared via the $lastReqId signal effect (script.js onAck);
+    # preserve it across morphs so the pending edge-line stays lit
+    # through the round trip.
     (DIV {id: "board-wrap" "data-preserve-attr": "class data-pending"}
       ($state | render-board)
       (render-state-badge ($state.tiles | any {|t| $t.value >= 2048 }) $state.game_over)))

@@ -101,25 +101,19 @@ document.addEventListener("datastar-fetch", (e) => {
 // be loaded on /games (where we just want the SSE connection tracker
 // above to update #conn).
 if (game) {
-new MutationObserver(() => {
-  if (!initSeen) {
-    // First mutation is the SSE init render. Now that the stream's open,
-    // send a no-op ping to seed the RTT estimate.
-    initSeen = true;
-    move("");
-    return;
-  }
-  if (pending == null) return;
-  // Only attribute the mutation to our pending probe if #game's data-rev
-  // matches the reqId we issued. Replay patches use a fresh-uuid data-rev
-  // so they don't get misattributed.
-  if (game.dataset.rev !== pending.id) return;
+// Move acks ride the $lastReqId signal, fired from the SSE pipeline as
+// soon as it sees the move frame. Called via data-effect on the hidden
+// element in the /play body. No-op until reqId matches a pending probe
+// we issued (so the initial mount call, replay patches, and spectator
+// streams all just fall through). #rtt stays blank until the user
+// makes their first move -- that move populates it.
+window.onAck = (reqId) => {
+  if (pending == null || reqId !== pending.id) return;
   const rtt = Math.round(performance.now() - pending.t);
   pending = null;
-  // SSE patch landed: clear the pending indicator.
   document.querySelector("#board-wrap")?.removeAttribute("data-pending");
   document.querySelector("#rtt")?.replaceChildren(`${rtt}ms`);
-}).observe(game, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-rev"] });
+};
 
 // Keyboard: hjkl + arrows + u-to-undo. (New game lives on the splash;
 // reset key is intentionally gone.)
