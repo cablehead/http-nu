@@ -1,11 +1,10 @@
 //! `pty` commands for http-nu: open/write/resize/stream/close.
 //!
 //! Two backends:
-//! - exec:     fork+exec an external command via portable-pty
-//! - embedded: fork the http-nu process, run nu's REPL in the child against a
-//!             clone of the current EngineState. No external `nu` binary
-//!             needed; the in-browser REPL has access to http-nu's custom
-//!             commands.
+//! - exec: fork+exec an external command via portable-pty
+//! - embedded: fork the http-nu process, run nu's REPL in the child against
+//!   a clone of the current EngineState. No external `nu` binary needed;
+//!   the in-browser REPL has access to http-nu's custom commands.
 //!
 //! Sessions live in a process-wide map keyed by sid. Output is exposed as a
 //! ByteStream so SSE handlers can pipe it straight to the response.
@@ -164,7 +163,12 @@ impl Command for PtyOpenCommand {
                 "command arguments",
                 None,
             )
-            .named("cols", SyntaxShape::Int, "initial columns (default 80)", None)
+            .named(
+                "cols",
+                SyntaxShape::Int,
+                "initial columns (default 80)",
+                None,
+            )
             .named("rows", SyntaxShape::Int, "initial rows (default 24)", None)
             .switch(
                 "embedded",
@@ -199,8 +203,7 @@ impl Command for PtyOpenCommand {
         let session = if embedded {
             open_embedded(engine_state, size, head)?
         } else {
-            let cmd =
-                cmd.ok_or_else(|| err(head, "missing cmd", "required without --embedded"))?;
+            let cmd = cmd.ok_or_else(|| err(head, "missing cmd", "required without --embedded"))?;
             open_exec(&cmd, args, size, head)?
         };
 
@@ -363,6 +366,28 @@ fn run_embedded_nu(slave_fd: OwnedFd, mut engine_state: EngineState) {
         );
         let _ = engine_state.merge_env(&mut stack);
     }
+
+    // Disable shell-integration OSC sequences. nushell emits OSC 133;P;k=r
+    // and OSC 633 on every prompt; ghostty-web's wasm parser warns on them
+    // and may eat subsequent bytes (rendering looks truncated).
+    let disable_si = b"\
+        $env.config.shell_integration.osc2 = false\n\
+        $env.config.shell_integration.osc7 = false\n\
+        $env.config.shell_integration.osc8 = false\n\
+        $env.config.shell_integration.osc9_9 = false\n\
+        $env.config.shell_integration.osc133 = false\n\
+        $env.config.shell_integration.osc633 = false\n\
+        $env.config.shell_integration.reset_application_mode = false\n\
+    ";
+    nu_cli::eval_source(
+        &mut engine_state,
+        &mut stack,
+        disable_si,
+        "disable_shell_integration",
+        nu_protocol::PipelineData::empty(),
+        false,
+    );
+    let _ = engine_state.merge_env(&mut stack);
 
     let _ = nu_cli::evaluate_repl(&mut engine_state, stack, None, None, Instant::now().into());
 }
@@ -581,8 +606,7 @@ impl Command for PtyStreamCommand {
                     Ok(0) => Ok(false),
                     Ok(n) => {
                         if sse {
-                            let b64 =
-                                base64::engine::general_purpose::STANDARD.encode(&tmp[..n]);
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&tmp[..n]);
                             buffer.extend_from_slice(b"data: ");
                             buffer.extend_from_slice(b64.as_bytes());
                             buffer.extend_from_slice(b"\n\n");
