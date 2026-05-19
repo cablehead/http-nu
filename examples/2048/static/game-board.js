@@ -45,15 +45,24 @@ const STYLES = `
     font-weight: 700;
     will-change: transform, opacity;
   }
-  /* Status overlay -- shown when the rendered state is won (any tile
-     >= 2048) or game_over. Pinned to the board's top-left corner
-     with a slight rotation, same look across every surface that
-     embeds the component (/play, /watch, /my/games card, splash). */
-  .badge {
+  /* Status overlay -- up to two stacked badges pinned to the board's
+     top-left. The "over" slot is neutral ("game over"); the "result"
+     slot is the player's outcome (green "you win!" or red "you lost").
+     The slots coexist: game-over + you-win or game-over + you-lost
+     both render. Same look across every surface that embeds the
+     component (/play, /watch, /my/games card, splash). */
+  .badges {
     position: absolute;
     top: 0.75rem;
     left: 0.5rem;
     z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+    pointer-events: none;
+  }
+  .badge {
     padding: 0.2rem 0.7rem;
     font-size: 0.875rem;
     font-weight: 700;
@@ -62,11 +71,11 @@ const STYLES = `
     letter-spacing: 0.08em;
     border-radius: 4px;
     box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
-    pointer-events: none;
     display: none;
   }
-  .badge.won  { display: block; background: #2a9d4a; transform: rotate(-6deg); }
-  .badge.over { display: block; background: #e05252; transform: rotate(-3deg); }
+  .badge.over.show   { display: block; background: #776e65; transform: rotate(-3deg); }
+  .badge.result.won  { display: block; background: #2a9d4a; transform: rotate(-6deg); }
+  .badge.result.lost { display: block; background: #e05252; transform: rotate(-3deg); }
 
   /* Thumbnail / "dim" variant. Used by /my/games + /by/<id> game
      cards. Everything except the highest-value tile is muted by a
@@ -120,9 +129,10 @@ class GameBoard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="board" part="board"></div><span class="badge"></span>`;
+    this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="board" part="board"></div><div class="badges"><span class="badge over"></span><span class="badge result"></span></div>`;
     this.boardEl = this.shadowRoot.querySelector(".board");
-    this.badgeEl = this.shadowRoot.querySelector(".badge");
+    this.overEl = this.shadowRoot.querySelector(".badge.over");
+    this.resultEl = this.shadowRoot.querySelector(".badge.result");
 
     for (let r = 0; r < 4; r++) {
       for (let c = 0; c < 4; c++) {
@@ -138,6 +148,15 @@ class GameBoard extends HTMLElement {
     this.activeAnimations = new Set();
     this.applyToken = 0;
     this.lastAppliedJson = null;
+    // Sticky once any tile has reached 2048 within this WC instance.
+    // Drives the dual-badge endgame ("game over" + "you win" vs "you
+    // lost") and gates the post-win hide-after-3-moves rule below.
+    this.hasWon = false;
+    // Count of state-changing applies observed since the win was first
+    // seen. -1 before the win; 0 on the apply that crossed 2048; +1
+    // per subsequent apply. The win badge stays visible while < 3, then
+    // hides during continued play until the game ends.
+    this.movesSinceWin = -1;
   }
 
   attributeChangedCallback(name, oldVal, newVal) {
@@ -195,22 +214,41 @@ class GameBoard extends HTMLElement {
     }
   }
 
-  #applyBadge(state) {
-    const tiles = state.tiles ?? [];
-    const won = tiles.some((t) => t.value >= 2048);
-    if (won) {
-      this.badgeEl.className = "badge won";
-      this.badgeEl.textContent = "you win!";
-    } else if (state.gameOver) {
-      this.badgeEl.className = "badge over";
-      this.badgeEl.textContent = "game over";
-    } else {
-      this.badgeEl.className = "badge";
-      this.badgeEl.textContent = "";
+  // Tick the post-win move counter on every state-changing apply.
+  // `attributeChangedCallback` already dedupes identical JSON, so each
+  // call here is a distinct snapshot. We track sticky `hasWon` so the
+  // endgame can show "you win" alongside "game over" even after the
+  // win badge has been hidden during continued play.
+  #tickWinCounter(state) {
+    const wonNow = (state.tiles ?? []).some((t) => t.value >= 2048);
+    if (wonNow && !this.hasWon) {
+      this.hasWon = true;
+      this.movesSinceWin = 0;
+    } else if (this.hasWon) {
+      this.movesSinceWin++;
     }
   }
 
+  #applyBadge(state) {
+    const over = !!state.gameOver;
+    // During play: show "you win" for the winning apply and the next
+    // two; hide on the third post-win apply onward. At game-over both
+    // badges re-appear: "game over" + ("you win" if ever won, else
+    // "you lost").
+    const showOver = over;
+    const showWin = over ? this.hasWon : (this.hasWon && this.movesSinceWin < 3);
+    const showLost = over && !this.hasWon;
+
+    this.overEl.classList.toggle("show", showOver);
+    this.overEl.textContent = showOver ? "game over" : "";
+
+    this.resultEl.classList.toggle("won", showWin);
+    this.resultEl.classList.toggle("lost", showLost);
+    this.resultEl.textContent = showWin ? "you win!" : showLost ? "you lost" : "";
+  }
+
   async #apply(state) {
+    this.#tickWinCounter(state);
     this.#applyBadge(state);
     this.#cancelActive();
     const token = ++this.applyToken;

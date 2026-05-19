@@ -100,3 +100,10 @@
   align-self: flex-start;
   margin-right: 0.5rem;
 }
+
+/* Static badge stories on /design/badges. Plain sized container for
+   the WC so the board renders at a useful size without needing the
+   full wc-playground grid (no controls beside it). */
+.badge-board {
+  width: 260px;
+}

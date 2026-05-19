@@ -77,6 +77,7 @@ const CATALOG = [
   {slug: "kbd-btn"    title: "kbd-btn"    desc: "bracketed key-cap button: [ h ]. triggers a move or navigation."}
   {slug: "breadcrumb" title: "breadcrumb" desc: "header nav row. left = path crumbs, right = action shortcuts."}
   {slug: "board"      title: "board"      desc: "encapsulated <game-board> custom element. state in as a signal-driven attribute; component owns slide/merge/spawn animation and the won/over badge."}
+  {slug: "badges"     title: "badges"     desc: "endgame overlay variants the <game-board> renders: 'game over' (neutral) coexists with 'you win' (green) or 'you lost' (red). win badge auto-hides after 3 post-win moves; both surface at game-over."}
   {slug: "markdown"   title: "markdown"   desc: "the full set of markdown the /notes pages render: headings, prose, lists, links, code, quotes."}
 ]
 
@@ -154,6 +155,73 @@ const WC_STATES = {
   ]}
 }
 
+# Fixtures for /design/badges. The WC tracks `hasWon` + `movesSinceWin`
+# internally per instance, so each scenario lives in its own WC -- the
+# walkthrough at the bottom shares one WC so the move counter ticks.
+const BADGE_STATES = {
+  # Mid-game without a 2048 anywhere. Mounting a WC with this state shows
+  # no badges at all -- the "during play" baseline.
+  in_play:  {tiles: [
+    {id: 61 r: 0 c: 0 value: 4}
+    {id: 62 r: 1 c: 1 value: 8}
+    {id: 63 r: 2 c: 2 value: 16}
+    {id: 64 r: 3 c: 3 value: 32}
+  ]}
+  # First time a 2048 is on the board. Triggers the win badge alone.
+  win:      {tiles: [
+    {id: 71 r: 0 c: 0 value: 2048}
+    {id: 72 r: 1 c: 1 value: 8}
+    {id: 73 r: 2 c: 2 value: 16}
+  ]}
+  # Continued play after winning. Each fixture differs by one tile
+  # position so the WC's lastAppliedJson dedup lets the apply through
+  # and `movesSinceWin` ticks forward.
+  win_m1:   {tiles: [
+    {id: 71 r: 0 c: 0 value: 2048}
+    {id: 72 r: 1 c: 2 value: 8}
+    {id: 73 r: 2 c: 2 value: 16}
+  ]}
+  win_m2:   {tiles: [
+    {id: 71 r: 0 c: 0 value: 2048}
+    {id: 72 r: 1 c: 3 value: 8}
+    {id: 73 r: 2 c: 2 value: 16}
+  ]}
+  win_m3:   {tiles: [
+    {id: 71 r: 0 c: 0 value: 2048}
+    {id: 72 r: 2 c: 3 value: 8}
+    {id: 73 r: 2 c: 2 value: 16}
+  ]}
+  # Game-over after a win: gameOver:true with the 2048 still on board.
+  # Renders both badges (game over + you win).
+  win_over: {
+    tiles: [
+      {id: 81 r: 0 c: 0 value: 2048} {id: 82 r: 0 c: 1 value: 4}
+      {id: 83 r: 0 c: 2 value: 8}    {id: 84 r: 0 c: 3 value: 16}
+      {id: 85 r: 1 c: 0 value: 32}   {id: 86 r: 1 c: 1 value: 64}
+      {id: 87 r: 1 c: 2 value: 128}  {id: 88 r: 1 c: 3 value: 256}
+      {id: 89 r: 2 c: 0 value: 2}    {id: 90 r: 2 c: 1 value: 4}
+      {id: 91 r: 2 c: 2 value: 2}    {id: 92 r: 2 c: 3 value: 4}
+      {id: 93 r: 3 c: 0 value: 2}    {id: 94 r: 3 c: 1 value: 4}
+      {id: 95 r: 3 c: 2 value: 2}    {id: 96 r: 3 c: 3 value: 8}
+    ]
+    gameOver: true
+  }
+  # Game-over without ever reaching 2048. Renders game over + you lost.
+  lost_over: {
+    tiles: [
+      {id: 101 r: 0 c: 0 value: 2} {id: 102 r: 0 c: 1 value: 4}
+      {id: 103 r: 0 c: 2 value: 2} {id: 104 r: 0 c: 3 value: 4}
+      {id: 105 r: 1 c: 0 value: 4} {id: 106 r: 1 c: 1 value: 2}
+      {id: 107 r: 1 c: 2 value: 4} {id: 108 r: 1 c: 3 value: 2}
+      {id: 109 r: 2 c: 0 value: 2} {id: 110 r: 2 c: 1 value: 4}
+      {id: 111 r: 2 c: 2 value: 2} {id: 112 r: 2 c: 3 value: 4}
+      {id: 113 r: 3 c: 0 value: 4} {id: 114 r: 3 c: 1 value: 2}
+      {id: 115 r: 3 c: 2 value: 4} {id: 116 r: 3 c: 3 value: 2}
+    ]
+    gameOver: true
+  }
+}
+
 # Render one or more stories (sample invocations) for a slug. Returns a
 # list of HTML DSL records to drop into the right column.
 def render-stories [slug: string]: nothing -> list {
@@ -227,6 +295,59 @@ def render-stories [slug: string]: nothing -> list {
               (P {class: "wc-scenario-label"} "big board -- palette + font-size ramp across all tile values")
               (BUTTON {class: "wc-btn" "data-on:click": $"$boardState = ($WC_STATES.empty | to json --raw)"} "clear")
               (BUTTON {class: "wc-btn primary" "data-on:click": $"$boardState = ($WC_STATES.big | to json --raw)"} "fill")))))
+    ]
+    "badges" => [
+      # Three static scenarios -- each its own WC instance so the
+      # `hasWon` flag inside the component starts fresh. State is fed
+      # via a section-scoped Datastar signal whose initial value is
+      # the desired snapshot; the WC mounts, applies, and paints the
+      # right badges in one shot.
+      (SECTION {class: "story"
+                "data-signals": $"{badgeWin: ($BADGE_STATES.win | to json --raw)}"}
+        (P {class: "label"} "during play -- 'you win' alone (just crossed 2048; will auto-hide after 3 more moves).")
+        (DIV {class: "badge-board"}
+          (render-tag "game-board" {"data-attr:state": "JSON.stringify($badgeWin)"})))
+      (SECTION {class: "story"
+                "data-signals": $"{badgeLost: ($BADGE_STATES.lost_over | to json --raw)}"}
+        (P {class: "label"} "endgame -- 'game over' (neutral) + 'you lost' (never reached 2048).")
+        (DIV {class: "badge-board"}
+          (render-tag "game-board" {"data-attr:state": "JSON.stringify($badgeLost)"})))
+      (SECTION {class: "story"
+                "data-signals": $"{badgeWinOver: ($BADGE_STATES.win_over | to json --raw)}"}
+        (P {class: "label"} "endgame -- 'game over' + 'you win' (won, then ran out of moves).")
+        (DIV {class: "badge-board"}
+          (render-tag "game-board" {"data-attr:state": "JSON.stringify($badgeWinOver)"})))
+
+      # Interactive walkthrough: one WC, six buttons. Each button
+      # writes a distinct snapshot so the WC's #apply runs and the
+      # internal `movesSinceWin` counter ticks. Buttons are meant to
+      # be clicked top-to-bottom for the demo to make sense; the WC's
+      # `hasWon` flag is sticky, so reload the page to start over.
+      (SECTION {class: "story"
+                "data-signals": $"{badgeWalk: ($BADGE_STATES.in_play | to json --raw)}"}
+        (P {class: "label"} "post-win hide -- click the scenarios top to bottom. WC state is per-instance and sticky; reload the page to restart.")
+        (DIV {class: "wc-playground"}
+          (DIV {class: "wc-board"}
+            (render-tag "game-board" {"data-attr:state": "JSON.stringify($badgeWalk)"}))
+          (DIV {class: "wc-controls"}
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "start -- mid-game without a 2048. no badges.")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$badgeWalk = ($BADGE_STATES.in_play | to json --raw)"} "setup"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "win -- a 2048 lands on the board. 'you win!' appears.")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$badgeWalk = ($BADGE_STATES.win | to json --raw)"} "win"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "+1 move post-win -- badge still visible.")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$badgeWalk = ($BADGE_STATES.win_m1 | to json --raw)"} "move 1"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "+2 moves post-win -- badge still visible.")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$badgeWalk = ($BADGE_STATES.win_m2 | to json --raw)"} "move 2"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "+3 moves post-win -- badge hides; play continues badge-free.")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$badgeWalk = ($BADGE_STATES.win_m3 | to json --raw)"} "move 3"))
+            (DIV {class: "wc-scenario"}
+              (P {class: "wc-scenario-label"} "no moves left -- both badges show: 'game over' + 'you win'.")
+              (BUTTON {class: "wc-btn primary" "data-on:click": $"$badgeWalk = ($BADGE_STATES.win_over | to json --raw)"} "game over")))))
     ]
     "markdown" => [
       (story "rendered via .md, wrapped in .prose (same path as /notes pages)" [
