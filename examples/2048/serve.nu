@@ -126,14 +126,13 @@ let design = source design/serve.nu
       }
     })
 
-    (route {method: GET path: "/sse/splash"} {|req ctx|
-      # Pure reader: subscribe to bus.splash.seek and emit a board +
-      # pos-signal patch per frame. No sleep, no per-connection
-      # generator state -- cadence lives in the client (a Datastar
-      # `data-on:interval` on the slider posts $pos+1 every 1.2s; the
-      # `data-on:input` on the same slider posts on drag). The bus is
-      # the single source of truth; every viewer sees the same patches
-      # because they all follow the same topic.
+    (route {method: GET path-matches: "/sse/splash/:tabId"} {|req ctx|
+      # Per-tab reader: subscribe to bus.splash.seek.<tabId> and emit a
+      # board + pos-signal patch per frame. The cadence lives in the
+      # client (the slider's data-on:interval auto-tick and the
+      # scrub-end post), so each tab drives its own queue and only sees
+      # its own seeks. Without per-tab scoping, N open tabs all post
+      # into a shared topic at 1.2s each, racing $pos to chaos.
       #
       # `--last 1` flushes the current pos to a freshly-connected
       # viewer right away (no gap before they see a board).
@@ -142,17 +141,18 @@ let design = source design/serve.nu
         null | metadata set { merge {'http.response': {status: 204}} }
       } else {
         let n = $states | length
-        .cat --last 1 --follow -T "bus.splash.seek"
-        | where ($it.topic? | default "") == "bus.splash.seek"
+        let topic = $"bus.splash.seek.($ctx.tabId)"
+        .cat --last 1 --follow -T $topic
+        | where ($it.topic? | default "") == $topic
         | each {|f|
             let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
             let state = $states | get $pos
             # WC variant: ship the state as a signal; <game-board> picks
             # it up via data-attr:state and runs its own animation. The
             # counter is signal-bound on the client side (data-text on
-            # $splashPos), so we just need to push the pos number here.
-            # Strip per-tile animation hints (spawned / merged / ghosts)
-            # from the wire payload; the WC diffs by id.
+            # $pos), so we just need to push the pos number here. Strip
+            # per-tile animation hints (spawned / merged / ghosts) from
+            # the wire payload; the WC diffs by id.
             let board = $state | state-for-wc
             {splashState: $board, splashPos: $pos}
             | to datastar-patch-signals
@@ -162,15 +162,20 @@ let design = source design/serve.nu
     })
 
     (route {method: POST path: "/splash/seek"} {|req ctx|
-      # The splash cadence -- both auto-tick (data-on:interval) and
-      # user drag (data-on:input) -- posts here. Body: {pos: <int>}.
-      # Append onto bus.splash.seek with last:1 (the cap retains only
-      # the latest seek, but `.cat --follow` still delivers every
-      # appended frame to active viewers, so this works as a pub).
+      # The splash cadence -- both auto-tick (data-on-interval) and
+      # the scrub-end commit -- posts here. Datastar serializes all
+      # signals into the body; we pluck pos + tabId. Each tab's posts
+      # land on its own bus topic so a single tab's autoplay can't
+      # disturb another tab's reader.
       let signals = $in | from datastar-signals $req
       let pos = $signals | get pos? | default 0 | into int
-      null | .append "bus.splash.seek" --ttl last:1 --meta {pos: $pos}
-      null | metadata set { merge {'http.response': {status: 204}} }
+      let tab_id = $signals | get tabId? | default ""
+      if ($tab_id | is-empty) {
+        "missing tabId" | metadata set { merge {'http.response': {status: 400}} }
+      } else {
+        null | .append $"bus.splash.seek.($tab_id)" --ttl last:1 --meta {pos: $pos}
+        null | metadata set { merge {'http.response': {status: 204}} }
+      }
     })
 
     (route {method: GET path: "/sse/games"} {|req ctx|
@@ -304,6 +309,10 @@ let design = source design/serve.nu
       # Wrap modulus for the splash autoplay -- clamp to >=1 so the
       # empty-store case (dev/preview) doesn't drive `% 0` into NaN.
       let splash_n = [($all_states | length) 1] | math max
+      # Per-tab id so this page's splash autoplay + seeks don't leak
+      # into other open tabs. Threaded through both the SSE URL path
+      # and the @post body (Datastar auto-serializes all signals).
+      let tab_id = random uuid
       let initial_state = if ($all_states | is-empty) {
         $fallback_state
       } else {
@@ -320,14 +329,17 @@ let design = source design/serve.nu
         (SECTION {
           class: "hero"
           "data-sse": ""
-          "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+          "data-init": ("@get('" + ($req | href $"/sse/splash/($tab_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
           # Seed signals the splash board needs on first paint. SSE
-          # patches overwrite both as bus.splash.seek frames arrive.
-          # The wire shape strips per-tile animation hints to match
-          # what the SSE handler emits.
+          # patches overwrite splashState/splashPos as the per-tab
+          # bus.splash.seek.<tabId> frames arrive. tabId itself rides
+          # along on every @post so the seek handler knows where to
+          # publish. The wire shape strips per-tile animation hints to
+          # match what the SSE handler emits.
           "data-signals": ({
             splashState: ($initial_state | state-for-wc)
             splashPos: $start_pos
+            tabId: $tab_id
           } | to json --raw)
         }
           (H2 "2048, in Nushell!")
