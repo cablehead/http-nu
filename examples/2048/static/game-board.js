@@ -1,15 +1,19 @@
-// <game-board state='{"tiles":[{id,r,c,value},...]}'>
+// <game-board state='{"tiles":[{id,r,c,value,spawned,merged}],"ghosts":[{id,r,c,value}],"gameOver":bool}'>
 //
 // Fully encapsulated 4x4 board. State comes in as a JSON string on the
-// `state` attribute; Datastar's `data-attr-state="JSON.stringify($sig)"`
-// keeps it in sync with a signal. The component diffs new state against
-// the previous one (tile ids are stable across snapshots) and plays a
-// 3-phase animation: slide -> merge-pop -> spawn-in. Web Animations API,
-// no view-transition.
+// `state` attribute; Datastar's `data-attr:state="JSON.stringify($sig)"`
+// keeps it in sync with a signal. Each snapshot is self-describing:
 //
-// The snapshot may carry `spawned` / `merged` / `ghosts` fields from the
-// server-side renderer -- we ignore them. Diff-by-id is the source of
-// truth for what slides, what pops, and what spawns.
+//   tiles[].spawned   true => phase 3 spawn-in (no slide)
+//   tiles[].merged    true => phase 2 pop after slide (value already
+//                             reflects the doubled survivor)
+//   ghosts[]          tiles consumed by merges this snapshot, with the
+//                     merge-cell destination they slid into.
+//
+// The component reads positions for the "from" side of every slide
+// directly from its internal DOM-mirror map (`this.tiles`), so there's
+// no need for a prevState JSON or a diff loop. Animation: Web
+// Animations API, three phases.
 
 const STYLES = `
   :host {
@@ -127,7 +131,6 @@ class GameBoard extends HTMLElement {
     }
 
     this.tiles = new Map();
-    this.prevState = null;
     this.activeAnimations = new Set();
     this.applyToken = 0;
     this.lastAppliedJson = null;
@@ -203,139 +206,84 @@ class GameBoard extends HTMLElement {
     }
   }
 
-  async #apply(newState) {
-    this.#applyBadge(newState);
+  async #apply(state) {
+    this.#applyBadge(state);
     this.#cancelActive();
     const token = ++this.applyToken;
-    const oldState = this.prevState ?? { tiles: [] };
-    // Re-sync DOM to oldState (the previous "newState") before diffing.
-    // Earlier #apply calls may have been interrupted by a fresh state
-    // arriving mid-animation -- in particular the merge-survivor value
-    // bump runs *after* the slide finishes, so an interrupted apply
-    // leaves the survivor element with its pre-merge value while
-    // prevState already reflects the post-merge number. Without this
-    // sync, the diff against newState would see no value change for
-    // that tile and the displayed value would stay stale until the
-    // tile is finally consumed.
-    const oldTilesById = new Map((oldState.tiles ?? []).map((t) => [t.id, t]));
+
+    const tiles = state.tiles ?? [];
+    const ghosts = state.ghosts ?? [];
+
+    // Defensive: drop any DOM tile the snapshot doesn't reference.
+    // Should never fire in normal operation -- tiles only leave via
+    // merge (which produces a ghost). Belt-and-braces for an unusual
+    // resume payload.
+    const validIds = new Set();
+    for (const t of tiles) validIds.add(t.id);
+    for (const g of ghosts) validIds.add(g.id);
     for (const [id, entry] of this.tiles) {
-      const expected = oldTilesById.get(id);
-      if (!expected) continue;
-      if (entry.el.textContent !== String(expected.value)) {
-        this.#styleTile(entry.el, expected);
-      }
-    }
-    this.prevState = newState;
-
-    const oldTiles = oldState.tiles ?? [];
-    const newTiles = newState.tiles ?? [];
-    const oldById = oldTilesById;
-    const newById = new Map(newTiles.map((t) => [t.id, t]));
-
-    const persisted = newTiles.filter((t) => oldById.has(t.id));
-    const spawned = newTiles.filter((t) => !oldById.has(t.id));
-    const mergedSurvivors = persisted.filter(
-      (t) => oldById.get(t.id).value !== t.value,
-    );
-    const consumedIds = [...oldById.keys()].filter((id) => !newById.has(id));
-
-    // For each consumed tile, find the survivor it merged into. The
-    // survivor's value is 2x the consumed tile's, and in the OLD state
-    // the survivor sat in the same row or column (slide is axis-aligned).
-    // Pick the closest such survivor.
-    const consumedTarget = new Map();
-    for (const cid of consumedIds) {
-      const c = oldById.get(cid);
-      let best = null;
-      let bestDist = Infinity;
-      for (const m of mergedSurvivors) {
-        if (m.value !== c.value * 2) continue;
-        const mOld = oldById.get(m.id);
-        const sameRow = mOld.r === c.r;
-        const sameCol = mOld.c === c.c;
-        if (!sameRow && !sameCol) continue;
-        const dist = sameRow ? Math.abs(mOld.c - c.c) : Math.abs(mOld.r - c.r);
-        if (dist < bestDist) { bestDist = dist; best = m; }
-      }
-      if (best) consumedTarget.set(cid, best);
+      if (!validIds.has(id)) { entry.el.remove(); this.tiles.delete(id); }
     }
 
-    // Remove any orphan tiles in our DOM that aren't in old or new state
-    // (defensive -- only fires if the previous animation was interrupted).
-    for (const [id, entry] of this.tiles) {
-      if (!newById.has(id) && !oldById.has(id)) {
-        entry.el.remove();
-        this.tiles.delete(id);
-      }
-    }
-
-    // --- Phase 1: slide ---------------------------------------------------
+    // --- Phase 1: slide --------------------------------------------------
     const slideAnims = [];
 
-    for (const t of persisted) {
-      const old = oldById.get(t.id);
-      let entry = this.tiles.get(t.id);
-      if (!entry) {
-        // We weren't tracking this id yet (e.g. first apply after a SSE
-        // resume with no prevState). Mount it at its old position so the
-        // slide has somewhere to start from.
-        const el = this.#makeTileEl(old);
-        this.boardEl.appendChild(el);
-        entry = { el, ...old };
-        this.tiles.set(t.id, entry);
-      }
-      entry.el.style.gridColumn = t.c + 1;
-      entry.el.style.gridRow = t.r + 1;
-      const dx = (old.c - t.c) * 100;
-      const dy = (old.r - t.r) * 100;
-      if (dx || dy) {
-        const a = entry.el.animate(
-          [
-            { transform: `translate(${dx}%, ${dy}%)` },
-            { transform: "translate(0, 0)" },
-          ],
-          { duration: SLIDE_MS, easing: "ease-out", fill: "both" },
-        );
-        slideAnims.push(a);
-      }
-      entry.r = t.r;
-      entry.c = t.c;
-    }
-
-    for (const cid of consumedIds) {
-      const entry = this.tiles.get(cid);
-      if (!entry) continue;
-      const target = consumedTarget.get(cid);
-      let a;
-      if (target) {
-        const oldR = entry.r, oldC = entry.c;
-        entry.el.style.gridColumn = target.c + 1;
-        entry.el.style.gridRow = target.r + 1;
-        const dx = (oldC - target.c) * 100;
-        const dy = (oldR - target.r) * 100;
-        a = entry.el.animate(
-          [
-            { transform: `translate(${dx}%, ${dy}%)`, opacity: 1 },
-            { transform: "translate(0, 0)", opacity: 0 },
-          ],
-          { duration: SLIDE_MS, easing: "ease-out", fill: "both" },
-        );
-      } else {
-        // No merge target -- tile is vanishing without a destination
-        // (only happens in the design playground when ids don't carry
-        // forward between curated states). Fade in place.
-        a = entry.el.animate(
-          [{ opacity: 1 }, { opacity: 0 }],
-          { duration: SLIDE_MS, easing: "ease-out", fill: "both" },
-        );
-      }
+    // Ghosts: existing DOM tile slides from its current cell to the
+    // merge destination (carried in the ghost record), fading out.
+    for (const g of ghosts) {
+      const entry = this.tiles.get(g.id);
+      if (!entry) continue;  // not in our DOM (e.g. first apply / replay)
+      const oldR = entry.r, oldC = entry.c;
+      entry.el.style.gridColumn = g.c + 1;
+      entry.el.style.gridRow = g.r + 1;
+      entry.r = g.r; entry.c = g.c;
+      const dx = (oldC - g.c) * 100;
+      const dy = (oldR - g.r) * 100;
+      const a = entry.el.animate(
+        [
+          { transform: `translate(${dx}%, ${dy}%)`, opacity: 1 },
+          { transform: "translate(0, 0)", opacity: 0 },
+        ],
+        { duration: SLIDE_MS, easing: "ease-out", fill: "both" },
+      );
       slideAnims.push(a);
       a.addEventListener("finish", () => {
-        if (this.tiles.get(cid) === entry) {
+        if (this.tiles.get(g.id) === entry) {
           entry.el.remove();
-          this.tiles.delete(cid);
+          this.tiles.delete(g.id);
         }
       });
+    }
+
+    // Tiles: persisted tiles re-style + animate from current position.
+    // Spawned tiles defer to phase 3. Tiles whose id isn't in our DOM
+    // (first apply / replay catchup) mount in place with no animation.
+    // Merge survivors carry their NEW value through the slide; the
+    // post-slide pop is the merge cue and any stale value from an
+    // interrupted previous apply is reset on the way in.
+    for (const t of tiles) {
+      if (t.spawned) continue;
+      let entry = this.tiles.get(t.id);
+      if (!entry) {
+        const el = this.#makeTileEl(t);
+        this.boardEl.appendChild(el);
+        this.tiles.set(t.id, { el, r: t.r, c: t.c, value: t.value });
+        continue;
+      }
+      const oldR = entry.r, oldC = entry.c;
+      this.#styleTile(entry.el, t);
+      entry.r = t.r; entry.c = t.c; entry.value = t.value;
+      if (oldR === t.r && oldC === t.c) continue;
+      const dx = (oldC - t.c) * 100;
+      const dy = (oldR - t.r) * 100;
+      const a = entry.el.animate(
+        [
+          { transform: `translate(${dx}%, ${dy}%)` },
+          { transform: "translate(0, 0)" },
+        ],
+        { duration: SLIDE_MS, easing: "ease-out", fill: "both" },
+      );
+      slideAnims.push(a);
     }
 
     slideAnims.forEach((a) => this.activeAnimations.add(a));
@@ -344,26 +292,21 @@ class GameBoard extends HTMLElement {
       if (token !== this.applyToken) return;
     }
 
-    // Bump merge-survivor values AFTER the slide so the doubled number
-    // doesn't appear on the still-sliding survivor.
-    for (const t of mergedSurvivors) {
+    // --- Phase 2: merge pop ----------------------------------------------
+    const popAnims = [];
+    for (const t of tiles) {
+      if (!t.merged) continue;
       const entry = this.tiles.get(t.id);
       if (!entry) continue;
-      this.#styleTile(entry.el, t);
-    }
-
-    // --- Phase 2: merge pop ----------------------------------------------
-    const popAnims = mergedSurvivors.map((t) => {
-      const entry = this.tiles.get(t.id);
-      return entry.el.animate(
+      popAnims.push(entry.el.animate(
         [
           { transform: "scale(1)" },
           { transform: `scale(${POP_SCALE})`, offset: 0.5 },
           { transform: "scale(1)" },
         ],
         { duration: MERGE_MS, easing: "ease-out" },
-      );
-    });
+      ));
+    }
     popAnims.forEach((a) => this.activeAnimations.add(a));
     if (popAnims.length) {
       await Promise.all(popAnims.map((a) => a.finished.catch(() => {})));
@@ -371,18 +314,21 @@ class GameBoard extends HTMLElement {
     }
 
     // --- Phase 3: spawn-in -----------------------------------------------
-    const spawnAnims = spawned.map((t) => {
+    const spawnAnims = [];
+    for (const t of tiles) {
+      if (!t.spawned) continue;
+      if (this.tiles.has(t.id)) continue;  // defensive: already mounted
       const el = this.#makeTileEl(t);
       this.boardEl.appendChild(el);
-      this.tiles.set(t.id, { el, ...t });
-      return el.animate(
+      this.tiles.set(t.id, { el, r: t.r, c: t.c, value: t.value });
+      spawnAnims.push(el.animate(
         [
           { transform: `scale(${SPAWN_FROM})`, opacity: 0 },
           { transform: "scale(1)", opacity: 1 },
         ],
         { duration: SPAWN_MS, easing: "ease-out", fill: "both" },
-      );
-    });
+      ));
+    }
     spawnAnims.forEach((a) => this.activeAnimations.add(a));
     if (spawnAnims.length) {
       await Promise.all(spawnAnims.map((a) => a.finished.catch(() => {})));
@@ -390,9 +336,8 @@ class GameBoard extends HTMLElement {
     }
 
     // After all phases settle, re-tag the max-value tile. Used by the
-    // :host([dim]) thumbnail variant (game-card listings). Always-on
-    // bookkeeping; the CSS only references it under dim.
-    this.#applyMaxClass(newTiles);
+    // :host([dim]) thumbnail variant (game-card listings).
+    this.#applyMaxClass(tiles);
   }
 }
 

@@ -8,6 +8,29 @@ use http-nu/http *
 # Used by `layout` below to resolve templates relative to this module.
 const TEMPLATES_DIR = path self | path dirname | path join "templates"
 
+# Pluck the wire-format view of a game state for the <game-board> WC.
+# Keeps each tile's animation hints (spawned / merged) and the ghosts
+# list (consumed-this-move + their merge destinations) so the WC can
+# animate from snapshot annotations alone -- no client-side diff
+# against a previous state, no prevState bookkeeping.
+export def state-for-wc []: record -> record {
+  let s = $in
+  {
+    tiles: ($s.tiles | each {|t| {
+      id: $t.id
+      r: $t.r
+      c: $t.c
+      value: $t.value
+      spawned: ($t | get spawned? | default false)
+      merged: ($t | get merged? | default false)
+    } })
+    ghosts: ($s | get ghosts? | default [] | each {|g|
+      {id: $g.id r: $g.r c: $g.c value: $g.value}
+    })
+    gameOver: ($s | get game_over? | default false)
+  }
+}
+
 # Page-shell template (layout.html). Used once per request to wrap the
 # body content in <html><head>...</head><body>. See `layout` below.
 # Module-level `let` isn't allowed and `.mj compile` isn't const-eval'able,

@@ -153,10 +153,7 @@ let design = source design/serve.nu
             # $splashPos), so we just need to push the pos number here.
             # Strip per-tile animation hints (spawned / merged / ghosts)
             # from the wire payload; the WC diffs by id.
-            let board = {
-              tiles: ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
-              gameOver: ($state | get game_over? | default false)
-            }
+            let board = $state | state-for-wc
             {splashState: $board, splashPos: $pos}
             | to datastar-patch-signals
           }
@@ -219,14 +216,12 @@ let design = source design/serve.nu
             let new_data = $data | upsert $changed_id $new_meta
             if $new_data == $data { return {next: $data} }
             # Compute the signal merge for this card. State for the WC
-            # board (incl. gameOver so the WC can render the badge),
-            # plus chrome (overlay timestamp).
+            # board, plus chrome (overlay timestamp).
             let state = $new_meta.state
-            let tiles = ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
             let lmid = $new_meta | get last_move_id? | default $changed_id
             let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
             let signal_patch = ({
-              games: {$changed_id: {tiles: $tiles, gameOver: ($state | get game_over? | default false)}}
+              games: {$changed_id: ($state | state-for-wc)}
               meta:  {$changed_id: {playedMs: $played_ms}}
             } | to datastar-patch-signals)
             # Structural change only fires the morph: a brand-new card
@@ -328,10 +323,7 @@ let design = source design/serve.nu
           # The wire shape strips per-tile animation hints to match
           # what the SSE handler emits.
           "data-signals": ({
-            splashState: {
-              tiles: ($initial_state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
-              gameOver: ($initial_state | get game_over? | default false)
-            }
+            splashState: ($initial_state | state-for-wc)
             splashPos: $start_pos
           } | to json --raw)
         }
@@ -417,8 +409,7 @@ let design = source design/serve.nu
       # for snapshot changes.
       let games_signal = $games | reduce -f {} {|f acc|
         let resumed = (resume-game $f.id)
-        let tiles = ($resumed.state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
-        $acc | upsert $f.id {tiles: $tiles, gameOver: ($resumed.state | get game_over? | default false)}
+        $acc | upsert $f.id ($resumed.state | state-for-wc)
       }
       let meta_signal = $games | reduce -f {} {|f acc|
         let resumed = (resume-game $f.id)
@@ -517,8 +508,7 @@ let design = source design/serve.nu
       let games = try { .cat -T $games_topic | reverse } catch { [] }
       let games_signal = $games | reduce -f {} {|f acc|
         let resumed = (resume-game $f.id)
-        let tiles = ($resumed.state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
-        $acc | upsert $f.id {tiles: $tiles, gameOver: ($resumed.state | get game_over? | default false)}
+        $acc | upsert $f.id ($resumed.state | state-for-wc)
       }
       let meta_signal = $games | reduce -f {} {|f acc|
         let resumed = (resume-game $f.id)
