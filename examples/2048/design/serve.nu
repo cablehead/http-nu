@@ -88,12 +88,41 @@ const CATALOG = [
 # test of the "consumed tile with no merge target" path.
 const WC_STATES = {
   empty:      {tiles: []}
-  two:        {tiles: [{id: 11, r: 1, c: 0, value: 2}, {id: 12, r: 2, c: 3, value: 2}]}
-  slide:      {tiles: [{id: 11, r: 1, c: 0, value: 2}, {id: 12, r: 2, c: 0, value: 2}]}
-  merge_pre:  {tiles: [{id: 21, r: 0, c: 0, value: 2}, {id: 22, r: 0, c: 1, value: 2}]}
-  merge_post: {tiles: [{id: 21, r: 0, c: 0, value: 4}]}
-  chain_pre:  {tiles: [{id: 31, r: 0, c: 0, value: 2}, {id: 32, r: 0, c: 1, value: 2}, {id: 33, r: 0, c: 2, value: 2}, {id: 34, r: 0, c: 3, value: 2}]}
-  chain_post: {tiles: [{id: 31, r: 0, c: 0, value: 4}, {id: 33, r: 0, c: 1, value: 4}]}
+  # "two" is the result of an initial 2-tile spawn: both flagged
+  # spawned: true so the WC plays phase 3 spawn-in coming from empty.
+  two:        {tiles: [
+    {id: 11 r: 1 c: 0 value: 2 spawned: true}
+    {id: 12 r: 2 c: 3 value: 2 spawned: true}
+  ]}
+  # "slide" is the result of a slide-left from "two": id 12 traveled
+  # from (2,3) to (2,0), id 11 stayed put. No spawn/merge/ghost.
+  slide:      {tiles: [
+    {id: 11 r: 1 c: 0 value: 2}
+    {id: 12 r: 2 c: 0 value: 2}
+  ]}
+  merge_pre:  {tiles: [{id: 21 r: 0 c: 0 value: 2}, {id: 22 r: 0 c: 1 value: 2}]}
+  # Merge: id 21 doubled, id 22 consumed into the (0,0) cell.
+  merge_post: {
+    tiles: [{id: 21 r: 0 c: 0 value: 4 merged: true}]
+    ghosts: [{id: 22 r: 0 c: 0 value: 2}]
+  }
+  chain_pre:  {tiles: [
+    {id: 31 r: 0 c: 0 value: 2}
+    {id: 32 r: 0 c: 1 value: 2}
+    {id: 33 r: 0 c: 2 value: 2}
+    {id: 34 r: 0 c: 3 value: 2}
+  ]}
+  # Chain: 31 swallows 32 (-> 4 at col 0); 33 swallows 34 (-> 4 at col 1).
+  chain_post: {
+    tiles: [
+      {id: 31 r: 0 c: 0 value: 4 merged: true}
+      {id: 33 r: 0 c: 1 value: 4 merged: true}
+    ]
+    ghosts: [
+      {id: 32 r: 0 c: 0 value: 2}
+      {id: 34 r: 0 c: 1 value: 2}
+    ]
+  }
   # A real-looking slide-left move: the row-0 pair merges (51 survives,
   # 52 consumed into it), 53/54/55 each slide one or two cells left
   # without merging, and tile 60 spawns into the now-empty (0, 3) cell.
@@ -105,13 +134,16 @@ const WC_STATES = {
     {id: 54 r: 2 c: 2 value: 8}
     {id: 55 r: 3 c: 1 value: 16}
   ]}
-  move_post:  {tiles: [
-    {id: 51 r: 0 c: 0 value: 4}
-    {id: 53 r: 1 c: 0 value: 4}
-    {id: 54 r: 2 c: 0 value: 8}
-    {id: 55 r: 3 c: 0 value: 16}
-    {id: 60 r: 0 c: 3 value: 2}
-  ]}
+  move_post:  {
+    tiles: [
+      {id: 51 r: 0 c: 0 value: 4 merged: true}
+      {id: 53 r: 1 c: 0 value: 4}
+      {id: 54 r: 2 c: 0 value: 8}
+      {id: 55 r: 3 c: 0 value: 16}
+      {id: 60 r: 0 c: 3 value: 2 spawned: true}
+    ]
+    ghosts: [{id: 52 r: 0 c: 0 value: 2}]
+  }
   big:        {tiles: [
     {id: 41 r: 0 c: 0 value: 2}    {id: 42 r: 0 c: 1 value: 4}
     {id: 43 r: 0 c: 2 value: 8}    {id: 44 r: 0 c: 3 value: 16}

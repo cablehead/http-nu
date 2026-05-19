@@ -168,20 +168,6 @@ export def render-games-list-from-data [req: record, data: record]: nothing -> r
   }))
 }
 
-# Build the $games signal object from the same {game_id: snapshot_meta}
-# record. Cards' <game-board data-attr:state="JSON.stringify($games[<id>])">
-# look this signal up at render time. Strips animation hints (spawned /
-# merged / ghosts) from each state -- the WC diffs by tile id.
-export def games-signal-from-data [data: record]: nothing -> record {
-  $data | transpose game_id meta | reduce -f {} {|e acc|
-    let state = $e.meta.state
-    let board = {
-      tiles: ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
-    }
-    $acc | upsert $e.game_id $board
-  }
-}
-
 # Page shell. Takes a list of body children (html DSL records) and wraps
 # them in the shared <html><head>...</head><body> from layout.html.
 #
