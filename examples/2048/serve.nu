@@ -482,8 +482,7 @@ let design = source design/serve.nu
                 "data-sse": ""
                 "data-init": ("@get('" + ($req | href $"/sse-wc/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
                 # Seed the WC + chrome signals so first paint is sane
-                # before SSE lands. The state-badge ("you win!" /
-                # "game over") is owned by the WC's shadow DOM.
+                # before SSE lands.
                 "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: ''}"
               }
                 (DIV {id: "board-wrap"}
@@ -561,14 +560,13 @@ let design = source design/serve.nu
       let game_id_short = $game_id | str substring 0..7
       ([
         (DIV {class: "page"}
-          # $lastReqId signal fires for every move (echo or snapshot)
-          # from the SSE pipeline. window.onAck (script.js) no-ops
-          # unless reqId matches the local pending probe; this is what
-          # clears the pending edge and records RTT now that #game has
-          # no data-rev attribute. data-on-signal-patch fires only on
-          # signal patches (not on mount), so it's safe even though the
-          # deferred script.js defines window.onAck after Datastar
-          # initializes.
+          # The SSE pipeline emits a $lastReqId signal patch for every
+          # move (no-op echo or state-changing snapshot). This effect
+          # bridges that signal into window.onAck (script.js), which
+          # clears the pending edge-line + records the RTT readout
+          # iff the reqId matches the pending probe. data-on-signal-
+          # patch only fires on signal patches (not on mount), so the
+          # deferred-script-load timing is safe.
           (DIV {"data-on-signal-patch": "window.onAck($lastReqId)" hidden: ""})
           # Breadcrumb header: left = path with shortcuts adjacent to
           # their link targets ([esc] sits next to "past games" because
@@ -596,15 +594,11 @@ let design = source design/serve.nu
               "data-sse": ""
               "data-init": ("@get('" + ($req | href $"/sse-wc/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
             }
-              # #board-wrap stays as the positioning anchor for the
-              # state-badge overlay and as the target for the data-pending
-              # edge-line indicator script.js sets on keydown. The board
-              # itself is the WC, observing $boardState via Datastar's
-              # data-attr:state mirroring.
-              # The state-badge ("you win!" / "game over") lives inside
-              # the WC's shadow DOM, derived from boardState.gameOver
-              # and the tile values. Same look + behavior on every
-              # surface that renders <game-board>.
+              # #board-wrap is the target for the data-pending edge-
+              # line indicator script.js sets on keydown (cleared when
+              # the move's $lastReqId comes back). The board itself is
+              # the WC; it owns tile animations and the won/over badge
+              # inside its shadow DOM.
               (DIV {id: "board-wrap"}
                 (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})))
             # Help panel: each key is a real button that triggers the

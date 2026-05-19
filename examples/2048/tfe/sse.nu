@@ -38,13 +38,13 @@ export def frames-to-states [] {
         next: ($acc | upsert state $state)
       }
     } else if ($t | str ends-with ".move") {
-      # Every move frame emits a state record carrying its req_id. The
-      # render flips #game's data-rev to that req_id, which is the
-      # client's signal that its pending RTT probe has resolved.
-      # State-changing moves also produce a snapshot frame (emitted
-      # downstream as its own record), and that one re-renders new
-      # tiles. No-op moves produce no snapshot, so this echo is their
-      # only resolution.
+      # Every move frame emits a state record carrying its req_id.
+      # Downstream emits a {lastReqId} signal patch the client uses to
+      # resolve its pending RTT probe (window.onAck in script.js).
+      # State-changing moves also produce a snapshot frame (its own
+      # record, emitted separately) -- that's where the new board
+      # state actually flows. No-op moves produce no snapshot, so this
+      # echo is their only resolution.
       let req_id = $f.meta | get req_id? | default ""
       {out: {state: $acc.state, req_id: $req_id, threshold: false}, next: $acc}
     } else {
@@ -53,12 +53,13 @@ export def frames-to-states [] {
   }
 }
 
-# Buffers states pre-threshold (only the last is retained); on threshold
-# marker emits the last buffered state; then forwards everything.
-# Forces `changed: true` on the emitted record so the threshold flush
-# always paints the board -- otherwise a game whose last frame was a
-# no-op move would flush as a {changed: false} echo and states-to-html
-# would emit a signals-only patch, leaving the placeholder in place.
+# Buffers states pre-threshold (only the last is retained); on
+# threshold marker emits the last buffered state; then forwards
+# everything. Forces `changed: true` on the emitted record so the
+# threshold flush always pushes a full board patch -- otherwise a
+# game whose last frame was a no-op move would flush as a
+# {changed: false} echo (lastReqId only), and the page-load WC would
+# never see the current snapshot.
 export def threshold-gate-states [] {
   generate {|item state = {}|
     if ('event' in $item) {
