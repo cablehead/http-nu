@@ -49,8 +49,12 @@ const STYLES = `
      top-left. The "over" slot is neutral ("game over"); the "result"
      slot is the player's outcome (green "you win!" or red "you lost").
      The slots coexist: game-over + you-win or game-over + you-lost
-     both render. Same look across every surface that embeds the
-     component (/play, /watch, /my/games card, splash). */
+     both render. When the result is showing alone (mid-game "you
+     win"), the over slot is reserved (visibility: hidden) so the
+     result badge sits in slot 2 with empty space above -- matching
+     the position it ends up in once "game over" eventually paints.
+     Same look across every surface that embeds the component
+     (/play, /watch, /my/games card, splash). */
   .badges {
     position: absolute;
     top: 0.75rem;
@@ -73,9 +77,10 @@ const STYLES = `
     box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
     display: none;
   }
-  .badge.over.show   { display: block; background: #776e65; transform: rotate(-3deg); }
-  .badge.result.won  { display: block; background: #2a9d4a; transform: rotate(-6deg); }
-  .badge.result.lost { display: block; background: #e05252; transform: rotate(-3deg); }
+  .badge.over.show     { display: block; background: #776e65; transform: rotate(-3deg); }
+  .badge.over.reserve  { display: block; visibility: hidden; background: #776e65; transform: rotate(-3deg); }
+  .badge.result.won    { display: block; background: #2a9d4a; transform: rotate(-6deg); }
+  .badge.result.lost   { display: block; background: #e05252; transform: rotate(-3deg); }
 
   /* Thumbnail / "dim" variant. Used by /my/games + /by/<id> game
      cards. Everything except the highest-value tile is muted by a
@@ -238,9 +243,16 @@ class GameBoard extends HTMLElement {
     const showOver = over;
     const showWin = over ? this.hasWon : (this.hasWon && this.movesSinceWin < 3);
     const showLost = over && !this.hasWon;
+    // When a result is showing alone, reserve the over slot so the
+    // result badge sits in its endgame position (slot 2) with empty
+    // space above. Slot reservation needs text content for layout
+    // height -- visibility:hidden keeps the box, an empty span would
+    // collapse to nothing.
+    const reserveOver = !showOver && (showWin || showLost);
 
     this.overEl.classList.toggle("show", showOver);
-    this.overEl.textContent = showOver ? "game over" : "";
+    this.overEl.classList.toggle("reserve", reserveOver);
+    this.overEl.textContent = (showOver || reserveOver) ? "game over" : "";
 
     this.resultEl.classList.toggle("won", showWin);
     this.resultEl.classList.toggle("lost", showLost);
