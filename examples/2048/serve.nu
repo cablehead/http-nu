@@ -226,27 +226,13 @@ let design = source design/serve.nu
       }
     })
 
-    (route {method: GET path-matches: "/sse/:game_id"} {|req ctx|
-      let game_id = $ctx.game_id
-      # The actor owns game state; the SSE handler is a thin reader of
-      # this game's snapshot stream (plus ephemeral view-toggles).
-      # --from $game_id includes the games_topic frame at that id and
-      # everything after; the threshold-gate buffers it down to just the
-      # latest snapshot for the initial render.
-      .cat --follow -T $"game.($game_id).*" --from $game_id
-      | frames-to-states
-      | threshold-gate-states
-      | states-to-html
-      | html-to-patches
-      | to sse
-    })
-
     (route {method: GET path-matches: "/sse-wc/:game_id"} {|req ctx|
       let game_id = $ctx.game_id
-      # WC-friendly variant: emits only signal patches so a client
-      # running <game-board> can drive its rendering from $boardState.
-      # Same upstream stages as /sse/<id>; only the final mapping
-      # differs.
+      # The actor owns game state; the SSE handler is a thin reader of
+      # this game's snapshot stream. --from $game_id includes the
+      # games_topic frame at that id and everything after; the
+      # threshold-gate buffers it down to just the latest snapshot for
+      # the initial render.
       .cat --follow -T $"game.($game_id).*" --from $game_id
       | frames-to-states
       | threshold-gate-states
@@ -524,13 +510,7 @@ let design = source design/serve.nu
         "Not Found" | metadata set { merge {'http.response': {status: 404}} }
       } else {
         let player_id = $session.user_id
-      # Render an EMPTY board as the placeholder: same dimensions (grid cells
-      # fill it) so no layout jump, but no tiles in the DOM yet. When the SSE
-      # init patch arrives with the real tiles, they're unpaired (:only-child)
-      # which fires the spawn pop-in -- otherwise paired tiles would just
-      # cross-fade with no animation.
       let home_href = ($req | href "/")
-      let placeholder = {tiles: [] next_id: 1 score: 0 game_over: false} | render-game
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
@@ -569,18 +549,26 @@ let design = source design/serve.nu
             # help spans rows 1-2 so its top aligns with the BOARD top,
             # not the score row above it.
             (DIV {class: "board-controls"} (render-score 0))
-            # data-init lives on .column (never patched) so the SSE fetch +
-            # connection signal survive morphs of #game.
             (DIV {
               class: "column"
               "data-sse": ""
-              "data-init": ("@get('" + ($req | href $"/sse/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+              "data-init": ("@get('" + ($req | href $"/sse-wc/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
             }
-              $placeholder)
-            # Help panel: each key is a real button that triggers the move
-            # via the existing [data-intent] click delegate in script.js.
-            # The fx-tuner toggle lives here too instead of as a separate
-            # floating tab.
+              # #board-wrap stays as the positioning anchor for the
+              # state-badge overlay and as the target for the data-pending
+              # edge-line indicator script.js sets on keydown. The board
+              # itself is the WC, observing $boardState via Datastar's
+              # data-attr:state mirroring.
+              (DIV {id: "board-wrap"}
+                (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})
+                (SPAN {
+                  id: "state-badge"
+                  "data-attr:class": "$gameStatus === 'won' ? 'badge won' : ($gameStatus === 'over' ? 'badge over' : '')"
+                  "data-text": "$gameStatus === 'won' ? 'you win!' : ($gameStatus === 'over' ? 'game over' : '')"
+                } "")))
+            # Help panel: each key is a real button that triggers the
+            # move via the existing [data-intent] click delegate in
+            # script.js.
             (ASIDE {class: "help"}
               (DIV {class: "help-row"}
                 (SPAN {class: "label"} "left")
@@ -597,12 +585,7 @@ let design = source design/serve.nu
               (DIV {class: "help-row"}
                 (SPAN {class: "label"} "undo")
                 (kbd-btn "u" --intent "undo")
-                (SPAN {}))
-              (DIV {class: "help-row help-fx"}
-                (SPAN {class: "label"} "tuner")
-                (kbd-btn "fx" --class "fx-toggle")
-                (SPAN {}))
-              (render-tuner)))
+                (SPAN {}))))
         )
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "nu2048"
@@ -614,7 +597,7 @@ let design = source design/serve.nu
               "data-player-id": $player_id
               "data-game-id": $game_id
               "data-move-url": ($req | href "/move")
-              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: ''}"
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: []}}"
             }
         | session-cookies set $session)
       }

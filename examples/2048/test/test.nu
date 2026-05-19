@@ -144,17 +144,17 @@ def drive [frames: list, initial: record]: nothing -> list {
 
 # 0a. Regression: when a fresh game's snapshot-actor hasn't caught up
 #     yet, frames-to-states' accumulator state is still null when the
-#     pulse-keepalive's xs.threshold marker arrives. threshold-gate
-#     forwards a {state: null, threshold: false} record. states-to-html
-#     used to deref $state.tiles on this and crash; it must now skip
-#     the record (the placeholder already on the page stays put until
-#     the next snapshot lands).
-let r_null = [{state: null threshold: false}] | states-to-html
+#     xs.threshold marker arrives. threshold-gate forwards a {state:
+#     null, threshold: false} record. The terminal output stage used to
+#     deref $state.tiles on this and crash; it must now skip the
+#     record (the placeholder already on the page stays put until the
+#     next snapshot lands).
+let r_null = [{state: null threshold: false}] | states-to-wc-signals
 assert (($r_null | length) == 0) "null-state record is dropped, not rendered"
 
 # 0. Empty log: only an xs.threshold marker, no prior frames. The pipeline
 #    must produce ONE state record (the placeholder), not crash. Regression
-#    for prod incident where threshold-gate emitted null and states-to-html
+#    for prod incident where threshold-gate emitted null and downstream
 #    errored on `$s.state`.
 let placeholder_init = {
   stack: [{tiles: [] next_id: 1 score: 0 game_over: false}]

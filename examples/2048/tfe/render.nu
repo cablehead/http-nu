@@ -52,25 +52,30 @@ export def palette-for [v: int]: nothing -> record {
 # Nushell allows only one export-env block per module, so both templates
 # get compiled here.
 export-env {
+  # render-board is still used by game-card thumbnails (/my/games,
+  # /by/<id>, /design/board). The ghosts row is a remnant of the
+  # old view-transition pipeline -- consumed tiles paired with an
+  # invisible ghost at the merge cell so the browser would tween from
+  # the visible old tile to the ghost. The <game-board> WC handles
+  # consumed tiles internally via its own diff; the ghost markup is
+  # ignored when present. Left in the template so historical snapshots
+  # that still carry `ghosts: [...]` render the same as fresh ones.
   $env.BOARD_TPL = .mj compile --inline (
     DIV {class: "board"}
       (0..3 | each {|r| 0..3 | each {|c|
         DIV {style: $"grid-column: ($c + 1); grid-row: ($r + 1);"} ""
       } } | flatten)
       (_for {g: "ghosts"} (DIV {
-        style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; view-transition-name: {{ g.vt }}; view-transition-class: ghost; opacity: 0; pointer-events: none;"
+        style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; opacity: 0; pointer-events: none;"
       } ""))
       (_for {t: "tiles"} (DIV {
         class: "{{ t.cls }}"
-        style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw; view-transition-name: {{ t.vt }}; view-transition-class: {{ t.vt_class }};"
+        style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw;"
       } (_var "t.value")))
   )
   # Page-shell template (layout.html). Used once per request to wrap the
   # body content in <html><head>...</head><body>. See `layout` below.
   $env.LAYOUT_TPL = .mj compile ($TEMPLATES_DIR | path join "layout.html")
-  # Fx tuner overlay (vt-tuner.html). Static markup + script; rendered
-  # with no template vars. See `render-tuner` below.
-  $env.TUNER_TPL = .mj compile ($TEMPLATES_DIR | path join "vt-tuner.html")
 }
 
 export def render-board [scope?: string]: record -> record {
@@ -116,13 +121,6 @@ export def render-score [score: int]: nothing -> record {
   # textContent on mount and on every signal patch, so post-init
   # score updates flow as signals patches rather than element morphs.
   (SPAN {id: "score" "data-text": "$score"} ($score | into string))
-}
-
-# TEMPORARY: floating fx tuner overlay. Six dials controlling the VT-only
-# pipeline (slide -> merge pop -> spawn). Remove this once the dial values
-# are settled and the knobs become plain CSS constants.
-export def render-tuner []: nothing -> record {
-  {__html: ({} | .mj render $env.TUNER_TPL)}
 }
 
 # Breadcrumb header: a one-row nav element shared by / and /play. Left
@@ -186,32 +184,6 @@ export def kbd-btn [
   if ($aria_label | is-not-empty) { $attrs = ($attrs | upsert "aria-label" $aria_label) }
   if ($style | is-not-empty)      { $attrs = ($attrs | upsert "style" $style) }
   if $elem == "A" { (A $attrs ...$inner) } else { (BUTTON $attrs ...$inner) }
-}
-
-export def render-state-badge [won: bool, game_over: bool]: nothing -> record {
-  if $game_over {
-    (SPAN {id: "state-badge" class: "badge over"} "game over")
-  } else if $won {
-    (SPAN {id: "state-badge" class: "badge won"} "you win!")
-  } else {
-    (SPAN {id: "state-badge"} "")
-  }
-}
-
-export def render-game []: record -> record {
-  let state = $in
-  (DIV {
-    id: "game"
-    style: "view-transition-name: view-game;"
-  }
-    # State badge ("you win!" / "game over") rides inside board-wrap as
-    # a positioned overlay. data-pending is set client-side on keydown
-    # and cleared via the $lastReqId signal effect (script.js onAck);
-    # preserve it across morphs so the pending edge-line stays lit
-    # through the round trip.
-    (DIV {id: "board-wrap" "data-preserve-attr": "class data-pending"}
-      ($state | render-board)
-      (render-state-badge ($state.tiles | any {|t| $t.value >= 2048 }) $state.game_over)))
 }
 
 # Render a card from already-known state. Callers pass state straight

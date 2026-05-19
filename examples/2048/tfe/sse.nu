@@ -3,7 +3,7 @@
 #   .cat --follow
 #   | frames-to-states
 #   | threshold-gate-states
-#   | states-to-html       (or states-to-wc-signals for /sse-wc/<id>)
+#   | states-to-wc-signals
 #   | html-to-patches
 #   | to sse
 #
@@ -77,60 +77,13 @@ export def threshold-gate-states [] {
   }
 }
 
-# Each state expands into a list of three small renders (board + score
-# + signals). The board patch uses view-transition (so tiles slide);
-# score + move-ack ride as a separate signals patch so there's no
-# sibling DOM mutation racing with startViewTransition's capture window
-# (Safari is sensitive to this; Chrome happens to tolerate it).
-export def states-to-html [] {
-  each {|s|
-    if ('event' in $s) {
-      [$s]
-    } else if ('signals' in $s) {
-      [$s]
-    } else if (($s | get -o state) == null) {
-      # Fresh game whose snapshot-actor hasn't yet written a snapshot:
-      # frames-to-states' acc.state is null when the pulse-threshold
-      # arrives. Drop the record -- the /play page's server-rendered
-      # placeholder board stays in the DOM until the next real snapshot
-      # frame lands. Guarded by test 0a.
-      []
-    } else {
-      let state = $s.state
-      let changed = $s.changed? | default false
-      let req_id = $s.req_id? | default ""
-      # Split by frame kind so each signal has one source:
-      #   move frame (changed:false)  -> {lastReqId}     (the ack)
-      #   snapshot   (changed:true)   -> {score} + board (the state)
-      # The ack lands the moment the SSE pipeline sees the move frame,
-      # before the snapshot-actor runs. The snapshot's req_id stays in
-      # the appended frame's meta (audit trail) but doesn't ride the
-      # wire a second time.
-      if $changed {
-        # lastReqId rides every state-changing patch too. Threshold-gate
-        # absorbs the empty-intent ping into the initial flush; without
-        # lastReqId here, the client's ping ack would never arrive and
-        # its 1s heartbeat timer would flip conn=down on every /play
-        # load. Snapshot frames also carry their originating move's
-        # req_id, so this resolves every move's pending in one channel.
-        [
-          {signals: {score: $state.score, lastReqId: $req_id}}
-          {vt: true, el: ($state | render-game)}
-        ]
-      } else {
-        [{signals: {lastReqId: $req_id}}]
-      }
-    }
-  }
-  | flatten
-}
-
-# WC-friendly variant of states-to-html: emits only signal patches so a
-# client running <game-board> can drive its rendering from $boardState.
-# Same gating shape as states-to-html (no state -> drop, no-op move ->
-# lastReqId ack, changed -> {boardState, score, gameStatus}). Strips
-# the snapshot's animation hints (spawned / merged / ghosts) from the
-# wire payload -- the WC diffs by tile id and doesn't read them.
+# State records -> Datastar signal patches for the <game-board> WC.
+#   no state          -> drop (placeholder stays put until snapshot lands)
+#   no-op move echo   -> {lastReqId}                  (the ack only)
+#   state-changing    -> {boardState, score, gameStatus, lastReqId}
+# The WC diffs by tile id and runs slide -> merge-pop -> spawn-in on
+# its own, so the wire payload strips animation hints (spawned /
+# merged / ghosts) -- pure state.
 export def states-to-wc-signals [] {
   each {|s|
     if ('event' in $s) {
@@ -158,19 +111,16 @@ export def states-to-wc-signals [] {
   | flatten
 }
 
-# Wrap each render in a datastar patch event. Unique id per patch so
-# morphdom replays each step independently (no event dedup).
+# Convert pipeline records into SSE events. Pre-converted events
+# (replayMs etc.) pass through; signal records become signal patches.
+# The pipeline no longer produces element/HTML patches now that every
+# live board renders as a <game-board>.
 export def html-to-patches [] {
   each {|item|
     if ('event' in $item) {
       $item
-    } else if ('signals' in $item) {
-      $item.signals | to datastar-patch-signals
-    } else if (('vt' in $item) and not $item.vt) {
-      $item.el | to datastar-patch-elements --id (random uuid)
     } else {
-      let el = if ('el' in $item) { $item.el } else { $item }
-      $el | to datastar-patch-elements --use-view-transition --id (random uuid)
+      $item.signals | to datastar-patch-signals
     }
   }
 }
