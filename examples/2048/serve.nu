@@ -301,6 +301,9 @@ let design = source design/serve.nu
       let start_pos = if ($all_states | is-empty) { 0 } else {
         random int 0..(($all_states | length) - 1)
       }
+      # Wrap modulus for the splash autoplay -- clamp to >=1 so the
+      # empty-store case (dev/preview) doesn't drive `% 0` into NaN.
+      let splash_n = [($all_states | length) 1] | math max
       let initial_state = if ($all_states | is-empty) {
         $fallback_state
       } else {
@@ -349,28 +352,38 @@ let design = source design/serve.nu
                 (P "best on the site to date"))
               (render-tag "game-board" {id: "splash-board" "data-attr:state": "JSON.stringify($splashState)"})
               (DIV {class: "splash-progress"}
-                (INPUT {
+                # data-attr:value pushes $pos into the WC; the WC emits
+                # `scrub` on each integer-frame delta during pointer-lock
+                # drag and `scrub-end` on release. The debounced scrub
+                # handler updates the signal and posts. `n` is the wrap
+                # modulus for the auto-tick -- clamped to >=1 (see
+                # $splash_n above) so the empty-store dev/preview case
+                # can't blow up the autoplay into NaN-land.
+                (render-tag "scrub-knob" {
                   id: "splash-slider"
                   class: "splash-slider"
-                  type: "range"
-                  min: "0"
-                  max: (($SPLASH_STATES | length | default 1) - 1 | into string)
-                  # `n` carries the state count so the interval can wrap.
-                  # The auto-tick advances $pos and posts; the input
-                  # handler posts the user's drag. The bus does the rest.
-                  "data-signals": $'{"pos": ($start_pos), "n": (($SPLASH_STATES | length | default 1))}'
-                  "data-bind:pos": ""
-                  "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
+                  max: (($splash_n - 1) | into string)
+                  "data-signals": $'{"pos": ($start_pos), "n": ($splash_n)}'
+                  "data-attr:value": "$pos"
+                  # `scrub` fires on every integer-frame step during drag --
+                  # update $pos immediately so the counter (bound to $pos
+                  # below) tracks the user's drag live, no debounce.
+                  # `scrub-end` fires on pointer release; that's when we
+                  # commit the seek to the server so the board catches up.
+                  "data-on:scrub": "$pos = evt.detail.value"
+                  "data-on:scrub-end": ("@post('" + ($req | href "/splash/seek") + "')")
                   "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
                 })
                 (SPAN {
                   id: "splash-counter"
                   class: "splash-counter"
-                  # Counter follows the SSE-emitted $splashPos so it
-                  # stays paired with the board state on the wire,
-                  # regardless of what each viewer's local slider $pos
-                  # ticked to.
-                  "data-text": $"'move: ' + $splashPos + ' of ' + (($SPLASH_STATES | length | default 1) - 1)"
+                  # Counter follows the local $pos so it reflects the
+                  # user's drag intent live. The board itself updates
+                  # via $splashState on the SSE round-trip after the
+                  # scrub-end POST, so it lags behind the counter while
+                  # the drag is in flight -- counter is the user's
+                  # cursor, board is the confirmed render.
+                  "data-text": $"'move: ' + $pos + ' of ' + ($splash_n - 1)"
                 } ""))
               # Audio toggle renders as <a href="#"> (kbd-btn does this when
               # --href is set); JS preventDefaults the click. Avoids webkit's

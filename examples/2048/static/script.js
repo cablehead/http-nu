@@ -297,7 +297,9 @@ if (audioToggle && splashAudio) {
   });
   // Each splash-slider drag-release jumps the audio to a random spot
   // when playing -- ties the soundtrack mood to the user-driven scrub.
-  document.querySelector("#splash-slider")?.addEventListener("change", () => {
+  // The <scrub-knob> WC emits `scrub-end` on pointer release (matches
+  // the role the native `change` event used to play here).
+  document.querySelector("#splash-slider")?.addEventListener("scrub-end", () => {
     if (splashAudio.paused) return;
     if (Number.isFinite(splashAudio.duration) && splashAudio.duration > 0) {
       splashAudio.currentTime = Math.random() * splashAudio.duration;
