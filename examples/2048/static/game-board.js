@@ -100,8 +100,12 @@ const PALETTE = {
   256:  { bg: "#edcc61", fg: "#f9f6f2" },
   512:  { bg: "#edc850", fg: "#f9f6f2" },
   1024: { bg: "#edc53f", fg: "#f9f6f2" },
+  2048: { bg: "#edc22e", fg: "#f9f6f2" },
 };
-const paletteFor = (v) => PALETTE[v] || { bg: "#edc22e", fg: "#f9f6f2" };
+// 4096+ collapses to a single dark warm near-black -- Cirulli's
+// "past the end" signal: the gold ramp intentionally breaks once
+// you've cleared the game's intended target.
+const paletteFor = (v) => PALETTE[v] || { bg: "#3c3a32", fg: "#f9f6f2" };
 const fontSizeCqw = (v) => (v >= 1024 ? 5 : v >= 128 ? 6 : 7);
 
 const SLIDE_MS = 180;
