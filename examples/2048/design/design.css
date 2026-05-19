@@ -62,8 +62,8 @@
   align-items: center;
 }
 
-/* board-wc playground. Two columns: the WC on the left, controls on
-   the right. */
+/* /design/board playground. Two columns: the WC on the left,
+   scenario controls on the right. */
 .wc-playground {
   display: grid;
   grid-template-columns: 260px 1fr;
