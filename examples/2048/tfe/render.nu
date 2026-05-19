@@ -129,7 +129,7 @@ export def render-card-from-state [
   let played_expr = "$meta" + $g + ".playedMs"
   (A {id: $"card-($game_id)" class: "game-card" href: $target}
     (DIV {class: "board-wrap"}
-      (render-tag "game-board" {"data-attr:state": $board_expr}))
+      (render-tag "game-board" {"data-attr:state": $board_expr dim: ""}))
     (SPAN {
       class: "overlay active"
       "data-attr:data-played-ms": $played_expr

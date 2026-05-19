@@ -63,6 +63,26 @@ const STYLES = `
   }
   .badge.won  { display: block; background: #2a9d4a; transform: rotate(-6deg); }
   .badge.over { display: block; background: #e05252; transform: rotate(-3deg); }
+
+  /* Thumbnail / "dim" variant. Used by /my/games + /by/<id> game
+     cards. Everything except the highest-value tile is muted by a
+     tinted overlay so the card's headline -- "how far this game
+     got" -- pops without an extra max-tile badge. The board re-lights
+     on hover. The max tile is z-lifted above the overlay; the WC
+     tags it with .is-max on every #apply. */
+  :host([dim]) .board { isolation: isolate; }
+  :host([dim]) .board::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 119, 182, 0.75);
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity 120ms ease-out;
+  }
+  :host([dim]:hover) .board::after { opacity: 0; }
+  :host([dim]) .tile.is-max { position: relative; z-index: 2; }
 `;
 
 const PALETTE = {
@@ -155,6 +175,19 @@ class GameBoard extends HTMLElement {
     return el;
   }
 
+  // Tag the highest-value tile(s) with `.is-max` so :host([dim]) can
+  // z-lift it above the tinted overlay. Cheap to recompute on every
+  // apply; tile values change rarely (only on merges).
+  #applyMaxClass(tiles) {
+    if (!tiles.length) return;
+    const maxV = Math.max(...tiles.map((t) => t.value));
+    for (const t of tiles) {
+      const entry = this.tiles.get(t.id);
+      if (!entry) continue;
+      entry.el.classList.toggle("is-max", t.value === maxV);
+    }
+  }
+
   #applyBadge(state) {
     const tiles = state.tiles ?? [];
     const won = tiles.some((t) => t.value >= 2048);
@@ -175,11 +208,28 @@ class GameBoard extends HTMLElement {
     this.#cancelActive();
     const token = ++this.applyToken;
     const oldState = this.prevState ?? { tiles: [] };
+    // Re-sync DOM to oldState (the previous "newState") before diffing.
+    // Earlier #apply calls may have been interrupted by a fresh state
+    // arriving mid-animation -- in particular the merge-survivor value
+    // bump runs *after* the slide finishes, so an interrupted apply
+    // leaves the survivor element with its pre-merge value while
+    // prevState already reflects the post-merge number. Without this
+    // sync, the diff against newState would see no value change for
+    // that tile and the displayed value would stay stale until the
+    // tile is finally consumed.
+    const oldTilesById = new Map((oldState.tiles ?? []).map((t) => [t.id, t]));
+    for (const [id, entry] of this.tiles) {
+      const expected = oldTilesById.get(id);
+      if (!expected) continue;
+      if (entry.el.textContent !== String(expected.value)) {
+        this.#styleTile(entry.el, expected);
+      }
+    }
     this.prevState = newState;
 
     const oldTiles = oldState.tiles ?? [];
     const newTiles = newState.tiles ?? [];
-    const oldById = new Map(oldTiles.map((t) => [t.id, t]));
+    const oldById = oldTilesById;
     const newById = new Map(newTiles.map((t) => [t.id, t]));
 
     const persisted = newTiles.filter((t) => oldById.has(t.id));
@@ -336,7 +386,13 @@ class GameBoard extends HTMLElement {
     spawnAnims.forEach((a) => this.activeAnimations.add(a));
     if (spawnAnims.length) {
       await Promise.all(spawnAnims.map((a) => a.finished.catch(() => {})));
+      if (token !== this.applyToken) return;
     }
+
+    // After all phases settle, re-tag the max-value tile. Used by the
+    // :host([dim]) thumbnail variant (game-card listings). Always-on
+    // bookkeeping; the CSS only references it under dim.
+    this.#applyMaxClass(newTiles);
   }
 }
 
