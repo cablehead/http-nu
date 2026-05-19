@@ -155,6 +155,7 @@ let design = source design/serve.nu
             # from the wire payload; the WC diffs by id.
             let board = {
               tiles: ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+              gameOver: ($state | get game_over? | default false)
             }
             {splashState: $board, splashPos: $pos}
             | to datastar-patch-signals
@@ -204,24 +205,44 @@ let design = source design/serve.nu
         | generate {|item data|
             if ('event' in $item) { return {out: $item, next: $data} }
             if ($head != null and $item.id <= $head) { return {next: $data} }
-            let new_data = if $item.topic == $games_topic {
-              let snap = try { .last $"game.($item.id).snapshot" } catch { null }
-              if $snap == null { $data } else { $data | upsert $item.id $snap.meta }
+            let changed_id = if $item.topic == $games_topic {
+              $item.id
             } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
-              let game_id = $item.topic | str replace "game." "" | str replace ".snapshot" ""
-              $data | upsert $game_id $item.meta
-            } else { $data }
+              $item.topic | str replace "game." "" | str replace ".snapshot" ""
+            } else { null }
+            if $changed_id == null { return {next: $data} }
+            let new_meta = if $item.topic == $games_topic {
+              try { .last $"game.($item.id).snapshot" | get meta } catch { null }
+            } else { $item.meta }
+            if $new_meta == null { return {next: $data} }
+            let is_new_card = ($changed_id not-in ($data | columns))
+            let new_data = $data | upsert $changed_id $new_meta
             if $new_data == $data { return {next: $data} }
-            # No --use-view-transition: morphdom diffs in place, only the
-            # changed card actually mutates. With VT, every card got swept
-            # into the snapshot/cross-fade -- which (a) re-ran the mute
-            # animation on every board even when its content was unchanged,
-            # and (b) flashed the entire list un-dimmed for one
-            # transition-length while the cross-fade played.
-            let patch = (render-games-list-from-data $req $new_data
-                          | to datastar-patch-elements --selector ".games-list" --id (random uuid))
-            {out: $patch, next: $new_data}
+            # Compute the signal merge for this card. State for the WC
+            # board (incl. gameOver so the WC can render the badge),
+            # plus chrome (overlay timestamp).
+            let state = $new_meta.state
+            let tiles = ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+            let lmid = $new_meta | get last_move_id? | default $changed_id
+            let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+            let signal_patch = ({
+              games: {$changed_id: {tiles: $tiles, gameOver: ($state | get game_over? | default false)}}
+              meta:  {$changed_id: {playedMs: $played_ms}}
+            } | to datastar-patch-signals)
+            # Structural change only fires the morph: a brand-new card
+            # has to appear in the DOM, signals alone can't add an
+            # element. Existing-game snapshot updates skip the morph
+            # entirely -- chrome + board both flow through signals,
+            # so the WC's animation isn't disturbed.
+            if $is_new_card {
+              let html_patch = (render-games-list-from-data $req $new_data
+                                | to datastar-patch-elements --selector ".games-list" --id (random uuid))
+              {out: [$signal_patch, $html_patch], next: $new_data}
+            } else {
+              {out: [$signal_patch], next: $new_data}
+            }
           } $initial_data
+        | flatten
         | to sse
       }
     })
@@ -307,7 +328,10 @@ let design = source design/serve.nu
           # The wire shape strips per-tile animation hints to match
           # what the SSE handler emits.
           "data-signals": ({
-            splashState: {tiles: ($initial_state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })}
+            splashState: {
+              tiles: ($initial_state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+              gameOver: ($initial_state | get game_over? | default false)
+            }
             splashPos: $start_pos
           } | to json --raw)
         }
@@ -372,7 +396,7 @@ let design = source design/serve.nu
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "nu2048"
             --og-image $og_image
-            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
+            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, encapsulated board web component."
             --body-class "splash"
             --sse true)
     })
@@ -385,6 +409,22 @@ let design = source design/serve.nu
       let session = (resolve-session $req)
       let games = if $session == null { [] } else {
         try { .cat -T $"player.($session.user_id).games" | reverse } catch { [] }
+      }
+      # Two nested signals keyed by game id. Each card binds via
+      # data-attr to $games[<id>] (WC board state) and $meta[<id>]
+      # (overlay timestamp + status badge). Live SSE patches merge
+      # per-game updates into both signals; no HTML re-render needed
+      # for snapshot changes.
+      let games_signal = $games | reduce -f {} {|f acc|
+        let resumed = (resume-game $f.id)
+        let tiles = ($resumed.state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+        $acc | upsert $f.id {tiles: $tiles, gameOver: ($resumed.state | get game_over? | default false)}
+      }
+      let meta_signal = $games | reduce -f {} {|f acc|
+        let resumed = (resume-game $f.id)
+        let lmid = $resumed | get follow_from_id? | default $f.id
+        let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+        $acc | upsert $f.id {playedMs: $played_ms}
       }
       let body = ([
         (DIV {class: "page"}
@@ -407,6 +447,7 @@ let design = source design/serve.nu
               {
                 "data-sse": ""
                 "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
+                "data-signals": ({games: $games_signal, meta: $meta_signal} | to json --raw)
               }
             }))
       if $session == null { $body } else { $body | session-cookies set $session }
@@ -450,16 +491,12 @@ let design = source design/serve.nu
                 "data-sse": ""
                 "data-init": ("@get('" + ($req | href $"/sse-wc/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
                 # Seed the WC + chrome signals so first paint is sane
-                # before SSE lands.
-                "data-signals": "{boardState: {tiles: []}, score: 0, gameStatus: ''}"
+                # before SSE lands. The state-badge ("you win!" /
+                # "game over") is owned by the WC's shadow DOM.
+                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: ''}"
               }
                 (DIV {id: "board-wrap"}
-                  (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})
-                  (SPAN {
-                    id: "state-badge"
-                    "data-attr:class": "$gameStatus === 'won' ? 'badge won' : ($gameStatus === 'over' ? 'badge over' : '')"
-                    "data-text": "$gameStatus === 'won' ? 'you win!' : ($gameStatus === 'over' ? 'game over' : '')"
-                  } "")))))
+                  (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})))))
         ] | layout $req $REV $DATASTAR_JS_PATH
               --title $"watching ($game_id_short) -- nu2048"
               --body-class "watch"
@@ -470,11 +507,25 @@ let design = source design/serve.nu
     (route {method: GET path-matches: "/by/:player_id"} {|req ctx|
       # Public per-player games view. Same shape as /my/games but
       # takes the id from the URL (no cookie required). Used for
-      # crediting featured games on the splash.
+      # crediting featured games on the splash. Currently static
+      # (no /sse/by/<id> handler yet), so $games is seeded once and
+      # never patched -- each card's board renders to its snapshot
+      # state and stays put.
       let player_id = $ctx.player_id
       let pid_short = $player_id | str substring 0..7
       let games_topic = $"player.($player_id).games"
       let games = try { .cat -T $games_topic | reverse } catch { [] }
+      let games_signal = $games | reduce -f {} {|f acc|
+        let resumed = (resume-game $f.id)
+        let tiles = ($resumed.state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+        $acc | upsert $f.id {tiles: $tiles, gameOver: ($resumed.state | get game_over? | default false)}
+      }
+      let meta_signal = $games | reduce -f {} {|f acc|
+        let resumed = (resume-game $f.id)
+        let lmid = $resumed | get follow_from_id? | default $f.id
+        let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+        $acc | upsert $f.id {playedMs: $played_ms}
+      }
       ([
         (DIV {class: "page"}
           (breadcrumb
@@ -490,7 +541,8 @@ let design = source design/serve.nu
           (P {class: "hint empty-state"} "no games yet."))
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title $"games by ($pid_short) -- nu2048"
-            --body-class "games-view")
+            --body-class "games-view"
+            --body-attrs {"data-signals": ({games: $games_signal, meta: $meta_signal} | to json --raw)})
     })
 
     (route {method: GET path-matches: "/play/:game_id"} {|req ctx|
@@ -559,13 +611,12 @@ let design = source design/serve.nu
               # edge-line indicator script.js sets on keydown. The board
               # itself is the WC, observing $boardState via Datastar's
               # data-attr:state mirroring.
+              # The state-badge ("you win!" / "game over") lives inside
+              # the WC's shadow DOM, derived from boardState.gameOver
+              # and the tile values. Same look + behavior on every
+              # surface that renders <game-board>.
               (DIV {id: "board-wrap"}
-                (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})
-                (SPAN {
-                  id: "state-badge"
-                  "data-attr:class": "$gameStatus === 'won' ? 'badge won' : ($gameStatus === 'over' ? 'badge over' : '')"
-                  "data-text": "$gameStatus === 'won' ? 'you win!' : ($gameStatus === 'over' ? 'game over' : '')"
-                } "")))
+                (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})))
             # Help panel: each key is a real button that triggers the
             # move via the existing [data-intent] click delegate in
             # script.js.
@@ -590,14 +641,14 @@ let design = source design/serve.nu
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "nu2048"
             --og-image $og_image
-            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
+            --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, encapsulated board web component."
             --body-class "play"
             --sse true
             --body-attrs {
               "data-player-id": $player_id
               "data-game-id": $game_id
               "data-move-url": ($req | href "/move")
-              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: []}}"
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}}"
             }
         | session-cookies set $session)
       }

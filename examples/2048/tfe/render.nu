@@ -8,110 +8,12 @@ use http-nu/http *
 # Used by `layout` below to resolve templates relative to this module.
 const TEMPLATES_DIR = path self | path dirname | path join "templates"
 
-# Cirulli's original palette: gold ramp from cream (2) to amber (1024+),
-# tile text dark for low values, cream for high. Placeholder while we
-# rethink tiles from first principles around the http-nu blue/cream
-# aesthetic.
-export def palette-for [v: int]: nothing -> record {
-  let bg = match $v {
-    2 => "#eee4da"
-    4 => "#ede0c8"
-    8 => "#f2b179"
-    16 => "#f59563"
-    32 => "#f67c5f"
-    64 => "#f65e3b"
-    128 => "#edcf72"
-    256 => "#edcc61"
-    512 => "#edc850"
-    1024 => "#edc53f"
-    _ => "#edc22e"
-  }
-  let fg = if $v <= 4 { "#776e65" } else { "#f9f6f2" }
-  {bg: $bg, fg: $fg}
-}
-
-# The board: a self-contained component. Single class `.board` on the
-# root; layout, palette, and cell styling live in `.board > *` /
-# `.board > div:not(:empty)` selectors in styles.css. Used at full
-# size on /play and inside game-card thumbnails on /games.
-#
-# Compiled once into a minijinja template since render-board is hot --
-# every snapshot push re-renders one or more boards, and the runtime
-# HTML DSL is significantly slower per tile.
-#
-# Template layers, in DOM order (later layers paint on top):
-#   1. 16 hardcoded empty cells (background grid; never change).
-#   2. Ghosts -- one per tile consumed by a merge on this snapshot's
-#      move. Same view-transition-name as the consumed tile, placed at
-#      the merge cell with opacity 0. The browser pairs the visible
-#      old tile with this invisible new ghost and slides it into the
-#      merge cell while fading, instead of popping out of existence.
-#   3. Tiles (live game-state tiles).
-# Module-level `let` isn't allowed, and `.mj compile` isn't const-eval'able,
+# Page-shell template (layout.html). Used once per request to wrap the
+# body content in <html><head>...</head><body>. See `layout` below.
+# Module-level `let` isn't allowed and `.mj compile` isn't const-eval'able,
 # so templates are built once per `use` via export-env and stashed in $env.
-# Nushell allows only one export-env block per module, so both templates
-# get compiled here.
 export-env {
-  # render-board is still used by game-card thumbnails (/my/games,
-  # /by/<id>, /design/board). The ghosts row is a remnant of the
-  # old view-transition pipeline -- consumed tiles paired with an
-  # invisible ghost at the merge cell so the browser would tween from
-  # the visible old tile to the ghost. The <game-board> WC handles
-  # consumed tiles internally via its own diff; the ghost markup is
-  # ignored when present. Left in the template so historical snapshots
-  # that still carry `ghosts: [...]` render the same as fresh ones.
-  $env.BOARD_TPL = .mj compile --inline (
-    DIV {class: "board"}
-      (0..3 | each {|r| 0..3 | each {|c|
-        DIV {style: $"grid-column: ($c + 1); grid-row: ($r + 1);"} ""
-      } } | flatten)
-      (_for {g: "ghosts"} (DIV {
-        style: "grid-column: {{ g.col }}; grid-row: {{ g.row }}; background-color: {{ g.bg }}; opacity: 0; pointer-events: none;"
-      } ""))
-      (_for {t: "tiles"} (DIV {
-        class: "{{ t.cls }}"
-        style: "grid-column: {{ t.col }}; grid-row: {{ t.row }}; background-color: {{ t.bg }}; color: {{ t.fg }}; font-size: {{ t.fs }}cqw;"
-      } (_var "t.value")))
-  )
-  # Page-shell template (layout.html). Used once per request to wrap the
-  # body content in <html><head>...</head><body>. See `layout` below.
   $env.LAYOUT_TPL = .mj compile ($TEMPLATES_DIR | path join "layout.html")
-}
-
-export def render-board [scope?: string]: record -> record {
-  let state = $in
-  let s = $scope | default ""
-  # view-transition-name is page-global; on /games multiple boards share
-  # a page, so the optional scope (game id) keeps names unique.
-  let vt_name = {|id| if ($s | is-empty) { $"tile-($id)" } else { $"tile-($s)-($id)" }}
-  let max_v = if ($state.tiles | is-empty) { 0 } else { $state.tiles | get value | math max }
-  let tiles = $state.tiles | each {|t|
-    let p = palette-for $t.value
-    {
-      col: ($t.c + 1)
-      row: ($t.r + 1)
-      bg: $p.bg
-      fg: $p.fg
-      fs: (if $t.value >= 1024 { 5 } else if $t.value >= 128 { 6 } else { 7 })
-      vt: (do $vt_name $t.id)
-      vt_class: (
-        if ($t | get -o spawned | default false) { "spawned" }
-        else if ($t | get -o merged | default false) { "merged" }
-        else { "none" }
-      )
-      # `is-max` marks the highest-value tile(s). On splash thumbnails the
-      # board mutes everything except this class, so the headline tile
-      # pops out without a separate max-tile badge.
-      cls: (if $t.value == $max_v { "is-max" } else { "" })
-      value: $t.value
-    }
-  }
-  # `ghosts` may be absent on snapshots written before the merge-ghosts
-  # feature -- default to empty so old games still render.
-  let ghosts = ($state | get ghosts? | default []) | each {|g|
-    {col: ($g.c + 1) row: ($g.r + 1) bg: ((palette-for $g.value).bg) vt: (do $vt_name $g.id)}
-  }
-  {__html: ({tiles: $tiles, ghosts: $ghosts} | .mj render $env.BOARD_TPL)}
 }
 
 # Small targeted SSE fragments. Spans with stable ids morph in place on
@@ -216,21 +118,22 @@ export def render-card-from-state [
   last_move_id?: string
   --href: string  # destination URL (mount-resolved by caller); defaults to /play
 ]: nothing -> record {
-  let max_tile = if ($state.tiles | is-empty) { 2 } else {
-    $state.tiles | get value | math max
-  }
-  let lmid = $last_move_id | default $game_id
-  let active = last-active-from-id $lmid
-  # Raw timestamp lets the client ticker recompute "Xs ago" every few
-  # seconds without a server round-trip; see updateActiveLabels() in
-  # script.js.
-  let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-  let status = if $max_tile >= 2048 { "won" } else if $state.game_over { "over" } else { "" }
   let target = if ($href | is-empty) { ($req | href $"/play/($game_id)") } else { $href }
+  # Each card binds to two nested signals keyed by game id:
+  #   $games[<id>] = {tiles: [...], gameOver: <bool>}  -> WC board
+  #   $meta[<id>]  = {playedMs}                          -> overlay time
+  # The WC's shadow DOM owns the won/over badge (derived from
+  # boardState), so there's no external badge element per card.
+  let g = "['" + $game_id + "']"
+  let board_expr = "JSON.stringify($games" + $g + ")"
+  let played_expr = "$meta" + $g + ".playedMs"
   (A {id: $"card-($game_id)" class: "game-card" href: $target}
-    (DIV {class: "board-wrap"} ($state | render-board $game_id))
-    (SPAN {class: "overlay active" "data-played-ms": ($played_ms | into string)} $active)
-    (if ($status | is-not-empty) { (SPAN {class: $"badge ($status)"} $status) } else { "" }))
+    (DIV {class: "board-wrap"}
+      (render-tag "game-board" {"data-attr:state": $board_expr}))
+    (SPAN {
+      class: "overlay active"
+      "data-attr:data-played-ms": $played_expr
+    } ""))
 }
 
 # Render the whole .games-list from an in-memory {game_id: snapshot_meta}
@@ -240,6 +143,20 @@ export def render-games-list-from-data [req: record, data: record]: nothing -> r
   (DIV {class: "games-list"} ($entries | each {|e|
     render-card-from-state $req $e.game_id $e.meta.state ($e.meta | get moves? | default 0) ($e.meta | get last_move_id? | default $e.game_id)
   }))
+}
+
+# Build the $games signal object from the same {game_id: snapshot_meta}
+# record. Cards' <game-board data-attr:state="JSON.stringify($games[<id>])">
+# look this signal up at render time. Strips animation hints (spawned /
+# merged / ghosts) from each state -- the WC diffs by tile id.
+export def games-signal-from-data [data: record]: nothing -> record {
+  $data | transpose game_id meta | reduce -f {} {|e acc|
+    let state = $e.meta.state
+    let board = {
+      tiles: ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+    }
+    $acc | upsert $e.game_id $board
+  }
 }
 
 # Page shell. Takes a list of body children (html DSL records) and wraps

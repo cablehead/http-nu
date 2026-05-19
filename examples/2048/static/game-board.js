@@ -15,6 +15,7 @@ const STYLES = `
   :host {
     display: block;
     container-type: inline-size;
+    position: relative;
   }
   .board {
     position: relative;
@@ -40,6 +41,28 @@ const STYLES = `
     font-weight: 700;
     will-change: transform, opacity;
   }
+  /* Status overlay -- shown when the rendered state is won (any tile
+     >= 2048) or game_over. Pinned to the board's top-left corner
+     with a slight rotation, same look across every surface that
+     embeds the component (/play, /watch, /my/games card, splash). */
+  .badge {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.5rem;
+    z-index: 5;
+    padding: 0.2rem 0.7rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-radius: 4px;
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+    display: none;
+  }
+  .badge.won  { display: block; background: #2a9d4a; transform: rotate(-6deg); }
+  .badge.over { display: block; background: #e05252; transform: rotate(-3deg); }
 `;
 
 const PALETTE = {
@@ -69,8 +92,9 @@ class GameBoard extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="board" part="board"></div>`;
+    this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="board" part="board"></div><span class="badge"></span>`;
     this.boardEl = this.shadowRoot.querySelector(".board");
+    this.badgeEl = this.shadowRoot.querySelector(".badge");
 
     for (let r = 0; r < 4; r++) {
       for (let c = 0; c < 4; c++) {
@@ -86,13 +110,26 @@ class GameBoard extends HTMLElement {
     this.prevState = null;
     this.activeAnimations = new Set();
     this.applyToken = 0;
+    this.lastAppliedJson = null;
   }
 
-  attributeChangedCallback(name, _oldVal, newVal) {
-    if (name !== "state" || newVal == null) return;
+  attributeChangedCallback(name, oldVal, newVal) {
+    if (name !== "state") return;
+    if (newVal == null) return;
+    // Datastar's data-attr can write setAttribute with the unchanged
+    // value after a DOM morph (e.g. /my/games re-renders the card
+    // chrome around the WC; morphdom strips the runtime `state`
+    // attribute that wasn't in the server-rendered HTML, then
+    // Datastar's apply pass restores it). Both `oldVal === newVal`
+    // and "stripped then restored" paths would otherwise cancel an
+    // in-flight slide/merge by calling #apply() with no real diff.
+    // Track the last-applied JSON so any duplicate is a no-op.
+    if (oldVal === newVal) return;
+    if (newVal === this.lastAppliedJson) return;
     let parsed;
     try { parsed = JSON.parse(newVal); }
     catch { return; }
+    this.lastAppliedJson = newVal;
     this.#apply(parsed);
   }
 
@@ -118,7 +155,23 @@ class GameBoard extends HTMLElement {
     return el;
   }
 
+  #applyBadge(state) {
+    const tiles = state.tiles ?? [];
+    const won = tiles.some((t) => t.value >= 2048);
+    if (won) {
+      this.badgeEl.className = "badge won";
+      this.badgeEl.textContent = "you win!";
+    } else if (state.gameOver) {
+      this.badgeEl.className = "badge over";
+      this.badgeEl.textContent = "game over";
+    } else {
+      this.badgeEl.className = "badge";
+      this.badgeEl.textContent = "";
+    }
+  }
+
   async #apply(newState) {
+    this.#applyBadge(newState);
     this.#cancelActive();
     const token = ++this.applyToken;
     const oldState = this.prevState ?? { tiles: [] };

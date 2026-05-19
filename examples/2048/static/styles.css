@@ -191,36 +191,10 @@ body.flash-red { animation: flash-red 300ms ease; }
   50%      { background: #e05252; }
 }
 
-/* Board component. All layout + palette here so render-board only emits
-   what's data-driven (grid placement, tile bg/font, view-transition).
-   Empty cells render as `<div></div>` and pick up their look via the
-   `:empty` selector below. */
-.board {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(4, 1fr);
-  gap: 2.2%;
-  padding: 3.3%;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  background: #bbada0;
-  border-radius: 0.5rem;
-  container-type: inline-size;
-}
-.board > div {
-  border-radius: 4px;
-}
-.board > div:empty {
-  background: #cdc1b4;
-}
-.board > div:not(:empty) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-}
-
-body.play .board { touch-action: none; }
+/* Board layout, palette, and tile styling all live inside the
+   <game-board> shadow DOM (see static/game-board.js). Nothing in this
+   stylesheet targets the board; the host page just gives the WC a
+   container with width and the WC handles aspect-ratio internally. */
 
 /* Tight viewports (landscape phones): hide the hint to give more room. */
 @media (max-height: 600px) {
@@ -420,29 +394,6 @@ body.play .board { touch-action: none; }
   font-family: var(--font-mono);
 }
 .game-card .board-wrap { width: 100%; height: 100%; }
-.game-card .board {
-  position: relative;
-  /* New stacking context so .is-max's z-index stays local to the
-     board and doesn't escape to paint over the card's .overlay
-     siblings (last-active label, status badge). */
-  isolation: isolate;
-}
-.game-card .board::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  /* Tinted with the body bg so dimmed boards recede into the page. */
-  background: rgba(0, 119, 182, 0.75);
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 1;
-  transition: opacity 0.12s ease-out;
-}
-.game-card:hover .board::after { opacity: 0; }
-.game-card .board > div.is-max {
-  position: relative;
-  z-index: 2;
-}
 .game-card .overlay {
   position: absolute;
   pointer-events: none;
@@ -823,125 +774,9 @@ body.splash .site-title { visibility: hidden; }
 .linklike:hover { opacity: 0.8; background: none; }
 .linklike:active { transform: none; box-shadow: none; }
 
-/* Fun rotated pill stamped over a board (game cards, splash board, /play
-   when the game is decided). Anchors to the nearest positioned ancestor
-   -- ensure that's the board-wrap (.game-card and #board-wrap both
-   provide one). */
-.badge {
-  position: absolute;
-  top: 0.75rem;
-  left: 0.5rem;
-  z-index: 5;
-  padding: 0.2rem 0.7rem;
-  font-size: var(--text-sm);
-  font-weight: 700;
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  border-radius: 4px;
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
-  pointer-events: none;
-}
-.badge.won  { background: #2a9d4a; transform: rotate(-6deg); }
-.badge.over { background: #e05252; transform: rotate(-3deg); }
-
-/* ============================================================
-   VT-only pipeline (experimental; supersedes the rules above)
-   ------------------------------------------------------------
-   Sequenced choreography per move, three phases on the same
-   view-transition:
-
-     phase 1   0 -> 130ms   slide + ghost fade
-     phase 2  130 -> 270ms  merge pop on survivor
-     phase 3  270 -> 410ms  spawn enters
-
-   Hardcoded values during iteration; no anticipation, no
-   overshoot on slides. Targets the original 2048 pipeline.
-   ============================================================ */
-
-/* Knobs. The fx tuner writes these on :root. Defaults match the
-   values the pipeline was first committed at. */
-:root {
-  --slide-duration:   180ms;
-  --ghost-duration:   160ms;
-  --merge-duration:   240ms;
-  --merge-scale:      1.2;
-  --spawn-duration:   200ms;
-  --spawn-from-scale: 0.2;
-}
-
-/* VT snapshots sit on top of the page. By default they catch clicks --
-   so PLAY NOW would go un-clickable for the length of every transition.
-   Let pointer events fall through to the live DOM behind.
-   Groups are intentionally excluded: pointer-events on
-   ::view-transition-group(*) interferes with Chrome's UA translate
-   animation (the tile slide stops working). */
-::view-transition,
-::view-transition-image-pair(*),
-::view-transition-old(*),
-::view-transition-new(*) {
-  pointer-events: none;
-}
-
-/* Drop <html> out of the VT capture set on pages that run tile VTs.
-   <html> implicitly has `view-transition-name: root` (no rule, doesn't
-   show in DevTools). While a VT runs, the UA hides the live original
-   of every captured element -- for root, that's the whole page. On
-   /play this causes the root group's cross-fade to cover tile-group
-   translate animations, so tiles appear to teleport rather than slide.
-   Clearing the name makes the named board element (#game / #splash-board)
-   the top-level VT participant; tiles inside it slide correctly.
-   Must target <html> -- the root name lives there, not on body or any
-   wrapper. */
-html:has(body.splash),
-html:has(body.play) { view-transition-name: none; }
-
-/* slide: groups translate via UA-default animation; we only retune
-   duration + easing. */
-::view-transition-group(*) {
-  animation-duration: var(--slide-duration);
-  animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-/* The UA cross-fade on old/new pseudos defaults to ~250ms, which
-   would outlast our slide and leave ghost-traces after tiles land.
-   Sync them. */
-::view-transition-old(*),
-::view-transition-new(*) {
-  animation-duration: var(--slide-duration);
-  animation-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-/* ghost: consumed tile fades out slightly inside the slide window so
-   the fade reads as the merge landing. */
-::view-transition-old(*.ghost) {
-  animation: vt-ghost-fade var(--ghost-duration) ease-out 40ms both;
-}
-@keyframes vt-ghost-fade {
-  0%   { opacity: 1; }
-  100% { opacity: 0; }
-}
-
-/* merge pop: survivor's new pseudo scales after it lands. opacity:1
-   in every keyframe because writing `animation:` replaces the UA
-   fade-in -- without an explicit value the pseudo would be invisible
-   until the delay elapsed. */
-::view-transition-new(*.merged) {
-  animation: vt-merge-pop var(--merge-duration) cubic-bezier(0.34, 1.56, 0.64, 1) var(--slide-duration) both;
-}
-@keyframes vt-merge-pop {
-  0%   { opacity: 1; transform: scale(1); }
-  50%  { opacity: 1; transform: scale(var(--merge-scale)); }
-  100% { opacity: 1; transform: scale(1); }
-}
-
-/* spawn: cell stays empty for the slide + merge window, then fades +
-   scales in. Targeting .spawned only so we don't sweep up other
-   never-paired pseudos (e.g. lingering ghosts the next move clears). */
-::view-transition-new(*.spawned) {
-  animation: vt-spawn-in var(--spawn-duration) cubic-bezier(0.25, 0.46, 0.45, 0.94)
-             calc(var(--slide-duration) + var(--merge-duration)) both;
-}
-@keyframes vt-spawn-in {
-  0%   { opacity: 0; transform: scale(var(--spawn-from-scale)); }
-  100% { opacity: 1; transform: scale(1); }
-}
+/* Status badge ("game over" / "you win!") lives inside the <game-board>
+   shadow DOM -- its styles are encapsulated there. The board's tile
+   slide / merge-pop / spawn-in animations also run inside the shadow
+   DOM via Web Animations API, so there are no ::view-transition rules
+   here either. Only the MPA navigation transition (@view-transition
+   above) is still in play; it animates whole-page nav, not boards. */

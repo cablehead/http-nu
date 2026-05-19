@@ -76,9 +76,7 @@ next h2 is the breathing room the page needs."
 const CATALOG = [
   {slug: "kbd-btn"    title: "kbd-btn"    desc: "bracketed key-cap button: [ h ]. triggers a move or navigation."}
   {slug: "breadcrumb" title: "breadcrumb" desc: "header nav row. left = path crumbs, right = action shortcuts."}
-  {slug: "board"      title: "board"      desc: "4x4 game grid. tiles, ghosts, dim mask, max-tile highlight."}
-  {slug: "badge"      title: "badge"      desc: "rotated pill stamped on a board. won/over variants."}
-  {slug: "board-wc"   title: "board (wc)" desc: "encapsulated <game-board> custom element. state in as a signal-driven attribute; component owns slide/merge/spawn animation."}
+  {slug: "board"      title: "board"      desc: "encapsulated <game-board> custom element. state in as a signal-driven attribute; component owns slide/merge/spawn animation and the won/over badge."}
   {slug: "markdown"   title: "markdown"   desc: "the full set of markdown the /notes pages render: headings, prose, lists, links, code, quotes."}
 ]
 
@@ -166,33 +164,6 @@ def render-stories [slug: string]: nothing -> list {
       ])
     ]
     "board" => [
-      (story "mid-game state with a 128 high tile" [
-        (DIV {style: "width: 380px;"} ({
-          tiles: [
-            {id: 1 r: 0 c: 0 value: 2}
-            {id: 2 r: 0 c: 1 value: 4}
-            {id: 3 r: 1 c: 1 value: 8}
-            {id: 4 r: 1 c: 2 value: 16}
-            {id: 5 r: 2 c: 2 value: 32}
-            {id: 6 r: 2 c: 3 value: 64}
-            {id: 7 r: 3 c: 3 value: 128}
-          ]
-          ghosts: []
-        } | render-board "design-mid"))
-      ])
-      (story "empty board (initial state placeholder)" [
-        (DIV {style: "width: 380px;"} ({tiles: [] ghosts: []} | render-board "design-empty"))
-      ])
-    ]
-    "badge" => [
-      (story "won (rotated -6deg, green)" [
-        (SPAN {class: "badge won"} "won")
-      ])
-      (story "over (rotated -3deg, red)" [
-        (SPAN {class: "badge over"} "over")
-      ])
-    ]
-    "board-wc" => [
       (SECTION {class: "story"
                 "data-signals": $"{boardState: ($WC_STATES.empty | to json --raw)}"}
         (P {class: "label"} "click setup then play. the WC diffs by tile id and runs slide -> merge-pop -> spawn-in. switching scenarios resets ids so consumed tiles fade in place (no merge target).")

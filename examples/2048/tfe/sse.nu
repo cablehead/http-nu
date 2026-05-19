@@ -97,11 +97,16 @@ export def states-to-wc-signals [] {
       let changed = $s.changed? | default false
       let req_id = $s.req_id? | default ""
       if $changed {
-        let won = $state.tiles | any {|t| $t.value >= 2048 }
-        let status = if $won { "won" } else if $state.game_over { "over" } else { "" }
         let board = {
           tiles: ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+          gameOver: ($state.game_over | default false)
         }
+        # gameStatus is still derived server-side for surfaces (chrome
+        # outside the WC) that want it -- e.g. the conn-down filter or
+        # any future side-by-side text. The WC ignores it; it derives
+        # the badge from boardState.gameOver and the tile values.
+        let won = $state.tiles | any {|t| $t.value >= 2048 }
+        let status = if $won { "won" } else if $state.game_over { "over" } else { "" }
         [{signals: {boardState: $board, score: $state.score, gameStatus: $status, lastReqId: $req_id}}]
       } else {
         [{signals: {lastReqId: $req_id}}]
