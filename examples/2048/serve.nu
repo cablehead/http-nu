@@ -147,22 +147,18 @@ let design = source design/serve.nu
         | each {|f|
             let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
             let state = $states | get $pos
-            let board_patch = (
-              # view-transition-name scopes the VT to the board so the
-              # rest of the splash hero doesn't get snapshotted.
-              (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($state | render-board "splash"))
-              | to datastar-patch-elements --use-view-transition --id (random uuid)
-            )
-            # The client owns $pos via data-bind on the slider, so we
-            # don't echo it back here. Server just renders the board +
-            # counter for the pos the bus told us about.
-            let counter_patch = (
-              (SPAN {id: "splash-counter" class: "splash-counter"} $"move: ($pos) of ($n - 1)")
-              | to datastar-patch-elements --id (random uuid)
-            )
-            [$board_patch $counter_patch]
+            # WC variant: ship the state as a signal; <game-board> picks
+            # it up via data-attr:state and runs its own animation. The
+            # counter is signal-bound on the client side (data-text on
+            # $splashPos), so we just need to push the pos number here.
+            # Strip per-tile animation hints (spawned / merged / ghosts)
+            # from the wire payload; the WC diffs by id.
+            let board = {
+              tiles: ($state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })
+            }
+            {splashState: $board, splashPos: $pos}
+            | to datastar-patch-signals
           }
-        | flatten
         | to sse
       }
     })
@@ -320,6 +316,14 @@ let design = source design/serve.nu
           class: "hero"
           "data-sse": ""
           "data-init": ("@get('" + ($req | href "/sse/splash") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
+          # Seed signals the splash board needs on first paint. SSE
+          # patches overwrite both as bus.splash.seek frames arrive.
+          # The wire shape strips per-tile animation hints to match
+          # what the SSE handler emits.
+          "data-signals": ({
+            splashState: {tiles: ($initial_state.tiles | each {|t| {id: $t.id, r: $t.r, c: $t.c, value: $t.value} })}
+            splashPos: $start_pos
+          } | to json --raw)
         }
           (H2 "2048, in Nushell!")
           (DIV {class: "splits"}
@@ -341,7 +345,7 @@ let design = source design/serve.nu
                   "run")
                 (P "4096 in the top, right corner, score 61,640, on move 1874")
                 (P "best on the site to date"))
-              (DIV {id: "splash-board" style: "view-transition-name: view-splash;"} ($initial_state | render-board "splash"))
+              (render-tag "game-board" {id: "splash-board" "data-attr:state": "JSON.stringify($splashState)"})
               (DIV {class: "splash-progress"}
                 (INPUT {
                   id: "splash-slider"
@@ -357,7 +361,15 @@ let design = source design/serve.nu
                   "data-on:input__debounce.120ms": ("@post('" + ($req | href "/splash/seek") + "')")
                   "data-on-interval__duration.1200ms": ("$pos = ($pos + 1) % $n; @post('" + ($req | href "/splash/seek") + "')")
                 })
-                (SPAN {id: "splash-counter" class: "splash-counter"} (if ($SPLASH_STATES | is-empty) { "0 of 0" } else { $"move: ($start_pos) of (($SPLASH_STATES | length) - 1)" })))
+                (SPAN {
+                  id: "splash-counter"
+                  class: "splash-counter"
+                  # Counter follows the SSE-emitted $splashPos so it
+                  # stays paired with the board state on the wire,
+                  # regardless of what each viewer's local slider $pos
+                  # ticked to.
+                  "data-text": $"'move: ' + $splashPos + ' of ' + (($SPLASH_STATES | length | default 1) - 1)"
+                } ""))
               # Audio toggle renders as <a href="#"> (kbd-btn does this when
               # --href is set); JS preventDefaults the click. Avoids webkit's
               # VT button-opacity bug -- see CLAUDE.md.
