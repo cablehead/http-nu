@@ -204,8 +204,7 @@ let design = source design/serve.nu
               let snap = try { .last $"game.($f.id).snapshot" } catch { null }
               if $snap == null { $acc } else { $acc | upsert $f.id $snap.meta }
             }
-        .cat --follow --pulse 450
-        | pulse-keepalive
+        .cat --follow
         | generate {|item data|
             if ('event' in $item) { return {out: $item, next: $data} }
             if ($head != null and $item.id <= $head) { return {next: $data} }
@@ -237,10 +236,8 @@ let design = source design/serve.nu
       # this game's snapshot stream (plus ephemeral view-toggles).
       # --from $game_id includes the games_topic frame at that id and
       # everything after; the threshold-gate buffers it down to just the
-      # latest snapshot for the initial render. `pulse-keepalive` runs
-      # first so the rendering stages can stay pulse-agnostic.
-      .cat --follow --pulse 450 -T $"game.($game_id).*" --from $game_id
-      | pulse-keepalive
+      # latest snapshot for the initial render.
+      .cat --follow -T $"game.($game_id).*" --from $game_id
       | frames-to-states
       | threshold-gate-states
       | states-to-html
@@ -254,8 +251,7 @@ let design = source design/serve.nu
       # running <game-board> can drive its rendering from $boardState.
       # Same upstream stages as /sse/<id>; only the final mapping
       # differs.
-      .cat --follow --pulse 450 -T $"game.($game_id).*" --from $game_id
-      | pulse-keepalive
+      .cat --follow -T $"game.($game_id).*" --from $game_id
       | frames-to-states
       | threshold-gate-states
       | states-to-wc-signals
@@ -379,7 +375,8 @@ let design = source design/serve.nu
             --title "nu2048"
             --og-image $og_image
             --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, view-transition tile slides."
-            --body-class "splash")
+            --body-class "splash"
+            --sse true)
     })
 
     (route {method: GET path: "/my/games"} {|req ctx|

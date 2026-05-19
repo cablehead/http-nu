@@ -118,7 +118,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   padding: 12px;
   gap: 12px;
   background: var(--bg);
@@ -182,9 +181,6 @@ body[data-conn="down"] button {
 /* Hide the stale RTT readout while disconnected; the conn dot
    represents the status on its own. */
 body[data-conn="down"] #rtt { visibility: hidden; }
-/* / has no game to probe, so the rtt readout stays empty -- hide it
-   and let the conn dot speak for itself. */
-body.games-view #rtt { display: none; }
 #board-wrap { transition: filter 320ms ease; }
 button { transition: opacity 320ms ease; }
 
@@ -809,8 +805,10 @@ body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
 body[data-conn="down"] .site-header #conn { background: #c0392b; }
 
 /* Splash: the nu2048 title is redundant (splash IS the landing). Keep
-   player chip + credit on the right. */
-body.splash .site-title { display: none; }
+   player chip + credit on the right. `visibility: hidden` (not
+   `display: none`) so the title still reserves its layout box -- the
+   header row keeps the same height across every page. */
+body.splash .site-title { visibility: hidden; }
 
 /* Inline link-styled button (e.g. undo in the footer). */
 .linklike {

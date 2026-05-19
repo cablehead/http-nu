@@ -1,29 +1,19 @@
 # SSE pipeline stages for the 2048 server. Composed in serve.nu as:
 #
-#   .cat --follow --pulse 450
-#   | pulse-keepalive
+#   .cat --follow
 #   | frames-to-states
 #   | threshold-gate-states
-#   | states-to-html
+#   | states-to-html       (or states-to-wc-signals for /sse-wc/<id>)
 #   | html-to-patches
 #   | to sse
 #
-# Each stage has one job. Pre-converted SSE event records (from
-# pulse-keepalive) pass through every later stage untouched.
+# Each stage has one job. The client drives heartbeat / liveness: an
+# initial ping fires from script.js on the Datastar `started` event
+# and the existing /move + lastReqId path resolves its RTT. The server
+# no longer emits keepalives, so SSE handlers wake only on real frames.
 
 use http-nu/datastar *
 use ./render.nu *
-
-# Top of pipeline. xs.pulse frames become ready-to-send patch-signals
-# events immediately, so downstream stages never have to know about
-# pulses -- they just pass anything with an `event` field through.
-export def pulse-keepalive [] {
-  each {|f|
-    if ($f.topic? | default "") == "xs.pulse" {
-      ({} | to datastar-patch-signals)
-    } else { $f }
-  }
-}
 
 # Frames -> state records.
 #   snapshot frames      -> {state, direction, changed, req_id, move_id, threshold: false}
@@ -117,8 +107,14 @@ export def states-to-html [] {
       # the appended frame's meta (audit trail) but doesn't ride the
       # wire a second time.
       if $changed {
+        # lastReqId rides every state-changing patch too. Threshold-gate
+        # absorbs the empty-intent ping into the initial flush; without
+        # lastReqId here, the client's ping ack would never arrive and
+        # its 1s heartbeat timer would flip conn=down on every /play
+        # load. Snapshot frames also carry their originating move's
+        # req_id, so this resolves every move's pending in one channel.
         [
-          {signals: {score: $state.score}}
+          {signals: {score: $state.score, lastReqId: $req_id}}
           {vt: true, el: ($state | render-game)}
         ]
       } else {
