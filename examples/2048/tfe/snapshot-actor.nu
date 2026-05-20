@@ -82,12 +82,20 @@
       } else {
         let parent = try { .get $parent_id } catch { null }
         if $parent == null { null } else {
+          # Clear the parent state's animation annotations before
+          # using it as the undo target. `ghosts`, `spawned`, and
+          # `merged` were all set by the move that originally
+          # produced the parent state -- if we ship them as-is, the
+          # WC re-fires that move's animations on every undo (the
+          # most visible symptom: merge-pops bouncing on undo).
+          let cleaned_tiles = $parent.meta.state.tiles | each {|t|
+            $t | upsert spawned false | upsert merged false
+          }
+          let cleaned_state = $parent.meta.state
+            | upsert tiles $cleaned_tiles
+            | upsert ghosts []
           {
-            # Drop any ghosts from the parent state -- they belonged
-            # to the move that produced it, and rendering them on the
-            # undo morph fires the tile-spawn animation on invisible
-            # pseudos (a brief flicker).
-            state: ($parent.meta.state | upsert ghosts [])
+            state: $cleaned_state
             snap_prev: ($parent.meta | get prev? | default $game_id)
             intent: "undo"
           }
