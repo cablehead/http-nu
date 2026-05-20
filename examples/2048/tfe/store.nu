@@ -144,6 +144,41 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
   | reject game_id
 }
 
+# Per-player best across all time, in-flight or not. One row per player
+# (their highest-scoring game's HEAD snapshot), sorted by score, top N.
+# Used by the /leaderboard page; the per-game/time-windowed CLI helper
+# `leaderboard` stays for ad-hoc poking.
+#
+# Strategy: one `.cat` for the `player.*.games` ledger gives us every
+# game-id in the store; one `.last game.<id>.snapshot` per game gives
+# us the head row. Group by player, pick best per player, sort, head N.
+# See test/bench-leaderboard.nu for the scaling profile.
+export def top-players [--limit: int = 10] {
+  .cat
+  | where ($it.topic | str starts-with "player.") and ($it.topic | str ends-with ".games")
+  | each {|f|
+      let snap = try { .last $"game.($f.id).snapshot" } catch { null }
+      if $snap == null { return null }
+      let when = try { $snap.id | .id unpack | get timestamp } catch { null }
+      {
+        game_id: $f.id
+        when: $when
+        player_id: ($snap.meta | get player_id? | default "")
+        player: (($snap.meta | get player_id? | default "") | str substring 0..7)
+        score: ($snap.meta | get score? | default 0)
+        max_tile: ($snap.meta | get max_tile? | default 0)
+        moves: ($snap.meta | get moves? | default 0)
+        game_over: ($snap.meta | get game_over? | default false)
+      }
+    }
+  | compact
+  | group-by player_id
+  | values
+  | each {|games| $games | sort-by score -r | first }
+  | sort-by score -r
+  | first $limit
+}
+
 # List every player seen in the store with their game count and latest game id.
 export def list-players [] {
   .cat

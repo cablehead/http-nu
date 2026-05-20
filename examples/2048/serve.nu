@@ -50,6 +50,7 @@ const SPLASH_PLAYER_ID = "542221d8-be77-4fac-91cb-1bfa49ae3b2a"
 if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default false) {
   open ($SCRIPT_DIR | path join "tfe" "game.nu") | .append game.nu
   open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu") | .append snapshot-actor.register
+  open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu") | .append leaderboard-actor.register
 }
 
 # Render a card from a games_topic frame (the initial page render). Resumes
