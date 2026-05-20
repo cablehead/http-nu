@@ -568,23 +568,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         engine.set_signals(interrupt.clone());
 
-        // Build a fresh Stack and bootstrap default env+config + restore
-        // nushell's stock `print` (http-nu's PrintCommand shadows it and
-        // routes to the http log).
+        // Load the nushell standard library (std, std-rfc, etc.) so user
+        // configs that `use std-rfc/kv *` and friends parse cleanly.
+        if let Err(e) = nu_std::load_standard_library(&mut engine.state) {
+            eprintln!("warning: nu_std::load_standard_library failed: {e:?}");
+        }
+
+        // Build a fresh Stack and bootstrap default env+config, then layer
+        // the user's ~/.config/nushell/{env,config}.nu on top (same order
+        // stock nushell uses via read_config_file). Restore nushell's stock
+        // `print` afterward (http-nu's PrintCommand shadows it and routes
+        // to the http log).
         let mut stack = nu_protocol::engine::Stack::new();
+
+        // Stock nushell evaluates default env (which defines $env.ENV_CONVERSIONS
+        // with the PATH/Path string<->list converters), then runs
+        // convert_env_values BEFORE evaluating the user's env.nu / config.nu.
+        // Without that step, $env.PATH stays as a colon-joined string and the
+        // user's `$env.PATH = ($env.PATH | append ...)` produces a 2-element
+        // list of [original colon-string, appended dir] -- which breaks
+        // command resolution.
+        let env_kind = nu_utils::ConfigFileKind::Env;
+        nu_cli::eval_source(
+            &mut engine.state,
+            &mut stack,
+            env_kind.default().as_bytes(),
+            env_kind.name(),
+            nu_protocol::PipelineData::empty(),
+            false,
+        );
+        let _ = engine.state.merge_env(&mut stack);
+        if let Err(e) = nu_engine::convert_env_values(&mut engine.state, &mut stack) {
+            eprintln!("warning: convert_env_values failed: {e:?}");
+        }
         for kind in [
             nu_utils::ConfigFileKind::Env,
             nu_utils::ConfigFileKind::Config,
         ] {
-            nu_cli::eval_source(
-                &mut engine.state,
-                &mut stack,
-                kind.default().as_bytes(),
-                kind.name(),
-                nu_protocol::PipelineData::empty(),
-                false,
-            );
-            let _ = engine.state.merge_env(&mut stack);
+            // Default env was already evaluated above; for the user-config
+            // pass we only need to layer the user's file on top (if any).
+            if kind == nu_utils::ConfigFileKind::Config {
+                nu_cli::eval_source(
+                    &mut engine.state,
+                    &mut stack,
+                    kind.default().as_bytes(),
+                    kind.name(),
+                    nu_protocol::PipelineData::empty(),
+                    false,
+                );
+                let _ = engine.state.merge_env(&mut stack);
+            }
+            if let Some(dir) = nu_path::nu_config_dir() {
+                let path: std::path::PathBuf = dir.into();
+                let path = path.join(kind.path());
+                if path.is_file() {
+                    nu_cli::eval_config_contents(
+                        path,
+                        &mut engine.state,
+                        &mut stack,
+                        false,
+                    );
+                }
+            }
         }
         {
             let mut ws = nu_protocol::engine::StateWorkingSet::new(&engine.state);

@@ -2600,6 +2600,7 @@ dependencies = [
  "nu-command",
  "nu-engine",
  "nu-parser",
+ "nu-path",
  "nu-plugin-engine",
  "nu-protocol",
  "nu-std",
