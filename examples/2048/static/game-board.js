@@ -1,4 +1,4 @@
-// <game-board state='{"tiles":[{id,r,c,value,spawned,merged}],"ghosts":[{id,r,c,value}],"gameOver":bool}'>
+// <game-board state='{"tiles":[{id,r,c,value,spawned,merged}],"ghosts":[{id,r,c,value}],"gameOver":bool,"playedMs":<unix-ms>}'>
 //
 // Fully encapsulated 4x4 board. State comes in as a JSON string on the
 // `state` attribute; Datastar's `data-attr:state="JSON.stringify($sig)"`
@@ -9,6 +9,10 @@
 //                             reflects the doubled survivor)
 //   ghosts[]          tiles consumed by merges this snapshot, with the
 //                     merge-cell destination they slid into.
+//   playedMs          optional unix-ms of the game's last move; if the
+//                     `show-played` attribute is also set, the WC paints
+//                     a relative-time overlay ("5m ago", "in play") in
+//                     the top-right corner and re-renders it every 5s.
 //
 // The component reads positions for the "from" side of every slide
 // directly from its internal DOM-mirror map (`this.tiles`), so there's
@@ -82,6 +86,28 @@ const STYLES = `
   .badge.result.won    { display: block; background: #2a9d4a; transform: rotate(-6deg); }
   .badge.result.lost   { display: block; background: #e05252; transform: rotate(-3deg); }
 
+  /* Optional played-time overlay, pinned top-right. Painted only when
+     state.playedMs is present AND the host has the show-played
+     attribute (so a card list can opt in without every embed paying
+     the cost). Style mirrors the legacy .overlay.active that lived
+     outside the shadow root. */
+  .played {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 5;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 4px;
+    line-height: 1.2;
+    pointer-events: none;
+    display: none;
+  }
+  :host([show-played]) .played.has-value { display: block; }
+
   /* Thumbnail / "dim" variant. Used by /my/games + /by/<id> game
      cards. Everything except the highest-value tile is muted by a
      tinted overlay so the card's headline -- "how far this game
@@ -128,16 +154,32 @@ const SPAWN_MS = 140;
 const POP_SCALE = 1.18;
 const SPAWN_FROM = 0.4;
 
+// Cadence for the played-time overlay refresh. Same shape as the
+// legacy updateActiveLabels tick that lived in script.js.
+const PLAYED_TICK_MS = 5000;
+
+function relativeFromMs(ms) {
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 60) return "in play";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return `${Math.floor(diff / 604800)}w ago`;
+}
+
 class GameBoard extends HTMLElement {
   static get observedAttributes() { return ["state"]; }
 
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="board" part="board"></div><div class="badges"><span class="badge over"></span><span class="badge result"></span></div>`;
+    this.shadowRoot.innerHTML = `<style>${STYLES}</style><div class="board" part="board"></div><div class="badges"><span class="badge over"></span><span class="badge result"></span></div><span class="played" part="played"></span>`;
     this.boardEl = this.shadowRoot.querySelector(".board");
     this.overEl = this.shadowRoot.querySelector(".badge.over");
     this.resultEl = this.shadowRoot.querySelector(".badge.result");
+    this.playedEl = this.shadowRoot.querySelector(".played");
+    this.playedMs = null;
+    this.playedTimer = null;
 
     for (let r = 0; r < 4; r++) {
       for (let c = 0; c < 4; c++) {
@@ -259,9 +301,41 @@ class GameBoard extends HTMLElement {
     this.resultEl.textContent = showWin ? "you win!" : showLost ? "you lost" : "";
   }
 
+  // The played-time overlay lives in the shadow root and ticks itself
+  // every PLAYED_TICK_MS while the host is connected and has the
+  // `show-played` attribute. Folding it into the WC kills the cross-
+  // signal race the legacy outer .overlay.active had with Datastar's
+  // data-attr application (script.js's eager updateActiveLabels ran
+  // before the attribute was populated, so labels lagged by up to
+  // PLAYED_TICK_MS on first paint).
+  #updatePlayedLabel = () => {
+    if (this.playedMs == null) {
+      this.playedEl.classList.remove("has-value");
+      this.playedEl.textContent = "";
+      return;
+    }
+    this.playedEl.classList.add("has-value");
+    const next = relativeFromMs(this.playedMs);
+    if (this.playedEl.textContent !== next) this.playedEl.textContent = next;
+  };
+
+  connectedCallback() {
+    this.#updatePlayedLabel();
+    this.playedTimer = setInterval(this.#updatePlayedLabel, PLAYED_TICK_MS);
+  }
+
+  disconnectedCallback() {
+    if (this.playedTimer != null) {
+      clearInterval(this.playedTimer);
+      this.playedTimer = null;
+    }
+  }
+
   async #apply(state) {
     this.#tickWinCounter(state);
     this.#applyBadge(state);
+    this.playedMs = state.playedMs ?? null;
+    this.#updatePlayedLabel();
     this.#cancelActive();
     const token = ++this.applyToken;
 

@@ -131,8 +131,9 @@ def last-active-from-id [id: string]: nothing -> string {
 # is the densest signal; the board itself mutes every tile except the
 # highest value, so the headline ("how far this game got") emerges from
 # the board without needing a separate max-tile badge. Two overlays sit
-# on top: the last-active relative time ("in play" when fresh) and, when
-# applicable, a fun rotated status badge (won / over).
+# on top, both owned by the WC's shadow DOM: a relative-time badge
+# (top-right, when the snapshot signal carries `playedMs`) and a fun
+# rotated win/over status badge.
 export def render-card-from-state [
   req: record
   game_id: string
@@ -142,21 +143,14 @@ export def render-card-from-state [
   --href: string  # destination URL (mount-resolved by caller); defaults to /play
 ]: nothing -> record {
   let target = if ($href | is-empty) { ($req | href $"/play/($game_id)") } else { $href }
-  # Each card binds to two nested signals keyed by game id:
-  #   $games[<id>] = {tiles: [...], gameOver: <bool>}  -> WC board
-  #   $meta[<id>]  = {playedMs}                          -> overlay time
-  # The WC's shadow DOM owns the won/over badge (derived from
-  # boardState), so there's no external badge element per card.
+  # One signal per game: $games[<id>] = {tiles, gameOver, playedMs, ...}
+  # The WC reads everything from there -- `show-played` opts the card
+  # in to rendering the playedMs as a relative-time overlay.
   let g = "['" + $game_id + "']"
   let board_expr = "JSON.stringify($games" + $g + ")"
-  let played_expr = "$meta" + $g + ".playedMs"
   (A {id: $"card-($game_id)" class: "game-card" href: $target}
     (DIV {class: "board-wrap"}
-      (render-tag "game-board" {"data-attr:state": $board_expr dim: ""}))
-    (SPAN {
-      class: "overlay active"
-      "data-attr:data-played-ms": $played_expr
-    } ""))
+      (render-tag "game-board" {"data-attr:state": $board_expr dim: "" show-played: ""})))
 }
 
 # Render the whole .games-list from an in-memory {game_id: snapshot_meta}

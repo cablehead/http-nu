@@ -222,22 +222,6 @@ body.flash-red { animation: flash-red 300ms ease; }
   font-family: var(--font-mono);
 }
 .game-card .board-wrap { width: 100%; height: 100%; }
-.game-card .overlay {
-  position: absolute;
-  pointer-events: none;
-  z-index: 5;
-  font-size: var(--text-sm);
-  font-weight: 700;
-  color: #fff;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  line-height: 1.2;
-}
-.game-card .overlay.active {
-  top: 0.5rem;
-  right: 0.5rem;
-  background: rgba(0, 0, 0, 0.6);
-}
 
 /* /leaderboard: top-5 per-player best. The first slot takes the full
    row width (the "podium"); ranks 2-3 and 4-5 sit two-up below it.

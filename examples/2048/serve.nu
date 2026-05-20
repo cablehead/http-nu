@@ -222,13 +222,14 @@ let design = source design/serve.nu
             let new_data = $data | upsert $changed_id $new_meta
             if $new_data == $data { return {next: $data} }
             # Compute the signal merge for this card. State for the WC
-            # board, plus chrome (overlay timestamp).
+            # board with playedMs folded in for the overlay -- one
+            # signal per game, the WC reads everything.
             let state = $new_meta.state
             let lmid = $new_meta | get last_move_id? | default $changed_id
             let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+            let wc_state = ($state | state-for-wc) | upsert playedMs $played_ms
             let signal_patch = ({
-              games: {$changed_id: ($state | state-for-wc)}
-              meta:  {$changed_id: {playedMs: $played_ms}}
+              games: {$changed_id: $wc_state}
             } | to datastar-patch-signals)
             # Structural change only fires the morph: a brand-new card
             # has to appear in the DOM, signals alone can't add an
@@ -430,22 +431,19 @@ let design = source design/serve.nu
       let entries = if $head == null { [] } else { $head.meta | get entries? | default [] }
 
       # Hydrate the per-row board signals from each entry's current
-      # snapshot. Same pattern as /my/games: card binds to $games[id]
-      # via data-attr:state, the WC paints from there.
+      # snapshot. Single signal per game: `playedMs` is folded into
+      # state-for-wc's output so the WC reads everything via
+      # data-attr:state.
       let hydrated = $entries | each {|e|
         let snap = try { .last $"game.($e.game_id).snapshot" } catch { null }
         if $snap == null { null } else {
           let lmid = $snap.meta | get last_move_id? | default $e.game_id
           let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-          {
-            entry: $e
-            state: ($snap.meta.state | state-for-wc)
-            played_ms: $played_ms
-          }
+          let state = ($snap.meta.state | state-for-wc) | upsert playedMs $played_ms
+          {entry: $e, state: $state}
         }
       } | compact
       let games_signal = $hydrated | reduce -f {} {|h acc| $acc | upsert $h.entry.game_id $h.state }
-      let meta_signal  = $hydrated | reduce -f {} {|h acc| $acc | upsert $h.entry.game_id {playedMs: $h.played_ms} }
 
       let rows = $hydrated | enumerate | each {|p|
         let rank = $p.index + 1
@@ -488,7 +486,7 @@ let design = source design/serve.nu
             --title "leaderboard -- nu2048"
             --body-class "leaderboard-view"
             --body-attrs (if $empty { {} } else {
-              {"data-signals": ({games: $games_signal, meta: $meta_signal} | to json --raw)}
+              {"data-signals": ({games: $games_signal} | to json --raw)}
             }))
     })
 
@@ -501,20 +499,16 @@ let design = source design/serve.nu
       let games = if $session == null { [] } else {
         try { .cat -T $"player.($session.user_id).games" | reverse } catch { [] }
       }
-      # Two nested signals keyed by game id. Each card binds via
-      # data-attr to $games[<id>] (WC board state) and $meta[<id>]
-      # (overlay timestamp + status badge). Live SSE patches merge
-      # per-game updates into both signals; no HTML re-render needed
-      # for snapshot changes.
+      # One signal keyed by game id. Each card binds via data-attr to
+      # $games[<id>] (WC board state, plus playedMs for the overlay).
+      # Live SSE patches merge per-game updates into the same shape;
+      # no HTML re-render needed for snapshot changes.
       let games_signal = $games | reduce -f {} {|f acc|
-        let resumed = (resume-game $f.id)
-        $acc | upsert $f.id ($resumed.state | state-for-wc)
-      }
-      let meta_signal = $games | reduce -f {} {|f acc|
         let resumed = (resume-game $f.id)
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-        $acc | upsert $f.id {playedMs: $played_ms}
+        let state = ($resumed.state | state-for-wc) | upsert playedMs $played_ms
+        $acc | upsert $f.id $state
       }
       let body = ([
         (DIV {class: "page"}
@@ -537,7 +531,7 @@ let design = source design/serve.nu
               {
                 "data-sse": ""
                 "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
-                "data-signals": ({games: $games_signal, meta: $meta_signal} | to json --raw)
+                "data-signals": ({games: $games_signal} | to json --raw)
               }
             }))
       if $session == null { $body } else { $body | session-cookies set $session }
@@ -606,13 +600,10 @@ let design = source design/serve.nu
       let games = try { .cat -T $games_topic | reverse } catch { [] }
       let games_signal = $games | reduce -f {} {|f acc|
         let resumed = (resume-game $f.id)
-        $acc | upsert $f.id ($resumed.state | state-for-wc)
-      }
-      let meta_signal = $games | reduce -f {} {|f acc|
-        let resumed = (resume-game $f.id)
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-        $acc | upsert $f.id {playedMs: $played_ms}
+        let state = ($resumed.state | state-for-wc) | upsert playedMs $played_ms
+        $acc | upsert $f.id $state
       }
       ([
         (DIV {class: "page"}
@@ -630,7 +621,7 @@ let design = source design/serve.nu
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title $"games by ($pid_short) -- nu2048"
             --body-class "games-view"
-            --body-attrs {"data-signals": ({games: $games_signal, meta: $meta_signal} | to json --raw)})
+            --body-attrs {"data-signals": ({games: $games_signal} | to json --raw)})
     })
 
     (route {method: GET path-matches: "/play/:game_id"} {|req ctx|
