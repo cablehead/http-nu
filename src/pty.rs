@@ -20,29 +20,35 @@ use nu_protocol::{
     record, shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, PipelineData,
     ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
-use tokio::sync::broadcast;
-
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
 
 use crate::bus::Bus;
 
 // --- session bookkeeping ----------------------------------------------------
 
-const BROADCAST_CAPACITY: usize = 256;
 const PTY_EVENTS_TOPIC: &str = "pty.events";
 
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    // Shared with the reader thread so it can inject auto-replies to DA1/
+    // DA2/DSR queries (zmx-style) without round-tripping to the browser.
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn PortableChild + Send + Sync>,
     meta: HashMap<String, Value>,
-    // One dedicated reader thread per session feeds two things in lockstep:
-    // (1) a vt100::Parser maintaining a virtual screen so attaching clients
-    // can be sent `Screen::contents_formatted()` -- a canonical ANSI dump
-    // that reproduces the current state without stale DSR queries, partial
-    // sequences, or mode-order bugs from raw byte replay; (2) a broadcast
-    // channel for the live tail. N concurrent consumers, clean reattach.
-    output_tx: broadcast::Sender<Bytes>,
+    // Single-client output slot. The reader thread maintains a vt100::Parser
+    // (canonical virtual screen) and, if a Sender is installed, forwards each
+    // chunk to it. A new `pty stream` attach drops whatever Sender lives
+    // here, which drains and closes the previous SSE's Receiver -- last
+    // attach wins. The new attach gets a fresh state_formatted snapshot then
+    // starts tailing the new channel.
+    //
+    // TODO: revisit input gating. POST /pty/input is a separate HTTP request
+    // from /pty/stream, so a kicked tab can still POST keystrokes until its
+    // EventSource error handler fires. Cheapest fix is a per-attach ticket:
+    // /pty/stream rotates the pty's current ticket; /pty/input must present
+    // a matching one. Not blocking for v1 -- worst case a stale tab types a
+    // few chars that get applied to the same pty.
+    output_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Bytes>>>>,
     parser: Arc<Mutex<vt100::Parser>>,
 }
 
@@ -139,11 +145,19 @@ impl Command for PtyOpenCommand {
         let (cols_n, rows_n) = (size.cols as i64, size.rows as i64);
         let output_tx = session.output_tx.clone();
         let parser = session.parser.clone();
+        let writer = session.writer.clone();
         sessions().lock().unwrap().insert(sid.clone(), session);
 
         // Spawn the reader thread now (after insert) so it can self-reap
         // by sid when the child eventually exits.
-        spawn_reader(sid.clone(), reader, output_tx, parser, self.bus.clone());
+        spawn_reader(
+            sid.clone(),
+            reader,
+            output_tx,
+            parser,
+            writer,
+            self.bus.clone(),
+        );
 
         self.bus.publish(
             PTY_EVENTS_TOPIC,
@@ -198,19 +212,18 @@ fn open_exec(
         .take_writer()
         .map_err(|e| err(span, "take_writer failed", e.to_string()))?;
 
-    // The reader thread will feed both the parser and the broadcast channel.
-    // Parser tracks the virtual screen so reattaching clients can pick up
-    // mid-session via a canonical screen dump.
+    // The reader thread feeds the vt100 parser (canonical screen state) and,
+    // if an attach has installed a Sender, forwards each chunk to it.
     let reader = pair
         .master
         .try_clone_reader()
         .map_err(|e| err(span, "clone_reader failed", e.to_string()))?;
-    let (output_tx, _) = broadcast::channel::<Bytes>(BROADCAST_CAPACITY);
+    let output_tx = Arc::new(Mutex::new(None));
     let parser = Arc::new(Mutex::new(vt100::Parser::new(size.rows, size.cols, 0)));
 
     let session = PtySession {
         master: pair.master,
-        writer,
+        writer: Arc::new(Mutex::new(writer)),
         child,
         meta: HashMap::new(),
         output_tx,
@@ -221,26 +234,71 @@ fn open_exec(
 
 /// Drain the pty master fd on a dedicated blocking thread. Each chunk is
 /// fed to the vt100 parser (which updates the virtual screen state used by
-/// future attachers) and broadcast to existing `pty stream` subscribers.
-/// When read returns 0 the child has exited; the thread removes the
-/// session from the map (if `pty close` didn't already) and publishes a
-/// `died` event on the bus.
+/// future attachers) and, if a Sender is installed, forwarded to it. When
+/// read returns 0 the child has exited; the thread removes the session from
+/// the map (if `pty close` didn't already) and publishes `died` on the bus.
 fn spawn_reader(
     sid: String,
     mut reader: Box<dyn Read + Send>,
-    tx: broadcast::Sender<Bytes>,
+    output_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Bytes>>>>,
     parser: Arc<Mutex<vt100::Parser>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     bus: Arc<Bus>,
 ) {
+    let dump_path = std::env::var("HTTP_NU_PTY_DUMP").ok();
     std::thread::spawn(move || {
+        let mut dump_file = dump_path.as_deref().and_then(|p| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+                .ok()
+        });
         let mut buf = [0u8; 4096];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
                     let chunk = Bytes::copy_from_slice(&buf[..n]);
-                    parser.lock().unwrap().process(&buf[..n]);
-                    let _ = tx.send(chunk);
+                    if let Some(f) = dump_file.as_mut() {
+                        let _ = writeln!(f, "[{sid}] {}", escape_bytes(&buf[..n]));
+                        let _ = f.flush();
+                    }
+                    // Hold the parser lock across process+send so an attach
+                    // racing with us either sees the snapshot before this
+                    // chunk lands (and gets the chunk on its new channel) or
+                    // sees the snapshot after (and skips this chunk on its
+                    // new channel because the snapshot already reflects it).
+                    let mut parser_guard = parser.lock().unwrap();
+                    parser_guard.process(&buf[..n]);
+                    // Forward raw bytes to the attached subscriber (if any).
+                    // When a subscriber is attached the browser is itself a
+                    // full VT emulator and natively auto-replies to all
+                    // queries (DA1/DA2/DSR), so we stay out of its way.
+                    // When no subscriber is attached we fall back to a
+                    // zmx-style server-side reply for DA1/DA2 so the slave
+                    // program (e.g. fish, reedline) doesn't block forever
+                    // waiting for an answer that has nowhere to come from.
+                    let has_subscriber = {
+                        let tx_lock = output_tx.lock().unwrap();
+                        if let Some(tx) = tx_lock.as_ref() {
+                            let _ = tx.send(chunk);
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if !has_subscriber {
+                        let replies = scan_da_queries(&buf[..n]);
+                        if !replies.is_empty() {
+                            let mut w = writer.lock().unwrap();
+                            for r in &replies {
+                                let _ = w.write_all(r);
+                            }
+                            let _ = w.flush();
+                        }
+                    }
+                    drop(parser_guard);
                 }
                 Err(e) => {
                     use std::io::ErrorKind;
@@ -275,6 +333,79 @@ fn spawn_reader(
             );
         }
     });
+}
+
+/// Render a byte slice with ANSI escapes / control chars made visible, so
+/// HTTP_NU_PTY_DUMP=/tmp/pty.log dumps are readable in `tail`.
+fn escape_bytes(b: &[u8]) -> String {
+    let mut s = String::with_capacity(b.len() * 2);
+    for &c in b {
+        match c {
+            0x1b => s.push_str("\\e"),
+            b'\n' => s.push_str("\\n"),
+            b'\r' => s.push_str("\\r"),
+            b'\t' => s.push_str("\\t"),
+            0x20..=0x7e => s.push(c as char),
+            _ => s.push_str(&format!("\\x{c:02x}")),
+        }
+    }
+    s
+}
+
+/// Scan a chunk of pty output for DA1/DA2 queries and return the canonical
+/// replies to write to pty stdin. Matches zmx's `respondToDeviceAttributes`
+/// (zmx/src/util.zig:149): only the device-attribute queries, same exact
+/// reply bytes.
+///
+/// Caller is expected to invoke this only when no client is attached --
+/// when a client IS attached, the browser's VT emulator handles all
+/// queries natively, and a server-side reply would race/double-reply.
+/// This is exactly zmx's gating policy (see its comment at util.zig:151:
+/// "This handles the case where no client is attached").
+///
+/// Skips replies (CSI sequences with `?` after `[`) so we don't match
+/// our own DA1 reply as a query.
+///
+/// Limitation: queries that straddle a chunk boundary are missed. In
+/// practice programs emit these queries as a single short write, well
+/// inside one 4KB chunk.
+fn scan_da_queries(chunk: &[u8]) -> Vec<Vec<u8>> {
+    let mut replies: Vec<Vec<u8>> = Vec::new();
+    let mut i = 0;
+    while i + 1 < chunk.len() {
+        if chunk[i] != 0x1b || chunk[i + 1] != b'[' {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 2;
+        let private = if j < chunk.len() && matches!(chunk[j], b'<' | b'=' | b'>' | b'?') {
+            let p = chunk[j];
+            j += 1;
+            Some(p)
+        } else {
+            None
+        };
+        let params_start = j;
+        while j < chunk.len() && matches!(chunk[j], b'0'..=b'9' | b';') {
+            j += 1;
+        }
+        if j >= chunk.len() {
+            break;
+        }
+        let params = &chunk[params_start..j];
+        let final_byte = chunk[j];
+        match (private, final_byte) {
+            (None, b'c') if params.is_empty() || params == b"0" => {
+                replies.push(b"\x1b[?62;22c".to_vec());
+            }
+            (Some(b'>'), b'c') if params.is_empty() || params == b"0" => {
+                replies.push(b"\x1b[>1;10;0c".to_vec());
+            }
+            _ => {}
+        }
+        i = j + 1;
+    }
+    replies
 }
 
 #[allow(clippy::result_large_err)]
@@ -360,15 +491,17 @@ impl Command for PtyWriteCommand {
             return Ok(PipelineData::Empty);
         }
 
-        let mut map = sessions().lock().unwrap();
-        let session = map
-            .get_mut(&sid)
-            .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-        session
-            .writer
-            .write_all(&bytes)
+        let writer = {
+            let map = sessions().lock().unwrap();
+            let session = map
+                .get(&sid)
+                .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
+            session.writer.clone()
+        };
+        let mut w = writer.lock().unwrap();
+        w.write_all(&bytes)
             .map_err(|e| err(head, "pty write failed", e.to_string()))?;
-        let _ = session.writer.flush();
+        let _ = w.flush();
 
         Ok(PipelineData::Empty)
     }
@@ -501,18 +634,26 @@ impl Command for PtyStreamCommand {
         let sid: String = call.req(engine_state, stack, 0)?;
         let sse = call.has_flag(engine_state, stack, "sse")?;
 
-        // Subscribe + snapshot the parser's screen state atomically so we
-        // don't drop bytes that arrived between snapshot and subscribe.
-        // contents_formatted emits the canonical ANSI sequence that
+        // Snapshot the parser's screen state and install a fresh Sender
+        // atomically. Holding the parser lock across both keeps the reader
+        // thread from processing new bytes during this window: any chunk
+        // that arrives after we drop the lock either lands in our new
+        // channel (good) or was already absorbed into the snapshot (also
+        // good). Replacing the Sender drops whatever the previous attach
+        // installed, which closes that consumer's stream -- last attach
+        // wins. state_formatted emits the canonical ANSI sequence that
         // reproduces the current screen -- no stale DSR queries, no partial
         // sequences, no out-of-order mode toggles.
-        let (mut rx, snapshot) = {
+        let (rx, snapshot) = {
             let map = sessions().lock().unwrap();
             let session = map
                 .get(&sid)
                 .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-            let rx = session.output_tx.subscribe();
-            let snap = session.parser.lock().unwrap().screen().state_formatted();
+            let parser_guard = session.parser.lock().unwrap();
+            let snap = parser_guard.screen().state_formatted();
+            let (tx, rx) = std::sync::mpsc::channel::<Bytes>();
+            *session.output_tx.lock().unwrap() = Some(tx);
+            drop(parser_guard);
             (rx, snap)
         };
 
@@ -538,17 +679,14 @@ impl Command for PtyStreamCommand {
                     emit(buffer, &bytes, sse);
                     return Ok(true);
                 }
-                // Then tail the broadcast. Lagged consumers skip ahead; that's
-                // fine for a terminal stream.
-                loop {
-                    match rx.blocking_recv() {
-                        Ok(chunk) => {
-                            emit(buffer, &chunk, sse);
-                            return Ok(true);
-                        }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => return Ok(false),
+                // Then tail the channel. Err means the Sender was replaced
+                // (newer attach evicted us) or the session went away.
+                match rx.recv() {
+                    Ok(chunk) => {
+                        emit(buffer, &chunk, sse);
+                        Ok(true)
                     }
+                    Err(_) => Ok(false),
                 }
             },
         );
