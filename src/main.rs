@@ -586,20 +586,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             );
             let _ = engine.state.merge_env(&mut stack);
         }
-        let disable_si = b"\
-            $env.config.shell_integration.osc133 = false\n\
-            $env.config.shell_integration.osc633 = false\n\
-        ";
-        nu_cli::eval_source(
-            &mut engine.state,
-            &mut stack,
-            disable_si,
-            "disable_shell_integration",
-            nu_protocol::PipelineData::empty(),
-            false,
-        );
-        let _ = engine.state.merge_env(&mut stack);
-
         {
             let mut ws = nu_protocol::engine::StateWorkingSet::new(&engine.state);
             ws.add_decl(Box::new(nu_cli::Print));
