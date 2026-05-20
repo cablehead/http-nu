@@ -9,16 +9,18 @@
 //! Sessions live in a process-wide map keyed by sid. Output is exposed as a
 //! ByteStream so SSE handlers can pipe it straight to the response.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use base64::Engine as _;
+use bytes::Bytes;
 use nu_engine::command_prelude::*;
 use nu_protocol::{
     record, shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, PipelineData,
     ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
+use tokio::sync::broadcast;
 
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
 
@@ -26,12 +28,22 @@ use crate::bus::Bus;
 
 // --- session bookkeeping ----------------------------------------------------
 
+const BACKLOG_BYTES: usize = 64 * 1024;
+const BROADCAST_CAPACITY: usize = 256;
+const PTY_EVENTS_TOPIC: &str = "pty.events";
+
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    reader_taken: bool,
     child: Box<dyn PortableChild + Send + Sync>,
     meta: HashMap<String, Value>,
+    // One dedicated reader thread per session fans bytes from the master fd
+    // into this broadcast channel. Each `pty stream` call subscribes; on
+    // attach it first replays `backlog`, then tails new bytes from the
+    // subscription. Allows N concurrent consumers and reattach after the
+    // browser disconnects.
+    output_tx: broadcast::Sender<Bytes>,
+    backlog: Arc<Mutex<VecDeque<u8>>>,
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
@@ -47,17 +59,13 @@ fn err(span: Span, msg: impl Into<String>, label: impl Into<String>) -> ShellErr
 // --- pty open ---------------------------------------------------------------
 
 #[derive(Clone)]
-pub struct PtyOpenCommand;
-
-impl PtyOpenCommand {
-    pub fn new() -> Self {
-        Self
-    }
+pub struct PtyOpenCommand {
+    bus: Arc<Bus>,
 }
 
-impl Default for PtyOpenCommand {
-    fn default() -> Self {
-        Self::new()
+impl PtyOpenCommand {
+    pub fn new(bus: Arc<Bus>) -> Self {
+        Self { bus }
     }
 }
 
@@ -120,7 +128,7 @@ impl Command for PtyOpenCommand {
             pixel_height: 0,
         };
 
-        let session = if embedded {
+        let (session, reader) = if embedded {
             open_embedded(engine_state, size, head)?
         } else {
             let cmd = cmd.ok_or_else(|| err(head, "missing cmd", "required without --embedded"))?;
@@ -128,7 +136,28 @@ impl Command for PtyOpenCommand {
         };
 
         let sid = scru128::new().to_string();
+        let (cols_n, rows_n) = (size.cols as i64, size.rows as i64);
+        let output_tx = session.output_tx.clone();
+        let backlog = session.backlog.clone();
         sessions().lock().unwrap().insert(sid.clone(), session);
+
+        // Spawn the reader thread now (after insert) so it can self-reap
+        // by sid when the child eventually exits.
+        spawn_reader(sid.clone(), reader, output_tx, backlog, self.bus.clone());
+
+        self.bus.publish(
+            PTY_EVENTS_TOPIC,
+            Value::record(
+                record! {
+                    "event" => Value::string("created", head),
+                    "sid" => Value::string(&sid, head),
+                    "cols" => Value::int(cols_n, head),
+                    "rows" => Value::int(rows_n, head),
+                },
+                head,
+            ),
+        );
+
         Ok(PipelineData::Value(Value::string(sid, head), None))
     }
 }
@@ -139,7 +168,7 @@ fn open_exec(
     args: Option<Vec<String>>,
     size: PtySize,
     span: Span,
-) -> Result<PtySession, ShellError> {
+) -> Result<(PtySession, Box<dyn Read + Send>), ShellError> {
     let pair = native_pty_system()
         .openpty(size)
         .map_err(|e| err(span, "openpty failed", e.to_string()))?;
@@ -169,13 +198,89 @@ fn open_exec(
         .take_writer()
         .map_err(|e| err(span, "take_writer failed", e.to_string()))?;
 
-    Ok(PtySession {
+    // Spawn the dedicated reader thread that pulls from the master fd and
+    // fans bytes out via a broadcast channel + backlog ring. When read
+    // returns 0 the child has exited; the thread also reaps the session
+    // (if we beat `pty close` to it) and publishes a `died` event.
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| err(span, "clone_reader failed", e.to_string()))?;
+    let (output_tx, _) = broadcast::channel::<Bytes>(BROADCAST_CAPACITY);
+    let backlog = Arc::new(Mutex::new(VecDeque::with_capacity(BACKLOG_BYTES)));
+
+    let session = PtySession {
         master: pair.master,
         writer,
-        reader_taken: false,
         child,
         meta: HashMap::new(),
-    })
+        output_tx,
+        backlog,
+    };
+    Ok((session, reader))
+}
+
+/// Drain the pty master fd on a dedicated blocking thread. Each chunk goes
+/// into the backlog ring (trimmed to BACKLOG_BYTES) and is broadcast to any
+/// `pty stream` subscribers. When read returns 0 the child has exited; the
+/// thread removes the session from the map (if `pty close` didn't already)
+/// and publishes a `died` event on the bus.
+fn spawn_reader(
+    sid: String,
+    mut reader: Box<dyn Read + Send>,
+    tx: broadcast::Sender<Bytes>,
+    backlog: Arc<Mutex<VecDeque<u8>>>,
+    bus: Arc<Bus>,
+) {
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let chunk = Bytes::copy_from_slice(&buf[..n]);
+                    {
+                        let mut bl = backlog.lock().unwrap();
+                        bl.extend(&buf[..n]);
+                        while bl.len() > BACKLOG_BYTES {
+                            bl.pop_front();
+                        }
+                    }
+                    let _ = tx.send(chunk);
+                }
+                Err(e) => {
+                    use std::io::ErrorKind;
+                    if matches!(e.kind(), ErrorKind::Interrupted) {
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+        // EOF on master = child exited. If the session is still in the map,
+        // we beat `pty close` to it: reap, then publish `died`. If the entry
+        // is already gone, the close command handled cleanup + published
+        // `deleted`, so don't publish anything here.
+        let removed = sessions().lock().unwrap().remove(&sid);
+        if let Some(mut s) = removed {
+            let code = match s.child.wait() {
+                Ok(es) => es.exit_code() as i64,
+                Err(_) => -1,
+            };
+            let span = Span::unknown();
+            bus.publish(
+                PTY_EVENTS_TOPIC,
+                Value::record(
+                    record! {
+                        "event" => Value::string("died", span),
+                        "sid" => Value::string(sid, span),
+                        "code" => Value::int(code, span),
+                    },
+                    span,
+                ),
+            );
+        }
+    });
 }
 
 #[allow(clippy::result_large_err)]
@@ -183,7 +288,7 @@ fn open_embedded(
     _engine_state: &EngineState,
     size: PtySize,
     span: Span,
-) -> Result<PtySession, ShellError> {
+) -> Result<(PtySession, Box<dyn Read + Send>), ShellError> {
     // Self-re-exec into our own `repl` subcommand. The fork-no-exec variant
     // ran fine for trivial use but silently dropped output from bare
     // externals (e.g. `^ls`) due to interactions between http-nu's
@@ -278,17 +383,13 @@ impl Command for PtyWriteCommand {
 // --- pty resize -------------------------------------------------------------
 
 #[derive(Clone)]
-pub struct PtyResizeCommand;
-
-impl PtyResizeCommand {
-    pub fn new() -> Self {
-        Self
-    }
+pub struct PtyResizeCommand {
+    bus: Arc<Bus>,
 }
 
-impl Default for PtyResizeCommand {
-    fn default() -> Self {
-        Self::new()
+impl PtyResizeCommand {
+    pub fn new(bus: Arc<Bus>) -> Self {
+        Self { bus }
     }
 }
 
@@ -322,19 +423,34 @@ impl Command for PtyResizeCommand {
         let cols: i64 = call.req(engine_state, stack, 1)?;
         let rows: i64 = call.req(engine_state, stack, 2)?;
 
-        let map = sessions().lock().unwrap();
-        let session = map
-            .get(&sid)
-            .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-        session
-            .master
-            .resize(PtySize {
-                cols: cols as u16,
-                rows: rows as u16,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| err(head, "pty resize failed", e.to_string()))?;
+        {
+            let map = sessions().lock().unwrap();
+            let session = map
+                .get(&sid)
+                .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
+            session
+                .master
+                .resize(PtySize {
+                    cols: cols as u16,
+                    rows: rows as u16,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .map_err(|e| err(head, "pty resize failed", e.to_string()))?;
+        }
+
+        self.bus.publish(
+            PTY_EVENTS_TOPIC,
+            Value::record(
+                record! {
+                    "event" => Value::string("resized", head),
+                    "sid" => Value::string(sid, head),
+                    "cols" => Value::int(cols, head),
+                    "rows" => Value::int(rows, head),
+                },
+                head,
+            ),
+        );
 
         Ok(PipelineData::Empty)
     }
@@ -385,19 +501,16 @@ impl Command for PtyStreamCommand {
         let sid: String = call.req(engine_state, stack, 0)?;
         let sse = call.has_flag(engine_state, stack, "sse")?;
 
-        let mut reader = {
-            let mut map = sessions().lock().unwrap();
+        // Subscribe + snapshot the backlog atomically so we don't drop bytes
+        // that arrived between snapshot and subscribe.
+        let (mut rx, backlog) = {
+            let map = sessions().lock().unwrap();
             let session = map
-                .get_mut(&sid)
+                .get(&sid)
                 .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-            if session.reader_taken {
-                return Err(err(head, "pty stream already taken for this sid", ""));
-            }
-            session.reader_taken = true;
-            session
-                .master
-                .try_clone_reader()
-                .map_err(|e| err(head, "clone_reader failed", e.to_string()))?
+            let rx = session.output_tx.subscribe();
+            let snapshot: Vec<u8> = session.backlog.lock().unwrap().iter().copied().collect();
+            (rx, snapshot)
         };
 
         let ty = if sse {
@@ -406,30 +519,33 @@ impl Command for PtyStreamCommand {
             ByteStreamType::Binary
         };
 
+        let mut backlog_iter = if backlog.is_empty() {
+            None
+        } else {
+            Some(backlog)
+        };
+
         let stream = ByteStream::from_fn(
             head,
             engine_state.signals().clone(),
             ty,
             move |buffer: &mut Vec<u8>| {
-                let mut tmp = [0u8; 4096];
-                match reader.read(&mut tmp) {
-                    Ok(0) => Ok(false),
-                    Ok(n) => {
-                        if sse {
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&tmp[..n]);
-                            buffer.extend_from_slice(b"data: ");
-                            buffer.extend_from_slice(b64.as_bytes());
-                            buffer.extend_from_slice(b"\n\n");
-                        } else {
-                            buffer.extend_from_slice(&tmp[..n]);
+                // First serve the snapshot of pre-attach bytes.
+                if let Some(bytes) = backlog_iter.take() {
+                    emit(buffer, &bytes, sse);
+                    return Ok(true);
+                }
+                // Then tail the broadcast. Lagged consumers skip ahead; that's
+                // fine for a terminal stream.
+                loop {
+                    match rx.blocking_recv() {
+                        Ok(chunk) => {
+                            emit(buffer, &chunk, sse);
+                            return Ok(true);
                         }
-                        Ok(true)
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => return Ok(false),
                     }
-                    Err(e) => Err(ShellError::Generic(GenericError::new(
-                        "pty read failed",
-                        e.to_string(),
-                        head,
-                    ))),
                 }
             },
         );
@@ -438,20 +554,27 @@ impl Command for PtyStreamCommand {
     }
 }
 
-// --- pty close --------------------------------------------------------------
-
-#[derive(Clone)]
-pub struct PtyCloseCommand;
-
-impl PtyCloseCommand {
-    pub fn new() -> Self {
-        Self
+fn emit(buffer: &mut Vec<u8>, bytes: &[u8], sse: bool) {
+    if sse {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+        buffer.extend_from_slice(b"data: ");
+        buffer.extend_from_slice(b64.as_bytes());
+        buffer.extend_from_slice(b"\n\n");
+    } else {
+        buffer.extend_from_slice(bytes);
     }
 }
 
-impl Default for PtyCloseCommand {
-    fn default() -> Self {
-        Self::new()
+// --- pty close --------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct PtyCloseCommand {
+    bus: Arc<Bus>,
+}
+
+impl PtyCloseCommand {
+    pub fn new(bus: Arc<Bus>) -> Self {
+        Self { bus }
     }
 }
 
@@ -478,11 +601,22 @@ impl Command for PtyCloseCommand {
         call: &Call,
         _input: PipelineData,
     ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
         let sid: String = call.req(engine_state, stack, 0)?;
         let session = sessions().lock().unwrap().remove(&sid);
         if let Some(mut s) = session {
             let _ = s.child.kill();
             let _ = s.child.wait();
+            self.bus.publish(
+                PTY_EVENTS_TOPIC,
+                Value::record(
+                    record! {
+                        "event" => Value::string("deleted", head),
+                        "sid" => Value::string(sid, head),
+                    },
+                    head,
+                ),
+            );
         }
         Ok(PipelineData::Empty)
     }
@@ -493,8 +627,6 @@ impl Command for PtyCloseCommand {
 // Free-form per-session metadata (label, etc). `pty meta set` mutates the
 // session's meta map and pings the `pty.events` bus topic so any subscribed
 // UI can react.
-
-const PTY_EVENTS_TOPIC: &str = "pty.events";
 
 #[derive(Clone)]
 pub struct PtyMetaSetCommand {
@@ -557,6 +689,70 @@ impl Command for PtyMetaSetCommand {
         self.bus.publish(PTY_EVENTS_TOPIC, event);
 
         Ok(PipelineData::Empty)
+    }
+}
+
+// --- pty list ---------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct PtyListCommand;
+
+impl PtyListCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for PtyListCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Command for PtyListCommand {
+    fn name(&self) -> &str {
+        "pty list"
+    }
+
+    fn description(&self) -> &str {
+        "List all live pty sessions as [{sid, cols, rows, meta}, ...]"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build("pty list")
+            .input_output_types(vec![(Type::Nothing, Type::Any)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        _engine_state: &EngineState,
+        _stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let map = sessions().lock().unwrap();
+        let mut rows: Vec<Value> = Vec::with_capacity(map.len());
+        for (sid, s) in map.iter() {
+            let size = s.master.get_size().ok();
+            let cols = size.as_ref().map(|sz| sz.cols as i64).unwrap_or(0);
+            let rs = size.as_ref().map(|sz| sz.rows as i64).unwrap_or(0);
+            let mut meta_rec = nu_protocol::Record::new();
+            for (k, v) in &s.meta {
+                meta_rec.push(k.clone(), v.clone());
+            }
+            rows.push(Value::record(
+                record! {
+                    "sid" => Value::string(sid, head),
+                    "cols" => Value::int(cols, head),
+                    "rows" => Value::int(rs, head),
+                    "meta" => Value::record(meta_rec, head),
+                },
+                head,
+            ));
+        }
+        Ok(Value::list(rows, head).into_pipeline_data())
     }
 }
 
