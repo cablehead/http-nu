@@ -9,17 +9,22 @@
 # slot, because we skip updates whose score is below the player's
 # existing slot).
 #
-# State: in-memory list of the current top-5 entries. On first run
-# starts empty and rebuilds as `start: "first"` replays the full
-# history of snapshots. On re-registration (code reload), the actor
-# framework resets `$state` to `initial` (null) even though it
-# preserves the frame cursor -- so the run lazy-loads from the
-# persisted head, preserving the table without re-replaying history.
+# State: in-memory list of the current top-5 entries. First boot on
+# an empty `leaderboard.top` topic falls back to `start: "first"` and
+# replays every snapshot. Every subsequent boot reads the cursor out
+# of the latest `leaderboard.top` frame's meta (`last_processed_id`)
+# and resumes after it -- O(new-snapshots-since-last-publish) rather
+# than O(all-history). On re-registration (code reload) within the
+# same boot, the actor framework resets `$state` to `initial` (null);
+# the run lazy-loads the live table from the persisted head so the
+# in-memory map stays warm without rewalking the stream.
 #
 # Output: a `leaderboard.top` frame per change, `ttl last:5`. Readers
 # do `.last leaderboard.top | get meta.entries`. The 5-frame history
-# is a side benefit -- handy for inspecting recent churn -- but the
-# head is the authoritative state.
+# is a side benefit; the head is the authoritative state. `meta` also
+# carries `last_processed_id` = the snapshot frame id that produced
+# this publish, which is what the cursor-style start expression above
+# reads on the next spawn.
 #
 # Registered at serve.nu startup. Requires --services + --store.
 
@@ -73,10 +78,19 @@ const SIZE = 5
       | first $SIZE
 
     # Append the new head. ttl last:5 keeps a small rolling history of
-    # leaderboard states; readers always use `.last`.
-    null | .append "leaderboard.top" --ttl last:5 --meta {entries: $candidate}
+    # leaderboard states; readers always use `.last`. `last_processed_id`
+    # is the cursor the next spawn resumes after (see start: expression
+    # below).
+    null | .append "leaderboard.top" --ttl last:5 --meta {
+      entries: $candidate
+      last_processed_id: $frame.id
+    }
     {next: $candidate}
   }
   initial: null
-  start: "first"
+  # Resume from the snapshot id the previous spawn last published a
+  # summary for. On a fresh / cursor-missing store the try/catch falls
+  # back to `"first"`, which replays everything once. Subsequent
+  # boots become O(new-snapshots).
+  start: (try { .last leaderboard.top | get meta.last_processed_id } catch { "first" })
 }
