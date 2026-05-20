@@ -1,3 +1,12 @@
+## Before declaring a 2048 change done
+
+Run `examples/2048/test/check.sh`. The top-level `scripts/check.sh`
+only runs the pure unit tests (`test.nu`); the per-example
+`check.sh` adds the SSE-pipeline tests (`test-sse.nu`, requires
+`--store`) and the browser e2e (`test.mjs`, chromium). The latter
+catches whole-page regressions that pure unit tests miss -- and
+caught the live `/sse-wc` hang once we wired test-sse.nu in.
+
 ## Nushell Style
 
 - `.last` returns null when the topic has no frames. Don't wrap it in
@@ -8,6 +17,18 @@
   `try { $r.foo } catch { null }`.
 - `-T` on `.cat` is an exact topic match, not a prefix. For prefix
   filtering use `.cat | where topic =~ '^...'`.
+- **Never bind a streaming pipeline to `let`.** In Nushell `let x =
+  <pipeline>` **collects** the pipeline into a value before binding,
+  so `let s = .cat --follow ...` hangs forever on an infinite stream.
+  Pipe streams straight into their consumer (`... | interleave { ... }
+  | to sse`), or use the canonical two-stream shape from the README:
+  `null | interleave { stream1 } { stream2 } | to sse`. See
+  `examples/2048/test/test-sse.nu` (T3) for the regression guard.
+- `interleave` takes **closures** (`{|| stream }`), not stream
+  *values*. Passing a stream value errors at runtime when the engine
+  tries to invoke it as a closure ("can't convert ... to Closure"),
+  which inside an SSE handler manifests as a silent hang from upstream
+  before the error is ever raised. test-sse.nu T1 guards this.
 
 ## Markup + CSS: hammer test
 

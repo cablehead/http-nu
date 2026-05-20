@@ -141,22 +141,26 @@ let design = source design/serve.nu
       } else {
         let n = $states | length
         let topic = $"bus.splash.seek.($ctx.tabId)"
-        let board_stream = .cat --last 1 --follow -T $topic
-          | where ($it.topic? | default "") == $topic
-          | each {|f|
-              let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
-              let state = $states | get $pos
-              # WC variant: ship the state as a signal; <game-board>
-              # picks it up via data-attr:state and runs its own
-              # animation. The counter is signal-bound on the client
-              # side (data-text on $pos), so we just need to push the
-              # pos number here. Strip per-tile animation hints from
-              # the wire payload; the WC diffs by id.
-              let board = $state | state-for-wc
-              {splashState: $board, splashPos: $pos}
-              | to datastar-patch-signals
-            }
-        $board_stream | interleave (presence-stream) | to sse
+        # No `let board_stream = ...` -- Nushell `let` would COLLECT
+        # the infinite `.cat --follow` before binding, hanging the
+        # handler. Pipe the stream straight into `interleave`.
+        .cat --last 1 --follow -T $topic
+        | where ($it.topic? | default "") == $topic
+        | each {|f|
+            let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
+            let state = $states | get $pos
+            # WC variant: ship the state as a signal; <game-board>
+            # picks it up via data-attr:state and runs its own
+            # animation. The counter is signal-bound on the client
+            # side (data-text on $pos), so we just need to push the
+            # pos number here. Strip per-tile animation hints from the
+            # wire payload; the WC diffs by id.
+            let board = $state | state-for-wc
+            {splashState: $board, splashPos: $pos}
+            | to datastar-patch-signals
+          }
+        | interleave { presence-stream }
+        | to sse
       }
     })
 
@@ -228,7 +232,10 @@ let design = source design/serve.nu
               let snap = try { .last $"game.($f.id).snapshot" } catch { null }
               if $snap == null { $acc } else { $acc | upsert $f.id $snap.meta }
             }
-        let games_stream = .cat --follow
+        # No `let games_stream = ...` -- Nushell `let` would COLLECT
+        # the infinite `.cat --follow` before binding, hanging the
+        # handler. See examples/2048/CLAUDE.md.
+        .cat --follow
         | generate {|item data|
             if ('event' in $item) { return {out: $item, next: $data} }
             if ($head != null and $item.id <= $head) { return {next: $data} }
@@ -269,7 +276,8 @@ let design = source design/serve.nu
             }
           } $initial_data
         | flatten
-        $games_stream | interleave (presence-stream) | to sse
+        | interleave { presence-stream }
+        | to sse
       }
     })
 
@@ -291,12 +299,16 @@ let design = source design/serve.nu
       # the initial render. Interleaved with the site-wide presence
       # stream so a /watch or /play tab sees live "N people on this
       # game" counts on the same connection.
-      let board_stream = .cat --follow -T $"game.($game_id).*" --from $game_id
-        | frames-to-states
-        | threshold-gate-states
-        | states-to-wc-signals
-        | html-to-patches
-      $board_stream | interleave (presence-stream) | to sse
+      # No `let board_stream = ...` -- Nushell `let` would COLLECT
+      # the infinite `.cat --follow` before binding, hanging the
+      # handler. See examples/2048/CLAUDE.md.
+      .cat --follow -T $"game.($game_id).*" --from $game_id
+      | frames-to-states
+      | threshold-gate-states
+      | states-to-wc-signals
+      | html-to-patches
+      | interleave { presence-stream }
+      | to sse
     })
 
     (route {method: GET path: "/new"} {|req ctx|
@@ -714,7 +726,17 @@ let design = source design/serve.nu
           # iff the reqId matches the pending probe. data-on-signal-
           # patch only fires on signal patches (not on mount), so the
           # deferred-script-load timing is safe.
-          (DIV {"data-on-signal-patch": "window.onAck($lastReqId)" hidden: ""})
+          # Guard window.onAck: Datastar fires data-on-signal-patch on the
+          # initial signal merge, which can land before script.js's defer
+          # has executed. Without the typeof check the page logs an
+          # ExecuteExpression error on first paint (caught by test.mjs's
+          # `no JS errors on /play load` assertion).
+          # Short-circuit form is required (Datastar wraps the value in
+          # `return (...)`, so `if` statements don't parse). When
+          # window.onAck isn't yet defined (e.g. the first signals
+          # merge lands before script.js's defer fires), the && yields
+          # the undefined-ish left side without throwing.
+          (DIV {"data-on-signal-patch": "window.onAck && window.onAck($lastReqId)" hidden: ""})
           # Breadcrumb header: left = path with shortcuts adjacent to
           # their link targets ([esc] sits next to "past games" because
           # esc is its keyboard shortcut). Right = top-level actions.
