@@ -51,6 +51,7 @@ if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default fa
   open ($SCRIPT_DIR | path join "tfe" "game.nu") | .append game.nu
   open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu") | .append snapshot-actor.register
   open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu") | .append leaderboard-actor.register
+  open ($SCRIPT_DIR | path join "tfe" "presence-actor.nu") | .append presence-actor.register
 }
 
 # Render a card from a games_topic frame (the initial page render). Resumes
@@ -114,13 +115,9 @@ let design = source design/serve.nu
         }
         if $intent == "undo" {
           null | .append $topic --meta ($meta_base | upsert kind "undo")
-        } else if $intent == "" {
-          # RTT-measurement ping: client sends an empty intent so the SSE
-          # echoes a no-op state. Don't persist -- ephemeral keeps the
-          # move log clean.
-          null | .append $topic --ttl ephemeral --meta ($meta_base | upsert intent $intent)
         } else {
-          # Covers h/j/k/l.
+          # Covers h/j/k/l. Empty-intent RTT pings are gone -- liveness
+          # is owned by /presence/ping now.
           null | .append $topic --meta ($meta_base | upsert intent $intent)
         }
         null | metadata set { merge {'http.response': {status: 204}} }
@@ -139,26 +136,53 @@ let design = source design/serve.nu
       # viewer right away (no gap before they see a board).
       let states = $SPLASH_STATES
       if ($states | is-empty) {
-        null | metadata set { merge {'http.response': {status: 204}} }
+        # Empty store: no board to drive, but presence still applies.
+        presence-stream | to sse
       } else {
         let n = $states | length
         let topic = $"bus.splash.seek.($ctx.tabId)"
-        .cat --last 1 --follow -T $topic
-        | where ($it.topic? | default "") == $topic
-        | each {|f|
-            let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
-            let state = $states | get $pos
-            # WC variant: ship the state as a signal; <game-board> picks
-            # it up via data-attr:state and runs its own animation. The
-            # counter is signal-bound on the client side (data-text on
-            # $pos), so we just need to push the pos number here. Strip
-            # per-tile animation hints (spawned / merged / ghosts) from
-            # the wire payload; the WC diffs by id.
-            let board = $state | state-for-wc
-            {splashState: $board, splashPos: $pos}
-            | to datastar-patch-signals
-          }
-        | to sse
+        let board_stream = .cat --last 1 --follow -T $topic
+          | where ($it.topic? | default "") == $topic
+          | each {|f|
+              let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
+              let state = $states | get $pos
+              # WC variant: ship the state as a signal; <game-board>
+              # picks it up via data-attr:state and runs its own
+              # animation. The counter is signal-bound on the client
+              # side (data-text on $pos), so we just need to push the
+              # pos number here. Strip per-tile animation hints from
+              # the wire payload; the WC diffs by id.
+              let board = $state | state-for-wc
+              {splashState: $board, splashPos: $pos}
+              | to datastar-patch-signals
+            }
+        $board_stream | interleave (presence-stream) | to sse
+      }
+    })
+
+    (route {method: POST path: "/presence/ping"} {|req ctx|
+      # Site-wide health/presence heartbeat. Replaces the per-/play
+      # empty-intent /move probe. Body: {tabId, scope, gameId?}. Each
+      # ping appends an ephemeral frame -- not stored, only live
+      # subscribers (the presence-actor) observe it. 204 ack lets the
+      # client flip body[data-conn]=ok; fetch errors / non-204 trip
+      # data-conn=down.
+      let body = try { $in | from json } catch { {} }
+      let tab_id = $body | get tabId? | default ""
+      let scope  = $body | get scope?  | default ""
+      let game_id = $body | get gameId? | default ""
+      let session = (resolve-session $req)
+      let user_id = if $session == null { "" } else { $session.user_id }
+      if ($tab_id | is-empty) {
+        "missing tabId" | metadata set { merge {'http.response': {status: 400}} }
+      } else {
+        null | .append "_presence.ping" --ttl ephemeral --meta {
+          tabId: $tab_id
+          scope: $scope
+          gameId: $game_id
+          user_id: $user_id
+        }
+        null | metadata set { merge {'http.response': {status: 204}} }
       }
     })
 
@@ -204,7 +228,7 @@ let design = source design/serve.nu
               let snap = try { .last $"game.($f.id).snapshot" } catch { null }
               if $snap == null { $acc } else { $acc | upsert $f.id $snap.meta }
             }
-        .cat --follow
+        let games_stream = .cat --follow
         | generate {|item data|
             if ('event' in $item) { return {out: $item, next: $data} }
             if ($head != null and $item.id <= $head) { return {next: $data} }
@@ -245,8 +269,17 @@ let design = source design/serve.nu
             }
           } $initial_data
         | flatten
-        | to sse
+        $games_stream | interleave (presence-stream) | to sse
       }
+    })
+
+    (route {method: GET path: "/sse/presence"} {|req ctx|
+      # Presence-only SSE for pages that have no per-page event
+      # stream of their own (/leaderboard, /by/<id>). Identical wire
+      # shape to the presence-stream interleaved into the other SSEs,
+      # so client-side display code stays oblivious to which surface
+      # delivered the patch.
+      presence-stream | to sse
     })
 
     (route {method: GET path-matches: "/sse-wc/:game_id"} {|req ctx|
@@ -255,13 +288,15 @@ let design = source design/serve.nu
       # this game's snapshot stream. --from $game_id includes the
       # games_topic frame at that id and everything after; the
       # threshold-gate buffers it down to just the latest snapshot for
-      # the initial render.
-      .cat --follow -T $"game.($game_id).*" --from $game_id
-      | frames-to-states
-      | threshold-gate-states
-      | states-to-wc-signals
-      | html-to-patches
-      | to sse
+      # the initial render. Interleaved with the site-wide presence
+      # stream so a /watch or /play tab sees live "N people on this
+      # game" counts on the same connection.
+      let board_stream = .cat --follow -T $"game.($game_id).*" --from $game_id
+        | frames-to-states
+        | threshold-gate-states
+        | states-to-wc-signals
+        | html-to-patches
+      $board_stream | interleave (presence-stream) | to sse
     })
 
     (route {method: GET path: "/new"} {|req ctx|
@@ -342,6 +377,7 @@ let design = source design/serve.nu
             splashState: ($initial_state | state-for-wc)
             splashPos: $start_pos
             tabId: $tab_id
+            presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
           } | to json --raw)
         }
           (H2 "2048, in Nushell!")
@@ -485,8 +521,14 @@ let design = source design/serve.nu
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "leaderboard -- nu2048"
             --body-class "leaderboard-view"
-            --body-attrs (if $empty { {} } else {
-              {"data-signals": ({games: $games_signal} | to json --raw)}
+            --sse true
+            --body-attrs ({
+              "data-sse": ""
+              "data-init": ("@get('" + ($req | href "/sse/presence") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
+              "data-signals": ({
+                games: (if $empty { {} } else { $games_signal })
+                presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
+              } | to json --raw)
             }))
     })
 
@@ -531,7 +573,10 @@ let design = source design/serve.nu
               {
                 "data-sse": ""
                 "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
-                "data-signals": ({games: $games_signal} | to json --raw)
+                "data-signals": ({
+                  games: $games_signal
+                  presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
+                } | to json --raw)
               }
             }))
       if $session == null { $body } else { $body | session-cookies set $session }
@@ -562,6 +607,9 @@ let design = source design/serve.nu
                 (A {href: ($req | href $"/by/($owner_id)")} $"by ($owner_short)")
                 (SPAN {class: "sep"} "·")
                 (A {class: "game-id" href: ($req | href $"/watch/($game_id)")} $game_id_short)
+                (SPAN {class: "sep"} "·")
+                (SPAN {class: "game-presence"
+                       "data-text": $"\($presence.byGame['($game_id)'] || 0) + ' here'"} "")
               ]
               --right [
                 (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
@@ -576,13 +624,14 @@ let design = source design/serve.nu
                 "data-init": ("@get('" + ($req | href $"/sse-wc/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
                 # Seed the WC + chrome signals so first paint is sane
                 # before SSE lands.
-                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: ''}"
+                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: '', presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}}"
               }
                 (DIV {id: "board-wrap"}
                   (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})))))
         ] | layout $req $REV $DATASTAR_JS_PATH
               --title $"watching ($game_id_short) -- nu2048"
               --body-class "watch"
+              --body-attrs {"data-game-id": $game_id}
               --sse true)
       }
     })
@@ -621,7 +670,15 @@ let design = source design/serve.nu
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title $"games by ($pid_short) -- nu2048"
             --body-class "games-view"
-            --body-attrs {"data-signals": ({games: $games_signal} | to json --raw)})
+            --sse true
+            --body-attrs {
+              "data-sse": ""
+              "data-init": ("@get('" + ($req | href "/sse/presence") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
+              "data-signals": ({
+                games: $games_signal
+                presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
+              } | to json --raw)
+            })
     })
 
     (route {method: GET path-matches: "/play/:game_id"} {|req ctx|
@@ -668,6 +725,9 @@ let design = source design/serve.nu
               (kbd-btn "esc" --suffix " home" --href $home_href)
               (SPAN {class: "sep"} "·")
               (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short)
+              (SPAN {class: "sep"} "·")
+              (SPAN {class: "game-presence"
+                     "data-text": $"\($presence.byGame['($game_id)'] || 0) + ' here'"} "")
             ]
             --right [
               # Same game, spectator view -- right-click to share.
@@ -718,11 +778,12 @@ let design = source design/serve.nu
             --og-description "Event-sourced 2048 on http-nu: cross.stream snapshots, Datastar SSE, encapsulated board web component."
             --body-class "play"
             --sse true
+            --show-rtt true
             --body-attrs {
               "data-player-id": $player_id
               "data-game-id": $game_id
               "data-move-url": ($req | href "/move")
-              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}}"
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}, presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}}"
             }
         | session-cookies set $session)
       }

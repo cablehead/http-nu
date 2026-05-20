@@ -596,6 +596,8 @@ body.flash-red { animation: flash-red 300ms ease; }
 }
 .you-are { font-size: var(--text-sm); }
 .site-nav-link { font-size: var(--text-sm); }
+.site-presence { font-size: var(--text-sm); opacity: 0.8; font-variant-numeric: tabular-nums; }
+.game-presence { font-family: var(--font-mono); font-size: var(--text-sm); opacity: 0.75; }
 
 .site-header .status {
   display: flex;

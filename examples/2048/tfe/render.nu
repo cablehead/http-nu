@@ -179,6 +179,7 @@ export def layout [
   --body-class: string = ""
   --body-attrs: record = {}
   --sse = false
+  --show-rtt = false
   --head-extra: list = []   # extra HTML records spliced into <head> (after the
                             # core <link>/<script> tags). Used by sub-sites
                             # like /design to add per-section stylesheets or
@@ -205,6 +206,10 @@ export def layout [
   let nav_attrs = {
     "data-home-href": ($req | href "/")
     "data-new-href":  ($req | href "/new")
+    "data-ping-url":  ($req | href "/presence/ping")
+    # Mount prefix so client-side URL parsing (presence scope derivation,
+    # etc.) can strip it before reading the route path.
+    "data-mount-prefix": ($req | get mount_prefix? | default "")
   }
   {
     title: $title
@@ -222,6 +227,7 @@ export def layout [
     design_href: ($req | href "/design/")
     player_id: $pid_short
     sse: $sse
+    show_rtt: $show_rtt
     body_class: $body_class
     body_attrs: ($nav_attrs | merge $body_attrs | transpose key value)
     head_extra: $head_extra_html

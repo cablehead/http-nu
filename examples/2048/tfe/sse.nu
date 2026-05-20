@@ -7,10 +7,12 @@
 #   | html-to-patches
 #   | to sse
 #
-# Each stage has one job. The client drives heartbeat / liveness: an
-# initial ping fires from script.js on the Datastar `started` event
-# and the existing /move + lastReqId path resolves its RTT. The server
-# no longer emits keepalives, so SSE handlers wake only on real frames.
+# Each stage has one job. Connection liveness lives on a separate
+# channel: the client POSTs /presence/ping every few seconds and the
+# response status owns body[data-conn]. The /move + lastReqId path
+# still resolves player RTT after a real key press. SSE handlers
+# themselves emit nothing on their own clock -- only real frames and
+# the interleaved presence-stream wake them up.
 
 use http-nu/datastar *
 use ./render.nu *
@@ -125,4 +127,17 @@ export def html-to-patches [] {
       $item.signals | to datastar-patch-signals
     }
   }
+}
+
+# Live `$presence` signal patches. The presence-actor maintains the
+# `_presence.summary` head (ttl last:1). `--last 1` seeds a freshly
+# connected viewer with the current value before --follow takes over.
+# Wrapped as a pre-formatted SSE event so it can be `interleave`d
+# into any per-page handler without that handler caring about the
+# data shape.
+export def presence-stream [] {
+  .cat --last 1 --follow -T "_presence.summary"
+  | each {|f|
+      {presence: ($f.meta | default {})} | to datastar-patch-signals
+    }
 }

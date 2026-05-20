@@ -5,13 +5,24 @@ const gameId = document.body.dataset.gameId;
 const moveUrl = document.body.dataset.moveUrl;
 const homeHref = document.body.dataset.homeHref;
 const newHref = document.body.dataset.newHref;
+const pingUrl = document.body.dataset.pingUrl;
+// Per-page scope advertised to /presence/ping. Pulled from body
+// data-scope when the route sets it explicitly; otherwise derived
+// from the URL's first path segment after stripping the mount prefix
+// (e.g. "/2048/play/abc" with mount "/2048" -> scope "play"). Root
+// path falls back to "splash". gameId is reused for /play + /watch.
+const mountPrefix = document.body.dataset.mountPrefix || "";
+const scope = (() => {
+  if (document.body.dataset.scope) return document.body.dataset.scope;
+  let p = location.pathname;
+  if (mountPrefix && p.startsWith(mountPrefix)) p = p.slice(mountPrefix.length);
+  return p.split("/").filter(Boolean)[0] || "splash";
+})();
 
-// End-to-end RTT slots. movePending ticks visibly via tickRtt while a
-// user-initiated move is in flight (h/j/k/l/u). pingPending tracks the
-// most recent heartbeat probe and never ticks -- its purpose is
-// liveness + RTT snapshot on resolution.
+// End-to-end RTT slot. Ticks visibly via tickRtt while a user-
+// initiated move (h/j/k/l/u) is in flight; cleared on ack. Liveness
+// no longer rides this signal -- it's owned by /presence/ping.
 let movePending = null;
-let pingPending = null;
 
 const flashRed = () => {
   document.body.classList.remove("flash-red");
@@ -26,102 +37,67 @@ const tickRtt = () => {
   requestAnimationFrame(tickRtt);
 };
 
-// Heartbeat: periodic ping every PING_INTERVAL_MS while SSE is up,
-// replacing the server-side --pulse 450 that used to drive liveness.
-// Each ping arms a PING_TIMEOUT_MS deadline; expiry flips conn=down.
-// Any ack (ping or move) or any other SSE patch clears the deadline.
-const PING_INTERVAL_MS = 450;
-const PING_TIMEOUT_MS = 1000;
-let pingTimer = null;
-let pingInterval = null;
-const clearPingTimer = () => {
-  if (pingTimer != null) { clearTimeout(pingTimer); pingTimer = null; }
-};
-const stopPinging = () => {
-  if (pingInterval != null) { clearInterval(pingInterval); pingInterval = null; }
-  clearPingTimer();
-  pingPending = null;
-};
-
 const move = (intent) => {
   // Each move carries a uuid the server echoes back via the
   // $lastReqId signal. window.onAck filters on that uuid so replay
-  // patches and other tabs' acks don't get misattributed.
+  // patches from other clients aren't misattributed. Move-only --
+  // liveness lives in the presence ping below.
   const reqId = crypto.randomUUID();
-  const stamp = performance.now();
-  if (intent === "") {
-    // Heartbeat ping. Replaces any prior unacked ping (older one becomes
-    // orphaned; if its ack later arrives, no slot matches).
-    pingPending = { id: reqId, t: stamp };
-    clearPingTimer();
-    pingTimer = setTimeout(() => setConn("down"), PING_TIMEOUT_MS);
-  } else {
-    movePending = { id: reqId, t: stamp };
-    if ("hjkl".includes(intent)) {
-      document.querySelector("#board-wrap")?.setAttribute("data-pending", intent);
-    }
-    requestAnimationFrame(tickRtt);
+  movePending = { id: reqId, t: performance.now() };
+  if ("hjkl".includes(intent)) {
+    document.querySelector("#board-wrap")?.setAttribute("data-pending", intent);
   }
+  requestAnimationFrame(tickRtt);
   return fetch(moveUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ playerId, gameId, intent, reqId }),
   }).then((r) => {
     if (!r.ok) {
-      if (intent === "") pingPending = null;
-      else { movePending = null; document.querySelector("#board-wrap")?.removeAttribute("data-pending"); }
+      movePending = null;
+      document.querySelector("#board-wrap")?.removeAttribute("data-pending");
       flashRed();
     }
   }).catch(() => {
-    if (intent === "") pingPending = null;
-    else { movePending = null; document.querySelector("#board-wrap")?.removeAttribute("data-pending"); }
+    movePending = null;
+    document.querySelector("#board-wrap")?.removeAttribute("data-pending");
     flashRed();
   });
 };
 
-// SSE liveness. Datastar's data-on:fetch lifecycle events are the
-// source of truth for conn state: `started` (with a confirmed ack on
-// /play) = ok; `retrying` / `retries-failed` = down. The server no
-// longer emits keepalive pulses; an idle SSE stream is silent, and
-// that's fine -- liveness only needs to flip when something actually
-// changes.
-const sseEl = document.querySelector("[data-sse]");
+// Connection liveness is now a pure function of /presence/ping. Each
+// ping carries a {tabId, scope, gameId?} body; a 204 ack flips
+// body[data-conn]=ok, anything else (non-204, fetch error, timeout)
+// flips it to down. The conn indicator in layout reads this attribute
+// via CSS; no SSE-driven liveness handlers anywhere.
+const PING_INTERVAL_MS = 3000;
+const PING_TIMEOUT_MS = 4000;
 const setConn = (v) => {
   if (document.body.dataset.conn === v) return;
   document.body.dataset.conn = v;
-  if (v === "down") {
-    // Stale RTT belongs to a previous connection. Wipe pendings and
-    // the readout so the next probe seeds a fresh measurement.
-    movePending = null;
-    rttEl()?.replaceChildren("");
+};
+const TAB_ID_KEY = "nu2048.tabId";
+let tabId = sessionStorage.getItem(TAB_ID_KEY);
+if (!tabId) { tabId = crypto.randomUUID(); sessionStorage.setItem(TAB_ID_KEY, tabId); }
+const presencePing = async () => {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), PING_TIMEOUT_MS);
+  try {
+    const r = await fetch(pingUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tabId, scope, gameId }),
+      signal: ctrl.signal,
+    });
+    setConn(r.status === 204 ? "ok" : "down");
+  } catch {
+    setConn("down");
+  } finally {
+    clearTimeout(t);
   }
 };
-document.addEventListener("datastar-fetch", (e) => {
-  if (e.detail.el !== sseEl) return;  // not our SSE -- ignore
-  const t = e.detail.type;
-  if (t === "started") {
-    if (moveUrl) {
-      // /play: kick off the periodic heartbeat. First ping fires now
-      // (seeds RTT), subsequent pings keep liveness measured while idle.
-      stopPinging();  // belt-and-braces if a prior interval somehow survived
-      move("");
-      pingInterval = setInterval(() => move(""), PING_INTERVAL_MS);
-    } else {
-      setConn("ok");
-    }
-  } else if (t.startsWith("datastar-patch")) {
-    // Any patch arrival on our SSE is proof of life. Disarms the
-    // in-flight ping deadline and flips conn=ok. Leaves pingPending
-    // intact so its specific ack still has a slot to match -- the
-    // first patch we see is often the threshold flush carrying a
-    // different lastReqId; the ping's own ack rides a later patch.
-    setConn("ok");
-    clearPingTimer();
-  } else if (t === "retrying" || t === "retries-failed") {
-    setConn("down");
-    stopPinging();
-  }
-});
+presencePing();
+setInterval(presencePing, PING_INTERVAL_MS);
 
 // Global navigation: Esc -> splash, n -> new game. Registered always so
 // every page (play, watch, my games, splash, notes, design) responds.
@@ -147,29 +123,14 @@ if (moveUrl) {
 // No-op unless reqId matches the pending probe we issued (replay /
 // spectator streams carry reqIds we never issued; ignore them).
 window.onAck = (reqId) => {
-  // User move resolution: writes the visible RTT readout.
+  // User move resolution: writes the visible RTT readout. RTT is now
+  // strictly move-driven (no ping seeding) -- the readout stays empty
+  // until the player presses a key.
   if (movePending && reqId === movePending.id) {
     const rtt = Math.round(performance.now() - movePending.t);
     movePending = null;
     document.querySelector("#board-wrap")?.removeAttribute("data-pending");
     rttEl()?.replaceChildren(`${rtt}ms`);
-    return;
-  }
-  // Heartbeat resolution: clears the ping deadline. Only SEEDS the
-  // visible readout (when it's empty -- fresh page load or post-
-  // disconnect). Subsequent pings keep liveness up but never touch
-  // the display; otherwise the readout would flicker with a new
-  // value every PING_INTERVAL_MS. Move acks own the readout after
-  // the seed.
-  if (pingPending && reqId === pingPending.id) {
-    const rtt = Math.round(performance.now() - pingPending.t);
-    pingPending = null;
-    clearPingTimer();
-    setConn("ok");
-    const el = rttEl();
-    if (el && el.textContent === "" && movePending == null) {
-      el.replaceChildren(`${rtt}ms`);
-    }
   }
 };
 

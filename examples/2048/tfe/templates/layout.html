@@ -25,11 +25,12 @@
   <a class="site-title" href="{{ splash_href }}">nu2048</a>
   <div class="site-header-right">
     <a class="site-nav-link" href="{{ leaderboard_href }}">leaderboard</a>
+    {% if sse %}<span class="site-presence" data-text="$presence.totalTabs + ' here'" title="people currently on the site"></span>{% endif %}
     {% if player_id %}<a class="you-are" href="{{ my_games_href }}" title="your games (profile soon)">you are: <code>{{ player_id }}</code></a>{% endif %}
-    {% if sse %}<div class="status">
+    <div class="status">
       <span id="conn" class="stat"></span>
-      <span id="rtt" class="stat"></span>
-    </div>{% endif %}
+      {% if show_rtt %}<span id="rtt" class="stat"></span>{% endif %}
+    </div>
     <span class="credit">
       <a href="https://http-nu.cross.stream">served by http-nu <img src="{{ ellie_href }}" alt="ellie" class="mascot"></a>
     </span>
