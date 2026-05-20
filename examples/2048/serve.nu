@@ -48,10 +48,17 @@ const SPLASH_PLAYER_ID = "542221d8-be77-4fac-91cb-1bfa49ae3b2a"
 # happy. Re-registering on each startup replaces the running actor (per
 # xs's `<name>.register` semantics), so this is restart-safe.
 if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default false) {
-  open ($SCRIPT_DIR | path join "tfe" "game.nu") | .append game.nu
-  open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu") | .append snapshot-actor.register
-  open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu") | .append leaderboard-actor.register
-  open ($SCRIPT_DIR | path join "tfe" "presence-actor.nu") | .append presence-actor.register
+  # `--ttl last:1` caps each registration topic to a single frame:
+  # --watch reloads of serve.nu still re-append, but xs evicts the
+  # previous frame as the new one lands so the topic never grows.
+  # The active actor still receives the new register live and
+  # self-terminates (actor.rs:252-264); the spawn that replaces it
+  # uses the surviving frame. Same shape for `game.nu` -- it's a
+  # module topic the snapshot-actor consumes via `use game *`.
+  open ($SCRIPT_DIR | path join "tfe" "game.nu")               | .append game.nu                    --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu")     | .append snapshot-actor.register    --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu")  | .append leaderboard-actor.register --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "presence-actor.nu")     | .append presence-actor.register    --ttl last:1
 }
 
 # Render a card from a games_topic frame (the initial page render). Resumes
