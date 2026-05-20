@@ -22,7 +22,7 @@
     if (($topic | str starts-with "player.") and ($topic | str ends-with ".games")) {
       let game_id = $frame.id
       let player_id = $topic | str replace "player." "" | str replace ".games" ""
-      let init = (initial-state $game_id)
+      let init = initial-state $game_id
       let max_tile = if ($init.tiles | is-empty) { 0 } else { $init.tiles | get value | math max }
       let moves = [0 ($init.next_id - 3)] | math max
       let req_id = $frame | get meta? | default {} | get req_id? | default ""
@@ -45,7 +45,7 @@
     }
 
     # --- Move impulses: game.<id>.move ---------------------------------
-    let is_move_topic = (($topic | str starts-with "game.") and ($topic | str ends-with ".move"))
+    let is_move_topic = ($topic | str starts-with "game.") and ($topic | str ends-with ".move")
     if not $is_move_topic { return {next: $state} }
 
     let game_id = $topic | str substring 5.. | str replace ".move" ""
@@ -80,7 +80,7 @@
       if $parent_id == $game_id {
         null
       } else {
-        let parent = (try { .get $parent_id } catch { null })
+        let parent = try { .get $parent_id } catch { null }
         if $parent == null { null } else {
           {
             # Drop any ghosts from the parent state -- they belonged

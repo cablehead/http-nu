@@ -194,7 +194,7 @@ export def layout [
   # Short user slug for the header chip; empty string = no chip shown
   # (template guards on `{% if player_id %}`). Reads the `session`
   # cookie and looks up the bound user_id -- never the cookie token.
-  let token = ($req | cookie parse | get session? | default "")
+  let token = $req | cookie parse | get session? | default ""
   let pid = if ($token | is-empty) { "" } else {
     let f = .last $"session.($token)"
     if $f == null { "" } else { $f.meta | get user_id? | default "" }

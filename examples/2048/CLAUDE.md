@@ -23,6 +23,20 @@ caught the live `/sse-wc` hang once we wired test-sse.nu in.
   one expression, no try, no temporary binding, and surfaces the
   field name in plain sight. Avoid the older
   `try { .last "topic" | get meta.field } catch { <fallback> }`.
+- `let foo = (expr)` -- parens are NOT needed for single-line let
+  values, even when the value is a pipeline. `let s = resolve-session
+  $req`, `let token = $req | cookie parse | get session?`, and `let
+  next_tabs = $st.tabs | upsert $tab_id $entry` all work bare.
+  Reach for parens only when:
+    * The value spans multiple lines (`let body = ([...] | layout ...)`
+      with the closing `)` on a later line).
+    * You're forcing operator precedence next to a non-pipe operator
+      (e.g. `let pos = (($f.meta | ... | into int) mod $n)` where
+      without the inner group, `mod` would bind to the wrong side).
+    * The value has a boolean/arith expression with sub-pipelines:
+      `let ok = ($x | str starts-with "a") and ($y | str ends-with
+      "b")` -- the inner parens isolate the pipes from `and`.
+  Default to bare; add parens to grouping that actually grouping.
 - `-T` on `.cat` is an exact topic match, not a prefix. For prefix
   filtering use `.cat | where topic =~ '^...'`.
 - **Never bind a streaming pipeline to `let`.** In Nushell `let x =

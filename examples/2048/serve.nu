@@ -65,7 +65,7 @@ if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default fa
 # the game to get state, then defers to render-card-from-state.
 # Caller chooses the destination via `--href`; defaults to /play.
 def render-game-card [req: record game_frame: record --href: string]: nothing -> record {
-  let resumed = (resume-game $game_frame.id)
+  let resumed = resume-game $game_frame.id
   let h = if ($href | is-empty) { ($req | href $"/play/($game_frame.id)") } else { $href }
   render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id --href $h
 }
@@ -97,7 +97,7 @@ let design = source design/serve.nu
       let game_id = $signals | get gameId? | default ""
       let intent = $signals | get intent? | default ""
       let req_id = $signals | get reqId? | default ""
-      let session = (resolve-session $req)
+      let session = resolve-session $req
       if ($game_id | is-empty) {
         null | metadata set { merge {'http.response': {status: 400}} }
       } else if $session == null {
@@ -154,7 +154,7 @@ let design = source design/serve.nu
         .cat --last 1 --follow -T $topic
         | where ($it.topic? | default "") == $topic
         | each {|f|
-            let pos = ((($f.meta? | default {} | get pos? | default 0) | into int) mod $n)
+            let pos = (($f.meta? | default {} | get pos? | default 0) | into int) mod $n
             let state = $states | get $pos
             # WC variant: ship the state as a signal; <game-board>
             # picks it up via data-attr:state and runs its own
@@ -182,7 +182,7 @@ let design = source design/serve.nu
       let tab_id = $body | get tabId? | default ""
       let scope  = $body | get scope?  | default ""
       let game_id = $body | get gameId? | default ""
-      let session = (resolve-session $req)
+      let session = resolve-session $req
       let user_id = if $session == null { "" } else { $session.user_id }
       if ($tab_id | is-empty) {
         "missing tabId" | metadata set { merge {'http.response': {status: 400}} }
@@ -224,7 +224,7 @@ let design = source design/serve.nu
       # wrote and add it. Either path re-renders the whole .games-list
       # from $data and emits a single morph patch. morphdom diffs the
       # new HTML against the DOM so unchanged cards don't mutate.
-      let session = (resolve-session $req)
+      let session = resolve-session $req
       if $session == null {
         null | metadata set { merge {'http.response': {status: 401}} }
       } else {
@@ -265,7 +265,7 @@ let design = source design/serve.nu
               .last $"game.($item.id).snapshot" | get meta? | default null
             } else { $item.meta }
             if $new_meta == null { return {next: $data} }
-            let is_new_card = ($changed_id not-in ($data | columns))
+            let is_new_card = $changed_id not-in ($data | columns)
             let new_data = $data | upsert $changed_id $new_meta
             if $new_data == $data { return {next: $data} }
             # Compute the signal merge for this card. State for the WC
@@ -274,7 +274,7 @@ let design = source design/serve.nu
             let state = $new_meta.state
             let lmid = $new_meta | get last_move_id? | default $changed_id
             let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-            let wc_state = ($state | state-for-wc) | upsert playedMs $played_ms
+            let wc_state = $state | state-for-wc | upsert playedMs $played_ms
             let signal_patch = ({
               games: {$changed_id: $wc_state}
             } | to datastar-patch-signals)
@@ -331,11 +331,11 @@ let design = source design/serve.nu
       # Mint a games_topic frame for this user and 302 to /play/<id>.
       # Session is auto-claimed from any legacy `player` cookie or
       # minted fresh. The user_id stays stable across `/new` calls.
-      let existing = (resolve-session $req)
+      let existing = resolve-session $req
       let session = if $existing == null { mint-session (random uuid) } else { $existing }
       let games_topic = $"player.($session.user_id).games"
-      let new_frame = (null | .append $games_topic)
-      let location = ($req | href $"/play/($new_frame.id)")
+      let new_frame = null | .append $games_topic
+      let location = $req | href $"/play/($new_frame.id)"
       "" | metadata set { merge {'http.response': {status: 302 headers: {Location: $location}}} }
       | session-cookies set $session
     })
@@ -503,7 +503,7 @@ let design = source design/serve.nu
         if $snap == null { null } else {
           let lmid = $snap.meta | get last_move_id? | default $e.game_id
           let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-          let state = ($snap.meta.state | state-for-wc) | upsert playedMs $played_ms
+          let state = $snap.meta.state | state-for-wc | upsert playedMs $played_ms
           {entry: $e, state: $state}
         }
       } | compact
@@ -527,7 +527,7 @@ let design = source design/serve.nu
               "by " (A {href: ($req | href $"/by/($e.player_id)")} $player_short))))
       }
 
-      let empty = ($entries | is-empty)
+      let empty = $entries | is-empty
       ([
         (DIV {class: "page"}
           (breadcrumb
@@ -564,7 +564,7 @@ let design = source design/serve.nu
       # (visitors get a "start a game" prompt rather than someone
       # else's data). A legacy `player` cookie is one-shot claimed
       # into a session here.
-      let session = (resolve-session $req)
+      let session = resolve-session $req
       let games = if $session == null { [] } else {
         try { .cat -T $"player.($session.user_id).games" | reverse } catch { [] }
       }
@@ -573,10 +573,10 @@ let design = source design/serve.nu
       # Live SSE patches merge per-game updates into the same shape;
       # no HTML re-render needed for snapshot changes.
       let games_signal = $games | reduce -f {} {|f acc|
-        let resumed = (resume-game $f.id)
+        let resumed = resume-game $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-        let state = ($resumed.state | state-for-wc) | upsert playedMs $played_ms
+        let state = $resumed.state | state-for-wc | upsert playedMs $played_ms
         $acc | upsert $f.id $state
       }
       let body = ([
@@ -623,7 +623,7 @@ let design = source design/serve.nu
         let owner_id = $owner_frame.topic | str replace "player." "" | str replace ".games" ""
         let owner_short = $owner_id | str substring 0..7
         let game_id_short = $game_id | str substring 0..7
-        let home_href = ($req | href "/")
+        let home_href = $req | href "/"
         ([
           (DIV {class: "page"}
             (breadcrumb
@@ -679,10 +679,10 @@ let design = source design/serve.nu
       let games_topic = $"player.($player_id).games"
       let games = try { .cat -T $games_topic | reverse } catch { [] }
       let games_signal = $games | reduce -f {} {|f acc|
-        let resumed = (resume-game $f.id)
+        let resumed = resume-game $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
-        let state = ($resumed.state | state-for-wc) | upsert playedMs $played_ms
+        let state = $resumed.state | state-for-wc | upsert playedMs $played_ms
         $acc | upsert $f.id $state
       }
       ([
@@ -716,7 +716,7 @@ let design = source design/serve.nu
       # Owner-or-404. Anonymous visitors and visitors whose session
       # doesn't own this game get a not-found -- /watch/<game_id> is
       # the public read-only path.
-      let session = (resolve-session $req)
+      let session = resolve-session $req
       # Owner = the player on whose `player.<id>.games` topic this
       # game's creating frame was appended. Read directly so we don't
       # race the snapshot-actor.
@@ -728,7 +728,7 @@ let design = source design/serve.nu
         "Not Found" | metadata set { merge {'http.response': {status: 404}} }
       } else {
         let player_id = $session.user_id
-      let home_href = ($req | href "/")
+      let home_href = $req | href "/"
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })

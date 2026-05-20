@@ -49,14 +49,14 @@ export def resume-game [game_id: string]: nothing -> record {
     }
   }
   # No snapshot -- full replay, then backfill so we don't pay this twice.
-  let state = (replay-game-state $game_id)
+  let state = replay-game-state $game_id
   let moves = [0 ($state.next_id - 3)] | math max
   let last_move = .last $"game.($game_id).move"
   let follow_from_id = if $last_move != null { $last_move.id } else { $game_id }
   let max_tile = if ($state.tiles | is-empty) { 0 } else { $state.tiles | get value | math max }
   # game_id is the id of the player.<uuid>.games frame that started this
   # game; fetch it to recover the owning player_id for the snapshot meta.
-  let owner_frame = (try { .get $game_id } catch { null })
+  let owner_frame = try { .get $game_id } catch { null }
   let player_id = if $owner_frame != null {
     $owner_frame.topic | str replace "player." "" | str replace ".games" ""
   } else { "" }
