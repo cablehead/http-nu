@@ -120,6 +120,11 @@ enum LogFormat {
 
 #[derive(clap::Subcommand, Debug)]
 enum Command {
+    /// Run an interactive nushell REPL with http-nu's custom commands
+    /// registered. Used by `pty open --embedded` via self-re-exec so that
+    /// the embedded REPL gets a clean Rust process and externals work.
+    Repl,
+
     /// Evaluate a Nushell script with http-nu commands and exit
     Eval {
         /// Script file to evaluate, or '-' to read from stdin
@@ -537,6 +542,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // when the last connection closes, so we keep one alive for the lifetime
     // of the process.
     let _stor_db = nu_command::open_connection_in_memory_custom()?;
+
+    // Handle Repl subcommand: build the engine like Eval, then hand off to
+    // nushell's interactive REPL. Used by `pty open --embedded` via
+    // self-re-exec, so we never run the http server here -- just become nu.
+    if let Some(Command::Repl) = args.command {
+        // Replicate nushell's terminal::acquire (it's pub(crate) so we can't
+        // call it). Ignore SIGTTOU/SIGTTIN/etc so externals can call
+        // tcsetpgrp from their pre_exec without being stopped.
+        #[cfg(unix)]
+        unsafe {
+            use nix::sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
+            let ignore = SigAction::new(SigHandler::SigIgn, SaFlags::empty(), SigSet::empty());
+            let _ = sigaction(Signal::SIGQUIT, &ignore);
+            let _ = sigaction(Signal::SIGTSTP, &ignore);
+            let _ = sigaction(Signal::SIGTTIN, &ignore);
+            let _ = sigaction(Signal::SIGTTOU, &ignore);
+        }
+        let mut engine = Engine::new()?;
+        engine.add_custom_commands()?;
+        engine.set_lib_dirs(&args.include_paths)?;
+        engine.set_http_nu_const(&HttpNuOptions::default())?;
+        for plugin_path in &args.plugins {
+            engine.load_plugin(plugin_path)?;
+        }
+        engine.set_signals(interrupt.clone());
+
+        // Build a fresh Stack and bootstrap default env+config + restore
+        // nushell's stock `print` (http-nu's PrintCommand shadows it and
+        // routes to the http log).
+        let mut stack = nu_protocol::engine::Stack::new();
+        for kind in [
+            nu_utils::ConfigFileKind::Env,
+            nu_utils::ConfigFileKind::Config,
+        ] {
+            nu_cli::eval_source(
+                &mut engine.state,
+                &mut stack,
+                kind.default().as_bytes(),
+                kind.name(),
+                nu_protocol::PipelineData::empty(),
+                false,
+            );
+            let _ = engine.state.merge_env(&mut stack);
+        }
+        let disable_si = b"\
+            $env.config.shell_integration.osc133 = false\n\
+            $env.config.shell_integration.osc633 = false\n\
+        ";
+        nu_cli::eval_source(
+            &mut engine.state,
+            &mut stack,
+            disable_si,
+            "disable_shell_integration",
+            nu_protocol::PipelineData::empty(),
+            false,
+        );
+        let _ = engine.state.merge_env(&mut stack);
+
+        {
+            let mut ws = nu_protocol::engine::StateWorkingSet::new(&engine.state);
+            ws.add_decl(Box::new(nu_cli::Print));
+            engine.state.merge_delta(ws.render())?;
+        }
+
+        engine.state.is_interactive = true;
+
+        let _ = nu_cli::evaluate_repl(
+            &mut engine.state,
+            stack,
+            None,
+            None,
+            std::time::Instant::now().into(),
+        );
+        shutdown();
+        log_handle.join().ok();
+        return Ok(());
+    }
 
     // Handle subcommands
     if let Some(Command::Eval {

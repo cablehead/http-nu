@@ -10,108 +10,25 @@
 //! ByteStream so SSE handlers can pipe it straight to the response.
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
 
 use base64::Engine as _;
 use nu_engine::command_prelude::*;
 use nu_protocol::{
-    engine::Stack as NuStack, shell_error::generic::GenericError, ByteStream, ByteStreamType,
-    Category, PipelineData, ShellError, Signature, Span, SyntaxShape, Type, Value,
+    shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, PipelineData,
+    ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
 
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
 
-use nix::pty::{openpty, Winsize};
-use nix::sys::signal::{self, Signal};
-use nix::sys::wait::waitpid;
-use nix::unistd::{getpid, setsid, tcsetpgrp, ForkResult, Pid};
-
 // --- session bookkeeping ----------------------------------------------------
 
-enum MasterKind {
-    Portable(Box<dyn MasterPty + Send>),
-    Raw(OwnedFd),
-}
-
-impl MasterKind {
-    fn resize(&self, size: PtySize, span: Span) -> Result<(), ShellError> {
-        match self {
-            Self::Portable(m) => m
-                .resize(size)
-                .map_err(|e| err(span, "pty resize failed", e.to_string())),
-            Self::Raw(fd) => {
-                let ws = libc::winsize {
-                    ws_row: size.rows,
-                    ws_col: size.cols,
-                    ws_xpixel: 0,
-                    ws_ypixel: 0,
-                };
-                let rc = unsafe { libc::ioctl(fd.as_raw_fd(), libc::TIOCSWINSZ, &ws) };
-                if rc < 0 {
-                    return Err(err(
-                        span,
-                        "pty resize failed",
-                        std::io::Error::last_os_error().to_string(),
-                    ));
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn clone_reader(&self, span: Span) -> Result<Box<dyn Read + Send>, ShellError> {
-        match self {
-            Self::Portable(m) => m
-                .try_clone_reader()
-                .map_err(|e| err(span, "clone_reader failed", e.to_string())),
-            Self::Raw(fd) => {
-                let cloned = fd
-                    .try_clone()
-                    .map_err(|e| err(span, "dup master fd failed", e.to_string()))?;
-                Ok(Box::new(File::from(cloned)))
-            }
-        }
-    }
-}
-
-enum ChildKind {
-    Exec(Box<dyn PortableChild + Send + Sync>),
-    Embedded(Pid),
-}
-
-impl ChildKind {
-    fn kill(&mut self) {
-        match self {
-            Self::Exec(c) => {
-                let _ = c.kill();
-            }
-            Self::Embedded(pid) => {
-                let _ = signal::kill(*pid, Signal::SIGTERM);
-            }
-        }
-    }
-
-    fn wait(&mut self) {
-        match self {
-            Self::Exec(c) => {
-                let _ = c.wait();
-            }
-            Self::Embedded(pid) => {
-                let _ = waitpid(*pid, None);
-            }
-        }
-    }
-}
-
 struct PtySession {
-    master: MasterKind,
+    master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     reader_taken: bool,
-    child: ChildKind,
+    child: Box<dyn PortableChild + Send + Sync>,
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
@@ -250,146 +167,32 @@ fn open_exec(
         .map_err(|e| err(span, "take_writer failed", e.to_string()))?;
 
     Ok(PtySession {
-        master: MasterKind::Portable(pair.master),
+        master: pair.master,
         writer,
         reader_taken: false,
-        child: ChildKind::Exec(child),
+        child,
     })
 }
 
 #[allow(clippy::result_large_err)]
 fn open_embedded(
-    engine_state: &EngineState,
+    _engine_state: &EngineState,
     size: PtySize,
     span: Span,
 ) -> Result<PtySession, ShellError> {
-    let ws = Winsize {
-        ws_row: size.rows,
-        ws_col: size.cols,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-
-    let pty = openpty(&ws, None).map_err(|e| err(span, "openpty failed", e.to_string()))?;
-    let master_fd: OwnedFd = pty.master;
-    let slave_fd: OwnedFd = pty.slave;
-
-    // Clone the engine state in the parent so the child inherits a snapshot
-    // via fork's COW pages.
-    let child_engine = engine_state.clone();
-
-    // SAFETY: post-fork-pre-exec contract is relaxed here because we never
-    // exec. Risks: (a) another tokio thread may hold a Mutex inside an Arc
-    // inside EngineState at the fork instant; the child would deadlock if it
-    // tried to acquire that lock. (b) Allocator state may be locked. Both
-    // are rare in practice; keep the child's post-fork work minimal and let
-    // evaluate_repl run.
-    let fork_result =
-        unsafe { nix::unistd::fork() }.map_err(|e| err(span, "fork failed", e.to_string()))?;
-
-    match fork_result {
-        ForkResult::Parent { child } => {
-            drop(slave_fd);
-            let writer_fd = master_fd
-                .try_clone()
-                .map_err(|e| err(span, "dup master fd failed", e.to_string()))?;
-            let writer: Box<dyn Write + Send> = Box::new(File::from(writer_fd));
-            Ok(PtySession {
-                master: MasterKind::Raw(master_fd),
-                writer,
-                reader_taken: false,
-                child: ChildKind::Embedded(child),
-            })
-        }
-        ForkResult::Child => {
-            // From here we must NEVER return into the caller's normal control
-            // flow; exit on every path.
-            drop(master_fd);
-            run_embedded_nu(slave_fd, child_engine);
-            unsafe { libc::_exit(0) };
-        }
-    }
-}
-
-/// Runs in the forked child. Sets the pty slave as the controlling terminal,
-/// remaps stdio to it, closes inherited fds, then drives nu's REPL.
-fn run_embedded_nu(slave_fd: OwnedFd, mut engine_state: EngineState) {
-    let slave_raw = slave_fd.as_raw_fd();
-
-    // New session, then make the slave our controlling tty.
-    if setsid().is_err() {
-        unsafe { libc::_exit(70) };
-    }
-    let rc = unsafe { libc::ioctl(slave_raw, libc::TIOCSCTTY as _, 0) };
-    if rc < 0 {
-        unsafe { libc::_exit(71) };
-    }
-
-    // Take slave -> 0, 1, 2 via libc::dup2 (nix's dup2 wants &mut OwnedFd,
-    // which we can't synthesize for the std stdio fds).
-    for target in [0_i32, 1, 2] {
-        if unsafe { libc::dup2(slave_raw, target) } < 0 {
-            unsafe { libc::_exit(73) };
-        }
-    }
-
-    // Become the foreground process group of the controlling tty so SIGWINCH
-    // (and other terminal signals) from TIOCSWINSZ on the master actually
-    // reach us. Without this the kernel has no foreground group to signal.
-    let pid = getpid();
-    let stdin_fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(0) };
-    let _ = tcsetpgrp(stdin_fd, pid);
-
-    drop(slave_fd);
-
-    // Close every other fd we inherited from http-nu (listening sockets,
-    // tokio epoll fd, sibling pty masters, log files, ...). Linux 5.9+.
-    unsafe {
-        let _ = libc::close_range(3, !0u32, 0);
-    }
-
-    // Bootstrap nu's default env.nu and config.nu (populates $env.config etc).
-    // This is what nu's main calls `setup_config` for; we replicate the
-    // no-user-files path here.
-    let mut stack = NuStack::new();
-    for kind in [
-        nu_utils::ConfigFileKind::Env,
-        nu_utils::ConfigFileKind::Config,
-    ] {
-        nu_cli::eval_source(
-            &mut engine_state,
-            &mut stack,
-            kind.default().as_bytes(),
-            kind.name(),
-            nu_protocol::PipelineData::empty(),
-            false,
-        );
-        let _ = engine_state.merge_env(&mut stack);
-    }
-
-    // Disable shell-integration OSC sequences. nushell emits OSC 133;P;k=r
-    // and OSC 633 on every prompt; ghostty-web's wasm parser warns on them
-    // and may eat subsequent bytes (rendering looks truncated).
-    let disable_si = b"\
-        $env.config.shell_integration.osc2 = false\n\
-        $env.config.shell_integration.osc7 = false\n\
-        $env.config.shell_integration.osc8 = false\n\
-        $env.config.shell_integration.osc9_9 = false\n\
-        $env.config.shell_integration.osc133 = false\n\
-        $env.config.shell_integration.osc633 = false\n\
-        $env.config.shell_integration.reset_application_mode = false\n\
-    ";
-    nu_cli::eval_source(
-        &mut engine_state,
-        &mut stack,
-        disable_si,
-        "disable_shell_integration",
-        nu_protocol::PipelineData::empty(),
-        false,
-    );
-    let _ = engine_state.merge_env(&mut stack);
-
-    let _ = nu_cli::evaluate_repl(&mut engine_state, stack, None, None, Instant::now().into());
+    // Self-re-exec into our own `repl` subcommand. The fork-no-exec variant
+    // ran fine for trivial use but silently dropped output from bare
+    // externals (e.g. `^ls`) due to interactions between http-nu's
+    // multi-threaded Rust runtime state and nushell's foreground-job
+    // setpgid+tcsetpgrp dance. Exec'ing our own binary gives the embedded
+    // REPL a clean process state, with all of http-nu's custom commands
+    // still registered (because `repl` rebuilds them in its main).
+    let self_exe = std::env::current_exe()
+        .map_err(|e| err(span, "current_exe failed", e.to_string()))?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| err(span, "current_exe path not utf-8", ""))?;
+    open_exec(&self_exe, Some(vec!["repl".to_string()]), size, span)
 }
 
 // --- pty write --------------------------------------------------------------
@@ -519,15 +322,15 @@ impl Command for PtyResizeCommand {
         let session = map
             .get(&sid)
             .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-        session.master.resize(
-            PtySize {
+        session
+            .master
+            .resize(PtySize {
                 cols: cols as u16,
                 rows: rows as u16,
                 pixel_width: 0,
                 pixel_height: 0,
-            },
-            head,
-        )?;
+            })
+            .map_err(|e| err(head, "pty resize failed", e.to_string()))?;
 
         Ok(PipelineData::Empty)
     }
@@ -587,7 +390,10 @@ impl Command for PtyStreamCommand {
                 return Err(err(head, "pty stream already taken for this sid", ""));
             }
             session.reader_taken = true;
-            session.master.clone_reader(head)?
+            session
+                .master
+                .try_clone_reader()
+                .map_err(|e| err(head, "clone_reader failed", e.to_string()))?
         };
 
         let ty = if sse {
@@ -671,8 +477,8 @@ impl Command for PtyCloseCommand {
         let sid: String = call.req(engine_state, stack, 0)?;
         let session = sessions().lock().unwrap().remove(&sid);
         if let Some(mut s) = session {
-            s.child.kill();
-            s.child.wait();
+            let _ = s.child.kill();
+            let _ = s.child.wait();
         }
         Ok(PipelineData::Empty)
     }
