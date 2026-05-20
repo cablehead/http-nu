@@ -641,16 +641,21 @@ let design = source design/serve.nu
                 class: "column"
                 "data-sse": ""
                 "data-init": ("@get('" + ($req | href $"/sse-wc/($game_id)") + "', {retry: 'always', retryInterval: 100, retryScaler: 1, retryMaxCount: Infinity})")
-                # Seed the WC + chrome signals so first paint is sane
-                # before SSE lands.
-                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: '', presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}}"
               }
                 (DIV {id: "board-wrap"}
                   (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})))))
         ] | layout $req $REV $DATASTAR_JS_PATH
               --title $"watching ($game_id_short) -- nu2048"
               --body-class "watch"
-              --body-attrs {"data-game-id": $game_id}
+              # Signals must live on <body> (or an ancestor of any
+              # data-text consumer) -- Datastar's DOM walk processes
+              # attributes top-down, so the site-header's
+              # `data-text="$presence.totalTabs"` evaluates BEFORE any
+              # inner data-signals declaration takes effect.
+              --body-attrs {
+                "data-game-id": $game_id
+                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: '', presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}}"
+              }
               --sse true)
       }
     })
