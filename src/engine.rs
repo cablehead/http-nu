@@ -27,7 +27,8 @@ use crate::commands::{
 };
 use crate::logging::log_error;
 use crate::pty::{
-    PtyCloseCommand, PtyOpenCommand, PtyResizeCommand, PtyStreamCommand, PtyWriteCommand,
+    PtyCloseCommand, PtyMetaGetCommand, PtyMetaSetCommand, PtyOpenCommand, PtyResizeCommand,
+    PtyStreamCommand, PtyWriteCommand,
 };
 use crate::stdlib::load_http_nu_stdlib;
 use crate::Error;
@@ -362,6 +363,8 @@ impl Engine {
             Box::new(PtyResizeCommand::new()),
             Box::new(PtyStreamCommand::new()),
             Box::new(PtyCloseCommand::new()),
+            Box::new(PtyMetaSetCommand::new(self.bus.clone())),
+            Box::new(PtyMetaGetCommand::new()),
         ])
     }
 

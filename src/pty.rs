@@ -11,16 +11,18 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use base64::Engine as _;
 use nu_engine::command_prelude::*;
 use nu_protocol::{
-    shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, PipelineData,
+    record, shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, PipelineData,
     ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
 
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
+
+use crate::bus::Bus;
 
 // --- session bookkeeping ----------------------------------------------------
 
@@ -29,6 +31,7 @@ struct PtySession {
     writer: Box<dyn Write + Send>,
     reader_taken: bool,
     child: Box<dyn PortableChild + Send + Sync>,
+    meta: HashMap<String, Value>,
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
@@ -171,6 +174,7 @@ fn open_exec(
         writer,
         reader_taken: false,
         child,
+        meta: HashMap::new(),
     })
 }
 
@@ -481,5 +485,147 @@ impl Command for PtyCloseCommand {
             let _ = s.child.wait();
         }
         Ok(PipelineData::Empty)
+    }
+}
+
+// --- pty meta ---------------------------------------------------------------
+//
+// Free-form per-session metadata (label, etc). `pty meta set` mutates the
+// session's meta map and pings the `pty.events` bus topic so any subscribed
+// UI can react.
+
+const PTY_EVENTS_TOPIC: &str = "pty.events";
+
+#[derive(Clone)]
+pub struct PtyMetaSetCommand {
+    bus: Arc<Bus>,
+}
+
+impl PtyMetaSetCommand {
+    pub fn new(bus: Arc<Bus>) -> Self {
+        Self { bus }
+    }
+}
+
+impl Command for PtyMetaSetCommand {
+    fn name(&self) -> &str {
+        "pty meta set"
+    }
+
+    fn description(&self) -> &str {
+        "Set a free-form meta value on a pty session; publishes a ping on pty.events"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build("pty meta set")
+            .required("sid", SyntaxShape::String, "session id")
+            .required("key", SyntaxShape::String, "meta key")
+            .required("value", SyntaxShape::Any, "meta value")
+            .input_output_types(vec![(Type::Nothing, Type::Nothing)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let sid: String = call.req(engine_state, stack, 0)?;
+        let key: String = call.req(engine_state, stack, 1)?;
+        let value: Value = call.req(engine_state, stack, 2)?;
+
+        {
+            let mut map = sessions().lock().unwrap();
+            let session = map
+                .get_mut(&sid)
+                .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
+            session.meta.insert(key.clone(), value.clone());
+        }
+
+        let event = Value::record(
+            record! {
+                "event" => Value::string("meta", head),
+                "sid" => Value::string(sid, head),
+                "key" => Value::string(key, head),
+                "value" => value,
+            },
+            head,
+        );
+        self.bus.publish(PTY_EVENTS_TOPIC, event);
+
+        Ok(PipelineData::Empty)
+    }
+}
+
+#[derive(Clone)]
+pub struct PtyMetaGetCommand;
+
+impl PtyMetaGetCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for PtyMetaGetCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Command for PtyMetaGetCommand {
+    fn name(&self) -> &str {
+        "pty meta get"
+    }
+
+    fn description(&self) -> &str {
+        "Read pty session meta. With no key, returns the whole record; with a key, returns its value (or nothing)."
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build("pty meta get")
+            .required("sid", SyntaxShape::String, "session id")
+            .optional(
+                "key",
+                SyntaxShape::String,
+                "specific key; omit for whole record",
+            )
+            .input_output_types(vec![(Type::Nothing, Type::Any)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let head = call.head;
+        let sid: String = call.req(engine_state, stack, 0)?;
+        let key: Option<String> = call.opt(engine_state, stack, 1)?;
+
+        let map = sessions().lock().unwrap();
+        let session = map
+            .get(&sid)
+            .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
+
+        let out = match key {
+            Some(k) => session
+                .meta
+                .get(&k)
+                .cloned()
+                .unwrap_or(Value::nothing(head)),
+            None => {
+                let mut rec = nu_protocol::Record::new();
+                for (k, v) in &session.meta {
+                    rec.push(k.clone(), v.clone());
+                }
+                Value::record(rec, head)
+            }
+        };
+        Ok(out.into_pipeline_data())
     }
 }
