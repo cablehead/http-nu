@@ -135,8 +135,14 @@ export def html-to-patches [] {
 # Wrapped as a pre-formatted SSE event so it can be `interleave`d
 # into any per-page handler without that handler caring about the
 # data shape.
+#
+# The `where` filter is mandatory even with `-T`: xs injects a
+# synthetic `xs.threshold` marker after the historical-then-live
+# transition (see api.rs:566). That marker has no `meta` column, so a
+# bare `$f.meta` would error -- skip non-summary frames here.
 export def presence-stream [] {
   .cat --last 1 --follow -T "_presence.summary"
+  | where ($it.topic? | default "") == "_presence.summary"
   | each {|f|
       {presence: ($f.meta | default {})} | to datastar-patch-signals
     }

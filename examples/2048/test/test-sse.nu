@@ -8,6 +8,7 @@ use std/assert
 
 const script_dir = path self | path dirname
 use ($script_dir | path join ".." "tfe" "sse.nu") *
+use http-nu/datastar *
 
 # -- T1: interleave argument shape ------------------------------------------
 #
@@ -48,6 +49,29 @@ null | .append "_presence.summary" --ttl last:1 --meta {
 }
 let t2 = presence-stream | first
 assert (($t2.event? | default "") == "datastar-patch-signals") "T2: presence-stream emits a Datastar signal patch"
+
+# -- T2b: xs.threshold marker is filtered out before .meta access -----------
+#
+# `.cat --last N --follow` injects a synthetic `xs.threshold` frame
+# after the historical replay (xs/api.rs:566). That frame has no
+# `meta` column. Presence-stream's projection accessed `$f.meta`
+# without a topic guard, so any reader connecting against an empty
+# summary topic crashed:
+#   Error: nu::shell::column_not_found
+#   x Cannot find column 'meta'
+# Mirror the projection inline against a fixture that contains both a
+# threshold-shaped frame and a real summary, and assert only the
+# summary survives the filter.
+
+let t2b_mixed = [
+  {topic: "xs.threshold", id: "thresh-0"}                                   # no meta column
+  {topic: "_presence.summary", id: "sum-0", meta: {totalTabs: 7}}
+]
+let t2b_projected = $t2b_mixed
+  | where ($it.topic? | default "") == "_presence.summary"
+  | each {|f| {presence: ($f.meta | default {})} | to datastar-patch-signals}
+assert (($t2b_projected | length) == 1) "T2b: xs.threshold marker is filtered out before .meta access"
+assert ((($t2b_projected | first | get event?) | default "") == "datastar-patch-signals") "T2b: surviving summary projects to a signal patch"
 
 # -- T3: /sse-wc route closure doesn't hang ---------------------------------
 #
