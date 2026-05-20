@@ -196,7 +196,7 @@ export def layout [
   # cookie and looks up the bound user_id -- never the cookie token.
   let token = ($req | cookie parse | get session? | default "")
   let pid = if ($token | is-empty) { "" } else {
-    let f = try { .last $"session.($token)" } catch { null }
+    let f = .last $"session.($token)"
     if $f == null { "" } else { $f.meta | get user_id? | default "" }
   }
   let pid_short = if ($pid | is-empty) { "" } else { $pid | str substring 0..7 }

@@ -53,7 +53,7 @@
 
     # Read current HEAD. Used both as the state to act on (moves) and as
     # the chain pointer (every new snapshot's meta.prev = head.id).
-    let head = (try { .last $"game.($game_id).snapshot" } catch { null })
+    let head = .last $"game.($game_id).snapshot"
     if $head == null { return {next: $state} }
     let head_state = $head.meta.state
     let player_id = $head.meta | get player_id? | default ""

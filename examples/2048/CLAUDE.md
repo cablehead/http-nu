@@ -9,12 +9,20 @@ caught the live `/sse-wc` hang once we wired test-sse.nu in.
 
 ## Nushell Style
 
-- `.last` returns null when the topic has no frames. Don't wrap it in
-  `try { .last ... } catch { null }` -- the catch is dead weight. Same
-  applies to other commands documented as returning null on miss; check
-  before adding defensive `try`.
+- `.last` returns null when the topic has no frames -- verified in
+  `xs/src/nu/commands/last_command.rs` (returns `PipelineData::Empty`).
+  Don't wrap it in `try { .last ... } catch { null }` -- the catch is
+  dead weight. `.get` is different: it raises a `ShellError` on miss,
+  so `try { .get $id } catch { null }` is correct there. When in doubt,
+  read the command's source before adding defensive `try`.
 - Use `get -i` (or `get foo?`) for optional record fields rather than
   `try { $r.foo } catch { null }`.
+- For chained `.last "topic" | get meta.field` where both the lookup
+  and the field may be missing, prefer the optional-access form:
+  `.last "topic" | get meta?.field? | default <fallback>`. That's
+  one expression, no try, no temporary binding, and surfaces the
+  field name in plain sight. Avoid the older
+  `try { .last "topic" | get meta.field } catch { <fallback> }`.
 - `-T` on `.cat` is an exact topic match, not a prefix. For prefix
   filtering use `.cat | where topic =~ '^...'`.
 - **Never bind a streaming pipeline to `let`.** In Nushell `let x =

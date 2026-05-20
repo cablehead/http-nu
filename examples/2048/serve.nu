@@ -237,7 +237,7 @@ let design = source design/serve.nu
         # initial_data; everything > it is genuinely new.
         let game_frames = try { .cat -T $games_topic } catch { [] }
         let scan = $game_frames | each {|f|
-          let snap = try { .last $"game.($f.id).snapshot" } catch { null }
+          let snap = .last $"game.($f.id).snapshot"
           let max_id = if $snap == null { $f.id } else { [$f.id, $snap.id] | sort | last }
           {game_id: $f.id, snap: $snap, max_id: $max_id}
         }
@@ -262,7 +262,7 @@ let design = source design/serve.nu
             } else { null }
             if $changed_id == null { return {next: $data} }
             let new_meta = if $item.topic == $games_topic {
-              try { .last $"game.($item.id).snapshot" | get meta } catch { null }
+              .last $"game.($item.id).snapshot" | get meta? | default null
             } else { $item.meta }
             if $new_meta == null { return {next: $data} }
             let is_new_card = ($changed_id not-in ($data | columns))
@@ -491,7 +491,7 @@ let design = source design/serve.nu
       # entry's board comes from `.last game.<id>.snapshot`, one cheap
       # head-lookup per row. Static page; v2 will SSE-follow
       # `leaderboard.top` for live re-renders.
-      let head = try { .last leaderboard.top } catch { null }
+      let head = .last leaderboard.top
       let entries = if $head == null { [] } else { $head.meta | get entries? | default [] }
 
       # Hydrate the per-row board signals from each entry's current
@@ -499,7 +499,7 @@ let design = source design/serve.nu
       # state-for-wc's output so the WC reads everything via
       # data-attr:state.
       let hydrated = $entries | each {|e|
-        let snap = try { .last $"game.($e.game_id).snapshot" } catch { null }
+        let snap = .last $"game.($e.game_id).snapshot"
         if $snap == null { null } else {
           let lmid = $snap.meta | get last_move_id? | default $e.game_id
           let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int

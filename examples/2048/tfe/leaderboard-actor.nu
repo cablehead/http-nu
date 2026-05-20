@@ -45,7 +45,7 @@ const SIZE = 5
     # post-restart scores until 5 climbed in -- the existing leaders
     # would silently vanish from the head.
     let top = if $state == null {
-      let head = try { .last leaderboard.top } catch { null }
+      let head = .last leaderboard.top
       if $head == null { [] } else { $head.meta | get entries? | default [] }
     } else { $state }
 
@@ -92,5 +92,5 @@ const SIZE = 5
   # summary for. On a fresh / cursor-missing store the try/catch falls
   # back to `"first"`, which replays everything once. Subsequent
   # boots become O(new-snapshots).
-  start: (try { .last leaderboard.top | get meta.last_processed_id } catch { "first" })
+  start: (.last leaderboard.top | get meta?.last_processed_id? | default "first")
 }
