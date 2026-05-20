@@ -230,7 +230,6 @@ let design = source design/serve.nu
       } else {
         let player_id = $session.user_id
         let games_topic = $"player.($player_id).games"
-        let head = (try { .cat | last | get id? } catch { null })
         # Seed $data with the player's existing games + their latest
         # snapshots so the first push is consistent with the initial
         # page render.
@@ -239,13 +238,16 @@ let design = source design/serve.nu
               let snap = try { .last $"game.($f.id).snapshot" } catch { null }
               if $snap == null { $acc } else { $acc | upsert $f.id $snap.meta }
             }
-        # No `let games_stream = ...` -- Nushell `let` would COLLECT
-        # the infinite `.cat --follow` before binding, hanging the
-        # handler. See examples/2048/CLAUDE.md.
-        .cat --follow
+        # `--new` starts from the current store head; the generate sees
+        # only frames appended after the handler attaches. Avoids the
+        # historical-replay cost (`.cat | last` used to scan ~28k
+        # frames just to get a cursor id, blocking the SSE handler
+        # from sending headers for seconds). No `let games_stream =`
+        # binding because nushell's let collects streaming pipelines;
+        # the body pipes straight into interleave + to sse.
+        .cat --follow --new
         | generate {|item data|
             if ('event' in $item) { return {out: $item, next: $data} }
-            if ($head != null and $item.id <= $head) { return {next: $data} }
             let changed_id = if $item.topic == $games_topic {
               $item.id
             } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
