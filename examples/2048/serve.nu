@@ -419,6 +419,79 @@ let design = source design/serve.nu
             --sse true)
     })
 
+    (route {method: GET path: "/leaderboard"} {|req ctx|
+      # Per-player top-5 by score. The leaderboard-actor maintains
+      # `leaderboard.top` (ttl last:5) -- meta.entries is the canonical
+      # table. `.last` is O(1); no scan-on-request. State for each
+      # entry's board comes from `.last game.<id>.snapshot`, one cheap
+      # head-lookup per row. Static page; v2 will SSE-follow
+      # `leaderboard.top` for live re-renders.
+      let head = try { .last leaderboard.top } catch { null }
+      let entries = if $head == null { [] } else { $head.meta | get entries? | default [] }
+
+      # Hydrate the per-row board signals from each entry's current
+      # snapshot. Same pattern as /my/games: card binds to $games[id]
+      # via data-attr:state, the WC paints from there.
+      let hydrated = $entries | each {|e|
+        let snap = try { .last $"game.($e.game_id).snapshot" } catch { null }
+        if $snap == null { null } else {
+          let lmid = $snap.meta | get last_move_id? | default $e.game_id
+          let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+          {
+            entry: $e
+            state: ($snap.meta.state | state-for-wc)
+            played_ms: $played_ms
+          }
+        }
+      } | compact
+      let games_signal = $hydrated | reduce -f {} {|h acc| $acc | upsert $h.entry.game_id $h.state }
+      let meta_signal  = $hydrated | reduce -f {} {|h acc| $acc | upsert $h.entry.game_id {playedMs: $h.played_ms} }
+
+      let rows = $hydrated | enumerate | each {|p|
+        let rank = $p.index + 1
+        let e = $p.item.entry
+        let player_short = $e.player_id | str substring 0..7
+        (LI {class: "leaderboard-row"}
+          (SPAN {class: "rank"} $"#($rank)")
+          (DIV {class: "row-card"}
+            (render-card-from-state $req $e.game_id $p.item.state ($e | get moves? | default 0) "" --href ($req | href $"/watch/($e.game_id)")))
+          (DIV {class: "row-meta"}
+            (P {class: "score"} (($e.score | into string)))
+            (P {class: "row-line"}
+              "max tile " (SPAN {class: "max-tile"} ($e.max_tile | into string))
+              " · "
+              "moves " (SPAN {class: "moves"} ($e.moves | into string)))
+            (P {class: "by"}
+              "by " (A {href: ($req | href $"/by/($e.player_id)")} $player_short))))
+      }
+
+      let empty = ($entries | is-empty)
+      ([
+        (DIV {class: "page"}
+          (breadcrumb
+            --left [
+              (kbd-btn "esc" --suffix " home" --href ($req | href "/"))
+              (SPAN {class: "sep"} "·")
+              (A {href: ($req | href "/leaderboard")} "leaderboard")
+            ]
+            --right [
+              (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
+            ])
+          (H1 {class: "leaderboard-title"} "leaderboard")
+          (P {class: "leaderboard-lede"} "top 5 -- per-player best, in-flight or finished.")
+          (if $empty {
+            (P {class: "hint empty-state"} "no scored games tracked yet -- play one and check back.")
+          } else {
+            (UL {class: "leaderboard-list"} ...$rows)
+          }))
+      ] | layout $req $REV $DATASTAR_JS_PATH
+            --title "leaderboard -- nu2048"
+            --body-class "leaderboard-view"
+            --body-attrs (if $empty { {} } else {
+              {"data-signals": ({games: $games_signal, meta: $meta_signal} | to json --raw)}
+            }))
+    })
+
     (route {method: GET path: "/my/games"} {|req ctx|
       # Your library. Session-required: no session = nothing to show
       # (visitors get a "start a game" prompt rather than someone
