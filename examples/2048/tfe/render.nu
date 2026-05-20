@@ -224,6 +224,7 @@ export def layout [
     ellie_href: ($req | href "/ellie.png")
     splash_href: ($req | href "/")
     my_games_href: ($req | href "/my/games")
+    leaderboard_href: ($req | href "/leaderboard")
     design_href: ($req | href "/design/")
     player_id: $pid_short
     sse: $sse

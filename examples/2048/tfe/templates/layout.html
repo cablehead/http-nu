@@ -24,6 +24,7 @@
 <header class="site-header">
   <a class="site-title" href="{{ splash_href }}">nu2048</a>
   <div class="site-header-right">
+    <a class="site-nav-link" href="{{ leaderboard_href }}">leaderboard</a>
     {% if player_id %}<a class="you-are" href="{{ my_games_href }}" title="your games (profile soon)">you are: <code>{{ player_id }}</code></a>{% endif %}
     {% if sse %}<div class="status">
       <span id="conn" class="stat"></span>
