@@ -9,7 +9,7 @@
 //! Sessions live in a process-wide map keyed by sid. Output is exposed as a
 //! ByteStream so SSE handlers can pipe it straight to the response.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -28,7 +28,6 @@ use crate::bus::Bus;
 
 // --- session bookkeeping ----------------------------------------------------
 
-const BACKLOG_BYTES: usize = 64 * 1024;
 const BROADCAST_CAPACITY: usize = 256;
 const PTY_EVENTS_TOPIC: &str = "pty.events";
 
@@ -37,13 +36,14 @@ struct PtySession {
     writer: Box<dyn Write + Send>,
     child: Box<dyn PortableChild + Send + Sync>,
     meta: HashMap<String, Value>,
-    // One dedicated reader thread per session fans bytes from the master fd
-    // into this broadcast channel. Each `pty stream` call subscribes; on
-    // attach it first replays `backlog`, then tails new bytes from the
-    // subscription. Allows N concurrent consumers and reattach after the
-    // browser disconnects.
+    // One dedicated reader thread per session feeds two things in lockstep:
+    // (1) a vt100::Parser maintaining a virtual screen so attaching clients
+    // can be sent `Screen::contents_formatted()` -- a canonical ANSI dump
+    // that reproduces the current state without stale DSR queries, partial
+    // sequences, or mode-order bugs from raw byte replay; (2) a broadcast
+    // channel for the live tail. N concurrent consumers, clean reattach.
     output_tx: broadcast::Sender<Bytes>,
-    backlog: Arc<Mutex<VecDeque<u8>>>,
+    parser: Arc<Mutex<vt100::Parser>>,
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
@@ -138,12 +138,12 @@ impl Command for PtyOpenCommand {
         let sid = scru128::new().to_string();
         let (cols_n, rows_n) = (size.cols as i64, size.rows as i64);
         let output_tx = session.output_tx.clone();
-        let backlog = session.backlog.clone();
+        let parser = session.parser.clone();
         sessions().lock().unwrap().insert(sid.clone(), session);
 
         // Spawn the reader thread now (after insert) so it can self-reap
         // by sid when the child eventually exits.
-        spawn_reader(sid.clone(), reader, output_tx, backlog, self.bus.clone());
+        spawn_reader(sid.clone(), reader, output_tx, parser, self.bus.clone());
 
         self.bus.publish(
             PTY_EVENTS_TOPIC,
@@ -198,16 +198,15 @@ fn open_exec(
         .take_writer()
         .map_err(|e| err(span, "take_writer failed", e.to_string()))?;
 
-    // Spawn the dedicated reader thread that pulls from the master fd and
-    // fans bytes out via a broadcast channel + backlog ring. When read
-    // returns 0 the child has exited; the thread also reaps the session
-    // (if we beat `pty close` to it) and publishes a `died` event.
+    // The reader thread will feed both the parser and the broadcast channel.
+    // Parser tracks the virtual screen so reattaching clients can pick up
+    // mid-session via a canonical screen dump.
     let reader = pair
         .master
         .try_clone_reader()
         .map_err(|e| err(span, "clone_reader failed", e.to_string()))?;
     let (output_tx, _) = broadcast::channel::<Bytes>(BROADCAST_CAPACITY);
-    let backlog = Arc::new(Mutex::new(VecDeque::with_capacity(BACKLOG_BYTES)));
+    let parser = Arc::new(Mutex::new(vt100::Parser::new(size.rows, size.cols, 0)));
 
     let session = PtySession {
         master: pair.master,
@@ -215,21 +214,22 @@ fn open_exec(
         child,
         meta: HashMap::new(),
         output_tx,
-        backlog,
+        parser,
     };
     Ok((session, reader))
 }
 
-/// Drain the pty master fd on a dedicated blocking thread. Each chunk goes
-/// into the backlog ring (trimmed to BACKLOG_BYTES) and is broadcast to any
-/// `pty stream` subscribers. When read returns 0 the child has exited; the
-/// thread removes the session from the map (if `pty close` didn't already)
-/// and publishes a `died` event on the bus.
+/// Drain the pty master fd on a dedicated blocking thread. Each chunk is
+/// fed to the vt100 parser (which updates the virtual screen state used by
+/// future attachers) and broadcast to existing `pty stream` subscribers.
+/// When read returns 0 the child has exited; the thread removes the
+/// session from the map (if `pty close` didn't already) and publishes a
+/// `died` event on the bus.
 fn spawn_reader(
     sid: String,
     mut reader: Box<dyn Read + Send>,
     tx: broadcast::Sender<Bytes>,
-    backlog: Arc<Mutex<VecDeque<u8>>>,
+    parser: Arc<Mutex<vt100::Parser>>,
     bus: Arc<Bus>,
 ) {
     std::thread::spawn(move || {
@@ -239,13 +239,7 @@ fn spawn_reader(
                 Ok(0) => break,
                 Ok(n) => {
                     let chunk = Bytes::copy_from_slice(&buf[..n]);
-                    {
-                        let mut bl = backlog.lock().unwrap();
-                        bl.extend(&buf[..n]);
-                        while bl.len() > BACKLOG_BYTES {
-                            bl.pop_front();
-                        }
-                    }
+                    parser.lock().unwrap().process(&buf[..n]);
                     let _ = tx.send(chunk);
                 }
                 Err(e) => {
@@ -437,6 +431,12 @@ impl Command for PtyResizeCommand {
                     pixel_height: 0,
                 })
                 .map_err(|e| err(head, "pty resize failed", e.to_string()))?;
+            session
+                .parser
+                .lock()
+                .unwrap()
+                .screen_mut()
+                .set_size(rows as u16, cols as u16);
         }
 
         self.bus.publish(
@@ -501,16 +501,19 @@ impl Command for PtyStreamCommand {
         let sid: String = call.req(engine_state, stack, 0)?;
         let sse = call.has_flag(engine_state, stack, "sse")?;
 
-        // Subscribe + snapshot the backlog atomically so we don't drop bytes
-        // that arrived between snapshot and subscribe.
-        let (mut rx, backlog) = {
+        // Subscribe + snapshot the parser's screen state atomically so we
+        // don't drop bytes that arrived between snapshot and subscribe.
+        // contents_formatted emits the canonical ANSI sequence that
+        // reproduces the current screen -- no stale DSR queries, no partial
+        // sequences, no out-of-order mode toggles.
+        let (mut rx, snapshot) = {
             let map = sessions().lock().unwrap();
             let session = map
                 .get(&sid)
                 .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
             let rx = session.output_tx.subscribe();
-            let snapshot: Vec<u8> = session.backlog.lock().unwrap().iter().copied().collect();
-            (rx, snapshot)
+            let snap = session.parser.lock().unwrap().screen().state_formatted();
+            (rx, snap)
         };
 
         let ty = if sse {
@@ -519,10 +522,10 @@ impl Command for PtyStreamCommand {
             ByteStreamType::Binary
         };
 
-        let mut backlog_iter = if backlog.is_empty() {
+        let mut snapshot_iter = if snapshot.is_empty() {
             None
         } else {
-            Some(backlog)
+            Some(snapshot)
         };
 
         let stream = ByteStream::from_fn(
@@ -530,8 +533,8 @@ impl Command for PtyStreamCommand {
             engine_state.signals().clone(),
             ty,
             move |buffer: &mut Vec<u8>| {
-                // First serve the snapshot of pre-attach bytes.
-                if let Some(bytes) = backlog_iter.take() {
+                // First serve the snapshot of the current screen state.
+                if let Some(bytes) = snapshot_iter.take() {
                     emit(buffer, &bytes, sse);
                     return Ok(true);
                 }

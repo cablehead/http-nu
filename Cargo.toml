@@ -73,6 +73,7 @@ notify = "8"
 portable-pty = "0.9"
 base64 = "0.22"
 nix = { version = "0.30", features = ["signal"] }
+vt100 = "0.16"
 
 [dependencies.cross-stream]
 version = "0.12.0"
