@@ -392,11 +392,11 @@ let design = source design/serve.nu
           # along on every @post so the seek handler knows where to
           # publish. The wire shape strips per-tile animation hints to
           # match what the SSE handler emits.
+          # presence is seeded by layout.html (data-signals:presence__ifmissing).
           "data-signals": ({
             splashState: ($initial_state | state-for-wc)
             splashPos: $start_pos
             tabId: $tab_id
-            presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
           } | to json --raw)
         }
           (H2 "2048, in Nushell!")
@@ -546,7 +546,6 @@ let design = source design/serve.nu
               "data-init": ("@get('" + ($req | href "/sse/presence") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
               "data-signals": ({
                 games: (if $empty { {} } else { $games_signal })
-                presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
               } | to json --raw)
             }))
     })
@@ -594,7 +593,6 @@ let design = source design/serve.nu
                 "data-init": ("@get('" + ($req | href "/sse/games") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
                 "data-signals": ({
                   games: $games_signal
-                  presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
                 } | to json --raw)
               }
             }))
@@ -654,7 +652,7 @@ let design = source design/serve.nu
               # inner data-signals declaration takes effect.
               --body-attrs {
                 "data-game-id": $game_id
-                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: '', presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}}"
+                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: ''}"
               }
               --sse true)
       }
@@ -700,7 +698,6 @@ let design = source design/serve.nu
               "data-init": ("@get('" + ($req | href "/sse/presence") + "', {retry: 'always', retryInterval: 1000, retryMaxCount: Infinity})")
               "data-signals": ({
                 games: $games_signal
-                presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}
               } | to json --raw)
             })
     })
@@ -817,7 +814,7 @@ let design = source design/serve.nu
               "data-player-id": $player_id
               "data-game-id": $game_id
               "data-move-url": ($req | href "/move")
-              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}, presence: {totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}}"
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}}"
             }
         | session-cookies set $session)
       }

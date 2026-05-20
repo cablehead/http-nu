@@ -20,7 +20,7 @@
   <script type="module" src="{{ scrub_knob_src }}"></script>
   {{ head_extra | safe }}
 </head>
-<body class="{{ body_class }}"{% for a in body_attrs %} {{ a.key }}="{{ a.value }}"{% endfor %}>
+<body class="{{ body_class }}"{% for a in body_attrs %} {{ a.key }}="{{ a.value }}"{% endfor %}{% if sse %} data-signals:presence="{totalTabs: 0, activeGames: 0, byScope: {}, byGame: {}}"{% endif %}>
 <header class="site-header">
   <a class="site-title" href="{{ splash_href }}">nu2048</a>
   <div class="site-header-right">
