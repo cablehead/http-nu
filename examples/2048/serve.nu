@@ -232,20 +232,27 @@ let design = source design/serve.nu
         let games_topic = $"player.($player_id).games"
         # Seed $data with the player's existing games + their latest
         # snapshots so the first push is consistent with the initial
-        # page render.
-        let initial_data = (try { .cat -T $games_topic } catch { [] })
-          | reduce -f {} {|f acc|
-              let snap = try { .last $"game.($f.id).snapshot" } catch { null }
-              if $snap == null { $acc } else { $acc | upsert $f.id $snap.meta }
-            }
-        # `--new` starts from the current store head; the generate sees
-        # only frames appended after the handler attaches. Avoids the
-        # historical-replay cost (`.cat | last` used to scan ~28k
-        # frames just to get a cursor id, blocking the SSE handler
-        # from sending headers for seconds). No `let games_stream =`
-        # binding because nushell's let collects streaming pipelines;
-        # the body pipes straight into interleave + to sse.
-        .cat --follow --new
+        # page render. While scanning, track the max frame id observed
+        # -- this is our live cursor: everything <= it is already in
+        # initial_data; everything > it is genuinely new.
+        let game_frames = try { .cat -T $games_topic } catch { [] }
+        let scan = $game_frames | each {|f|
+          let snap = try { .last $"game.($f.id).snapshot" } catch { null }
+          let max_id = if $snap == null { $f.id } else { [$f.id, $snap.id] | sort | last }
+          {game_id: $f.id, snap: $snap, max_id: $max_id}
+        }
+        let initial_data = $scan | reduce -f {} {|r acc|
+          if $r.snap == null { $acc } else { $acc | upsert $r.game_id $r.snap.meta }
+        }
+        # `--from <cursor>` resumes from the highest id we saw in the
+        # scan. Empty-games case: `.id` mints a fresh scru128 (xs's
+        # "now"), so the follow attaches to genuinely-future frames.
+        # Previous shape used `.cat | last | get id` here, which
+        # scanned the whole store (~28k frames) just to get the head
+        # id and blocked SSE startup for seconds. No `let games_stream
+        # =` binding -- nushell's let collects streaming pipelines.
+        let cursor = if ($scan | is-empty) { (.id) } else { $scan | get max_id | sort | last }
+        .cat --follow --from $cursor
         | generate {|item data|
             if ('event' in $item) { return {out: $item, next: $data} }
             let changed_id = if $item.topic == $games_topic {
