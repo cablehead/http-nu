@@ -31,10 +31,6 @@ jobs:
             runner: macos-latest
             artifact_suffix: macos-arm64.tar.gz
             archive: tar.gz
-          - target: macos-amd64
-            runner: macos-13
-            artifact_suffix: macos-amd64.tar.gz
-            archive: tar.gz
           - target: windows-amd64
             runner: windows-latest
             artifact_suffix: windows-amd64.zip
