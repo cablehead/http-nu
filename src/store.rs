@@ -1,3 +1,22 @@
+//! `Store` -- http-nu's primary wrapper around the `xs` crate.
+//!
+//! This file holds the bulk of cross-stream integration (`xs::store`,
+//! `xs::api`, `xs::processor`, `xs::nu::load_modules`). Two other files
+//! also reference `xs::store` directly (`src/main.rs` constructs a
+//! `xs::store::Store`; `src/commands.rs` takes one as a parameter in a
+//! couple of helpers). Beyond those, new code should extend `Store`
+//! here rather than adding more `use xs::...` import sites -- it keeps
+//! the cross-stream surface area small and auditable.
+//!
+//! Note (joeblew999 fork): the wasm/CF target can't build `xs` (its
+//! `fjall` + `cacache` deps aren't wasm-compatible), so on that target
+//! a separate `Store` shim at `src/cf/nu/xs/store.rs` exposes the same
+//! method names but writes frames as files into
+//! `cloudflare_shell_workspace::Workspace`. Each additional `xs::`
+//! site outside this file is another spot where wasm needs a cfg gate
+//! or a parallel CF path -- another reason to funnel new access here.
+//! See `src/cf/nu/xs/PLAN.md`.
+
 use tokio::sync::mpsc;
 
 /// Wraps a cross.stream store, providing engine configuration and topic-based script loading.
