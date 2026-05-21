@@ -106,7 +106,8 @@ adjacent repos:
 
 | Command(s)              | Used by examples | What's needed                                       |
 |-------------------------|------------------|-----------------------------------------------------|
-| `.bus`, `.cat`, `.append` | `2048`, others | xs CF backend (`xs` repo). Maps `fjall` -> DO SQLite, `cacache` -> R2. |
+| `.cat`, `.append`, `.last` | `templates`, `quotes`, `2048` | Mirror xs's `src/nu/commands/*.rs` at `src/cf/nu/xs/commands/` with a Workspace-backed `Store` shim -- xs upstream stays untouched, frames become files at `/.xs/<topic>/<scru128>.json`. Plan: [`../xs/PLAN.md`](../xs/PLAN.md). |
+| `.bus` (sub side)       | `2048`           | Either WebSocket Hibernation in a DurableObject, OR piggyback on the Workspace `on_change` listener used by the xs port. Pub side already works (in-memory broadcast on the same isolate). |
 
 ### What's intentionally NEVER shadowed
 
@@ -131,17 +132,17 @@ the Workers CPU budget).
 
 | Nu command       | Upstream (`nu-command/src/`)  | Shadow (`src/cf/nu/nu_command/`) | Registered at (`cf/mod.rs`) | Why shadowed | Notes                                                                 |
 |------------------|-------------------------------|------------------------------|------------------------------|--------------|-----------------------------------------------------------------------|
-| `ls`             | `filesystem/ls.rs`            | `filesystem/ls.rs`           | L97                          | vfs          | Returns a table of `name`/`type`/`size`; reads via `Vfs::read_dir_with_stat`. |
-| `open`           | `filesystem/open.rs`          | `filesystem/open.rs`         | L98                          | vfs          | Reads via `Vfs::read_file_bytes`; mime sniffing inherited from Vfs row's `mime_type`. |
-| `save`           | `filesystem/save.rs`          | `filesystem/save.rs`         | L99                          | vfs          | Writes via `Vfs::write_file_bytes`; pipeline string -> utf8 bytes; binary pipeline -> raw bytes. |
-| `path exists`    | `path/exists.rs`              | `path/exists.rs`             | L100                         | vfs          | Pipeline or arg path; calls `Vfs::exists`. Stock would hit `Path::is_absolute()` (wasm-broken). |
-| `mkdir`          | `filesystem/mkdir.rs`         | `filesystem/mkdir.rs`        | L101                         | vfs          | `recursive` flag mirrors stock; calls `Vfs::mkdir`.                  |
-| `rm`             | `filesystem/rm.rs`            | `filesystem/rm.rs`           | L102                         | vfs          | `recursive`/`force` mirror stock; calls `Vfs::rm`.                   |
-| `cp`             | `filesystem/cp.rs`            | `filesystem/cp.rs`           | L103                         | vfs          | `recursive` mirrors stock; preserves source `mime_type` (matches Vfs).|
-| `mv`             | `filesystem/mv.rs`            | `filesystem/mv.rs`           | L104                         | vfs          | Calls `Vfs::mv`; rename semantics match stock when target is a dir.   |
-| `glob`           | `filesystem/glob.rs`          | `filesystem/glob.rs`         | L105                         | vfs          | Calls `Vfs::glob`; pattern syntax matches upstream `glob` crate.      |
-| `path self`      | `path/self_.rs`               | `path/self_.rs`              | L108                         | wasm         | Stock calls `engine_state.cwd()` -> `Path::is_absolute()` -> false on wasm -> parse-time error. Shadow returns a workspace-rooted path; `is_const = true` so `const x = path self` still works. |
-| `sleep`          | `platform/sleep.rs`           | `platform/sleep.rs`          | L113                         | cpu          | NO-OP with one logged warning per call. Scripts that loop on `sleep` will spin until the Workers CPU limit trips -- everything else parses and runs normally. |
+| `ls`             | `filesystem/ls.rs`            | `filesystem/ls.rs`           | L114                         | vfs          | Returns a table of `name`/`type`/`size`; reads via `Vfs::read_dir_with_stat`. |
+| `open`           | `filesystem/open.rs`          | `filesystem/open.rs`         | L115                         | vfs          | Reads via `Vfs::read_file_bytes`; mime sniffing inherited from Vfs row's `mime_type`. |
+| `save`           | `filesystem/save.rs`          | `filesystem/save.rs`         | L116                         | vfs          | Writes via `Vfs::write_file_bytes`; pipeline string -> utf8 bytes; binary pipeline -> raw bytes. |
+| `path exists`    | `path/exists.rs`              | `path/exists.rs`             | L117                         | vfs          | Pipeline or arg path; calls `Vfs::exists`. Stock would hit `Path::is_absolute()` (wasm-broken). |
+| `mkdir`          | `filesystem/mkdir.rs`         | `filesystem/mkdir.rs`        | L118                         | vfs          | `recursive` flag mirrors stock; calls `Vfs::mkdir`.                  |
+| `rm`             | `filesystem/rm.rs`            | `filesystem/rm.rs`           | L119                         | vfs          | `recursive`/`force` mirror stock; calls `Vfs::rm`.                   |
+| `cp`             | `filesystem/cp.rs`            | `filesystem/cp.rs`           | L120                         | vfs          | `recursive` mirrors stock; preserves source `mime_type` (matches Vfs).|
+| `mv`             | `filesystem/mv.rs`            | `filesystem/mv.rs`           | L121                         | vfs          | Calls `Vfs::mv`; rename semantics match stock when target is a dir.   |
+| `glob`           | `filesystem/glob.rs`          | `filesystem/glob.rs`         | L122                         | vfs          | Calls `Vfs::glob`; pattern syntax matches upstream `glob` crate.      |
+| `path self`      | `path/self_.rs`               | `path/self_.rs`              | L125                         | wasm         | Stock calls `engine_state.cwd()` -> `Path::is_absolute()` -> false on wasm -> parse-time error. Shadow returns a workspace-rooted path; `is_const = true` so `const x = path self` still works. |
+| `sleep`          | `platform/sleep.rs`           | `platform/sleep.rs`          | L130                         | cpu          | NO-OP with a 64-call/request budget (`platform/sleep.rs::reset_sleep_budget` called per request from `cf::handler`). After the budget, the shadow returns `Value::Error` so streaming generators terminate cleanly instead of spinning to the Workers CPU limit. |
 
 ## Divergences from stock (index)
 
