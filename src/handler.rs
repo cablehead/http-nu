@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -178,29 +177,33 @@ where
         let sid = request.query.get("sid").cloned().unwrap_or_default();
         let status = if sid.is_empty() {
             400u16
-        } else if let Some(writer) = crate::pty::writer_for(&sid) {
-            let mut err: Option<BoxError> = None;
+        } else {
+            // Drain the body into a single buffer first, then hand it to the
+            // shared `write_input` so the pty-side bump + ordering ping fires
+            // in exactly one place. /pty/input bodies are small (one keystroke
+            // or a 20ms coalesced burst, occasionally a paste), so the buffer
+            // is cheap and the simpler shape is worth losing per-chunk
+            // streaming.
+            let mut buf: Vec<u8> = Vec::new();
+            let mut body_err: Option<BoxError> = None;
             while let Some(chunk) = body_rx.recv().await {
                 match chunk {
-                    Ok(bytes) => {
-                        if let Err(e) = writer.lock().unwrap().write_all(&bytes) {
-                            err = Some(e.into());
-                            break;
-                        }
-                    }
+                    Ok(bytes) => buf.extend_from_slice(&bytes),
                     Err(e) => {
-                        err = Some(e);
+                        body_err = Some(e);
                         break;
                     }
                 }
             }
-            if err.is_some() {
+            if body_err.is_some() {
                 500
             } else {
-                204
+                match crate::pty::write_input(&sid, &buf) {
+                    Ok(()) => 204,
+                    Err(crate::pty::WriteInputError::NotFound) => 404,
+                    Err(crate::pty::WriteInputError::Io(_)) => 500,
+                }
             }
-        } else {
-            404
         };
         let headers = hyper::header::HeaderMap::new();
         log_response(request_id, status, &headers, start_time);

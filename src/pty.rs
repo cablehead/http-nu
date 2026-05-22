@@ -11,7 +11,9 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use bytes::Bytes;
@@ -276,6 +278,58 @@ struct PtySession {
     // when the reader thread notices the channel is closed. Read by
     // ConditionalWriter on the auto-reply path.
     has_subscriber: Arc<Mutex<bool>>,
+    // ms since epoch of the most recent write to this session's stdin. Seeded
+    // to creation time so a freshly-spawned session sorts above quiet ones.
+    // Bumped by `bump_last_input`, read by `pty list` so the sidebar can
+    // order tabs by recent activity.
+    last_input_ms: AtomicU64,
+    // Carried so `bump_last_input` can publish a `touched` event when this
+    // session's bump moves it above any other session in the sort order.
+    bus: Arc<Bus>,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Bump this session's `last_input_ms` to now. If the bump moves it above
+/// every other session's timestamp (i.e. the sort order's top sid changed),
+/// publish `pty.events {event: "touched", sid}` so subscribers re-render.
+/// Quiet bumps (this sid was already top) are skipped to keep the bus quiet
+/// under sustained typing in the foreground tab.
+fn bump_last_input(sid: &str) {
+    let now = now_ms();
+    let bus_to_notify = {
+        let map = sessions().lock().unwrap();
+        let Some(session) = map.get(sid) else {
+            return;
+        };
+        let prev = session.last_input_ms.swap(now, Ordering::Relaxed);
+        let was_top = map.iter().filter(|(k, _)| k.as_str() != sid).all(|(_, s)| {
+            s.last_input_ms.load(Ordering::Relaxed) <= prev
+        });
+        if was_top {
+            None
+        } else {
+            Some(session.bus.clone())
+        }
+    };
+    if let Some(bus) = bus_to_notify {
+        let span = Span::unknown();
+        bus.publish(
+            PTY_EVENTS_TOPIC,
+            Value::record(
+                record! {
+                    "event" => Value::string("touched", span),
+                    "sid" => Value::string(sid, span),
+                },
+                span,
+            ),
+        );
+    }
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
@@ -283,16 +337,30 @@ fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Hand out the master writer for a live session. Used by the handler-layer
-/// fast-path for POST /pty/input so per-keystroke requests skip the nushell
-/// eval thread entirely. The Arc shares the same Mutex as `pty write` and
-/// the wezterm-term auto-reply path, so writes from all three serialize.
-pub(crate) fn writer_for(sid: &str) -> Option<Arc<Mutex<Box<dyn Write + Send>>>> {
-    sessions()
-        .lock()
-        .unwrap()
-        .get(sid)
-        .map(|s| s.writer.clone())
+#[derive(Debug)]
+pub(crate) enum WriteInputError {
+    NotFound,
+    Io(std::io::Error),
+}
+
+/// Single entry point for writing user input into a pty session. Used by the
+/// handler-layer fast-path for POST /pty/input (which skips the nushell eval
+/// thread) and by `pty write` (the nushell-side equivalent). Both callers
+/// route through here so the bump + ordering ping happens in exactly one
+/// place. The writer's Mutex is shared with the wezterm-term auto-reply
+/// path; the lock is held only across this single write_all + flush.
+pub(crate) fn write_input(sid: &str, bytes: &[u8]) -> Result<(), WriteInputError> {
+    let writer = {
+        let map = sessions().lock().unwrap();
+        let session = map.get(sid).ok_or(WriteInputError::NotFound)?;
+        session.writer.clone()
+    };
+    let mut w = writer.lock().unwrap();
+    w.write_all(bytes).map_err(WriteInputError::Io)?;
+    let _ = w.flush();
+    drop(w);
+    bump_last_input(sid);
+    Ok(())
 }
 
 #[allow(clippy::result_large_err)]
@@ -373,10 +441,10 @@ impl Command for PtyOpenCommand {
         };
 
         let (session, reader) = if embedded {
-            open_embedded(engine_state, size, head)?
+            open_embedded(engine_state, size, head, self.bus.clone())?
         } else {
             let cmd = cmd.ok_or_else(|| err(head, "missing cmd", "required without --embedded"))?;
-            open_exec(&cmd, args, size, head)?
+            open_exec(&cmd, args, size, head, self.bus.clone())?
         };
 
         let sid = scru128::new().to_string();
@@ -420,6 +488,7 @@ fn open_exec(
     args: Option<Vec<String>>,
     size: PtySize,
     span: Span,
+    bus: Arc<Bus>,
 ) -> Result<(PtySession, Box<dyn Read + Send>), ShellError> {
     let pair = native_pty_system()
         .openpty(size)
@@ -489,6 +558,8 @@ fn open_exec(
         output_tx,
         term,
         has_subscriber,
+        last_input_ms: AtomicU64::new(now_ms()),
+        bus,
     };
     Ok((session, reader))
 }
@@ -615,6 +686,7 @@ fn open_embedded(
     _engine_state: &EngineState,
     size: PtySize,
     span: Span,
+    bus: Arc<Bus>,
 ) -> Result<(PtySession, Box<dyn Read + Send>), ShellError> {
     // Self-re-exec into our own `repl` subcommand. The fork-no-exec variant
     // ran fine for trivial use but silently dropped output from bare
@@ -638,7 +710,7 @@ fn open_embedded(
         .into_os_string()
         .into_string()
         .map_err(|_| err(span, "current_exe path not utf-8", ""))?;
-    open_exec(&self_exe, Some(vec!["repl".to_string()]), size, span)
+    open_exec(&self_exe, Some(vec!["repl".to_string()]), size, span, bus)
 }
 
 // --- pty write --------------------------------------------------------------
@@ -703,17 +775,10 @@ impl Command for PtyWriteCommand {
             return Ok(PipelineData::Empty);
         }
 
-        let writer = {
-            let map = sessions().lock().unwrap();
-            let session = map
-                .get(&sid)
-                .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-            session.writer.clone()
-        };
-        let mut w = writer.lock().unwrap();
-        w.write_all(&bytes)
-            .map_err(|e| err(head, "pty write failed", e.to_string()))?;
-        let _ = w.flush();
+        write_input(&sid, &bytes).map_err(|e| match e {
+            WriteInputError::NotFound => err(head, format!("no pty session: {sid}"), ""),
+            WriteInputError::Io(e) => err(head, "pty write failed", e.to_string()),
+        })?;
 
         Ok(PipelineData::Empty)
     }
@@ -1097,12 +1162,14 @@ impl Command for PtyListCommand {
             for (k, v) in &s.meta {
                 meta_rec.push(k.clone(), v.clone());
             }
+            let last_input = s.last_input_ms.load(Ordering::Relaxed) as i64;
             rows.push(Value::record(
                 record! {
                     "sid" => Value::string(sid, head),
                     "cols" => Value::int(cols, head),
                     "rows" => Value::int(rs, head),
                     "meta" => Value::record(meta_rec, head),
+                    "last_input_ms" => Value::int(last_input, head),
                 },
                 head,
             ));
