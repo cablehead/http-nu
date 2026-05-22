@@ -18,6 +18,11 @@ http-nu --datastar --store ./store :3001 examples/serve.nu
 
 Then visit http://localhost:3001.
 
+> **Local dev:** add `--dev` when running over plain HTTP. Examples
+> that set cookies (2048's `session` cookie, for instance) default to
+> `Secure`, so the browser drops them on `http://localhost`. `--dev`
+> omits the `Secure` flag.
+
 ## Individual examples
 
 Each example can also be run standalone.
@@ -33,8 +38,7 @@ Each example can also be run standalone.
 | quotes | `http-nu --datastar --store ./store :3001 examples/quotes/serve.nu` | Live quotes board with SSE |
 | tao | `http-nu --datastar --dev -w :3001 examples/tao/serve.nu` | The Tao of Datastar |
 | blog | `http-nu :3001 examples/blog/serve.nu` | Routing, layouts, HTML composition |
-| 2048 | `http-nu --datastar --store ./store :3001 examples/2048/serve.nu` | Solo game, event-sourced over an xs topic |
-| 2048-animation | `http-nu --datastar :3001 examples/2048-animation/serve.nu` | In-memory `.bus pub`/`.bus sub` variant with latency simulation and animation dials |
+| 2048 | `http-nu --dev --datastar --services --store ./store :3001 examples/2048/serve.nu` | Multi-game library, event-sourced via snapshot-actor, animated tile slides |
 
 ## Store-dependent examples
 

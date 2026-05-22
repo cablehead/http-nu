@@ -7,9 +7,10 @@ store
 build/
 www/assets/_/
 __pycache__/
+.claude/
+.claude/scheduled_tasks.lock
 node_modules/
 package-lock.json
-.claude/scheduled_tasks.lock
 # fnox stores plaintext secret values in this file (CLOUDFLARE_API_TOKEN,
 # SHELL_FS_TOKEN, ...). Keep it local; provision via `fnox set` on each
 # machine instead of committing.

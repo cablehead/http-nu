@@ -1,55 +1,94 @@
-# 2048, event-sourced over xs
+# nu2048
 
-A solo-tab 2048 demo where the game state is derived from an append-only event
-log stored in [embedded cross.stream](../../README.md#embedded-crossstream-full-featured-persistent-event-stream).
-Every move is a frame; replaying the log reconstructs the current board.
+2048 with a per-player game library, durable state, and animated SSE
+patches. Built on http-nu + cross.stream + Datastar.
 
-- `GET /` mints a fresh tab id and appends a `start` frame seeded with the
-  initial board (including the random tile placements, so replay is
-  deterministic).
-- Each keypress (`hjkl` / arrow keys / `r`) becomes a fire-and-forget POST that
-  appends a move frame to `game.<tabid>.move`. The frame meta carries
-  `{intent, spawn_idx, spawn_value}` -- the spawn randomness is captured once,
-  at POST time, so any number of replays produce the exact same state.
-- The SSE handler does `.cat --follow`, replays the per-tab log into a
-  `generate` accumulator, gates output on `xs.threshold` so only the
-  fully-replayed state ships to the client, then emits a patch per move
-  thereafter.
-
-Because state lives in the store, dropped patches and SSE reconnects can't
-lose moves -- the POST persists the intent before SSE ever sees it. On
-reconnect the SSE handler replays the full log and the client catches up.
-
-https://github.com/user-attachments/assets/d2e9d1a1-4df6-46c1-b27b-33db7dda132e
+https://github.com/user-attachments/assets/3b1a1cb6-375d-4a62-8988-f31b3c86d7da
 
 ## Run
 
-The example requires `--store` because it uses `.append` and `.cat`:
+Requires `--store` (for `.append` / `.cat`) and `--services` (for the
+snapshot-actor). Add `--dev` when running over plain HTTP -- the
+`session` cookie defaults to `Secure`, so the browser drops it on
+`http://localhost` without `--dev`:
 
 ```bash
-http-nu --datastar --store ./store :3002 examples/2048/serve.nu
+http-nu --dev --datastar --services --store ./store :3002 examples/2048/serve.nu
 ```
 
-Visit http://localhost:3002 and play.
+http://localhost:3002.
 
-## What this demonstrates
+## How state moves
 
-- **Event-sourced state.** No server-side mutable variable holds the game.
-  The SSE handler is a pure function: log -> state -> patches.
-- **Deterministic replay.** Move frames record their spawn seeds so replaying
-  the same log always lands on the same board, regardless of when or where
-  it replays.
-- **`xs.threshold` gating.** During replay the generator silently builds up
-  state; only after threshold (history caught up to live) does it ship the
-  initial render plus subsequent per-move patches.
-- **Persistence across restarts.** Reset the server, refresh the page (with
-  the same tab id in a cookie, say) and you'd recover the same game. Keeping
-  the log around lets us later build a "see previous games" view.
+```
+POST /move        ->  appends `game.<id>.move`        (intent only)
+snapshot-actor    ->  reads .last snapshot, applies move, appends
+                       `game.<id>.snapshot`            (canonical state)
+GET  /sse/<id>    ->  follows `game.<id>.*`, gates on xs.threshold,
+                       renders Datastar element patches
+```
 
-## Compared to the bus version
+Move POSTs never compute state. A singleton xs actor owns writes, so two
+tabs of the same game cannot race. The SSE handler is a pure reader of
+the snapshot stream.
 
-The companion example [`../2048-animation/`](../2048-animation/) uses
-[`.bus pub` / `.bus sub`](../../README.md#local-bus) instead. That version
-needs no `--store` and is simpler to run, but events that arrive during a
-brief SSE drop are lost (the bus is broadcast, not a queue). The xs version
-trades that for durability.
+The `roll` helper hashes `(game_id, state, key)` for tile spawns; no
+random seed is stored in frames. Replay reconstructs the same board.
+
+## Layout
+
+```
+serve.nu                routes
+tfe/
+  game.nu               pure logic (slide, spawn, roll, apply-move)
+  store.nu              .cat/.last wrappers (resume-game, list-games)
+  render.nu             HTML output (board, card, layout)
+  sse.nu                SSE pipeline (frames-to-states -> patches)
+  snapshot-actor.nu     xs actor source (registered at startup)
+  templates/            layout.html, vt-tuner.html
+static/                 styles.css, script.js, og.png, ellie.png
+test/                   unit tests, browser e2e, benchmark
+```
+
+`game.nu` and `store.nu` have no http-nu dependencies; they work from a
+plain nu shell against a vanilla `xs serve` store.
+
+## CLI
+
+The running http-nu server supervises the store (its socket is at
+`<store>/sock`). `.cat` / `.last` are HTTP calls over that socket --
+load them via `xs.nu` (`xs nu --install`, or `use /path/to/xs.nu *`).
+
+```nushell
+$env.XS_ADDR = (realpath ./store)
+overlay use -r examples/2048/tfe
+
+list-players                            # players seen, with game counts
+list-games | first 5                    # games by move count
+leaderboard                             # top games by score, last 7 days
+leaderboard --since 1day --limit 10     # window + size are tunable
+resume-game "03g54..." | reject state.tiles
+follow-game "03g54..." | each { reject state.tiles }
+
+# Replay from raw move frames (no snapshots needed):
+.cat -T "game.03g54.move" | project-game "03g54" | reject tiles
+```
+
+### Frame topics
+
+| topic                       | written by      | meta                                                              |
+| --------------------------- | --------------- | ----------------------------------------------------------------- |
+| `player.<uuid>.games`       | `GET /new`      | (none) -- frame id is the game id                                 |
+| `game.<id>.move`            | `POST /move`    | `{intent, req_id, kind?}` -- `intent` in `h,j,k,l`; `kind: undo`  |
+| `game.<id>.snapshot`        | snapshot-actor  | `{state, score, max_tile, moves, game_over, player_id, prev, ...}` |
+
+`.last game.<id>.snapshot` is the canonical HEAD for a game.
+
+## Animation
+
+Each move runs three sequential phases on one view-transition: slide,
+merge pop, spawn-in. CSS targets `view-transition-class` (set in
+`render.nu` per tile: `merged`, `spawned`, `ghost`). The `[ fx ]` button
+in the help panel opens a tuner for the timing knobs (durations + the
+merge-pop scale + the spawn-in starting scale). Defaults live in
+`static/styles.css :root`.

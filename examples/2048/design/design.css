@@ -1,0 +1,109 @@
+/* /design viewer layout. 2-col: sidebar list + focused preview. */
+
+.design-main {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1.5rem;
+}
+
+.design-nav {
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  /* Reserve scrollbar space so design pages don't shift width when
+     the preview's overflow toggles. */
+  scrollbar-gutter: stable;
+}
+.design-nav a {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.6rem 1.5rem;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+}
+.design-nav a:hover { background: rgba(0, 0, 0, 0.2); color: inherit; }
+.design-nav a.current {
+  background: rgba(0, 0, 0, 0.3);
+  border-left-color: var(--brand);
+  color: var(--fg-header);
+}
+.design-nav .title { font-weight: 700; }
+.design-nav .desc { font-size: var(--text-sm); opacity: 0.7; }
+
+.design-preview {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.story {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.story .label {
+  font-size: var(--text-sm);
+  opacity: 0.7;
+  font-family: var(--font-mono);
+}
+.story .render {
+  position: relative;  /* anchors absolutely-positioned children (.badge) */
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+/* /design/board playground. Two columns: the WC on the left,
+   scenario controls on the right. */
+.wc-playground {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 1.25rem;
+  /* Pin the playground to fill from its top down to the viewport
+     bottom. The 14rem subtract is the height of everything above the
+     playground (site-header + breadcrumb + story label + body padding);
+     tune if that chrome changes. Controls scroll inside their column;
+     the board stays in view. */
+  height: calc(100dvh - 14rem);
+}
+.wc-playground .wc-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+  min-height: 0;     /* let the flex column shrink below content height */
+  overflow-y: auto;
+  /* Reserve scrollbar space so the column width doesn't jump when the
+     overflow toggles between visible and present. */
+  scrollbar-gutter: stable;
+}
+.wc-scenario {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.wc-scenario-label {
+  font-size: var(--text-sm);
+  opacity: 0.85;
+  font-family: var(--font-mono);
+}
+.wc-btn {
+  align-self: flex-start;
+  margin-right: 0.5rem;
+}
+
+/* Static badge stories on /design/badges. Plain sized container for
+   the WC so the board renders at a useful size without needing the
+   full wc-playground grid (no controls beside it). */
+.badge-board {
+  width: 260px;
+}
