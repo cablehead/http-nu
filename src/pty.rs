@@ -623,6 +623,16 @@ fn open_embedded(
     // setpgid+tcsetpgrp dance. Exec'ing our own binary gives the embedded
     // REPL a clean process state, with all of http-nu's custom commands
     // still registered (because `repl` rebuilds them in its main).
+    //
+    // On Linux, exec `/proc/self/exe` directly rather than the string from
+    // current_exe(): if the on-disk binary has been replaced (e.g. a cargo
+    // rebuild during a live server), readlink('/proc/self/exe') reports
+    // the path with " (deleted)" appended and execve fails ENOENT. The
+    // symlink itself still resolves to the running inode at exec time,
+    // so the child gets the same binary the parent is running.
+    #[cfg(target_os = "linux")]
+    let self_exe = "/proc/self/exe".to_string();
+    #[cfg(not(target_os = "linux"))]
     let self_exe = std::env::current_exe()
         .map_err(|e| err(span, "current_exe failed", e.to_string()))?
         .into_os_string()
