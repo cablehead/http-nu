@@ -192,10 +192,13 @@ fn snapshot_terminal(term: &Terminal) -> Vec<u8> {
     let cols = size.cols;
     let cursor = term.cursor_pos();
     let screen = term.screen();
-    let physical_rows = screen.physical_rows;
     let total_lines = screen.scrollback_rows();
-    let start = total_lines.saturating_sub(physical_rows);
-    let lines = screen.lines_in_phys_range(start..total_lines);
+    // Emit every retained line, not just the visible region. The browser-side
+    // VT scrolls the older ones up into its own scrollback as it fills past
+    // physical_rows, so a fresh attach (e.g. page refresh) reconstructs the
+    // history. The final `\x1b[{y};{x}H` below repositions the cursor inside
+    // the visible window once everything has been written.
+    let lines = screen.lines_in_phys_range(0..total_lines);
 
     let mut out = String::new();
     out.push_str("\x1b[0m\x1b[2J\x1b[H");
