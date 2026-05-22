@@ -21,7 +21,10 @@ use nu_protocol::{
     ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
-use wezterm_term::{color::ColorPalette, Terminal, TerminalConfiguration, TerminalSize};
+use wezterm_term::{
+    color::{ColorAttribute, ColorPalette},
+    CellAttributes, Intensity, Terminal, TerminalConfiguration, TerminalSize, Underline,
+};
 
 use crate::bus::Bus;
 
@@ -64,13 +67,110 @@ impl Write for ConditionalWriter {
     }
 }
 
+/// Append the foreground SGR codes for `color` into `out` (without the
+/// leading "\x1b[" or trailing "m"). Returns true if anything was written.
+fn append_fg_sgr(out: &mut String, color: ColorAttribute) -> bool {
+    use std::fmt::Write as _;
+    match color {
+        ColorAttribute::Default => false,
+        ColorAttribute::PaletteIndex(i) if i < 8 => {
+            let _ = write!(out, ";{}", 30 + i);
+            true
+        }
+        ColorAttribute::PaletteIndex(i) if i < 16 => {
+            let _ = write!(out, ";{}", 90 + (i - 8));
+            true
+        }
+        ColorAttribute::PaletteIndex(i) => {
+            let _ = write!(out, ";38;5;{i}");
+            true
+        }
+        ColorAttribute::TrueColorWithDefaultFallback(rgb)
+        | ColorAttribute::TrueColorWithPaletteFallback(rgb, _) => {
+            let r = (rgb.0 * 255.0).round() as u8;
+            let g = (rgb.1 * 255.0).round() as u8;
+            let b = (rgb.2 * 255.0).round() as u8;
+            let _ = write!(out, ";38;2;{r};{g};{b}");
+            true
+        }
+    }
+}
+
+/// Append the background SGR codes for `color` into `out`. Same shape as
+/// `append_fg_sgr` but with bg codes (40s/100s/48).
+fn append_bg_sgr(out: &mut String, color: ColorAttribute) -> bool {
+    use std::fmt::Write as _;
+    match color {
+        ColorAttribute::Default => false,
+        ColorAttribute::PaletteIndex(i) if i < 8 => {
+            let _ = write!(out, ";{}", 40 + i);
+            true
+        }
+        ColorAttribute::PaletteIndex(i) if i < 16 => {
+            let _ = write!(out, ";{}", 100 + (i - 8));
+            true
+        }
+        ColorAttribute::PaletteIndex(i) => {
+            let _ = write!(out, ";48;5;{i}");
+            true
+        }
+        ColorAttribute::TrueColorWithDefaultFallback(rgb)
+        | ColorAttribute::TrueColorWithPaletteFallback(rgb, _) => {
+            let r = (rgb.0 * 255.0).round() as u8;
+            let g = (rgb.1 * 255.0).round() as u8;
+            let b = (rgb.2 * 255.0).round() as u8;
+            let _ = write!(out, ";48;2;{r};{g};{b}");
+            true
+        }
+    }
+}
+
+/// Emit a full SGR escape sequence describing the cell's attributes. Always
+/// begins with reset (0) so caller doesn't have to track previous state.
+fn append_sgr_full(out: &mut String, attrs: &CellAttributes) {
+    out.push_str("\x1b[0");
+    match attrs.intensity() {
+        Intensity::Bold => out.push_str(";1"),
+        Intensity::Half => out.push_str(";2"),
+        Intensity::Normal => {}
+    }
+    if attrs.italic() {
+        out.push_str(";3");
+    }
+    match attrs.underline() {
+        Underline::None => {}
+        Underline::Single => out.push_str(";4"),
+        Underline::Double => out.push_str(";21"),
+        // Curly/Dotted/Dashed degrade to single -- most clients still render
+        // it as some form of underline.
+        _ => out.push_str(";4"),
+    }
+    if attrs.reverse() {
+        out.push_str(";7");
+    }
+    if attrs.invisible() {
+        out.push_str(";8");
+    }
+    if attrs.strikethrough() {
+        out.push_str(";9");
+    }
+    append_fg_sgr(out, attrs.foreground());
+    append_bg_sgr(out, attrs.background());
+    out.push('m');
+}
+
+/// Cheap structural equality on the attribute bits we render. CellAttributes
+/// implements PartialEq, which compares all bits (including hyperlinks and
+/// image refs we don't care about), so use a narrower check.
+fn attrs_equiv(a: &CellAttributes, b: &CellAttributes) -> bool {
+    a.attribute_bits_equal(b)
+        && a.foreground() == b.foreground()
+        && a.background() == b.background()
+}
+
 /// Build a VT byte sequence that, when written to a fresh xterm-compatible
-/// terminal, reproduces the current visible screen + cursor of `term`.
-///
-/// Current implementation: clear screen, emit each visible line as plain text
-/// padded with spaces, position cursor. SGR/colors not preserved yet; text +
-/// cursor reproduce correctly. Sufficient for shells; partial fidelity for
-/// colorful TUIs until SGR delta-encoding is added.
+/// terminal, reproduces the current visible screen + cursor + SGR state of
+/// `term`.
 fn snapshot_terminal(term: &Terminal) -> Vec<u8> {
     use std::fmt::Write as _;
 
@@ -86,16 +186,35 @@ fn snapshot_terminal(term: &Terminal) -> Vec<u8> {
     let mut out = String::new();
     out.push_str("\x1b[0m\x1b[2J\x1b[H");
 
+    // Track the attribute set we last emitted so we only emit SGR on change.
+    let default_attrs = CellAttributes::default();
+    let mut current = default_attrs.clone();
+
     for (row, line) in lines.iter().enumerate() {
         if row > 0 {
+            // Reset before CRLF so trailing background fill doesn't leak
+            // to the next line.
+            if !attrs_equiv(&current, &default_attrs) {
+                out.push_str("\x1b[0m");
+                current = default_attrs.clone();
+            }
             out.push_str("\r\n");
         }
         let mut col = 0usize;
         for cell_ref in line.visible_cells() {
             let cell_col = cell_ref.cell_index();
             while col < cell_col && col < cols {
+                if !attrs_equiv(&current, &default_attrs) {
+                    out.push_str("\x1b[0m");
+                    current = default_attrs.clone();
+                }
                 out.push(' ');
                 col += 1;
+            }
+            let cell_attrs = cell_ref.attrs();
+            if !attrs_equiv(&current, cell_attrs) {
+                append_sgr_full(&mut out, cell_attrs);
+                current = cell_attrs.clone();
             }
             out.push_str(cell_ref.str());
             col += cell_ref.width().max(1);
@@ -104,11 +223,16 @@ fn snapshot_terminal(term: &Terminal) -> Vec<u8> {
             }
         }
         while col < cols {
+            if !attrs_equiv(&current, &default_attrs) {
+                out.push_str("\x1b[0m");
+                current = default_attrs.clone();
+            }
             out.push(' ');
             col += 1;
         }
     }
 
+    out.push_str("\x1b[0m");
     let _ = write!(
         out,
         "\x1b[{};{}H",

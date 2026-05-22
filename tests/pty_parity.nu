@@ -78,5 +78,17 @@ let _ = (pty stream $sid6 | first 1)  # drain at least 1 chunk (the snapshot)
 let final = (pty stream $sid6 | into binary)
 assert (($final | length) >= 0) "second attach succeeded"
 
+# B5 (color): snapshot must preserve SGR foreground color. Spawn a bash
+# that prints red text, then attach; the snapshot bytes should contain the
+# 31m (red fg) SGR code, demonstrating the serializer preserved color
+# attributes from wezterm-term's CellAttributes.
+print ""
+print "=== B5b snapshot preserves SGR colors ==="
+let sidc = (pty open bash --args ["-c" "printf '\u{1b}[31mRED-PROBE\u{1b}[0m\n'; sleep 1"] --cols 80 --rows 24)
+sleep 400ms
+let cout = (pty stream $sidc | into binary | decode utf-8)
+assert ($cout | str contains "RED-PROBE") "snapshot contains red probe text"
+assert ($cout | str contains "31") "snapshot contains red fg SGR code (31)"
+
 print ""
 print "=== ALL PARITY TESTS PASSED ==="

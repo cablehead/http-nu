@@ -15,6 +15,13 @@ how each criterion is checked.
 - New features wezterm-term enables (sixel, kitty graphics, OSC 8) are
   bonus; parity does not require exercising them.
 
+## Status
+
+All testable parity criteria pass on `pty-wezterm-term` and `pty` branches.
+Tests: `tests/pty_smoke.nu`, `tests/pty_parity.nu`.
+
+Browser end-to-end (manual) is the remaining unchecked criterion.
+
 ## Build parity
 
 - [ ] `cargo build` succeeds on the new branch.
