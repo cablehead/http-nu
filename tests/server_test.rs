@@ -140,6 +140,7 @@ impl TestServer {
         cmd.output().await.expect("Failed to execute curl")
     }
 
+    #[allow(dead_code)] // body is unix-only; Windows clippy sees this as unused
     fn send_ctrl_c(&mut self) {
         #[cfg(unix)]
         {
