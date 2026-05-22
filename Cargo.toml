@@ -75,6 +75,7 @@ portable-pty = "0.9"
 base64 = "0.22"
 nix = { version = "0.30", features = ["signal"] }
 vt100 = "0.16"
+wezterm-term = { git = "https://github.com/wezterm/wezterm", rev = "577474d89ee61aef4a48145cdec82a638d874751" }
 
 [dependencies.cross-stream]
 version = "0.12.0"

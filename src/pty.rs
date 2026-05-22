@@ -21,8 +21,103 @@ use nu_protocol::{
     ShellError, Signature, Span, SyntaxShape, Type, Value,
 };
 use portable_pty::{native_pty_system, Child as PortableChild, CommandBuilder, MasterPty, PtySize};
+use wezterm_term::{color::ColorPalette, Terminal, TerminalConfiguration, TerminalSize};
 
 use crate::bus::Bus;
+
+// --- wezterm-term plumbing --------------------------------------------------
+
+/// Minimal TerminalConfiguration impl. Default trait methods cover everything
+/// except color_palette, which is required.
+#[derive(Debug, Default)]
+struct MinimalConfig;
+
+impl TerminalConfiguration for MinimalConfig {
+    fn color_palette(&self) -> ColorPalette {
+        ColorPalette::default()
+    }
+}
+
+/// Writer wrapper that delegates through the same Arc<Mutex<...>> the rest of
+/// the session uses, AND suppresses writes when a client subscriber is
+/// attached. The browser-side VT emulator natively replies to DA/DSR queries,
+/// so when a browser is attached we let it answer; when nobody is attached we
+/// let wezterm-term's auto-reply take over (zmx-style). This preserves the
+/// existing no-double-reply policy.
+struct ConditionalWriter {
+    inner: Arc<Mutex<Box<dyn Write + Send>>>,
+    has_subscriber: Arc<Mutex<bool>>,
+}
+
+impl Write for ConditionalWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if *self.has_subscriber.lock().unwrap() {
+            return Ok(buf.len());
+        }
+        self.inner.lock().unwrap().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        if *self.has_subscriber.lock().unwrap() {
+            return Ok(());
+        }
+        self.inner.lock().unwrap().flush()
+    }
+}
+
+/// Build a VT byte sequence that, when written to a fresh xterm-compatible
+/// terminal, reproduces the current visible screen + cursor of `term`.
+///
+/// Current implementation: clear screen, emit each visible line as plain text
+/// padded with spaces, position cursor. SGR/colors not preserved yet; text +
+/// cursor reproduce correctly. Sufficient for shells; partial fidelity for
+/// colorful TUIs until SGR delta-encoding is added.
+fn snapshot_terminal(term: &Terminal) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let size = term.get_size();
+    let cols = size.cols;
+    let cursor = term.cursor_pos();
+    let screen = term.screen();
+    let physical_rows = screen.physical_rows;
+    let total_lines = screen.scrollback_rows();
+    let start = total_lines.saturating_sub(physical_rows);
+    let lines = screen.lines_in_phys_range(start..total_lines);
+
+    let mut out = String::new();
+    out.push_str("\x1b[0m\x1b[2J\x1b[H");
+
+    for (row, line) in lines.iter().enumerate() {
+        if row > 0 {
+            out.push_str("\r\n");
+        }
+        let mut col = 0usize;
+        for cell_ref in line.visible_cells() {
+            let cell_col = cell_ref.cell_index();
+            while col < cell_col && col < cols {
+                out.push(' ');
+                col += 1;
+            }
+            out.push_str(cell_ref.str());
+            col += cell_ref.width().max(1);
+            if col >= cols {
+                break;
+            }
+        }
+        while col < cols {
+            out.push(' ');
+            col += 1;
+        }
+    }
+
+    let _ = write!(
+        out,
+        "\x1b[{};{}H",
+        (cursor.y as usize) + 1,
+        cursor.x + 1
+    );
+
+    out.into_bytes()
+}
 
 // --- session bookkeeping ----------------------------------------------------
 
@@ -30,16 +125,19 @@ const PTY_EVENTS_TOPIC: &str = "pty.events";
 
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    // Shared with the reader thread so it can inject auto-replies to DA1/
-    // DA2/DSR queries (zmx-style) without round-tripping to the browser.
+    // Shared with wezterm-term's Terminal (which uses it via ConditionalWriter
+    // to auto-reply to DA1/DA2/DSR queries when no client is attached) and
+    // with `pty write` (for user input). All three contend on the same Mutex,
+    // which is fine -- this is a low-throughput interactive path.
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn PortableChild + Send + Sync>,
     meta: HashMap<String, Value>,
-    // Single-client output slot. The reader thread maintains a vt100::Parser
-    // (canonical virtual screen) and, if a Sender is installed, forwards each
-    // chunk to it. A new `pty stream` attach drops whatever Sender lives
-    // here, which drains and closes the previous SSE's Receiver -- last
-    // attach wins. The new attach gets a fresh state_formatted snapshot then
+    // Single-client output slot. The reader thread feeds bytes into the
+    // wezterm-term Terminal (which updates the canonical virtual screen state
+    // and emits auto-replies via its writer) and, if a Sender is installed,
+    // forwards each chunk to it. A new `pty stream` attach drops whatever
+    // Sender lives here, which drains and closes the previous SSE's Receiver
+    // -- last attach wins. The new attach gets a fresh screen snapshot then
     // starts tailing the new channel.
     //
     // TODO: revisit input gating. POST /pty/input is a separate HTTP request
@@ -49,7 +147,11 @@ struct PtySession {
     // a matching one. Not blocking for v1 -- worst case a stale tab types a
     // few chars that get applied to the same pty.
     output_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Bytes>>>>,
-    parser: Arc<Mutex<vt100::Parser>>,
+    term: Arc<Mutex<Terminal>>,
+    // Flipped to `true` by `pty stream` when a subscriber attaches, `false`
+    // when the reader thread notices the channel is closed. Read by
+    // ConditionalWriter on the auto-reply path.
+    has_subscriber: Arc<Mutex<bool>>,
 }
 
 fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
@@ -144,8 +246,8 @@ impl Command for PtyOpenCommand {
         let sid = scru128::new().to_string();
         let (cols_n, rows_n) = (size.cols as i64, size.rows as i64);
         let output_tx = session.output_tx.clone();
-        let parser = session.parser.clone();
-        let writer = session.writer.clone();
+        let term = session.term.clone();
+        let has_subscriber = session.has_subscriber.clone();
         sessions().lock().unwrap().insert(sid.clone(), session);
 
         // Spawn the reader thread now (after insert) so it can self-reap
@@ -154,8 +256,8 @@ impl Command for PtyOpenCommand {
             sid.clone(),
             reader,
             output_tx,
-            parser,
-            writer,
+            term,
+            has_subscriber,
             self.bus.clone(),
         );
 
@@ -207,42 +309,67 @@ fn open_exec(
         .map_err(|e| err(span, "spawn failed", e.to_string()))?;
     drop(pair.slave);
 
-    let writer = pair
+    let raw_writer = pair
         .master
         .take_writer()
         .map_err(|e| err(span, "take_writer failed", e.to_string()))?;
 
-    // The reader thread feeds the vt100 parser (canonical screen state) and,
-    // if an attach has installed a Sender, forwards each chunk to it.
     let reader = pair
         .master
         .try_clone_reader()
         .map_err(|e| err(span, "clone_reader failed", e.to_string()))?;
+
     let output_tx = Arc::new(Mutex::new(None));
-    let parser = Arc::new(Mutex::new(vt100::Parser::new(size.rows, size.cols, 0)));
+    let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(raw_writer));
+    let has_subscriber = Arc::new(Mutex::new(false));
+
+    // Build the wezterm-term Terminal. Its writer is the ConditionalWriter,
+    // which routes through the shared `writer` Arc but suppresses output when
+    // a browser is attached (the browser handles DA/DSR replies itself).
+    let term_writer = ConditionalWriter {
+        inner: writer.clone(),
+        has_subscriber: has_subscriber.clone(),
+    };
+    let term = Terminal::new(
+        TerminalSize {
+            rows: size.rows as usize,
+            cols: size.cols as usize,
+            pixel_width: 0,
+            pixel_height: 0,
+            dpi: 0,
+        },
+        Arc::new(MinimalConfig),
+        "http-nu-pty",
+        env!("CARGO_PKG_VERSION"),
+        Box::new(term_writer),
+    );
+    let term = Arc::new(Mutex::new(term));
 
     let session = PtySession {
         master: pair.master,
-        writer: Arc::new(Mutex::new(writer)),
+        writer,
         child,
         meta: HashMap::new(),
         output_tx,
-        parser,
+        term,
+        has_subscriber,
     };
     Ok((session, reader))
 }
 
-/// Drain the pty master fd on a dedicated blocking thread. Each chunk is
-/// fed to the vt100 parser (which updates the virtual screen state used by
-/// future attachers) and, if a Sender is installed, forwarded to it. When
-/// read returns 0 the child has exited; the thread removes the session from
-/// the map (if `pty close` didn't already) and publishes `died` on the bus.
+/// Drain the pty master fd on a dedicated blocking thread. Each chunk is fed
+/// to the wezterm-term Terminal (which updates the canonical virtual screen
+/// state used by future attachers AND emits DA/DSR auto-replies through its
+/// ConditionalWriter when no client is attached). The same chunk is also
+/// forwarded raw to the attached SSE subscriber (if any). When `read` returns
+/// 0 the child has exited; the thread removes the session from the map (if
+/// `pty close` didn't already) and publishes `died` on the bus.
 fn spawn_reader(
     sid: String,
     mut reader: Box<dyn Read + Send>,
     output_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Bytes>>>>,
-    parser: Arc<Mutex<vt100::Parser>>,
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    term: Arc<Mutex<Terminal>>,
+    has_subscriber: Arc<Mutex<bool>>,
     bus: Arc<Bus>,
 ) {
     let dump_path = std::env::var("HTTP_NU_PTY_DUMP").ok();
@@ -264,41 +391,36 @@ fn spawn_reader(
                         let _ = writeln!(f, "[{sid}] {}", escape_bytes(&buf[..n]));
                         let _ = f.flush();
                     }
-                    // Hold the parser lock across process+send so an attach
-                    // racing with us either sees the snapshot before this
-                    // chunk lands (and gets the chunk on its new channel) or
-                    // sees the snapshot after (and skips this chunk on its
-                    // new channel because the snapshot already reflects it).
-                    let mut parser_guard = parser.lock().unwrap();
-                    parser_guard.process(&buf[..n]);
+                    // Feed the chunk to wezterm-term BEFORE forwarding to the
+                    // SSE subscriber, so an attach that races us either sees
+                    // the snapshot before this chunk lands (and gets the chunk
+                    // on its new channel) or sees the snapshot after (and
+                    // skips this chunk on its new channel because the snapshot
+                    // already reflects it). Hold the term lock across both.
+                    let mut term_guard = term.lock().unwrap();
+                    term_guard.advance_bytes(&buf[..n]);
                     // Forward raw bytes to the attached subscriber (if any).
                     // When a subscriber is attached the browser is itself a
-                    // full VT emulator and natively auto-replies to all
-                    // queries (DA1/DA2/DSR), so we stay out of its way.
-                    // When no subscriber is attached we fall back to a
-                    // zmx-style server-side reply for DA1/DA2 so the slave
-                    // program (e.g. fish, reedline) doesn't block forever
-                    // waiting for an answer that has nowhere to come from.
-                    let has_subscriber = {
-                        let tx_lock = output_tx.lock().unwrap();
-                        if let Some(tx) = tx_lock.as_ref() {
-                            let _ = tx.send(chunk);
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    if !has_subscriber {
-                        let replies = scan_da_queries(&buf[..n]);
-                        if !replies.is_empty() {
-                            let mut w = writer.lock().unwrap();
-                            for r in &replies {
-                                let _ = w.write_all(r);
-                            }
-                            let _ = w.flush();
+                    // full VT emulator and natively replies to DA/DSR queries;
+                    // ConditionalWriter suppresses wezterm-term's auto-reply
+                    // while has_subscriber is true. When no subscriber is
+                    // attached, wezterm-term's ConditionalWriter routes the
+                    // replies straight to the slave so the shell unblocks.
+                    let mut sub_lock = has_subscriber.lock().unwrap();
+                    let mut tx_lock = output_tx.lock().unwrap();
+                    if let Some(tx) = tx_lock.as_ref() {
+                        if tx.send(chunk).is_err() {
+                            // Receiver dropped (consumer disconnected). Clear
+                            // the slot so future attaches don't race with a
+                            // dead Sender, and let ConditionalWriter resume
+                            // auto-replying to the slave.
+                            *tx_lock = None;
+                            *sub_lock = false;
                         }
                     }
-                    drop(parser_guard);
+                    drop(tx_lock);
+                    drop(sub_lock);
+                    drop(term_guard);
                 }
                 Err(e) => {
                     use std::io::ErrorKind;
@@ -350,62 +472,6 @@ fn escape_bytes(b: &[u8]) -> String {
         }
     }
     s
-}
-
-/// Scan a chunk of pty output for DA1/DA2 queries and return the canonical
-/// replies to write to pty stdin. Matches zmx's `respondToDeviceAttributes`
-/// (zmx/src/util.zig:149): only the device-attribute queries, same exact
-/// reply bytes.
-///
-/// Caller is expected to invoke this only when no client is attached --
-/// when a client IS attached, the browser's VT emulator handles all
-/// queries natively, and a server-side reply would race/double-reply.
-/// This is exactly zmx's gating policy (see its comment at util.zig:151:
-/// "This handles the case where no client is attached").
-///
-/// Skips replies (CSI sequences with `?` after `[`) so we don't match
-/// our own DA1 reply as a query.
-///
-/// Limitation: queries that straddle a chunk boundary are missed. In
-/// practice programs emit these queries as a single short write, well
-/// inside one 4KB chunk.
-fn scan_da_queries(chunk: &[u8]) -> Vec<Vec<u8>> {
-    let mut replies: Vec<Vec<u8>> = Vec::new();
-    let mut i = 0;
-    while i + 1 < chunk.len() {
-        if chunk[i] != 0x1b || chunk[i + 1] != b'[' {
-            i += 1;
-            continue;
-        }
-        let mut j = i + 2;
-        let private = if j < chunk.len() && matches!(chunk[j], b'<' | b'=' | b'>' | b'?') {
-            let p = chunk[j];
-            j += 1;
-            Some(p)
-        } else {
-            None
-        };
-        let params_start = j;
-        while j < chunk.len() && matches!(chunk[j], b'0'..=b'9' | b';') {
-            j += 1;
-        }
-        if j >= chunk.len() {
-            break;
-        }
-        let params = &chunk[params_start..j];
-        let final_byte = chunk[j];
-        match (private, final_byte) {
-            (None, b'c') if params.is_empty() || params == b"0" => {
-                replies.push(b"\x1b[?62;22c".to_vec());
-            }
-            (Some(b'>'), b'c') if params.is_empty() || params == b"0" => {
-                replies.push(b"\x1b[>1;10;0c".to_vec());
-            }
-            _ => {}
-        }
-        i = j + 1;
-    }
-    replies
 }
 
 #[allow(clippy::result_large_err)]
@@ -564,12 +630,13 @@ impl Command for PtyResizeCommand {
                     pixel_height: 0,
                 })
                 .map_err(|e| err(head, "pty resize failed", e.to_string()))?;
-            session
-                .parser
-                .lock()
-                .unwrap()
-                .screen_mut()
-                .set_size(rows as u16, cols as u16);
+            session.term.lock().unwrap().resize(TerminalSize {
+                rows: rows as usize,
+                cols: cols as usize,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            });
         }
 
         self.bus.publish(
@@ -634,26 +701,27 @@ impl Command for PtyStreamCommand {
         let sid: String = call.req(engine_state, stack, 0)?;
         let sse = call.has_flag(engine_state, stack, "sse")?;
 
-        // Snapshot the parser's screen state and install a fresh Sender
-        // atomically. Holding the parser lock across both keeps the reader
-        // thread from processing new bytes during this window: any chunk
-        // that arrives after we drop the lock either lands in our new
-        // channel (good) or was already absorbed into the snapshot (also
-        // good). Replacing the Sender drops whatever the previous attach
-        // installed, which closes that consumer's stream -- last attach
-        // wins. state_formatted emits the canonical ANSI sequence that
-        // reproduces the current screen -- no stale DSR queries, no partial
-        // sequences, no out-of-order mode toggles.
+        // Snapshot the wezterm-term screen and install a fresh Sender
+        // atomically. Holding the term lock across both keeps the reader
+        // thread from advancing bytes during this window: any chunk that
+        // arrives after we drop the lock either lands in our new channel
+        // (good) or was already absorbed into the snapshot (also good).
+        // Replacing the Sender drops whatever the previous attach installed,
+        // which closes that consumer's stream -- last attach wins. The
+        // snapshot is a canonical ANSI sequence that reproduces the current
+        // visible screen + cursor; partial fidelity for colors today (see
+        // snapshot_terminal).
         let (rx, snapshot) = {
             let map = sessions().lock().unwrap();
             let session = map
                 .get(&sid)
                 .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-            let parser_guard = session.parser.lock().unwrap();
-            let snap = parser_guard.screen().state_formatted();
+            let term_guard = session.term.lock().unwrap();
+            let snap = snapshot_terminal(&term_guard);
             let (tx, rx) = std::sync::mpsc::channel::<Bytes>();
             *session.output_tx.lock().unwrap() = Some(tx);
-            drop(parser_guard);
+            *session.has_subscriber.lock().unwrap() = true;
+            drop(term_guard);
             (rx, snap)
         };
 
