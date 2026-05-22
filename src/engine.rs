@@ -95,6 +95,7 @@ impl Engine {
                 "expose" => opt_str(&options.expose),
                 "tls" => opt_str(&options.tls),
                 "services" => Value::bool(options.services, span),
+                "pty_scrollback_lines" => Value::int(crate::pty::SCROLLBACK_LINES as i64, span),
             },
             span,
         );

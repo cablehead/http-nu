@@ -32,14 +32,26 @@ use crate::bus::Bus;
 
 // --- wezterm-term plumbing --------------------------------------------------
 
-/// Minimal TerminalConfiguration impl. Default trait methods cover everything
-/// except color_palette, which is required.
+/// Lines of scrollback retained per pty session, server-side. Kept in sync
+/// with the browser-side `scrollback:` option on `new Terminal({...})` via
+/// the `$HTTP_NU.pty_scrollback_lines` const (see `engine::set_http_nu_const`),
+/// which `sessions.html` templates into its constructor call. Changing this
+/// number changes both sides at once.
+pub const SCROLLBACK_LINES: usize = 3000;
+
+/// Minimal TerminalConfiguration impl. Overrides only what we care about:
+/// the color palette (required to render SGR), and `scrollback_size` so the
+/// server-side history matches what the browser is willing to display.
 #[derive(Debug, Default)]
 struct MinimalConfig;
 
 impl TerminalConfiguration for MinimalConfig {
     fn color_palette(&self) -> ColorPalette {
         ColorPalette::default()
+    }
+
+    fn scrollback_size(&self) -> usize {
+        SCROLLBACK_LINES
     }
 }
 
