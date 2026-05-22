@@ -283,6 +283,18 @@ fn sessions() -> &'static Mutex<HashMap<String, PtySession>> {
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Hand out the master writer for a live session. Used by the handler-layer
+/// fast-path for POST /pty/input so per-keystroke requests skip the nushell
+/// eval thread entirely. The Arc shares the same Mutex as `pty write` and
+/// the wezterm-term auto-reply path, so writes from all three serialize.
+pub(crate) fn writer_for(sid: &str) -> Option<Arc<Mutex<Box<dyn Write + Send>>>> {
+    sessions()
+        .lock()
+        .unwrap()
+        .get(sid)
+        .map(|s| s.writer.clone())
+}
+
 #[allow(clippy::result_large_err)]
 fn err(span: Span, msg: impl Into<String>, label: impl Into<String>) -> ShellError {
     ShellError::Generic(GenericError::new(msg.into(), label.into(), span))

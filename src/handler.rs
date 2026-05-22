@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -96,23 +97,6 @@ where
         }
     });
 
-    // Create ByteStream for Nu pipeline
-    let stream = nu_protocol::ByteStream::from_fn(
-        nu_protocol::Span::unknown(),
-        engine.state.signals().clone(),
-        nu_protocol::ByteStreamType::Unknown,
-        move |buffer: &mut Vec<u8>| match body_rx.blocking_recv() {
-            Some(Ok(bytes)) => {
-                buffer.extend_from_slice(&bytes);
-                Ok(true)
-            }
-            Some(Err(err)) => Err(nu_protocol::ShellError::Generic(
-                GenericError::new_internal("Body read error", err.to_string()),
-            )),
-            None => Ok(false),
-        },
-    );
-
     // Generate request ID and guard for logging
     let start_time = Instant::now();
     let request_id = scru128::new();
@@ -182,6 +166,72 @@ where
         *response.headers_mut() = header_map;
         return Ok(response);
     }
+
+    // Built-in route: PTY input fast-path. Every keystroke would otherwise
+    // spawn an eval thread and walk the user's nu closure -- collapsing it
+    // to a direct fd write is the whole point of having a Rust pty branch.
+    // A sid is required: refusing the write without one (rather than
+    // 404'ing) makes the "no sid -> never reaches a pty" rule explicit,
+    // and means a misrouted POST can't fall through to the closure path
+    // either (where a user-authored handler might be more permissive).
+    if parts.method == hyper::Method::POST && request.path == "/pty/input" {
+        let sid = request.query.get("sid").cloned().unwrap_or_default();
+        let status = if sid.is_empty() {
+            400u16
+        } else if let Some(writer) = crate::pty::writer_for(&sid) {
+            let mut err: Option<BoxError> = None;
+            while let Some(chunk) = body_rx.recv().await {
+                match chunk {
+                    Ok(bytes) => {
+                        if let Err(e) = writer.lock().unwrap().write_all(&bytes) {
+                            err = Some(e.into());
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                        break;
+                    }
+                }
+            }
+            if err.is_some() {
+                500
+            } else {
+                204
+            }
+        } else {
+            404
+        };
+        let headers = hyper::header::HeaderMap::new();
+        log_response(request_id, status, &headers, start_time);
+        let body = Empty::<Bytes>::new()
+            .map_err(|never| match never {})
+            .boxed();
+        let logging_body = LoggingBody::new(body, guard);
+        return Ok(hyper::Response::builder()
+            .status(status)
+            .body(logging_body.boxed())?);
+    }
+
+    // Closure path: hand the body-frame channel to nu as a ByteStream. The
+    // fast-paths above either consumed body_rx or returned without touching
+    // it; only the closure dispatch reaches this point with body_rx still
+    // owned and live.
+    let stream = nu_protocol::ByteStream::from_fn(
+        nu_protocol::Span::unknown(),
+        engine.state.signals().clone(),
+        nu_protocol::ByteStreamType::Unknown,
+        move |buffer: &mut Vec<u8>| match body_rx.blocking_recv() {
+            Some(Ok(bytes)) => {
+                buffer.extend_from_slice(&bytes);
+                Ok(true)
+            }
+            Some(Err(err)) => Err(nu_protocol::ShellError::Generic(
+                GenericError::new_internal("Body read error", err.to_string()),
+            )),
+            None => Ok(false),
+        },
+    );
 
     let sse_cancel_token = engine.sse_cancel_token.clone();
     let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
