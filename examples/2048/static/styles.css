@@ -1,99 +1,132 @@
-/* Register the tilt vars as lengths so they themselves can be transitioned --
-   gradient alpha and tile transform then animate in lockstep. */
-@property --tilt-x {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
+/* Self-hosted Source Sans 3 + Source Code Pro. One variable-axis woff2
+   per family; both 400 and 700 declarations point at the same file and
+   the browser picks the weight off the wght axis. Latin + smart-quote
+   / dash / currency subset (U+0000-00FF, U+2000-206F, plus a handful
+   of singletons that Google's CSS pairs with the latin block). */
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/source-sans-3-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-@property --tilt-y {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/source-sans-3-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-/* Edge glow is driven separately from tile lean: glow stays at peak through
-   the commit decay and fades naturally via view-transition cross-fade when
-   the SSE patch lands. Cancel transitions both in sync. */
-@property --glow-x {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
+@font-face {
+  font-family: "Source Code Pro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/source-code-pro-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-@property --glow-y {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-/* All-sides pulse alpha (0..1) for the reconnect flash. */
-@property --pulse {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
+@font-face {
+  font-family: "Source Code Pro";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/source-code-pro-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 :root {
-  --bg: #faf8ef;
-  --fg: #776e65;
+  /* Palette aligned with http-nu/www: deep blue body, warm-cream headers,
+     off-white primary text. Tile colors live in render.nu (untouched --
+     the wood-grain palette reads fine against blue). */
+  --bg: #0077b6;
+  --fg: rgba(255, 255, 255, 0.85);
+  --fg-header: #f4d9a0;
   --tile: #eee4da;
   --accent: #f59563;
   --accent-hover: #f67c5f;
   --accent-press: #d97a45;
-  --brand: #0077b6;
-  --brand-hover: #005a8a;
+  --brand: #00d4ff;          /* cyan from http-nu/www -- the link/underline accent that pops on blue */
+  --brand-hover: #5ae5ff;
   --light: #f9f6f2;
-  --board-size: 460px;
   --gap: 8px;
   --radius: 4px;
-  --decay-duration: 500ms;
-  --glow: #fffdc2;
-  --board-scale: min(
-    calc((100dvw - 24px) / var(--board-size)),
-    calc((100dvh - 210px) / var(--board-size)),
-    1
-  );
+  --font-sans: "Source Sans 3", sans-serif;
+  --font-mono: "Source Code Pro", ui-monospace, monospace;
+  /* Type scale -- declared as vars so sites that reuse a size can share
+     the token. One-offs that appear in a single rule stay inline. */
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-md:   1.125rem;
+  --text-lg:   1.5rem;
+  --text-xl:   2rem;
 }
 
-* { box-sizing: border-box; margin: 0; }
+/* ============================================================
+   Normalize. Minimal house reset -- not normalize.css.
+   Everything below this block is app styling and assumes these
+   defaults are in place.
+   ============================================================ */
 
+/* Universal box-model + zeroed margins. ::before/::after included so
+   border-box applies to pseudo elements too. */
+*, *::before, *::after { box-sizing: border-box; margin: 0; }
+
+/* Page baseline. dvh tracks the visible viewport on mobile (UA chrome
+   resize). text-size-adjust pins iOS/Android from inflating em-sized
+   children on narrow viewports. */
 html, body {
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100dvh;
   overscroll-behavior: none;
-  /* Stop iOS/Android from inflating text on narrow viewports, which would
-     scale up em-sized children (like the footer mascot) unexpectedly. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
 
+/* UA form controls don't inherit font/color -- fix at the source so
+   buttons, inputs, etc. take body type without per-element overrides. */
+button, input, textarea, select { font: inherit; color: inherit; }
+
+/* Replaced elements: bound to container, preserve aspect ratio. Left
+   as `display: inline` (UA default) so they flow with text -- the
+   mascot in the site-header credit relies on it. */
+img, picture, video, canvas, svg { max-width: 100%; height: auto; }
+
+/* Anchors inherit text color and stay underlined; hover picks up the
+   accent. Single source of truth for link color across the UI. */
+a { color: inherit; text-decoration: underline; transition: color 0.2s; }
+a:hover { color: var(--accent); }
+
+/* Semantic chrome + intrinsically-technical leaves are mono;
+   everything else inherits the body's sans default. */
+header, nav, code, kbd, samp, output { font-family: var(--font-mono); }
+
+/* ============================================================
+   App styles.
+   ============================================================ */
+
+/* MPA view-transitions: same-origin nav animates as a soft page
+   transition (Chromium 126+; Safari 18+ behind a flag). */
+@view-transition { navigation: auto; }
+
+html {
+  /* Subtle vignette: same color flat fill via radial gradient, matches
+     the parent site at http-nu.cross.stream. */
+  background: radial-gradient(ellipse at center, var(--bg) 0%, var(--bg) 100%);
+}
 body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   padding: 12px;
   gap: 12px;
   background: var(--bg);
   color: var(--fg);
-  font-family: sans-serif;
+  font: var(--text-md)/1.6 var(--font-sans);
 }
 
 h1 { font-size: clamp(24px, 6vmin, 40px); }
-h1 a {
-  color: inherit;
-  text-decoration: underline;
-  text-decoration-color: var(--brand);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
-}
-h1 a:hover { text-decoration-color: var(--brand-hover); }
 p  { font-size: 14px; }
-
-kbd {
-  background: var(--tile);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 13px;
-}
 
 button {
   background: var(--accent);
@@ -101,7 +134,6 @@ button {
   border: 0;
   padding: 4px 14px;
   border-radius: var(--radius);
-  font: inherit;
   font-weight: bold;
   cursor: pointer;
   box-shadow: 0 2px 0 var(--accent-press);
@@ -114,144 +146,43 @@ button:active {
   box-shadow: none;
 }
 
-#game, .column {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--gap);
-}
-.column { width: calc(var(--board-size) * var(--board-scale)); }
-
-/* The gear / close button overlays the #game container's top-right corner.
-   Server renders the right icon for the current mode (gear in game, close
-   in settings). */
-#game { position: relative; }
-.settings-toggle {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 32px;
-  height: 32px;
-  background: transparent;
-  color: var(--fg);
-  border: 0;
-  border-radius: 50%;
-  padding: 0;
-  box-shadow: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-}
-.settings-toggle:hover { background: rgba(0, 0, 0, 0.05); }
-.settings-toggle:active { background: rgba(0, 0, 0, 0.12); transform: none; }
-
-#settings-panel {
-  width: calc(var(--board-size) * var(--board-scale));
-  min-height: calc(var(--board-size) * var(--board-scale));
-  background: var(--tile);
-  border-radius: 6px;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--fg);
-}
+#game { position: relative; width: 100%; }
 
 #board-wrap {
   position: relative;
-  width: calc(var(--board-size) * var(--board-scale));
-  height: calc(var(--board-size) * var(--board-scale));
-  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  /* Pending indicator: a solid line on the edge the player aimed
+     toward, shown while a move request is in flight. JS sets
+     [data-pending="h|j|k|l"] on dispatch and clears it when the SSE
+     patch lands (or the HTTP request fails). 80ms reveal delay so
+     sub-threshold round-trips never paint at all; both reveal and
+     release fade over 150ms. */
+  border: 3px solid transparent;
+  transition: border-color 150ms ease-out;
 }
-/* Animate --tilt-x / --tilt-y themselves; the tile transform and the edge
-   glow then interpolate together rather than one snapping while the other
-   eases. Requires the @property registrations at the top of this file. */
-#board-wrap.snap {
-  transition:
-    --tilt-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    --tilt-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    --glow-x 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    --glow-y 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-/* decay transitions tilt only; glow holds at peak until view-transition fades it. */
-#board-wrap.decay {
-  transition:
-    --tilt-x var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1),
-    --tilt-y var(--decay-duration) cubic-bezier(0.34, 1.7, 0.5, 1);
-}
+#board-wrap[data-pending] { transition: border-color 150ms ease-in 80ms; }
+#board-wrap[data-pending="h"] { border-left-color: #fff; }
+#board-wrap[data-pending="l"] { border-right-color: #fff; }
+#board-wrap[data-pending="k"] { border-top-color: #fff; }
+#board-wrap[data-pending="j"] { border-bottom-color: #fff; }
 
-/* Keyboard anticipation: synthetic two-phase animation (attack -> spring-back
-   with overshoot) since there's no finger to drive --tilt-x continuously.
-   Total duration tracks RTT just like swipe-commit decay. */
-@keyframes key-lean-h {
-  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
-  100% { --tilt-x: 0px; }
-}
-@keyframes key-lean-l {
-  0%   { --tilt-x: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-x: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
-  100% { --tilt-x: 0px; }
-}
-@keyframes key-lean-k {
-  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: -26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
-  100% { --tilt-y: 0px; }
-}
-@keyframes key-lean-j {
-  0%   { --tilt-y: 0px; animation-timing-function: ease-out; }
-  15%  { --tilt-y: 26px; animation-timing-function: cubic-bezier(0.34, 1.7, 0.5, 1); }
-  100% { --tilt-y: 0px; }
-}
-#board-wrap.key-h { animation: key-lean-h var(--decay-duration) both; }
-#board-wrap.key-l { animation: key-lean-l var(--decay-duration) both; }
-#board-wrap.key-k { animation: key-lean-k var(--decay-duration) both; }
-#board-wrap.key-j { animation: key-lean-j var(--decay-duration) both; }
-/* Edge glow: soft band of the accent color on whichever edge the gesture is
-   heading toward. Alpha is driven by tilt magnitude so it ramps with the
-   drag and bleeds off through the decay/snap animation. */
-#board-wrap::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: 6px;
-  background:
-    /* Directional glow driven by --glow-x / --glow-y (one side at a time). */
-    linear-gradient(to left,   rgb(from var(--glow) r g b / max(0, calc(var(--glow-x) / 8px))),      transparent 1.25%),
-    linear-gradient(to right,  rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-x) / 8px))), transparent 1.25%),
-    linear-gradient(to top,    rgb(from var(--glow) r g b / max(0, calc(var(--glow-y) / 8px))),      transparent 1.25%),
-    linear-gradient(to bottom, rgb(from var(--glow) r g b / max(0, calc(-1 * var(--glow-y) / 8px))), transparent 1.25%),
-    /* All-sides reconnect pulse driven by --pulse. */
-    linear-gradient(to left,   rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
-    linear-gradient(to right,  rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
-    linear-gradient(to top,    rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%),
-    linear-gradient(to bottom, rgb(from var(--glow) r g b / var(--pulse)), transparent 1.25%);
-}
-
-/* Disconnected: fade the board, disable the reset button. Keyboard input
-   is gated in script.js; pointer input is gated by pointer-events:none. */
+/* Disconnected: desaturate the board so tile numbers stay readable;
+   disable the reset button. Keyboard input is gated in script.js;
+   pointer input is gated by pointer-events:none. */
 body[data-conn="down"] #board-wrap {
-  opacity: 0.35;
+  filter: grayscale(1);
   pointer-events: none;
 }
 body[data-conn="down"] button {
   opacity: 0.4;
   pointer-events: none;
 }
-#board-wrap, button { transition: opacity 320ms ease; }
-
-/* Reconnect: a brief all-sides glow flash. */
-body.reconnect-pulse { animation: reconnect-pulse 600ms ease-out; }
-@keyframes reconnect-pulse {
-  0%   { --pulse: 0; }
-  20%  { --pulse: 1; }
-  100% { --pulse: 0; }
-}
+/* Hide the stale RTT readout while disconnected; the conn dot
+   represents the status on its own. */
+body[data-conn="down"] #rtt { visibility: hidden; }
+#board-wrap { transition: filter 320ms ease; }
+button { transition: opacity 320ms ease; }
 
 /* Failed-move flash: brief red wash across the whole page. */
 body.flash-red { animation: flash-red 300ms ease; }
@@ -260,88 +191,477 @@ body.flash-red { animation: flash-red 300ms ease; }
   50%      { background: #e05252; }
 }
 
-#board {
-  touch-action: none;
-  transform: scale(var(--board-scale));
-  transform-origin: top left;
-}
-/* Lean the value tiles (not the empty background cells) during a swipe.
-   Divide by scale so the lean reads as viewport pixels at any board scale. */
-#board > .tile {
-  transform: translate(
-    calc(var(--tilt-x) / var(--board-scale)),
-    calc(var(--tilt-y) / var(--board-scale))
-  );
-}
+/* Board layout, palette, and tile styling all live inside the
+   <game-board> shadow DOM (see static/game-board.js). Nothing in this
+   stylesheet targets the board; the host page just gives the WC a
+   container with width and the WC handles aspect-ratio internally. */
 
-/* Tight viewports (landscape phones): hide the hint, give more to the board. */
+/* Tight viewports (landscape phones): hide the hint to give more room. */
 @media (max-height: 600px) {
-  :root {
-    --board-scale: min(
-      calc((100dvw - 24px) / var(--board-size)),
-      calc((100dvh - 110px) / var(--board-size)),
-      1
-    );
-  }
   p.hint { display: none; }
   h1 { font-size: 20px; }
 }
 
-::view-transition-group(*) {
-  animation-duration: 220ms;
-  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+/* /games splash: list of board thumbnails inside the shared .page
+   column. Empty-state hint shows only when no cards. */
+.games-list:not(:empty) + .empty-state { display: none; }
+.games-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2rem;
 }
-/* :only-child fires when there's no paired old pseudo -- a fresh tile. */
-::view-transition-new(*):only-child {
-  animation: tile-spawn 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+/* Splash card. A thumbnail board with the max-value tile bright and
+   everything else dimmed via a tinted overlay; on hover the whole
+   board lights back up. Overlays carry the metadata (last-active,
+   won/over badge) on top. */
+.game-card {
+  display: block;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  text-decoration: none;
+  font-family: var(--font-mono);
 }
-@keyframes tile-spawn {
-  0%   { transform: scale(0.2); opacity: 0; }
-  60%  { transform: scale(1.25); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
+.game-card .board-wrap { width: 100%; height: 100%; }
+
+/* /leaderboard: top-5 per-player best. The first slot takes the full
+   row width (the "podium"); ranks 2-3 and 4-5 sit two-up below it.
+   Mobile collapses to one column. Each row reuses .game-card as a
+   dimmed thumbnail; click-through goes to /watch/<game_id>. */
+.leaderboard-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+/* #1 always spans the full grid width; everything else auto-flows. */
+.leaderboard-list > .leaderboard-row:first-child { grid-column: 1 / -1; }
+
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 3rem 140px 1fr;
+  gap: 1rem;
+  align-items: center;
+}
+/* The podium row is roomier than the secondary slots: bigger card,
+   bigger rank, more breathing room. */
+.leaderboard-list > .leaderboard-row:first-child {
+  grid-template-columns: 4rem 220px 1fr;
+  gap: 1.5rem;
+}
+.leaderboard-list > .leaderboard-row:first-child .row-card { width: 220px; }
+.leaderboard-list > .leaderboard-row:first-child .rank { font-size: 2.5rem; }
+.leaderboard-list > .leaderboard-row:first-child .row-meta .score { font-size: 1.75rem; }
+
+.leaderboard-row .rank {
+  font-family: var(--font-mono);
+  font-size: 1.75rem;
+  font-weight: 700;
+  opacity: 0.7;
+  text-align: right;
+}
+.leaderboard-row .row-card { width: 140px; aspect-ratio: 1; }
+.leaderboard-row .row-card .game-card { display: block; width: 100%; height: 100%; }
+.leaderboard-row .row-meta { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.leaderboard-row .row-meta .score {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+}
+.leaderboard-row .row-meta .row-line,
+.leaderboard-row .row-meta .by { margin: 0; font-size: var(--text-sm); opacity: 0.85; }
+.leaderboard-title { margin-bottom: 0; }
+.leaderboard-lede { margin: 0 0 0.5rem; opacity: 0.7; font-size: var(--text-sm); }
+
+@media (max-width: 700px) {
+  /* Collapse to a single column on mobile: #1 keeps its podium look,
+     others share the same compact layout but stack vertically. */
+  .leaderboard-list { grid-template-columns: 1fr; }
+  .leaderboard-list > .leaderboard-row:first-child {
+    grid-template-columns: 3rem 1fr;
+    gap: 1rem;
+  }
+  .leaderboard-list > .leaderboard-row:first-child .row-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: 280px;
+    justify-self: center;
+  }
+  .leaderboard-list > .leaderboard-row:first-child .row-meta { grid-column: 2; }
+  .leaderboard-list > .leaderboard-row:first-child .rank { grid-row: 1; align-self: start; }
 }
 
-footer {
-  font-size: 14px;
-  align-self: stretch;
+.page {
+  width: 100%;
+  max-width: 900px;
+  padding: 0 1rem;
   display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+/* /play layout: grid with controls above the board, help to the right
+   of the board (aligned with the BOARD's top, not the controls row).
+   At narrow viewports help drops below the board. Everything is
+   left-aligned with the breadcrumb's left edge -- the board hugs the
+   .page left margin rather than centering. */
+.play-layout {
+  display: grid;
+  gap: 0.5rem 1.5rem;
+  grid-template-columns: 1fr;
+  /* Stacked: DOM order is board-controls, column, help -- one column,
+     help stretches full width. */
+}
+@media (min-width: 700px) {
+  .play-layout {
+    grid-template-columns: 2fr 1fr;
+    grid-template-areas:
+      "controls ."
+      "board    help";
+  }
+  .board-controls { grid-area: controls; }
+  .column         { grid-area: board; }
+  /* align-self: start so help stays at its content height instead of
+     stretching to match the board's height. Only set in wide mode --
+     stacked mode wants help to fill its row. */
+  .help           { grid-area: help; align-self: start; }
+}
+
+/* Breadcrumb header (used on both / and /play): left = nav crumb +
+   keyboard shortcut, right = action/identity, baseline-aligned on one
+   row. Same shape so the two pages share a header rhythm. */
+.breadcrumb {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
+  gap: 1rem;
+  font-size: var(--text-base);
+  /* font-family inherits from <nav> element rule (header,nav,code,kbd,... mono) */
+}
+.breadcrumb .left,
+.breadcrumb .right {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+/* Board controls strip: score top-left, [u]ndo button top-right. */
+.board-controls {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  justify-content: flex-end;
+  gap: 1rem;
 }
-footer #rtt { font-variant-numeric: tabular-nums; opacity: 0.7; }
-footer .status, footer .credit {
-  display: inline-flex;
+.score-block {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+/* Score: big mono number in the cream header color; the *number* IS
+   the label here, no word. */
+/* Score: big readout on /play. Marked up as <output> so mono comes
+   from the element rule; just size + color + tabular nums. */
+#score {
+  font-weight: 700;
+  font-size: 2.5rem;
+  line-height: 1;
+  color: var(--fg-header);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Help panel: small monospace grid documenting the vim keys + arrows. */
+.help {
+  /* position: relative so the fx-tuner can overlay this panel.
+     align-content: start keeps rows packed at the top regardless of
+     grid-cell stretch (so help fills the column in narrow/stacked
+     mode without spreading its rows out). */
+  position: relative;
+  display: grid;
+  /* label takes remaining width on the left; two equal-width button
+     columns hug the right edge. */
+  grid-template-columns: 1fr auto auto;
+  gap: 0.4rem 0.5rem;
   align-items: center;
-  gap: 6px;
+  align-content: start;
+  padding: 0.9rem 0.9rem 0.9rem 1.1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-header);
 }
-footer .mascot {
-  width: 27px;
-  height: 14px;
-  max-width: 27px;
-  max-height: 14px;
-  object-fit: contain;
-  vertical-align: -2px;
+.help .help-row {
+  display: contents;
 }
-footer #conn {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-press);  /* default: down */
-  transition: background 200ms;
-}
-body[data-conn="ok"] footer #conn { background: #2a9d4a; }
-footer a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--light);
-  background: var(--brand);
-  padding: 4px 10px;
-  border-radius: var(--radius);
+/* kbd-btn: every clickable is a bracketed phrase. The phrase IS the
+   button; the keyboard shortcut sits inside as `[k]`. Two variants:
+     default  subdued slab; turns orange (`--accent`) on :hover and
+              on [aria-pressed="true"] (toggle state).
+     primary  always orange (`--accent`); turns oranger (`--accent-hover`)
+              on :hover / [aria-pressed="true"]. Used for the splash CTA.
+   Used as <button> (JS-wired via [data-intent]) or <a> (real href, so
+   right-click-open-in-tab works). Same class either way. */
+.kbd-btn {
+  font-weight: 700;
+  font-size: var(--text-base);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.2rem 0.55rem;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
   text-decoration: none;
-  transition: background 120ms;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  transition: transform 80ms, box-shadow 80ms, background 0.15s;
+  /* baseline so [k]ey + tail line up; gap between bracketed key and the
+     surrounding phrase fragments so `[n]ew game` doesn't run together. */
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+  line-height: 1;
 }
-footer a:hover { background: var(--brand-hover); }
+.kbd-btn:hover,
+.kbd-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.kbd-btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+/* Micro space between brackets and the key glyph: `[ h ]` reads more
+   like a key-cap than `[h]`. */
+.kbd-btn .bracket { opacity: 0.55; }
+.kbd-btn .bracket:first-child { margin-right: 0.2em; }
+.kbd-btn .bracket:last-child  { margin-left:  0.2em; }
+.kbd-btn .key { color: #fff; }
+/* `.phrase` wraps prefix/suffix text (e.g. "ew game" in `[n]ew game`).
+   No gap inside the phrase span so suffix sits flush against the right
+   bracket; the inter-segment gap is handled by the flex `gap` above. */
+.kbd-btn .phrase { white-space: pre; }
+/* primary variant: the splash CTA. Bigger, tilted, orange base; turns
+   oranger on hover / aria-pressed via the rule above (overridden here
+   to use accent-hover instead of accent). */
+.kbd-btn.primary {
+  background: var(--accent);
+  font-size: 1.75rem;
+  padding: 0.6rem 1.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.3);
+  transform: rotate(-2deg);
+  transition: transform 0.12s, box-shadow 0.12s, background 0.15s;
+}
+.kbd-btn.primary:hover,
+.kbd-btn.primary[aria-pressed="true"] {
+  background: var(--accent-hover);
+  transform: rotate(-2deg) translate(-1px, -1px);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.35);
+}
+.kbd-btn.primary:active {
+  transform: rotate(-2deg) translate(2px, 2px);
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
+}
+.help .label { opacity: 0.8; }
+/* fx toggle row sits slightly apart -- it's a meta control, not a move. */
+.help .help-fx {
+  margin-top: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+/* Splash hero. Title on its own row; below it, .splits is a flex row
+   of two columns (.lede + .preview) that wraps to a single column on
+   narrow viewports. Each column is a flex column. */
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 900px;
+  width: 100%;
+  padding: 0 1rem;
+  margin: 1rem 0 2.5rem;
+}
+.hero > h2 { font-family: var(--font-mono); color: var(--fg-header); font-size: 3rem; line-height: 1.1; }
+.hero > audio { display: none; }
+
+.splits { display: flex; flex-wrap: wrap; gap: 1.5rem 2rem; }
+.splits > * { flex: 1 1 360px; display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.kbd-btn.primary { align-self: flex-start; }
+
+.desc                { font-size: var(--text-lg); }
+.credit              { font-size: var(--text-sm); }
+.splash-audio-credit { font-size: var(--text-sm); color: rgba(255, 255, 255, 0.7); }
+#splash-board        { max-width: 380px; width: 100%; }
+
+.splash-progress { display: flex; align-items: center; gap: 0.6rem; }
+.splash-slider   { flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer; }
+.splash-counter  { font-family: var(--font-mono); font-size: var(--text-sm); opacity: 0.7; font-variant-numeric: tabular-nums; }
+/* Three rabbit-hole callouts under the PLAY NOW button. Just list +
+   whitespace, no borders or backgrounds -- each item is a link with a
+   muted explanatory clause. */
+.callouts {
+  list-style: none;
+  padding: 0;
+  margin: 2rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.callouts li { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
+.callouts a { font-size: var(--text-md); }
+.callout-desc { font-size: var(--text-sm); opacity: 0.7; }
+
+/* Article typography. Scoped to .prose so chrome (breadcrumbs, headers,
+   sidebars) keeps its own type rules. Used by /notes pages and the
+   /design markdown story. */
+.prose {
+  max-width: 65ch;
+  font-size: 1.2em;  /* ~21.6px relative to body's 18px -- article body */
+  line-height: 1.6;
+}
+.prose > * + * { margin-top: 1em; }
+.prose h2 {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  color: var(--fg-header);
+  line-height: 1.2;
+  margin-top: 2.5em;
+}
+.prose h3 {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  color: var(--fg-header);
+  line-height: 1.2;
+  margin-top: 2em;
+}
+.prose ul, .prose ol { padding-left: 1.5em; }
+.prose li + li { margin-top: 0.4em; }
+.prose li > p { margin: 0; }  /* tight bullets, no double spacing */
+.prose blockquote {
+  margin: 0;
+  padding: 0.25em 0 0.25em 1.25em;
+  border-left: 3px solid var(--brand);
+  color: var(--fg-header);
+  font-style: italic;
+  opacity: 0.9;
+}
+.prose code {
+  /* element-rule already mono; just add a small pill background */
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+}
+.prose pre {
+  margin: 0;
+  padding: 0.9em 1.1em;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.prose pre code {
+  /* inline-code styling shouldn't apply inside a <pre> */
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Site header: shared by / and /play. Mirrors the http-nu/www header
+   pattern -- `flex items-baseline justify-between mt-10 mb-2`. Title
+   left, status + credit right. No divider lines; whitespace separates. */
+.site-header {
+  width: 100%;
+  max-width: 900px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 2rem 0 0.75rem;
+  padding: 0 1rem;
+  font-size: var(--text-sm);
+}
+.site-header .site-title {
+  font-weight: 700;
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  color: var(--fg-header);
+  /* underline inherited from global a -- reads as the home link it is */
+}
+.site-header-right {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  margin-left: auto;
+}
+.you-are { font-size: var(--text-sm); }
+.site-nav-link { font-size: var(--text-sm); }
+.site-presence { font-size: var(--text-sm); opacity: 0.8; font-variant-numeric: tabular-nums; }
+.game-presence { font-family: var(--font-mono); font-size: var(--text-sm); opacity: 0.75; }
+
+.site-header .status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+}
+.site-header .stat { font-variant-numeric: tabular-nums; }
+/* Reserve room for the largest realistic value ("9999ms") so the row
+   doesn't reflow with digit count. text-align: left anchors digits
+   next to the conn dot (visual pair); reserved slack sits on the right. */
+.site-header #rtt { display: inline-block; min-width: 6ch; text-align: left; }
+
+/* Site footer: whitespace partitions, no border or background. Links
+   like nav -- each page anchors the same set of meta destinations. */
+.site-footer {
+  /* Same container shape as .page / .hero (body's align-items: center
+     does the centering). Content right-aligned within. The link's
+     muted look comes from the shared chrome-link rule. */
+  width: 100%;
+  max-width: 900px;
+  padding: 0 1rem;
+  margin: 4rem 0 1.5rem;
+  text-align: right;
+  font-size: var(--text-sm);
+}
+.site-header .credit .mascot {
+  width: 64px;
+  height: 36px;
+  vertical-align: bottom;
+}
+.site-header #conn {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #888;
+  align-self: center;
+}
+body[data-conn="ok"]   .site-header #conn { background: #2a9d4a; }
+body[data-conn="down"] .site-header #conn { background: #c0392b; }
+
+/* Splash: the nu2048 title is redundant (splash IS the landing). Keep
+   player chip + credit on the right. `visibility: hidden` (not
+   `display: none`) so the title still reserves its layout box -- the
+   header row keeps the same height across every page. */
+body.splash .site-title { visibility: hidden; }
+
+/* Inline link-styled button (e.g. undo in the footer). */
+.linklike {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+  box-shadow: none;
+  transition: opacity 0.2s;
+}
+.linklike:hover { opacity: 0.8; background: none; }
+.linklike:active { transform: none; box-shadow: none; }
+
+/* Status badge ("game over" / "you win!") lives inside the <game-board>
+   shadow DOM -- its styles are encapsulated there. The board's tile
+   slide / merge-pop / spawn-in animations also run inside the shadow
+   DOM via Web Animations API, so there are no ::view-transition rules
+   here either. Only the MPA navigation transition (@view-transition
+   above) is still in play; it animates whole-page nav, not boards. */
