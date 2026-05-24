@@ -37,6 +37,17 @@ const tickRtt = () => {
   requestAnimationFrame(tickRtt);
 };
 
+// Press highlight on the on-screen control while its move is in flight.
+// Tied to the move lifecycle (set here, cleared in onAck / on error) so
+// the accent tracks the actual server response instead of CSS :hover --
+// which sticks after a tap on touch devices. Clears any prior press
+// first so only the latest move is lit.
+const setPressed = (intent) => {
+  document.querySelectorAll("[data-intent].is-pressed")
+    .forEach((el) => el.classList.remove("is-pressed"));
+  if (intent) document.querySelector(`[data-intent="${intent}"]`)?.classList.add("is-pressed");
+};
+
 const move = (intent) => {
   // Each move carries a uuid the server echoes back via the
   // $lastReqId signal. window.onAck filters on that uuid so replay
@@ -44,6 +55,7 @@ const move = (intent) => {
   // liveness lives in the presence ping below.
   const reqId = crypto.randomUUID();
   movePending = { id: reqId, t: performance.now() };
+  setPressed(intent);
   if ("hjkl".includes(intent)) {
     document.querySelector("#board-wrap")?.setAttribute("data-pending", intent);
   }
@@ -56,11 +68,13 @@ const move = (intent) => {
     if (!r.ok) {
       movePending = null;
       document.querySelector("#board-wrap")?.removeAttribute("data-pending");
+      setPressed(null);
       flashRed();
     }
   }).catch(() => {
     movePending = null;
     document.querySelector("#board-wrap")?.removeAttribute("data-pending");
+    setPressed(null);
     flashRed();
   });
 };
@@ -130,6 +144,7 @@ window.onAck = (reqId) => {
     const rtt = Math.round(performance.now() - movePending.t);
     movePending = null;
     document.querySelector("#board-wrap")?.removeAttribute("data-pending");
+    setPressed(null);
     rttEl()?.replaceChildren(`${rtt}ms`);
   }
 };

@@ -111,6 +111,44 @@ export def kbd-btn [
   if $elem == "A" { (A $attrs ...$inner) } else { (BUTTON $attrs ...$inner) }
 }
 
+# One key on the thumb-pad: a big arrow icon with the vim letter as a
+# small hint below it. The arrow is an iconify-icon (http-nu's ICONIFY
+# helper) -- it renders at 1em with currentColor, so .arrow's font-size /
+# color drive it. Fires its move through the same [data-intent] click
+# delegate in script.js that kbd-btn uses (it matches on
+# `button[data-intent]`, so this stays a <button>). `dir` names the
+# grid-area the key occupies in the cross layout.
+def dpad-key [
+  icon: string       # iconify icon name for the arrow (e.g. lucide:arrow-up)
+  key: string        # vim letter, shown small as a keyboard hint
+  intent: string     # move intent: h | j | k | l
+  dir: string        # up | down | left | right (grid-area + aria-label)
+]: nothing -> record {
+  (BUTTON {
+    type: "button"
+    class: $"dpad-key dpad-($dir)"
+    "data-intent": $intent
+    "aria-label": $dir
+  }
+    (SPAN {class: "arrow"} (ICONIFY $icon))
+    (SPAN {class: "hint"} $key))
+}
+
+# Thumb-ergonomic control pad for /play: a cross D-pad (up / left+right /
+# down). One markup for both mobile and desktop -- the keys are a fixed
+# comfortable size, centered, so they're big touch targets on a phone and
+# stay proportional next to the board on a wide screen. Undo is NOT here:
+# it's a meta action and lives with [n]ew game in the breadcrumb, away
+# from the thumb-pad so it can't be hit mid-play.
+export def control-pad []: nothing -> record {
+  (ASIDE {class: "help"}
+    (DIV {class: "dpad"}
+      (dpad-key "lucide:arrow-up" "k" "k" "up")
+      (dpad-key "lucide:arrow-left" "h" "h" "left")
+      (dpad-key "lucide:arrow-right" "l" "l" "right")
+      (dpad-key "lucide:arrow-down" "j" "j" "down")))
+}
+
 # Render a card from already-known state. Callers pass state straight
 # out of a snapshot frame's meta, avoiding a redundant resume-game lookup.
 # Render a SCRU128 id's embedded timestamp as a short, human-readable

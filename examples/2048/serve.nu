@@ -532,8 +532,6 @@ let design = source design/serve.nu
         (DIV {class: "page"}
           (breadcrumb
             --left [
-              (kbd-btn "esc" --suffix " home" --href ($req | href "/"))
-              (SPAN {class: "sep"} "·")
               (A {href: ($req | href "/leaderboard")} "leaderboard")
             ]
             --right [
@@ -583,8 +581,6 @@ let design = source design/serve.nu
         (DIV {class: "page"}
           (breadcrumb
             --left [
-              (kbd-btn "esc" --suffix " home" --href ($req | href "/"))
-              (SPAN {class: "sep"} "·")
               (A {href: ($req | href "/my/games")} "my games")
             ]
             --right [
@@ -623,13 +619,10 @@ let design = source design/serve.nu
         let owner_id = $owner_frame.topic | str replace "player." "" | str replace ".games" ""
         let owner_short = $owner_id | str substring 0..7
         let game_id_short = $game_id | str substring 0..7
-        let home_href = $req | href "/"
         ([
           (DIV {class: "page"}
             (breadcrumb
               --left [
-                (kbd-btn "esc" --suffix " home" --href $home_href)
-                (SPAN {class: "sep"} "·")
                 (A {href: ($req | href $"/by/($owner_id)")} $"by ($owner_short)")
                 (SPAN {class: "sep"} "·")
                 (A {class: "game-id" href: ($req | href $"/watch/($game_id)")} $game_id_short)
@@ -689,8 +682,6 @@ let design = source design/serve.nu
         (DIV {class: "page"}
           (breadcrumb
             --left [
-              (kbd-btn "esc" --suffix " home" --href ($req | href "/"))
-              (SPAN {class: "sep"} "·")
               (A {href: ($req | href $"/by/($player_id)")} $"games by ($pid_short)")
             ]
             --right [
@@ -728,7 +719,6 @@ let design = source design/serve.nu
         "Not Found" | metadata set { merge {'http.response': {status: 404}} }
       } else {
         let player_id = $session.user_id
-      let home_href = $req | href "/"
       let scheme = $req.headers
         | get x-forwarded-proto?
         | default (if ($HTTP_NU.tls? | default null) != null { "https" } else { "http" })
@@ -755,15 +745,12 @@ let design = source design/serve.nu
           # merge lands before script.js's defer fires), the && yields
           # the undefined-ish left side without throwing.
           (DIV {"data-on-signal-patch": "window.onAck && window.onAck($lastReqId)" hidden: ""})
-          # Breadcrumb header: left = path with shortcuts adjacent to
-          # their link targets ([esc] sits next to "past games" because
-          # esc is its keyboard shortcut). Right = top-level actions.
-          # The game-id is a self-link so it can be right-clicked to
-          # copy a bookmarkable URL.
+          # Breadcrumb header: left = path (game-id + live presence),
+          # right = top-level actions. Home is the nu2048 title in the
+          # site-header now, so no [esc] crumb here. The game-id is a
+          # self-link so it can be right-clicked to copy a bookmarkable URL.
           (breadcrumb
             --left [
-              (kbd-btn "esc" --suffix " home" --href $home_href)
-              (SPAN {class: "sep"} "·")
               (A {class: "game-id" href: ($req | href $"/play/($game_id)")} $game_id_short)
               (SPAN {class: "sep"} "·")
               (SPAN {class: "game-presence"
@@ -771,7 +758,11 @@ let design = source design/serve.nu
             ]
             --right [
               # Same game, spectator view -- right-click to share.
-              (A {href: ($req | href $"/watch/($game_id)")} "watch")
+              (A {class: "spectate-link" href: ($req | href $"/watch/($game_id)")} "watch")
+              # Undo lives here (a meta action) rather than on the thumb
+              # pad, so it can't be hit mid-play. Fires move("undo") via
+              # the [data-intent] click delegate.
+              (kbd-btn "u" --suffix "ndo" --intent "undo")
               (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
             ])
           (DIV {class: "play-layout"}
@@ -791,26 +782,10 @@ let design = source design/serve.nu
               # inside its shadow DOM.
               (DIV {id: "board-wrap"}
                 (render-tag "game-board" {"data-attr:state": "JSON.stringify($boardState)"})))
-            # Help panel: each key is a real button that triggers the
-            # move via the existing [data-intent] click delegate in
-            # script.js.
-            (ASIDE {class: "help"}
-              (DIV {class: "help-row"}
-                (SPAN {class: "label"} "left")
-                (kbd-btn "h" --intent "h") (kbd-btn "←" --intent "h"))
-              (DIV {class: "help-row"}
-                (SPAN {class: "label"} "down")
-                (kbd-btn "j" --intent "j") (kbd-btn "↓" --intent "j"))
-              (DIV {class: "help-row"}
-                (SPAN {class: "label"} "up")
-                (kbd-btn "k" --intent "k") (kbd-btn "↑" --intent "k"))
-              (DIV {class: "help-row"}
-                (SPAN {class: "label"} "right")
-                (kbd-btn "l" --intent "l") (kbd-btn "→" --intent "l"))
-              (DIV {class: "help-row"}
-                (SPAN {class: "label"} "undo")
-                (kbd-btn "u" --intent "undo")
-                (SPAN {}))))
+            # Thumb-ergonomic cross D-pad. Each key is a <button
+            # data-intent> wired through script.js's click delegate.
+            # See `control-pad` in render.nu.
+            (control-pad))
         )
       ] | layout $req $REV $DATASTAR_JS_PATH
             --title "nu2048"
@@ -819,6 +794,8 @@ let design = source design/serve.nu
             --body-class "play"
             --sse true
             --show-rtt true
+            # iconify-icon web component for the D-pad arrow glyphs
+            --head-extra [(SCRIPT-ICONIFY)]
             --body-attrs {
               "data-player-id": $player_id
               "data-game-id": $game_id

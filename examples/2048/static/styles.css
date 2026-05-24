@@ -95,7 +95,11 @@ img, picture, video, canvas, svg { max-width: 100%; height: auto; }
 /* Anchors inherit text color and stay underlined; hover picks up the
    accent. Single source of truth for link color across the UI. */
 a { color: inherit; text-decoration: underline; transition: color 0.2s; }
-a:hover { color: var(--accent); }
+/* hover effects only where a real pointer exists -- on touch :hover
+   sticks after a tap, leaving the element stuck in its hover state. */
+@media (hover: hover) {
+  a:hover { color: var(--accent); }
+}
 
 /* Semantic chrome + intrinsically-technical leaves are mono;
    everything else inherits the body's sans default. */
@@ -139,7 +143,9 @@ button {
   box-shadow: 0 2px 0 var(--accent-press);
   transition: background 120ms, transform 80ms, box-shadow 80ms;
 }
-button:hover { background: var(--accent-hover); }
+@media (hover: hover) {
+  button:hover { background: var(--accent-hover); }
+}
 button:active {
   background: var(--accent-press);
   transform: translateY(2px);
@@ -370,29 +376,75 @@ body.flash-red { animation: flash-red 300ms ease; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Help panel: small monospace grid documenting the vim keys + arrows. */
+/* Thumb control pad (/play): a cross D-pad -- up / left+right / down.
+   (Undo is a meta action and lives in the breadcrumb, not here.) Same
+   fixed-size markup on mobile and desktop -- big thumb targets on a
+   phone, proportional next to the board on a wide screen. */
 .help {
-  /* position: relative so the fx-tuner can overlay this panel.
-     align-content: start keeps rows packed at the top regardless of
-     grid-cell stretch (so help fills the column in narrow/stacked
-     mode without spreading its rows out). */
-  position: relative;
-  display: grid;
-  /* label takes remaining width on the left; two equal-width button
-     columns hug the right edge. */
-  grid-template-columns: 1fr auto auto;
-  gap: 0.4rem 0.5rem;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
   align-content: start;
-  padding: 0.9rem 0.9rem 0.9rem 1.1rem;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
   color: var(--fg-header);
 }
-.help .help-row {
-  display: contents;
+.dpad {
+  display: grid;
+  /* Fixed key size (not 1fr) so the cross stays a compact, comfortable
+     thumb target instead of stretching to fill a phone's full width --
+     and so mobile and desktop render the same size. Centered in the
+     column. */
+  grid-template-columns: repeat(3, 5rem);
+  grid-template-areas:
+    ".    up    ."
+    "left .     right"
+    ".    down  .";
+  gap: 0.5rem;
+  justify-content: center;
+}
+.dpad-up    { grid-area: up; }
+.dpad-left  { grid-area: left; }
+.dpad-right { grid-area: right; }
+.dpad-down  { grid-area: down; }
+.dpad-key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 0.8rem;
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+  cursor: pointer;
+  /* chunky bottom edge so the key reads as a physical cap; collapses on
+     :active for a satisfying press. */
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+  transition: transform 80ms, box-shadow 80ms, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.dpad-key .arrow {
+  font-size: clamp(1.6rem, 9vw, 2.6rem);
+  font-weight: 700;
+  line-height: 1;
+}
+.dpad-key .hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  opacity: 0.5;
+  line-height: 1;
+}
+/* :hover only where a real pointer exists -- on touch it sticks after a
+   tap. The press accent comes from .is-pressed, which JS sets for the
+   in-flight move and clears on the server's ack. */
+@media (hover: hover) {
+  .dpad-key:hover { background: var(--accent); }
+}
+.dpad-key.is-pressed { background: var(--accent); }
+.dpad-key:active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0.35);
 }
 /* kbd-btn: every clickable is a bracketed phrase. The phrase IS the
    button; the keyboard shortcut sits inside as `[k]`. Two variants:
@@ -421,8 +473,13 @@ body.flash-red { animation: flash-red 300ms ease; }
   gap: 0.25em;
   line-height: 1;
 }
-.kbd-btn:hover,
-.kbd-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+@media (hover: hover) {
+  .kbd-btn:hover { background: var(--accent); color: #fff; }
+}
+/* aria-pressed = real toggle state (audio); is-pressed = transient move
+   feedback cleared on ack. Both reuse the accent treatment. */
+.kbd-btn[aria-pressed="true"],
+.kbd-btn.is-pressed { background: var(--accent); color: #fff; }
 .kbd-btn:active {
   transform: translateY(2px);
   box-shadow: none;
@@ -460,13 +517,6 @@ body.flash-red { animation: flash-red 300ms ease; }
 .kbd-btn.primary:active {
   transform: rotate(-2deg) translate(2px, 2px);
   box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
-}
-.help .label { opacity: 0.8; }
-/* fx toggle row sits slightly apart -- it's a meta control, not a move. */
-.help .help-fx {
-  margin-top: 0.4rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 /* Splash hero. Title on its own row; below it, .splits is a flex row
    of two columns (.lede + .preview) that wraps to a single column on
@@ -645,6 +695,36 @@ body[data-conn="down"] .site-header #conn { background: #c0392b; }
    `display: none`) so the title still reserves its layout box -- the
    header row keeps the same height across every page. */
 body.splash .site-title { visibility: hidden; }
+
+/* Narrow viewports: the chrome rows carry more than fits on one line.
+   Let both header rows wrap instead of clipping off the right edge, and
+   drop the decorative "served by http-nu" credit (the 64px mascot is the
+   biggest space hog and the link lives in the footer's spirit anyway). */
+@media (max-width: 700px) {
+  .site-header,
+  .site-header-right,
+  .breadcrumb,
+  .breadcrumb .left,
+  .breadcrumb .right { flex-wrap: wrap; }
+  .site-header .credit { display: none; }
+  /* The splash is the nav hub: leaderboard + the "you are" profile link
+     live there. On every other page they'd just crowd the header on a
+     phone, so hide them off-splash -- tap the nu2048 title to get back.
+     The /play spectator ("watch") link is non-essential to the player,
+     so it drops here too, keeping the breadcrumb to a single row. */
+  body:not(.splash) .site-nav-link,
+  body:not(.splash) .you-are,
+  .spectate-link { display: none; }
+  /* Reclaim vertical space so the board + full control pad fit one phone
+     screen: tighter top margin and inter-block gaps. */
+  .site-header { margin-top: 1rem; }
+  .page { gap: 0.6rem; }
+  /* On /play, the breadcrumb's per-game "N here" duplicates the
+     site-header presence; drop it (and its separator) so the game-id and
+     the undo / new-game actions fit on one row instead of wrapping. */
+  body.play .game-presence,
+  body.play .breadcrumb .left .sep { display: none; }
+}
 
 /* Inline link-styled button (e.g. undo in the footer). */
 .linklike {
