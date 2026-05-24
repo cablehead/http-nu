@@ -1115,10 +1115,11 @@ fn emit_patch_elements(buffer: &mut Vec<u8>, html: &str) {
 
 /// Emit a `datastar-patch-signals` event carrying the frame's dimensions
 /// and OSC title, so the client surfaces them via signal bindings rather
-/// than reading DOM attributes.
+/// than reading DOM attributes. Signals are prefixed `term*` so they don't
+/// collide with surface-level signals (e.g. the sessions window `$title`).
 fn emit_patch_signals(buffer: &mut Vec<u8>, cols: usize, rows: usize, title: &str) {
     let mut signals = String::new();
-    let _ = write!(signals, "{{cols:{cols},rows:{rows},title:");
+    let _ = write!(signals, "{{termCols:{cols},termRows:{rows},termTitle:");
     json_string(&mut signals, title);
     signals.push('}');
     buffer.extend_from_slice(b"event: datastar-patch-signals\n");
