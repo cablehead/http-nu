@@ -1,4 +1,4 @@
-//! `pty` commands for http-nu: open/write/resize/stream/close.
+//! `pty` commands for http-nu: open/write/resize/view/close.
 //!
 //! Two backends:
 //! - exec: fork+exec an external command via portable-pty
@@ -6,17 +6,18 @@
 //!   a clone of the current EngineState. No external `nu` binary needed;
 //!   the in-browser REPL has access to http-nu's custom commands.
 //!
-//! Sessions live in a process-wide map keyed by sid. Output is exposed as a
-//! ByteStream so SSE handlers can pipe it straight to the response.
+//! Sessions live in a process-wide map keyed by sid. The canonical screen
+//! state lives in a server-side `wezterm_term::Terminal` per sid. Clients
+//! subscribe via `pty view` and receive HTML grid snapshots over SSE,
+//! morphed in place by Datastar.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use base64::Engine as _;
-use bytes::Bytes;
 use nu_engine::command_prelude::*;
 use nu_protocol::{
     record, shell_error::generic::GenericError, ByteStream, ByteStreamType, Category, PipelineData,
@@ -56,121 +57,20 @@ impl TerminalConfiguration for MinimalConfig {
 }
 
 /// Writer wrapper that delegates through the same Arc<Mutex<...>> the rest of
-/// the session uses, AND suppresses writes when a client subscriber is
-/// attached. The browser-side VT emulator natively replies to DA/DSR queries,
-/// so when a browser is attached we let it answer; when nobody is attached we
-/// let wezterm-term's auto-reply take over (zmx-style). This preserves the
-/// existing no-double-reply policy.
-struct ConditionalWriter {
+/// the session uses. wezterm-term's auto-replies (DA1/DA2/DSR) always go
+/// straight to the pty slave, since the browser is no longer a VT emulator
+/// in projection mode -- it only renders the screen state we send it.
+struct SharedWriter {
     inner: Arc<Mutex<Box<dyn Write + Send>>>,
-    has_subscriber: Arc<Mutex<bool>>,
 }
 
-impl Write for ConditionalWriter {
+impl Write for SharedWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if *self.has_subscriber.lock().unwrap() {
-            return Ok(buf.len());
-        }
         self.inner.lock().unwrap().write(buf)
     }
     fn flush(&mut self) -> std::io::Result<()> {
-        if *self.has_subscriber.lock().unwrap() {
-            return Ok(());
-        }
         self.inner.lock().unwrap().flush()
     }
-}
-
-/// Append the foreground SGR codes for `color` into `out` (without the
-/// leading "\x1b[" or trailing "m"). Returns true if anything was written.
-fn append_fg_sgr(out: &mut String, color: ColorAttribute) -> bool {
-    use std::fmt::Write as _;
-    match color {
-        ColorAttribute::Default => false,
-        ColorAttribute::PaletteIndex(i) if i < 8 => {
-            let _ = write!(out, ";{}", 30 + i);
-            true
-        }
-        ColorAttribute::PaletteIndex(i) if i < 16 => {
-            let _ = write!(out, ";{}", 90 + (i - 8));
-            true
-        }
-        ColorAttribute::PaletteIndex(i) => {
-            let _ = write!(out, ";38;5;{i}");
-            true
-        }
-        ColorAttribute::TrueColorWithDefaultFallback(rgb)
-        | ColorAttribute::TrueColorWithPaletteFallback(rgb, _) => {
-            let r = (rgb.0 * 255.0).round() as u8;
-            let g = (rgb.1 * 255.0).round() as u8;
-            let b = (rgb.2 * 255.0).round() as u8;
-            let _ = write!(out, ";38;2;{r};{g};{b}");
-            true
-        }
-    }
-}
-
-/// Append the background SGR codes for `color` into `out`. Same shape as
-/// `append_fg_sgr` but with bg codes (40s/100s/48).
-fn append_bg_sgr(out: &mut String, color: ColorAttribute) -> bool {
-    use std::fmt::Write as _;
-    match color {
-        ColorAttribute::Default => false,
-        ColorAttribute::PaletteIndex(i) if i < 8 => {
-            let _ = write!(out, ";{}", 40 + i);
-            true
-        }
-        ColorAttribute::PaletteIndex(i) if i < 16 => {
-            let _ = write!(out, ";{}", 100 + (i - 8));
-            true
-        }
-        ColorAttribute::PaletteIndex(i) => {
-            let _ = write!(out, ";48;5;{i}");
-            true
-        }
-        ColorAttribute::TrueColorWithDefaultFallback(rgb)
-        | ColorAttribute::TrueColorWithPaletteFallback(rgb, _) => {
-            let r = (rgb.0 * 255.0).round() as u8;
-            let g = (rgb.1 * 255.0).round() as u8;
-            let b = (rgb.2 * 255.0).round() as u8;
-            let _ = write!(out, ";48;2;{r};{g};{b}");
-            true
-        }
-    }
-}
-
-/// Emit a full SGR escape sequence describing the cell's attributes. Always
-/// begins with reset (0) so caller doesn't have to track previous state.
-fn append_sgr_full(out: &mut String, attrs: &CellAttributes) {
-    out.push_str("\x1b[0");
-    match attrs.intensity() {
-        Intensity::Bold => out.push_str(";1"),
-        Intensity::Half => out.push_str(";2"),
-        Intensity::Normal => {}
-    }
-    if attrs.italic() {
-        out.push_str(";3");
-    }
-    match attrs.underline() {
-        Underline::None => {}
-        Underline::Single => out.push_str(";4"),
-        Underline::Double => out.push_str(";21"),
-        // Curly/Dotted/Dashed degrade to single -- most clients still render
-        // it as some form of underline.
-        _ => out.push_str(";4"),
-    }
-    if attrs.reverse() {
-        out.push_str(";7");
-    }
-    if attrs.invisible() {
-        out.push_str(";8");
-    }
-    if attrs.strikethrough() {
-        out.push_str(";9");
-    }
-    append_fg_sgr(out, attrs.foreground());
-    append_bg_sgr(out, attrs.background());
-    out.push('m');
 }
 
 /// Cheap structural equality on the attribute bits we render. CellAttributes
@@ -182,82 +82,251 @@ fn attrs_equiv(a: &CellAttributes, b: &CellAttributes) -> bool {
         && a.background() == b.background()
 }
 
-/// Build a VT byte sequence that, when written to a fresh xterm-compatible
-/// terminal, reproduces the current visible screen + cursor + SGR state of
-/// `term`.
-fn snapshot_terminal(term: &Terminal) -> Vec<u8> {
-    use std::fmt::Write as _;
+/// Map any palette index to xterm's canonical RGB.
+/// 0..=15 is the standard 16-color palette (matches term.css `.f0..f15`),
+/// 16..=231 is the 6x6x6 color cube, 232..=255 is the 24-step grayscale.
+/// Used directly when emitting reverse-video cells (where we can't use the
+/// `.fN`/`.bN` classes because the swap forces inline styles), and for
+/// 256-color cells in the normal path.
+fn palette_to_rgb(i: u8) -> (u8, u8, u8) {
+    const PALETTE_16: [(u8, u8, u8); 16] = [
+        (0x00, 0x00, 0x00), (0xcd, 0x00, 0x00), (0x00, 0xcd, 0x00), (0xcd, 0xcd, 0x00),
+        (0x1e, 0x90, 0xff), (0xcd, 0x00, 0xcd), (0x00, 0xcd, 0xcd), (0xe5, 0xe5, 0xe5),
+        (0x4d, 0x4d, 0x4d), (0xff, 0x54, 0x54), (0x54, 0xff, 0x54), (0xff, 0xff, 0x54),
+        (0x54, 0x54, 0xff), (0xff, 0x54, 0xff), (0x54, 0xff, 0xff), (0xff, 0xff, 0xff),
+    ];
+    if i < 16 {
+        return PALETTE_16[i as usize];
+    }
+    if i < 232 {
+        let n = i - 16;
+        let r = (n / 36) % 6;
+        let g = (n / 6) % 6;
+        let b = n % 6;
+        let to_v = |c: u8| if c == 0 { 0 } else { 55 + c * 40 };
+        return (to_v(r), to_v(g), to_v(b));
+    }
+    let l = 8u16 + (i as u16 - 232) * 10;
+    let l = l.min(255) as u8;
+    (l, l, l)
+}
 
-    let size = term.get_size();
-    let cols = size.cols;
-    let cursor = term.cursor_pos();
-    let screen = term.screen();
-    let total_lines = screen.scrollback_rows();
-    // Emit every retained line, not just the visible region. The browser-side
-    // VT scrolls the older ones up into its own scrollback as it fills past
-    // physical_rows, so a fresh attach (e.g. page refresh) reconstructs the
-    // history. The final `\x1b[{y};{x}H` below repositions the cursor inside
-    // the visible window once everything has been written.
-    let lines = screen.lines_in_phys_range(0..total_lines);
-
-    let mut out = String::new();
-    out.push_str("\x1b[0m\x1b[2J\x1b[H");
-
-    // Track the attribute set we last emitted so we only emit SGR on change.
-    let default_attrs = CellAttributes::default();
-    let mut current = default_attrs.clone();
-
-    for (row, line) in lines.iter().enumerate() {
-        if row > 0 {
-            // Reset before CRLF so trailing background fill doesn't leak
-            // to the next line.
-            if !attrs_equiv(&current, &default_attrs) {
-                out.push_str("\x1b[0m");
-                current = default_attrs.clone();
-            }
-            out.push_str("\r\n");
-        }
-        let mut col = 0usize;
-        for cell_ref in line.visible_cells() {
-            let cell_col = cell_ref.cell_index();
-            while col < cell_col && col < cols {
-                if !attrs_equiv(&current, &default_attrs) {
-                    out.push_str("\x1b[0m");
-                    current = default_attrs.clone();
-                }
-                out.push(' ');
-                col += 1;
-            }
-            let cell_attrs = cell_ref.attrs();
-            if !attrs_equiv(&current, cell_attrs) {
-                append_sgr_full(&mut out, cell_attrs);
-                current = cell_attrs.clone();
-            }
-            out.push_str(cell_ref.str());
-            col += cell_ref.width().max(1);
-            if col >= cols {
-                break;
+/// Append a CSS color declaration for `prop` (color / background) into
+/// `out`, handling all four ColorAttribute variants. `default_var` is the
+/// CSS variable name (e.g. "--term-fg") to use when the attribute is
+/// Default; pass an empty string to skip emission entirely for the default
+/// case (which is what the non-reverse path wants -- it relies on CSS
+/// inheritance from the body).
+fn append_color_inline(out: &mut String, prop: &str, c: ColorAttribute, default_var: &str) {
+    match c {
+        ColorAttribute::Default => {
+            if !default_var.is_empty() {
+                let _ = write!(out, "{prop}:var({default_var});");
             }
         }
-        while col < cols {
-            if !attrs_equiv(&current, &default_attrs) {
-                out.push_str("\x1b[0m");
-                current = default_attrs.clone();
+        ColorAttribute::PaletteIndex(i) => {
+            let (r, g, b) = palette_to_rgb(i);
+            let _ = write!(out, "{prop}:#{r:02x}{g:02x}{b:02x};");
+        }
+        ColorAttribute::TrueColorWithDefaultFallback(rgb)
+        | ColorAttribute::TrueColorWithPaletteFallback(rgb, _) => {
+            let r = (rgb.0 * 255.0).round() as u8;
+            let g = (rgb.1 * 255.0).round() as u8;
+            let b = (rgb.2 * 255.0).round() as u8;
+            let _ = write!(out, "{prop}:#{r:02x}{g:02x}{b:02x};");
+        }
+    }
+}
+
+/// Append CSS class fragments + inline style for a cell attribute set.
+/// Bold/italic/underline/reverse/strikethrough become single-char classes.
+/// Palette indices 0..16 become `f0`..`f15` / `b0`..`b15` so users can
+/// theme the canonical 16 via CSS. Anything else (palette 16..=255,
+/// truecolor) goes inline as `style="color:#rrggbb;..."`. Most TUIs lean
+/// on the 16 palette, so the class-based path covers the common case and
+/// brotli eats the repetition of the inline-style fallbacks.
+fn cell_class_and_style(attrs: &CellAttributes) -> (String, String) {
+    let mut classes = String::new();
+    let mut style = String::new();
+
+    match attrs.intensity() {
+        Intensity::Bold => classes.push_str(" sb"),
+        Intensity::Half => classes.push_str(" sd"),
+        Intensity::Normal => {}
+    }
+    if attrs.italic() {
+        classes.push_str(" si");
+    }
+    match attrs.underline() {
+        Underline::None => {}
+        _ => classes.push_str(" su"),
+    }
+    if attrs.invisible() {
+        classes.push_str(" sx");
+    }
+    if attrs.strikethrough() {
+        classes.push_str(" ss");
+    }
+
+    if attrs.reverse() {
+        // Reverse video: swap foreground and background. Classes can't be
+        // used here because the swap forces both color and background to be
+        // explicit -- a `.f1` class would otherwise set color to red even
+        // though we want the original background as the new foreground.
+        // Default fg/bg map to CSS variables so the theme stays in charge.
+        append_color_inline(&mut style, "color", attrs.background(), "--term-bg");
+        append_color_inline(&mut style, "background", attrs.foreground(), "--term-fg");
+    } else {
+        // Normal path: classes for the 16-palette (themable via CSS),
+        // inline RGB for 256-color and truecolor.
+        match attrs.foreground() {
+            ColorAttribute::Default => {}
+            ColorAttribute::PaletteIndex(i) if i < 16 => {
+                let _ = write!(classes, " f{i}");
             }
-            out.push(' ');
-            col += 1;
+            other => append_color_inline(&mut style, "color", other, ""),
+        }
+        match attrs.background() {
+            ColorAttribute::Default => {}
+            ColorAttribute::PaletteIndex(i) if i < 16 => {
+                let _ = write!(classes, " b{i}");
+            }
+            other => append_color_inline(&mut style, "background", other, ""),
         }
     }
 
-    out.push_str("\x1b[0m");
+    (classes, style)
+}
+
+/// Escape a string for use inside HTML text. Just the four characters that
+/// matter inside `<span>...</span>` plus quote in case it ever leaks.
+fn html_escape(s: &str, out: &mut String) {
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(ch),
+        }
+    }
+}
+
+/// Render the terminal's retained scrollback + visible screen + cursor as
+/// an HTML grid suitable for morphing into `#grid`. Each row is
+/// `<div class="row" id="r-{N}">...</div>` where N is the row's phys index;
+/// idiomorph matches rows by id and only morphs the ones that changed.
+/// Cells inside a row are run-length encoded into `<span class="...">`
+/// runs sharing the same attribute set.
+///
+/// All retained scrollback lines are emitted, not just the visible region.
+/// CSS scrolls the grid container; the client auto-sticks to the bottom
+/// unless the user has scrolled up. When scrollback fills past the cap, the
+/// oldest line drops off and every row's phys index shifts by one, which
+/// makes idiomorph morph each row's content -- brotli on the wire keeps
+/// the bandwidth cost tolerable.
+fn render_grid_html(term: &Terminal) -> String {
+    let size = term.get_size();
+    let cols = size.cols;
+    let phys_rows = size.rows;
+    let cursor = term.cursor_pos();
+    let screen = term.screen();
+    let total = screen.scrollback_rows();
+    let visible_start = total.saturating_sub(phys_rows);
+    let lines = screen.lines_in_phys_range(0..total);
+
+    // Cursor.y is relative to the visible region; translate to an absolute
+    // phys row index so the cursor sits on the right row when the grid
+    // includes scrollback above it.
+    let cursor_row = visible_start + cursor.y as usize;
+    let cursor_col = cursor.x;
+
+    let default_attrs = CellAttributes::default();
+
+    let mut out = String::new();
+    // The terminal's current OSC 0/2 title. Escape it for an attribute
+    // value -- the client mirrors it into document.title.
+    let title = term.get_title();
+    let mut title_attr = String::with_capacity(title.len());
+    html_escape(title, &mut title_attr);
     let _ = write!(
         out,
-        "\x1b[{};{}H",
-        (cursor.y as usize) + 1,
-        cursor.x + 1
+        "<div id=\"grid\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\" data-title=\"{title_attr}\">"
     );
 
-    out.into_bytes()
+    for (row_idx, line) in lines.iter().enumerate() {
+        let _ = write!(out, "<div class=\"row\" id=\"r-{row_idx}\">");
+
+        // Materialize the row into (text, attrs, is_cursor) per column so we
+        // can run-length encode in one pass without worrying about wide-cell
+        // gaps. Default-fill any column the line didn't write to.
+        let mut cells: Vec<(String, CellAttributes, bool)> = (0..cols)
+            .map(|_| (" ".to_string(), default_attrs.clone(), false))
+            .collect();
+        for cell_ref in line.visible_cells() {
+            let col = cell_ref.cell_index();
+            if col >= cols {
+                break;
+            }
+            let s = cell_ref.str();
+            let glyph = if s.is_empty() { " ".to_string() } else { s.to_string() };
+            cells[col] = (glyph, cell_ref.attrs().clone(), false);
+        }
+        if row_idx == cursor_row && cursor_col < cols {
+            cells[cursor_col].2 = true;
+        }
+
+        // Run-length encode: walk and group consecutive cells with equal
+        // (attrs, is_cursor). The cursor cell always breaks the run since it
+        // gets a distinct class.
+        let mut i = 0;
+        while i < cells.len() {
+            let (_, ref a, ca) = cells[i];
+            let mut j = i + 1;
+            while j < cells.len() {
+                let (_, ref b, cb) = cells[j];
+                if attrs_equiv(a, b) && ca == cb {
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let (mut classes, style) = cell_class_and_style(a);
+            if ca {
+                classes.push_str(" cursor");
+            }
+            let text_len: usize = cells[i..j].iter().map(|c| c.0.len()).sum();
+            let mut text = String::with_capacity(text_len);
+            for c in &cells[i..j] {
+                text.push_str(&c.0);
+            }
+            let mut escaped = String::with_capacity(text.len());
+            html_escape(&text, &mut escaped);
+
+            if classes.is_empty() && style.is_empty() {
+                // No attrs, no cursor -- emit text bare. Saves bytes on
+                // ordinary whitespace runs, which dominate empty terminals.
+                out.push_str(&escaped);
+            } else {
+                out.push_str("<span class=\"c");
+                out.push_str(&classes);
+                out.push('"');
+                if !style.is_empty() {
+                    out.push_str(" style=\"");
+                    out.push_str(&style);
+                    out.push('"');
+                }
+                out.push('>');
+                out.push_str(&escaped);
+                out.push_str("</span>");
+            }
+            i = j;
+        }
+        out.push_str("</div>");
+    }
+    out.push_str("</div>");
+    out
 }
 
 // --- session bookkeeping ----------------------------------------------------
@@ -266,33 +335,21 @@ const PTY_EVENTS_TOPIC: &str = "pty.events";
 
 struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    // Shared with wezterm-term's Terminal (which uses it via ConditionalWriter
-    // to auto-reply to DA1/DA2/DSR queries when no client is attached) and
-    // with `pty write` (for user input). All three contend on the same Mutex,
+    // Shared with the wezterm-term Terminal (for DA1/DA2/DSR auto-replies)
+    // and with `pty write` (for user input). Both contend on the same Mutex,
     // which is fine -- this is a low-throughput interactive path.
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn PortableChild + Send + Sync>,
     meta: HashMap<String, Value>,
-    // Single-client output slot. The reader thread feeds bytes into the
-    // wezterm-term Terminal (which updates the canonical virtual screen state
-    // and emits auto-replies via its writer) and, if a Sender is installed,
-    // forwards each chunk to it. A new `pty stream` attach drops whatever
-    // Sender lives here, which drains and closes the previous SSE's Receiver
-    // -- last attach wins. The new attach gets a fresh screen snapshot then
-    // starts tailing the new channel.
-    //
-    // TODO: revisit input gating. POST /pty/input is a separate HTTP request
-    // from /pty/stream, so a kicked tab can still POST keystrokes until its
-    // EventSource error handler fires. Cheapest fix is a per-attach ticket:
-    // /pty/stream rotates the pty's current ticket; /pty/input must present
-    // a matching one. Not blocking for v1 -- worst case a stale tab types a
-    // few chars that get applied to the same pty.
-    output_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Bytes>>>>,
+    // Canonical virtual screen. Fed by the reader thread, snapshotted by
+    // `pty view` subscribers.
     term: Arc<Mutex<Terminal>>,
-    // Flipped to `true` by `pty stream` when a subscriber attaches, `false`
-    // when the reader thread notices the channel is closed. Read by
-    // ConditionalWriter on the auto-reply path.
-    has_subscriber: Arc<Mutex<bool>>,
+    // Generation counter + condvar. The reader thread bumps the counter
+    // after each `advance_bytes` and notifies all waiters. Every `pty view`
+    // subscriber holds its own `last_seen_gen` and wakes when this advances,
+    // then renders the current screen. Many subscribers per sid are fine --
+    // notify_all wakes them all.
+    dirty: Arc<(Mutex<u64>, Condvar)>,
     // ms since epoch of the most recent write to this session's stdin. Seeded
     // to creation time so a freshly-spawned session sorts above quiet ones.
     // Bumped by `bump_last_input`, read by `pty list` so the sidebar can
@@ -464,21 +521,13 @@ impl Command for PtyOpenCommand {
 
         let sid = scru128::new().to_string();
         let (cols_n, rows_n) = (size.cols as i64, size.rows as i64);
-        let output_tx = session.output_tx.clone();
         let term = session.term.clone();
-        let has_subscriber = session.has_subscriber.clone();
+        let dirty = session.dirty.clone();
         sessions().lock().unwrap().insert(sid.clone(), session);
 
         // Spawn the reader thread now (after insert) so it can self-reap
         // by sid when the child eventually exits.
-        spawn_reader(
-            sid.clone(),
-            reader,
-            output_tx,
-            term,
-            has_subscriber,
-            self.bus.clone(),
-        );
+        spawn_reader(sid.clone(), reader, term, dirty, self.bus.clone());
 
         self.bus.publish(
             PTY_EVENTS_TOPIC,
@@ -539,17 +588,13 @@ fn open_exec(
         .try_clone_reader()
         .map_err(|e| err(span, "clone_reader failed", e.to_string()))?;
 
-    let output_tx = Arc::new(Mutex::new(None));
     let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(raw_writer));
-    let has_subscriber = Arc::new(Mutex::new(false));
 
-    // Build the wezterm-term Terminal. Its writer is the ConditionalWriter,
-    // which routes through the shared `writer` Arc but suppresses output when
-    // a browser is attached (the browser handles DA/DSR replies itself).
-    let term_writer = ConditionalWriter {
-        inner: writer.clone(),
-        has_subscriber: has_subscriber.clone(),
-    };
+    // Build the wezterm-term Terminal. Its writer is a SharedWriter pointing
+    // at the same master pty fd that user input writes to. Auto-replies for
+    // DA1/DA2/DSR queries always go straight to the slave -- the browser is
+    // no longer a VT emulator in projection mode.
+    let term_writer = SharedWriter { inner: writer.clone() };
     let term = Terminal::new(
         TerminalSize {
             rows: size.rows as usize,
@@ -564,15 +609,15 @@ fn open_exec(
         Box::new(term_writer),
     );
     let term = Arc::new(Mutex::new(term));
+    let dirty = Arc::new((Mutex::new(0u64), Condvar::new()));
 
     let session = PtySession {
         master: pair.master,
         writer,
         child,
         meta: HashMap::new(),
-        output_tx,
         term,
-        has_subscriber,
+        dirty,
         last_input_ms: AtomicU64::new(now_ms()),
         bus,
     };
@@ -581,17 +626,16 @@ fn open_exec(
 
 /// Drain the pty master fd on a dedicated blocking thread. Each chunk is fed
 /// to the wezterm-term Terminal (which updates the canonical virtual screen
-/// state used by future attachers AND emits DA/DSR auto-replies through its
-/// ConditionalWriter when no client is attached). The same chunk is also
-/// forwarded raw to the attached SSE subscriber (if any). When `read` returns
-/// 0 the child has exited; the thread removes the session from the map (if
-/// `pty close` didn't already) and publishes `died` on the bus.
+/// state AND emits DA/DSR auto-replies straight to the slave through the
+/// shared writer). After advancing, the dirty counter is bumped and all
+/// `pty view` subscribers are notified so they can re-render. When `read`
+/// returns 0 the child has exited; the thread removes the session from the
+/// map (if `pty close` didn't already) and publishes `died` on the bus.
 fn spawn_reader(
     sid: String,
     mut reader: Box<dyn Read + Send>,
-    output_tx: Arc<Mutex<Option<std::sync::mpsc::Sender<Bytes>>>>,
     term: Arc<Mutex<Terminal>>,
-    has_subscriber: Arc<Mutex<bool>>,
+    dirty: Arc<(Mutex<u64>, Condvar)>,
     bus: Arc<Bus>,
 ) {
     let dump_path = std::env::var("HTTP_NU_PTY_DUMP").ok();
@@ -608,41 +652,20 @@ fn spawn_reader(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let chunk = Bytes::copy_from_slice(&buf[..n]);
                     if let Some(f) = dump_file.as_mut() {
                         let _ = writeln!(f, "[{sid}] {}", escape_bytes(&buf[..n]));
                         let _ = f.flush();
                     }
-                    // Feed the chunk to wezterm-term BEFORE forwarding to the
-                    // SSE subscriber, so an attach that races us either sees
-                    // the snapshot before this chunk lands (and gets the chunk
-                    // on its new channel) or sees the snapshot after (and
-                    // skips this chunk on its new channel because the snapshot
-                    // already reflects it). Hold the term lock across both.
-                    let mut term_guard = term.lock().unwrap();
-                    term_guard.advance_bytes(&buf[..n]);
-                    // Forward raw bytes to the attached subscriber (if any).
-                    // When a subscriber is attached the browser is itself a
-                    // full VT emulator and natively replies to DA/DSR queries;
-                    // ConditionalWriter suppresses wezterm-term's auto-reply
-                    // while has_subscriber is true. When no subscriber is
-                    // attached, wezterm-term's ConditionalWriter routes the
-                    // replies straight to the slave so the shell unblocks.
-                    let mut sub_lock = has_subscriber.lock().unwrap();
-                    let mut tx_lock = output_tx.lock().unwrap();
-                    if let Some(tx) = tx_lock.as_ref() {
-                        if tx.send(chunk).is_err() {
-                            // Receiver dropped (consumer disconnected). Clear
-                            // the slot so future attaches don't race with a
-                            // dead Sender, and let ConditionalWriter resume
-                            // auto-replying to the slave.
-                            *tx_lock = None;
-                            *sub_lock = false;
-                        }
+                    {
+                        let mut term_guard = term.lock().unwrap();
+                        term_guard.advance_bytes(&buf[..n]);
                     }
-                    drop(tx_lock);
-                    drop(sub_lock);
-                    drop(term_guard);
+                    let (lock, cv) = &*dirty;
+                    {
+                        let mut g = lock.lock().unwrap();
+                        *g = g.wrapping_add(1);
+                    }
+                    cv.notify_all();
                 }
                 Err(e) => {
                     use std::io::ErrorKind;
@@ -659,6 +682,15 @@ fn spawn_reader(
         // `deleted`, so don't publish anything here.
         let removed = sessions().lock().unwrap().remove(&sid);
         if let Some(mut s) = removed {
+            // Wake any view subscribers so they exit promptly rather than
+            // sitting on the condvar until next heartbeat.
+            let (lock, cv) = &*s.dirty;
+            {
+                let mut g = lock.lock().unwrap();
+                *g = g.wrapping_add(1);
+            }
+            cv.notify_all();
+
             let code = match s.child.wait() {
                 Ok(es) => es.exit_code() as i64,
                 Err(_) => -1,
@@ -863,6 +895,14 @@ impl Command for PtyResizeCommand {
                 pixel_height: 0,
                 dpi: 0,
             });
+            // Wake subscribers so the next frame reflects the new grid
+            // dimensions even if the program isn't generating output.
+            let (lock, cv) = &*session.dirty;
+            {
+                let mut g = lock.lock().unwrap();
+                *g = g.wrapping_add(1);
+            }
+            cv.notify_all();
         }
 
         self.bus.publish(
@@ -882,37 +922,46 @@ impl Command for PtyResizeCommand {
     }
 }
 
-// --- pty stream -------------------------------------------------------------
+// --- pty view ---------------------------------------------------------------
+
+/// Coalescing window: after a dirty notify wakes us, sleep this long before
+/// rendering so a burst of pty output (e.g. `cat large.txt`) collapses into
+/// one frame rather than one per chunk.
+const VIEW_COALESCE: Duration = Duration::from_millis(16);
+
+/// How long to wait on the condvar before emitting an SSE comment heartbeat.
+/// Keeps intermediaries (proxies, browser) from closing an idle connection,
+/// and bounds the time a stale subscriber holds the term lock.
+const VIEW_HEARTBEAT: Duration = Duration::from_secs(15);
 
 #[derive(Clone)]
-pub struct PtyStreamCommand;
+pub struct PtyViewCommand;
 
-impl PtyStreamCommand {
+impl PtyViewCommand {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl Default for PtyStreamCommand {
+impl Default for PtyViewCommand {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Command for PtyStreamCommand {
+impl Command for PtyViewCommand {
     fn name(&self) -> &str {
-        "pty stream"
+        "pty view"
     }
 
     fn description(&self) -> &str {
-        "Stream pty output bytes; --sse wraps each chunk as a base64 SSE event"
+        "Stream the pty's visible screen as morph-able HTML grid frames over SSE (Datastar datastar-patch-elements events)"
     }
 
     fn signature(&self) -> Signature {
-        Signature::build("pty stream")
+        Signature::build("pty view")
             .required("sid", SyntaxShape::String, "session id")
-            .switch("sse", "format as text/event-stream with base64 data", None)
-            .input_output_types(vec![(Type::Nothing, Type::Binary)])
+            .input_output_types(vec![(Type::Nothing, Type::String)])
             .category(Category::Custom("http".into()))
     }
 
@@ -925,63 +974,72 @@ impl Command for PtyStreamCommand {
     ) -> Result<PipelineData, ShellError> {
         let head = call.head;
         let sid: String = call.req(engine_state, stack, 0)?;
-        let sse = call.has_flag(engine_state, stack, "sse")?;
 
-        // Snapshot the wezterm-term screen and install a fresh Sender
-        // atomically. Holding the term lock across both keeps the reader
-        // thread from advancing bytes during this window: any chunk that
-        // arrives after we drop the lock either lands in our new channel
-        // (good) or was already absorbed into the snapshot (also good).
-        // Replacing the Sender drops whatever the previous attach installed,
-        // which closes that consumer's stream -- last attach wins. The
-        // snapshot is a canonical ANSI sequence that reproduces the current
-        // visible screen + cursor; partial fidelity for colors today (see
-        // snapshot_terminal).
-        let (rx, snapshot) = {
+        // Resolve term + dirty handles once. The session may go away while we
+        // stream; we treat that as natural EOF by checking `sessions()` each
+        // iteration and bailing if the sid is gone.
+        let (term, dirty) = {
             let map = sessions().lock().unwrap();
             let session = map
                 .get(&sid)
                 .ok_or_else(|| err(head, format!("no pty session: {sid}"), ""))?;
-            let term_guard = session.term.lock().unwrap();
-            let snap = snapshot_terminal(&term_guard);
-            let (tx, rx) = std::sync::mpsc::channel::<Bytes>();
-            *session.output_tx.lock().unwrap() = Some(tx);
-            *session.has_subscriber.lock().unwrap() = true;
-            drop(term_guard);
-            (rx, snap)
+            (session.term.clone(), session.dirty.clone())
         };
 
-        let ty = if sse {
-            ByteStreamType::String
-        } else {
-            ByteStreamType::Binary
-        };
-
-        let mut snapshot_iter = if snapshot.is_empty() {
-            None
-        } else {
-            Some(snapshot)
-        };
+        let mut last_gen: u64 = 0;
+        let mut sent_initial = false;
+        let sid_owned = sid.clone();
 
         let stream = ByteStream::from_fn(
             head,
             engine_state.signals().clone(),
-            ty,
+            ByteStreamType::String,
             move |buffer: &mut Vec<u8>| {
-                // First serve the snapshot of the current screen state.
-                if let Some(bytes) = snapshot_iter.take() {
-                    emit(buffer, &bytes, sse);
-                    return Ok(true);
+                // Bail when the session is gone (closed or child exited).
+                if !sessions().lock().unwrap().contains_key(&sid_owned) {
+                    return Ok(false);
                 }
-                // Then tail the channel. Err means the Sender was replaced
-                // (newer attach evicted us) or the session went away.
-                match rx.recv() {
-                    Ok(chunk) => {
-                        emit(buffer, &chunk, sse);
-                        Ok(true)
+
+                if sent_initial {
+                    // Wait for the dirty counter to advance or for the
+                    // heartbeat timeout to fire. notify_all from the reader
+                    // thread wakes us with the new generation.
+                    let (lock, cv) = &*dirty;
+                    let mut guard = lock.lock().unwrap();
+                    let mut emitted_heartbeat = false;
+                    while *guard == last_gen {
+                        let (g, timeout) = cv
+                            .wait_timeout(guard, VIEW_HEARTBEAT)
+                            .unwrap();
+                        guard = g;
+                        if timeout.timed_out() {
+                            // Emit an SSE comment so proxies don't drop us.
+                            buffer.extend_from_slice(b": hb\n\n");
+                            emitted_heartbeat = true;
+                            break;
+                        }
                     }
-                    Err(_) => Ok(false),
+                    drop(guard);
+                    if emitted_heartbeat {
+                        return Ok(true);
+                    }
+                    // Coalesce: sleep briefly so a burst of chunks collapses
+                    // into one frame rather than one frame per chunk.
+                    std::thread::sleep(VIEW_COALESCE);
                 }
+
+                // Snapshot the latest generation + render the screen.
+                let (lock, _cv) = &*dirty;
+                let gen_now = *lock.lock().unwrap();
+                let html = {
+                    let term_guard = term.lock().unwrap();
+                    render_grid_html(&term_guard)
+                };
+                last_gen = gen_now;
+                sent_initial = true;
+
+                emit_patch_elements(buffer, &html);
+                Ok(true)
             },
         );
 
@@ -989,15 +1047,26 @@ impl Command for PtyStreamCommand {
     }
 }
 
-fn emit(buffer: &mut Vec<u8>, bytes: &[u8], sse: bool) {
-    if sse {
-        let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-        buffer.extend_from_slice(b"data: ");
-        buffer.extend_from_slice(b64.as_bytes());
-        buffer.extend_from_slice(b"\n\n");
+/// Wrap a chunk of HTML as a `datastar-patch-elements` SSE event. The
+/// `elements` data line carries the HTML to morph; Datastar matches by id
+/// (we use `<div id="grid">` as the morph target).
+fn emit_patch_elements(buffer: &mut Vec<u8>, html: &str) {
+    buffer.extend_from_slice(b"event: datastar-patch-elements\n");
+    // The HTML never contains a literal newline (we don't pretty-print it),
+    // so a single `data: elements <...>` line is correct. Defensive: if a
+    // newline ever leaks in, split it into multiple data lines.
+    if html.contains('\n') {
+        for line in html.split('\n') {
+            buffer.extend_from_slice(b"data: elements ");
+            buffer.extend_from_slice(line.as_bytes());
+            buffer.extend_from_slice(b"\n");
+        }
     } else {
-        buffer.extend_from_slice(bytes);
+        buffer.extend_from_slice(b"data: elements ");
+        buffer.extend_from_slice(html.as_bytes());
+        buffer.extend_from_slice(b"\n");
     }
+    buffer.extend_from_slice(b"\n");
 }
 
 // --- pty close --------------------------------------------------------------
