@@ -212,6 +212,16 @@ fn html_escape(s: &str, out: &mut String) {
     }
 }
 
+/// One rendered terminal frame: the grid HTML plus the metadata the client
+/// surfaces as signals (dimensions and OSC title) rather than reading off
+/// the DOM.
+struct GridFrame {
+    html: String,
+    cols: usize,
+    rows: usize,
+    title: String,
+}
+
 /// Render the terminal's retained scrollback + visible screen + cursor as
 /// an HTML grid suitable for morphing into `#grid`. Each row is
 /// `<div class="row" id="r-{N}">...</div>` where N is the row's phys index;
@@ -225,7 +235,7 @@ fn html_escape(s: &str, out: &mut String) {
 /// oldest line drops off and every row's phys index shifts by one, which
 /// makes idiomorph morph each row's content -- brotli on the wire keeps
 /// the bandwidth cost tolerable.
-fn render_grid_html(term: &Terminal) -> String {
+fn render_grid_html(term: &Terminal) -> GridFrame {
     let size = term.get_size();
     let cols = size.cols;
     let phys_rows = size.rows;
@@ -243,15 +253,12 @@ fn render_grid_html(term: &Terminal) -> String {
 
     let default_attrs = CellAttributes::default();
 
+    let title = term.get_title().to_string();
+
     let mut out = String::new();
-    // The terminal's current OSC 0/2 title. Escape it for an attribute
-    // value -- the client mirrors it into document.title.
-    let title = term.get_title();
-    let mut title_attr = String::with_capacity(title.len());
-    html_escape(title, &mut title_attr);
     let _ = write!(
         out,
-        "<div id=\"grid\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\" data-title=\"{title_attr}\">"
+        "<div id=\"grid\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\">"
     );
 
     for (row_idx, line) in lines.iter().enumerate() {
@@ -326,7 +333,31 @@ fn render_grid_html(term: &Terminal) -> String {
         out.push_str("</div>");
     }
     out.push_str("</div>");
-    out
+    GridFrame {
+        html: out,
+        cols,
+        rows: phys_rows,
+        title,
+    }
+}
+
+/// Append a JSON string literal (with surrounding quotes) for `s` into `out`.
+fn json_string(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
 }
 
 // --- session bookkeeping ----------------------------------------------------
@@ -988,6 +1019,10 @@ impl Command for PtyViewCommand {
 
         let mut last_gen: u64 = 0;
         let mut sent_initial = false;
+        // Last (cols, rows, title) emitted as signals; only re-emit the
+        // patch-signals event when one changes so keystroke frames don't
+        // carry a redundant signal patch.
+        let mut last_meta: Option<(usize, usize, String)> = None;
         let sid_owned = sid.clone();
 
         let stream = ByteStream::from_fn(
@@ -1031,14 +1066,23 @@ impl Command for PtyViewCommand {
                 // Snapshot the latest generation + render the screen.
                 let (lock, _cv) = &*dirty;
                 let gen_now = *lock.lock().unwrap();
-                let html = {
+                let frame = {
                     let term_guard = term.lock().unwrap();
                     render_grid_html(&term_guard)
                 };
                 last_gen = gen_now;
                 sent_initial = true;
 
-                emit_patch_elements(buffer, &html);
+                emit_patch_elements(buffer, &frame.html);
+
+                // Surface dims + title as signals so the client binds them
+                // declaratively (status line, document.title) instead of
+                // observing DOM attributes. Only emit on change.
+                let meta = (frame.cols, frame.rows, frame.title);
+                if last_meta.as_ref() != Some(&meta) {
+                    emit_patch_signals(buffer, meta.0, meta.1, &meta.2);
+                    last_meta = Some(meta);
+                }
                 Ok(true)
             },
         );
@@ -1067,6 +1111,20 @@ fn emit_patch_elements(buffer: &mut Vec<u8>, html: &str) {
         buffer.extend_from_slice(b"\n");
     }
     buffer.extend_from_slice(b"\n");
+}
+
+/// Emit a `datastar-patch-signals` event carrying the frame's dimensions
+/// and OSC title, so the client surfaces them via signal bindings rather
+/// than reading DOM attributes.
+fn emit_patch_signals(buffer: &mut Vec<u8>, cols: usize, rows: usize, title: &str) {
+    let mut signals = String::new();
+    let _ = write!(signals, "{{cols:{cols},rows:{rows},title:");
+    json_string(&mut signals, title);
+    signals.push('}');
+    buffer.extend_from_slice(b"event: datastar-patch-signals\n");
+    buffer.extend_from_slice(b"data: signals ");
+    buffer.extend_from_slice(signals.as_bytes());
+    buffer.extend_from_slice(b"\n\n");
 }
 
 // --- pty close --------------------------------------------------------------
