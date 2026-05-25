@@ -12,6 +12,7 @@ use http-nu/html *
 use http-nu/datastar *
 use ../tfe/render.nu *
 use ../tfe/game.nu *
+use ../tfe/palettes.nu *
 
 const HERE = path self | path dirname
 
@@ -78,6 +79,7 @@ const CATALOG = [
   {slug: "breadcrumb" title: "breadcrumb" desc: "header nav row. left = path crumbs, right = action shortcuts."}
   {slug: "board"      title: "board"      desc: "encapsulated <game-board> custom element. state in as a signal-driven attribute; component owns slide/merge/spawn animation and the won/over badge."}
   {slug: "badges"     title: "badges"     desc: "endgame overlay variants the <game-board> renders: 'game over' (neutral) coexists with 'you win' (green) or 'you lost' (red). win badge auto-hides after 3 post-win moves; both surface at game-over."}
+  {slug: "palettes"   title: "tile palettes" desc: "color-theory progressions for the tile value ladder (2 -> 64K). Cirulli is the live game palette; the rest are candidates. swatches are framed like the board, each tile's bg with per-tile WCAG-checked text."}
   {slug: "markdown"   title: "markdown"   desc: "the full set of markdown the /notes pages render: headings, prose, lists, links, code, quotes."}
 ]
 
@@ -349,6 +351,7 @@ def render-stories [slug: string]: nothing -> list {
               (P {class: "wc-scenario-label"} "no moves left -- both badges show: 'game over' + 'you win'.")
               (BUTTON {class: "wc-btn primary" "data-on:click": $"$badgeWalk = ($BADGE_STATES.win_over | to json --raw)"} "game over")))))
     ]
+    "palettes" => (palette-catalog | each {|p| palette-story $p })
     "markdown" => [
       (story "rendered via .md, wrapped in .prose (same path as /notes pages)" [
         (DIV {class: "prose"} {__html: ($MD_SAMPLE | .md | get __html)})
@@ -356,6 +359,18 @@ def render-stories [slug: string]: nothing -> list {
     ]
     _ => []
   }
+}
+
+# One palette progression: name caption, a row of value-labeled swatches
+# (each tile's bg with its WCAG-checked fg), and the design note below.
+def palette-story [pal: record]: nothing -> record {
+  (SECTION {class: "story"}
+    (P {class: "label"} $pal.name)
+    (DIV {class: "swatch-row"}
+      ...($pal.pairs | each {|t|
+        (DIV {class: "sw" style: $"background: ($t.bg); color: ($t.fg)"} ($t.v | into string))
+      }))
+    (P {class: "note"} $pal.note))
 }
 
 # One labeled story block: caption above, rendered children below.

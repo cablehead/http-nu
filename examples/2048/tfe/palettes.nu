@@ -1,0 +1,264 @@
+# Tile-palette progressions for the 2048 value ladder (2 -> 64K). Each
+# palette returns list<{v, bg, fg}> aligned to VALUES; the text color is
+# computed per tile so each progression stays legible against its own
+# backgrounds. Pure data -- no http-nu deps -- so the /design swatch page
+# (and any future palette picker) can share it. The live game palette is
+# the Cirulli one, mirrored here from static/game-board.js.
+
+const VALUES = [2 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536]
+
+# String-interp wrapping `$"oklch(($a) ($b) ...)"` confuses nu's parser
+# (adjacent `($x) ($y)` looks like function application). Pre-join the args.
+def oklch [l: float, c: float, h: float]: nothing -> string {
+  let args = [$l $c $h] | str join ' '
+  'oklch(' + $args + ')'
+}
+
+# OKLCH -> linear sRGB -> WCAG relative luminance Y. Uses Bjorn Ottosson's
+# OKLab matrices; out-of-gamut channels are clipped to [0,1] before the
+# luminance sum, which is enough for our coarse pass/fail check.
+def oklch-to-luminance [l: float, c: float, h: float]: nothing -> float {
+  let hr = $h * 3.141592653589793 / 180
+  let a = $c * ($hr | math cos)
+  let b = $c * ($hr | math sin)
+  let lp = $l + 0.3963377774 * $a + 0.2158037573 * $b
+  let mp = $l - 0.1055613458 * $a - 0.0638541728 * $b
+  let sp = $l - 0.0894841775 * $a - 1.2914855480 * $b
+  let ll = $lp * $lp * $lp
+  let mm = $mp * $mp * $mp
+  let ss = $sp * $sp * $sp
+  let r =  4.0767416621 * $ll - 3.3077115913 * $mm + 0.2309699292 * $ss
+  let g = -1.2684380046 * $ll + 2.6097574011 * $mm - 0.3413193965 * $ss
+  let b2 = -0.0041960863 * $ll - 0.7034186147 * $mm + 1.7076147010 * $ss
+  let clamp = {|v| if $v < 0 { 0.0 } else if $v > 1 { 1.0 } else { $v } }
+  0.2126 * (do $clamp $r) + 0.7152 * (do $clamp $g) + 0.0722 * (do $clamp $b2)
+}
+
+def wcag-ratio [y1: float, y2: float]: nothing -> float {
+  let lo = if $y1 < $y2 { $y1 } else { $y2 }
+  let hi = if $y1 < $y2 { $y2 } else { $y1 }
+  ($hi + 0.05) / ($lo + 0.05)
+}
+
+# Two-step fg picker. Step 1 (propose, aesthetic): an in-hue text color
+# (same H, low chroma, L on the opposite extreme of the bg). Step 2
+# (verify, accessibility): push L toward 0/1 until WCAG 2 contrast clears
+# 4.5:1 (AA body text). In-hue is the proposal; WCAG is the gate.
+def fg-pick [bg_l: float, bg_c: float, bg_h: float]: nothing -> string {
+  let bg_y = oklch-to-luminance $bg_l $bg_c $bg_h
+  let candidates = if $bg_l > 0.5 { [0.20 0.15 0.10 0.05] } else { [0.95 0.97 0.99 1.0] }
+  mut picked = $candidates | last
+  for lp in $candidates {
+    let y = oklch-to-luminance $lp 0.06 $bg_h
+    if (wcag-ratio $bg_y $y) >= 4.5 {
+      $picked = $lp
+      break
+    }
+  }
+  oklch $picked 0.06 $bg_h
+}
+
+# Original Cirulli palette (the live game palette). Past 2048 every
+# super-tile is the same #3c3a32 near-black -- the gold ramp intentionally
+# breaks to signal "you've gone past the game's intended end." Cirulli's
+# fg rule is value-based: 2/4 get dark text, everything else gets cream.
+def cirulli []: nothing -> list {
+  let bgs = ["#eee4da" "#ede0c8" "#f2b179" "#f59563" "#f67c5f" "#f65e3b"
+             "#edcf72" "#edcc61" "#edc850" "#edc53f" "#edc22e"
+             "#3c3a32" "#3c3a32" "#3c3a32" "#3c3a32" "#3c3a32"]
+  $bgs | enumerate | each {|p|
+    let v = $VALUES | get $p.index
+    {bg: $p.item, fg: (if $v <= 4 { "#776e65" } else { "#f9f6f2" })}
+  }
+}
+
+# Cirulli, continued: identical 2-2048 colors, but instead of breaking to a
+# flat #3c3a32 at 4096+ the warm gold ramp keeps climbing -- the gold cools
+# into glowing embers (amber -> ember orange -> hot coal -> deep ember red ->
+# cooling-coal near-black). Same warm hue family and value-based fg rule as
+# the original; a "what if the ladder kept going" take on the super-tiles.
+def cirulli-continued []: nothing -> list {
+  let bgs = ["#eee4da" "#ede0c8" "#f2b179" "#f59563" "#f67c5f" "#f65e3b"
+             "#edcf72" "#edcc61" "#edc850" "#edc53f" "#edc22e"
+             "#e8902a" "#d96e1f" "#b84a1c" "#842d18" "#4a1810"]
+  $bgs | enumerate | each {|p|
+    let v = $VALUES | get $p.index
+    {bg: $p.item, fg: (if $v <= 4 { "#776e65" } else { "#f9f6f2" })}
+  }
+}
+
+# Weber-Fechner honest: equal perceptual step per doubling.
+def oklch-linear []: nothing -> list {
+  0..15 | each {|i|
+    let t = $i / 15
+    let l = 0.92 - 0.47 * $t
+    let c = 0.05 + 0.13 * $t
+    let h = 75.0
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Lightness drifts gently; chroma climbs convex (t squared). Endgame radiates.
+def chroma-blowout []: nothing -> list {
+  0..15 | each {|i|
+    let t = $i / 15
+    let l = 0.88 - 0.25 * $t
+    let c = 0.02 + 0.22 * ($t * $t)
+    let h = 55.0
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Planckian locus: dim deep red -> orange -> amber -> warm white -> white-hot.
+# Hue stays in the warm half (28 -> 90); chroma decays toward white as
+# lightness climbs. L ramps concave so the top tiles are near-white.
+def blackbody []: nothing -> list {
+  0..15 | each {|i|
+    let t = $i / 15
+    let l = 0.42 + 0.55 * ($t ** 0.55)
+    let c = 0.03 + 0.20 * ((1 - $t) ** 1.2)
+    let h = 28 + 62 * ($t ** 0.6)
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Spectral cascade: each tile is one octave of light frequency, walking the
+# EM spectrum from low-energy red through the visible band. Lightness peaks
+# near green (photopic sensitivity max), then fades into the void at the
+# visible edge (deep UV, 8192). Past sight the ionizing bands -- X-ray,
+# gamma -- re-emerge in the false-color of high-energy astronomy, climbing
+# to a blinding cold white: the most energetic light shown as the brightest,
+# not invisible. Hand-tabulated stops.
+def spectral-cascade []: nothing -> list {
+  let stops = [
+    [0.50 0.18  30.0]   # 2:    deep red          (~656nm, H-alpha)
+    [0.62 0.19  40.0]   # 4:    orange-red
+    [0.70 0.18  55.0]   # 8:    orange
+    [0.78 0.18  85.0]   # 16:   yellow            (~580nm, sodium D)
+    [0.85 0.17 110.0]   # 32:   yellow-green
+    [0.82 0.20 140.0]   # 64:   green             (peak eye sensitivity)
+    [0.75 0.16 200.0]   # 128:  cyan              (~486nm, H-beta)
+    [0.62 0.20 245.0]   # 256:  blue
+    [0.50 0.21 280.0]   # 512:  indigo            (~434nm, H-gamma)
+    [0.42 0.20 305.0]   # 1024: violet            (~410nm, H-delta)
+    [0.32 0.18 320.0]   # 2048:  deep violet      (visible edge)
+    [0.20 0.12 315.0]   # 4096:  near-UV          (fading from sight)
+    [0.09 0.06 305.0]   # 8192:  deep UV          (the void -- darkest point)
+    [0.42 0.20 275.0]   # 16384: soft X-ray       (ionizing bands re-emerge, false-color cold)
+    [0.64 0.17 258.0]   # 32768: hard X-ray       (brighter cold blue)
+    [0.91 0.10 250.0]   # 65536: gamma            (blinding cold white-blue: most energetic, brightest)
+  ]
+  $stops | each {|s|
+    let l = $s | get 0
+    let c = $s | get 1
+    let h = $s | get 2
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Stellar classification ascent ordered by surface temperature: M red dwarf
+# -> K -> G (Sun) -> F -> A (Sirius) -> B (Rigel) -> O blue supergiant ->
+# Wolf-Rayet -> luminous blue variable. The death sequence is paced to land
+# at the top: a SUPERNOVA flash (2048), then the remnant -- magenta shock
+# nebula, neutron star, magnetar, dimming accretion -- collapsing to the
+# black-hole void at 65536. Warm rise, violent bright peak, exotic dark end.
+def stellar-ascent []: nothing -> list {
+  let stops = [
+    [0.55 0.16  30.0]  # 2:     M-class red dwarf
+    [0.70 0.16  55.0]  # 4:     K-class orange (Arcturus)
+    [0.84 0.14  90.0]  # 8:     G-class yellow (Sun)
+    [0.92 0.08 100.0]  # 16:    F-class yellow-white
+    [0.96 0.02 240.0]  # 32:    A-class white (Sirius)
+    [0.90 0.08 245.0]  # 64:    B-class blue-white (Rigel)
+    [0.80 0.14 248.0]  # 128:   O-class blue (Zeta Puppis)
+    [0.70 0.18 252.0]  # 256:   O blue supergiant
+    [0.60 0.20 268.0]  # 512:   Wolf-Rayet (hot blue UV)
+    [0.72 0.16 295.0]  # 1024:  luminous blue variable (pre-SN instability)
+    [0.97 0.07 285.0]  # 2048:  SUPERNOVA flash (blinding pale violet-white)
+    [0.62 0.22  25.0]  # 4096:  remnant -- expanding shock nebula (magenta-red)
+    [0.80 0.14 250.0]  # 8192:  neutron star (hot blue-white point source)
+    [0.50 0.24 310.0]  # 16384: magnetar (violent magnetic violet)
+    [0.28 0.16 320.0]  # 32768: accretion edge -- infalling glow, dimming
+    [0.04 0.02 320.0]  # 65536: black hole / event horizon (the void)
+  ]
+  $stops | each {|s|
+    let l = $s | get 0
+    let c = $s | get 1
+    let h = $s | get 2
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Phase transitions: tiles grouped by state of matter with hue jumps at each
+# transition. Solid (icy blue) -> liquid (water blue) -> gas (warm mist) ->
+# plasma (ionized magenta-violet) -> quark-gluon plasma (electric cyan-blue),
+# then the QGP runs back up the energy ladder toward the early universe --
+# the Planck epoch as a blinding white-hot deconfinement at the top.
+def phase-transitions []: nothing -> list {
+  let stops = [
+    [0.94 0.03 215.0]  # 2:     solid -- frosty ice
+    [0.88 0.05 215.0]  # 4:     solid -- pale ice
+    [0.82 0.07 215.0]  # 8:     solid -- crystal
+    [0.60 0.13 235.0]  # 16:    liquid -- water
+    [0.50 0.15 235.0]  # 32:    liquid -- deep water
+    [0.78 0.03  60.0]  # 64:    gas -- steam
+    [0.72 0.05  50.0]  # 128:   gas -- vapor
+    [0.55 0.20 340.0]  # 256:   plasma -- ionized pink
+    [0.50 0.22 320.0]  # 512:   plasma -- magenta
+    [0.45 0.24 310.0]  # 1024:  plasma -- violet
+    [0.48 0.26 270.0]  # 2048:  QGP -- saturated electric indigo (deconfinement)
+    [0.60 0.25 250.0]  # 4096:  QGP -- saturated cobalt, brighter
+    [0.74 0.20 230.0]  # 8192:  QGP -- vivid electric cyan-blue
+    [0.85 0.13 220.0]  # 16384: early-universe plasma -- hotter, brighter
+    [0.93 0.07 215.0]  # 32768: near-white plasma
+    [0.99 0.02 210.0]  # 65536: Planck epoch -- blinding white-hot
+  ]
+  $stops | each {|s|
+    let l = $s | get 0
+    let c = $s | get 1
+    let h = $s | get 2
+    {bg: (oklch $l $c $h), fg: (fg-pick $l $c $h)}
+  }
+}
+
+# Sigmoid in lightness: flat plateau, plunge, flat dark plateau on top.
+def sigmoid-light []: nothing -> list {
+  0..15 | each {|i|
+    let t = $i / 15
+    let x = 8 * ($t - 0.5)
+    let sig = 1 / (1 + (2.718281828459045 ** (0 - $x)))
+    let l = 0.93 - 0.55 * $sig
+    {bg: (oklch $l 0.13 65), fg: (fg-pick $l 0.13 65)}
+  }
+}
+
+# Zip a palette's {bg,fg} list with VALUES so renderers get the tile value
+# alongside each color pair.
+def with-values [pairs: list]: nothing -> list {
+  $pairs | enumerate | each {|p| {v: ($VALUES | get $p.index) bg: $p.item.bg fg: $p.item.fg} }
+}
+
+# The full set of progressions as {name, note, pairs} -- pairs is
+# list<{v, bg, fg}>. This is what /design renders as swatch rows.
+export def palette-catalog []: nothing -> list {
+  [
+    {name: "Cirulli (original)" pairs: (with-values (cirulli))
+     note: "The live game palette. Hand-tuned sigmoid: beige plateau on 2-4, warm-red blowout through 8-64, clean linear gold ramp to 2048 -- then the ramp BREAKS: every super-tile (4096+) is the same #3c3a32 near-black. Past-the-end signaling."}
+    {name: "Cirulli continued" pairs: (with-values (cirulli-continued))
+     note: "The original, but the gold ramp doesn't break at 4096 -- it keeps climbing. The gold cools into glowing embers: amber, ember orange, hot coal, deep ember red, down to a cooling-coal near-black at 65536. Same warm DNA and cream-on-warm text as Cirulli; the super-tiles earn their own identity instead of a flat past-the-end slate."}
+    {name: "OKLCH linear" pairs: (with-values (oklch-linear))
+     note: "Equal perceptual step per doubling (Weber-Fechner honest). Calm and legible, but 2048 doesn't feel like an event -- every tier weighs the same."}
+    {name: "Chroma blowout" pairs: (with-values (chroma-blowout))
+     note: "Lightness drifts gently; chroma climbs convex. Late tiles radiate -- back-loaded drama. 1024 and 2048 feel almost incandescent against the muted low end."}
+    {name: "Sigmoid lightness" pairs: (with-values (sigmoid-light))
+     note: "Flat-plunge-flat. The 64-to-256 stretch is a regime change; the top tier is a dark slate plateau. Mid-game is where the work feels visible."}
+    {name: "Blackbody march" pairs: (with-values (blackbody))
+     note: "Dim deep red to white-hot, hue confined to the warm half of the wheel (28 -> 90). Chroma decays as lightness climbs -- saturated at the cool end, near-neutral when incandescent. Reads as a glowing element."}
+    {name: "Spectral cascade" pairs: (with-values (spectral-cascade))
+     note: "Each tile is one octave of light frequency walking the EM spectrum -- H-alpha red through the visible band, lightness peaking at green (photopic max), fading into the void at the visible edge (deep UV, 8192). Past sight the ionizing bands -- X-ray, gamma -- re-emerge in the false-color of high-energy astronomy, climbing to a blinding cold white: the most energetic light shown as the brightest, not invisible."}
+    {name: "Stellar ascent" pairs: (with-values (stellar-ascent))
+     note: "Stellar classification by surface temperature: M red dwarf -> K -> G (Sun) -> F -> A (Sirius) -> B (Rigel) -> O blue supergiant -> Wolf-Rayet -> luminous blue variable. The death sequence is paced to land at the top: a SUPERNOVA flash (2048), then the remnant -- magenta shock nebula, neutron star, magnetar, dimming accretion -- collapsing to the black-hole void at 65536. Warm rise, violent peak, exotic dark terminus."}
+    {name: "Phase transitions" pairs: (with-values (phase-transitions))
+     note: "Bands of tiles share a state of matter, with hue jumps at each transition. Solid (frosty ice) -> liquid (cohesive blue) -> gas (warm mist) -> plasma (ionized magenta-violet) -> quark-gluon plasma (electric cyan-blue). The QGP then runs back up the energy ladder toward the early universe -- the Planck epoch as a blinding white-hot deconfinement at 65536. Each doubling of energy unlocks a hotter regime."}
+  ]
+}
