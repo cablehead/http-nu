@@ -79,7 +79,7 @@ const CATALOG = [
   {slug: "breadcrumb" title: "breadcrumb" desc: "header nav row. left = path crumbs, right = action shortcuts."}
   {slug: "board"      title: "board"      desc: "encapsulated <game-board> custom element. state in as a signal-driven attribute; component owns slide/merge/spawn animation and the won/over badge."}
   {slug: "badges"     title: "badges"     desc: "endgame overlay variants the <game-board> renders: 'game over' (neutral) coexists with 'you win' (green) or 'you lost' (red). win badge auto-hides after 3 post-win moves; both surface at game-over."}
-  {slug: "palettes"   title: "tile palettes" desc: "color-theory progressions for the tile value ladder (2 -> 64K). Cirulli is the live game palette; the rest are candidates. swatches are framed like the board, each tile's bg with per-tile WCAG-checked text."}
+  {slug: "palettes"   title: "tile palettes" desc: "color-theory progressions for the tile value ladder (2 -> 64K). Cirulli continued is the live game palette; the rest (incl. the original) are candidates. swatches are framed like the board, each tile's bg with per-tile WCAG-checked text."}
   {slug: "markdown"   title: "markdown"   desc: "the full set of markdown the /notes pages render: headings, prose, lists, links, code, quotes."}
 ]
 
@@ -148,12 +148,14 @@ const WC_STATES = {
     ghosts: [{id: 52 r: 0 c: 0 value: 2}]
   }
   big:        {tiles: [
-    {id: 41 r: 0 c: 0 value: 2}    {id: 42 r: 0 c: 1 value: 4}
-    {id: 43 r: 0 c: 2 value: 8}    {id: 44 r: 0 c: 3 value: 16}
-    {id: 45 r: 1 c: 0 value: 32}   {id: 46 r: 1 c: 1 value: 64}
-    {id: 47 r: 1 c: 2 value: 128}  {id: 48 r: 1 c: 3 value: 256}
-    {id: 49 r: 2 c: 0 value: 512}  {id: 50 r: 2 c: 1 value: 1024}
-    {id: 51 r: 2 c: 2 value: 2048} {id: 52 r: 2 c: 3 value: 4}
+    {id: 41 r: 0 c: 0 value: 2}     {id: 42 r: 0 c: 1 value: 4}
+    {id: 43 r: 0 c: 2 value: 8}     {id: 44 r: 0 c: 3 value: 16}
+    {id: 45 r: 1 c: 0 value: 32}    {id: 46 r: 1 c: 1 value: 64}
+    {id: 47 r: 1 c: 2 value: 128}   {id: 48 r: 1 c: 3 value: 256}
+    {id: 49 r: 2 c: 0 value: 512}   {id: 50 r: 2 c: 1 value: 1024}
+    {id: 51 r: 2 c: 2 value: 2048}  {id: 52 r: 2 c: 3 value: 4096}
+    {id: 53 r: 3 c: 0 value: 8192}  {id: 54 r: 3 c: 1 value: 16384}
+    {id: 55 r: 3 c: 2 value: 32768} {id: 56 r: 3 c: 3 value: 65536}
   ]}
 }
 

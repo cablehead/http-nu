@@ -3,7 +3,7 @@
 # computed per tile so each progression stays legible against its own
 # backgrounds. Pure data -- no http-nu deps -- so the /design swatch page
 # (and any future palette picker) can share it. The live game palette is
-# the Cirulli one, mirrored here from static/game-board.js.
+# "Cirulli continued", mirrored here from static/game-board.js.
 
 const VALUES = [2 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536]
 
@@ -58,10 +58,11 @@ def fg-pick [bg_l: float, bg_c: float, bg_h: float]: nothing -> string {
   oklch $picked 0.06 $bg_h
 }
 
-# Original Cirulli palette (the live game palette). Past 2048 every
+# Original Cirulli palette (the classic 2048 ramp). Past 2048 every
 # super-tile is the same #3c3a32 near-black -- the gold ramp intentionally
 # breaks to signal "you've gone past the game's intended end." Cirulli's
 # fg rule is value-based: 2/4 get dark text, everything else gets cream.
+# (The live game now uses cirulli-continued below, not this break.)
 def cirulli []: nothing -> list {
   let bgs = ["#eee4da" "#ede0c8" "#f2b179" "#f59563" "#f67c5f" "#f65e3b"
              "#edcf72" "#edcc61" "#edc850" "#edc53f" "#edc22e"
@@ -243,9 +244,9 @@ def with-values [pairs: list]: nothing -> list {
 export def palette-catalog []: nothing -> list {
   [
     {name: "Cirulli (original)" pairs: (with-values (cirulli))
-     note: "The live game palette. Hand-tuned sigmoid: beige plateau on 2-4, warm-red blowout through 8-64, clean linear gold ramp to 2048 -- then the ramp BREAKS: every super-tile (4096+) is the same #3c3a32 near-black. Past-the-end signaling."}
+     note: "The classic 2048 ramp. Hand-tuned sigmoid: beige plateau on 2-4, warm-red blowout through 8-64, clean linear gold ramp to 2048 -- then the ramp BREAKS: every super-tile (4096+) is the same #3c3a32 near-black. Past-the-end signaling."}
     {name: "Cirulli continued" pairs: (with-values (cirulli-continued))
-     note: "The original, but the gold ramp doesn't break at 4096 -- it keeps climbing. The gold cools into glowing embers: amber, ember orange, hot coal, deep ember red, down to a cooling-coal near-black at 65536. Same warm DNA and cream-on-warm text as Cirulli; the super-tiles earn their own identity instead of a flat past-the-end slate."}
+     note: "The live game palette. The original, but the gold ramp doesn't break at 4096 -- it keeps climbing. The gold cools into glowing embers: amber, ember orange, hot coal, deep ember red, down to a cooling-coal near-black at 65536. Same warm DNA and cream-on-warm text as Cirulli; the super-tiles earn their own identity instead of a flat past-the-end slate."}
     {name: "OKLCH linear" pairs: (with-values (oklch-linear))
      note: "Equal perceptual step per doubling (Weber-Fechner honest). Calm and legible, but 2048 doesn't feel like an event -- every tier weighs the same."}
     {name: "Chroma blowout" pairs: (with-values (chroma-blowout))

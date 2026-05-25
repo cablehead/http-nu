@@ -141,11 +141,19 @@ const PALETTE = {
   512:  { bg: "#edc850", fg: "#f9f6f2" },
   1024: { bg: "#edc53f", fg: "#f9f6f2" },
   2048: { bg: "#edc22e", fg: "#f9f6f2" },
+  // "Cirulli continued": past 2048 the gold ramp keeps climbing rather
+  // than breaking -- the gold cools into glowing embers (amber, ember
+  // orange, hot coal, deep ember red, cooling coal). Mirrors the
+  // cirulli-continued palette in tfe/palettes.nu (see /design/palettes).
+  4096:  { bg: "#e8902a", fg: "#f9f6f2" },
+  8192:  { bg: "#d96e1f", fg: "#f9f6f2" },
+  16384: { bg: "#b84a1c", fg: "#f9f6f2" },
+  32768: { bg: "#842d18", fg: "#f9f6f2" },
+  65536: { bg: "#4a1810", fg: "#f9f6f2" },
 };
-// 4096+ collapses to a single dark warm near-black -- Cirulli's
-// "past the end" signal: the gold ramp intentionally breaks once
-// you've cleared the game's intended target.
-const paletteFor = (v) => PALETTE[v] || { bg: "#3c3a32", fg: "#f9f6f2" };
+// Beyond 65536 (effectively unreachable) the embers plateau at the
+// final cooling-coal near-black.
+const paletteFor = (v) => PALETTE[v] || { bg: "#4a1810", fg: "#f9f6f2" };
 const fontSizeCqw = (v) => (v >= 1024 ? 5 : v >= 128 ? 6 : 7);
 
 const SLIDE_MS = 180;
