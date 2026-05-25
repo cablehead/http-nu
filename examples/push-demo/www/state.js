@@ -1,48 +1,62 @@
 // Push-demo state machine.
 //
-// Determines which UI state to render based on:
-//   - is the browser iOS Safari?
-//   - is the site running standalone (installed from Home Screen)?
-//   - what's Notification.permission?
-//   - does the user already have a PushSubscription?
+// Two axes:
+//   - device:  detected once at boot. Picks which OS/browser-specific copy
+//              block to render. Some devices (ios-other, unsupported) have
+//              no state-level content -- the device block is the whole
+//              message.
+//   - state:   recomputed dynamically as permission / subscription / standalone
+//              changes.
 //
-// On iOS 16.4+, web push REQUIRES install-to-Home-Screen. There is no
-// `beforeinstallprompt` event on iOS Safari -- you cannot programmatically
-// trigger or detect installation. You can only detect, after the fact, that
-// the user opened the app from the home screen (navigator.standalone === true).
-//
-// Debug panel: append ?debug=1 to URL.
+// Why per-device rendering: a user is on one device. Showing them
+// "iOS: Settings → ..., Desktop: lock icon" simultaneously is noise.
 
-const STATES = {
-  UNSUPPORTED: "unsupported",
-  IOS_INSTALL_REQUIRED: "ios-install-required",
+const DEVICE = Object.freeze({
+  IOS_SAFARI: "ios-safari",          // install-required, then standard
+  IOS_OTHER: "ios-other",            // Chrome/Firefox/Edge iOS -- WebKit but no Push API
+  ANDROID: "android",                // direct; a2hs optional
+  MACOS_SAFARI: "macos-safari",      // direct (Sonoma+)
+  DESKTOP: "desktop",                // Chrome / Firefox / Edge desktop
+  UNSUPPORTED: "unsupported",        // missing SW / PushManager / Notification
+});
+
+const STATE = Object.freeze({
+  INSTALL_REQUIRED: "install-required", // iOS Safari only, pre-standalone
   AWAITING_PERMISSION: "awaiting-permission",
   SUBSCRIBING: "subscribing",
   READY: "ready",
   DENIED: "denied",
-  ERROR: "error",
-};
+});
 
-const isIOS = () =>
-  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function detectDevice() {
+  if (
+    !("serviceWorker" in navigator) ||
+    !("PushManager" in window) ||
+    !("Notification" in window)
+  ) {
+    return DEVICE.UNSUPPORTED;
+  }
+  const ua = navigator.userAgent;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (isIOS) {
+    // CriOS = Chrome iOS, FxiOS = Firefox iOS, EdgiOS = Edge iOS. All WebKit-
+    // backed but none expose the Push API. Safari iOS is the only path.
+    return /CriOS|FxiOS|EdgiOS/.test(ua) ? DEVICE.IOS_OTHER : DEVICE.IOS_SAFARI;
+  }
+  if (/Android/.test(ua)) return DEVICE.ANDROID;
+  if (/Mac/.test(ua) && /Safari/.test(ua) && !/Chrome|Edg/.test(ua)) {
+    return DEVICE.MACOS_SAFARI;
+  }
+  return DEVICE.DESKTOP;
+}
 
-const isStandalone = () =>
-  navigator.standalone === true ||
-  window.matchMedia("(display-mode: standalone)").matches;
-
-const isSupported = () =>
-  "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-
-// Convert a URL-safe base64 string (VAPID public key from server) to the
-// Uint8Array that pushManager.subscribe wants for applicationServerKey.
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const raw = atob(base64);
-  const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-  return arr;
+function isStandalone() {
+  return (
+    navigator.standalone === true ||
+    window.matchMedia("(display-mode: standalone)").matches
+  );
 }
 
 async function currentSubscription() {
@@ -52,22 +66,37 @@ async function currentSubscription() {
   return reg.pushManager.getSubscription();
 }
 
-async function computeState() {
-  if (!isSupported()) return STATES.UNSUPPORTED;
-  if (isIOS() && !isStandalone()) return STATES.IOS_INSTALL_REQUIRED;
-
+async function computeState(device) {
+  // Terminal devices have no state-axis content.
+  if (device === DEVICE.UNSUPPORTED || device === DEVICE.IOS_OTHER) return null;
+  if (device === DEVICE.IOS_SAFARI && !isStandalone()) {
+    return STATE.INSTALL_REQUIRED;
+  }
   switch (Notification.permission) {
     case "denied":
-      return STATES.DENIED;
+      return STATE.DENIED;
     case "default":
-      return STATES.AWAITING_PERMISSION;
+      return STATE.AWAITING_PERMISSION;
     case "granted": {
       const sub = await currentSubscription();
-      return sub ? STATES.READY : STATES.SUBSCRIBING;
+      return sub ? STATE.READY : STATE.SUBSCRIBING;
     }
     default:
-      return STATES.ERROR;
+      return STATE.AWAITING_PERMISSION;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Subscribe / unsubscribe
+// ---------------------------------------------------------------------------
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
 }
 
 async function registerServiceWorker() {
@@ -115,33 +144,38 @@ async function requestPermissionAndSubscribe() {
 }
 
 // ---------------------------------------------------------------------------
-// UI rendering
+// Render
 // ---------------------------------------------------------------------------
 
-function $(id) {
-  return document.getElementById(id);
-}
+function render(device, state) {
+  // Hide every device + state block first.
+  document
+    .querySelectorAll("[data-device], [data-state]")
+    .forEach((el) => (el.hidden = true));
 
-function showState(state) {
-  document.querySelectorAll("[data-state]").forEach((el) => {
-    el.hidden = el.dataset.state !== state;
+  // Show device blocks matching the detected device (data-device can be
+  // space-separated, e.g. "macos-safari desktop" for shared copy).
+  document.querySelectorAll("[data-device]").forEach((el) => {
+    const wants = el.dataset.device.split(/\s+/);
+    if (wants.includes(device)) el.hidden = false;
   });
-  $("debug-state") && ($("debug-state").textContent = state);
+
+  // Within visible device blocks, show state blocks matching the current state.
+  if (state) {
+    document.querySelectorAll("[data-state]").forEach((el) => {
+      const wants = el.dataset.state.split(/\s+/);
+      if (wants.includes(state)) el.hidden = false;
+    });
+  }
 }
 
-async function refresh() {
-  const state = await computeState();
-  showState(state);
-  await updateDebug();
-}
-
-async function updateDebug() {
-  const panel = $("debug-panel");
-  if (!panel) return;
+async function updateDebug(device, state) {
+  const panel = document.getElementById("debug-panel");
+  if (!panel || panel.hidden) return;
   const sub = await currentSubscription();
-  panel.querySelector("#dbg-isIOS").textContent = isIOS();
+  panel.querySelector("#dbg-device").textContent = device;
+  panel.querySelector("#dbg-state").textContent = state || "(n/a)";
   panel.querySelector("#dbg-isStandalone").textContent = isStandalone();
-  panel.querySelector("#dbg-supported").textContent = isSupported();
   panel.querySelector("#dbg-permission").textContent =
     "Notification" in window ? Notification.permission : "n/a";
   panel.querySelector("#dbg-subscription").textContent = sub
@@ -149,12 +183,24 @@ async function updateDebug() {
     : "(none)";
 }
 
+async function refresh(device) {
+  const state = await computeState(device);
+  render(device, state);
+  await updateDebug(device, state);
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
 async function main() {
+  const device = detectDevice();
+
   if (new URLSearchParams(location.search).get("debug") === "1") {
-    $("debug-panel").hidden = false;
+    document.getElementById("debug-panel").hidden = false;
   }
 
-  if (isSupported()) {
+  if (device !== DEVICE.UNSUPPORTED && device !== DEVICE.IOS_OTHER) {
     try {
       await registerServiceWorker();
     } catch (e) {
@@ -162,32 +208,41 @@ async function main() {
     }
   }
 
-  $("btn-enable")?.addEventListener("click", async () => {
-    try {
-      await requestPermissionAndSubscribe();
-    } catch (e) {
-      console.error(e);
-      alert("Subscribe failed: " + e.message);
-    }
-    await refresh();
-  });
+  // All Enable / Disable / Test buttons share a class so listeners attach to
+  // every per-device copy. Only one is ever visible at a time, but binding
+  // them all is simpler than re-binding on state change.
+  document.querySelectorAll(".btn-enable").forEach((b) =>
+    b.addEventListener("click", async () => {
+      try {
+        await requestPermissionAndSubscribe();
+      } catch (e) {
+        console.error(e);
+        alert("Subscribe failed: " + e.message);
+      }
+      await refresh(device);
+    }),
+  );
 
-  $("btn-disable")?.addEventListener("click", async () => {
-    await unsubscribe();
-    await refresh();
-  });
+  document.querySelectorAll(".btn-disable").forEach((b) =>
+    b.addEventListener("click", async () => {
+      await unsubscribe();
+      await refresh(device);
+    }),
+  );
 
-  $("btn-test")?.addEventListener("click", async () => {
-    const r = await fetch("/send-self", { method: "POST" });
-    if (!r.ok) alert("Test send failed: " + r.status);
-  });
+  document.querySelectorAll(".btn-test").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const r = await fetch("/send-self", { method: "POST" });
+      if (!r.ok) alert("Test send failed: " + r.status);
+    }),
+  );
 
-  await refresh();
+  await refresh(device);
 
-  // Re-check state when the page comes back into focus (e.g. user
-  // toggled permission in Settings and returned).
+  // Re-check when tab comes back into focus (e.g. user toggled permission
+  // in Settings and returned, or installed to Home Screen and re-opened).
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) refresh();
+    if (!document.hidden) refresh(device);
   });
 }
 

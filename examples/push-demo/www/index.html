@@ -5,14 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Push Demo — http-nu</title>
 
-    <!-- PWA manifest -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0f172a" />
 
-    <!-- iOS-specific: required for the installed app to actually run standalone
-         and for navigator.standalone to flip to true. Without these the install
-         is silent-broken: home-screen icon launches into a Safari chrome and
-         push never activates. This is the single most common iOS PWA bug. -->
+    <!-- iOS install-required for the standalone-mode + push pathway. Without
+         apple-mobile-web-app-capable=yes the installed app launches into
+         Safari chrome and navigator.standalone never flips. Most common
+         iOS PWA bug. -->
     <link rel="apple-touch-icon" href="/icons/apple-touch-180.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Push" />
@@ -42,7 +41,11 @@
         text-align: center;
       }
       h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
-      p { color: var(--muted); margin: 0.5rem 0; line-height: 1.5; max-width: 30rem; }
+      h2 { font-size: 1.15rem; margin: 0.25rem 0 0.75rem; color: var(--fg); }
+      p, ol { color: var(--muted); margin: 0.5rem 0; line-height: 1.5; max-width: 30rem; }
+      ol { text-align: left; padding-left: 1.25rem; }
+      ol li { margin: 0.4rem 0; }
+      .icon { width: 96px; height: 96px; margin-bottom: 1rem; }
       button {
         font: inherit;
         padding: 0.75rem 1.5rem;
@@ -54,18 +57,18 @@
         font-weight: 600;
       }
       button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
-      .icon { width: 96px; height: 96px; margin-bottom: 1rem; }
-      .state { padding: 1rem; }
-      .share-hint {
+      .button-row { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; }
+      .block { padding: 1rem; }
+      .share-icon {
         display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 0.25rem 0.5rem;
-        background: var(--border);
-        border-radius: 0.25rem;
-        font-family: ui-monospace, monospace;
-        font-size: 0.85em;
+        vertical-align: middle;
+        width: 1.1em;
+        height: 1.1em;
+        margin: 0 0.15em;
+        color: var(--accent);
       }
+      .footnote { font-size: 0.85em; color: var(--muted); margin-top: 0.75rem; }
+
       #debug-panel {
         position: fixed;
         bottom: 1rem;
@@ -83,66 +86,191 @@
         color: var(--muted);
       }
       #debug-panel dt { font-weight: 600; color: var(--fg); }
-      #debug-panel dl { display: grid; grid-template-columns: 8rem 1fr; gap: 0.25rem 0.5rem; margin: 0; }
+      #debug-panel dl { display: grid; grid-template-columns: 7rem 1fr; gap: 0.25rem 0.5rem; margin: 0; }
     </style>
   </head>
   <body>
     <img src="/icons/192.png" alt="" class="icon" />
     <h1>Push Demo</h1>
 
-    <div class="state" data-state="unsupported" hidden>
-      <p>This browser doesn't support web push notifications.</p>
-    </div>
-
-    <div class="state" data-state="ios-install-required" hidden>
-      <p>To receive notifications on iPhone or iPad:</p>
+    <!-- ====================================================================
+         Device: unsupported
+         (browser missing serviceWorker / PushManager / Notification)
+         ==================================================================== -->
+    <div class="block" data-device="unsupported">
+      <h2>Browser doesn't support push</h2>
       <p>
-        1. Tap the <span class="share-hint">Share</span> button below<br />
-        2. Choose <strong>Add to Home Screen</strong><br />
-        3. Open the app from your home screen
-      </p>
-      <p style="color: var(--accent); font-size: 0.85em;">
-        Then come back and you'll see a button to enable notifications.
+        Try a recent Chrome, Firefox, Safari, or Edge on desktop or mobile.
       </p>
     </div>
 
-    <div class="state" data-state="awaiting-permission" hidden>
-      <p>Click the button to enable notifications.</p>
-      <button id="btn-enable">Enable Notifications</button>
-    </div>
-
-    <div class="state" data-state="subscribing" hidden>
-      <p>Subscribing…</p>
-    </div>
-
-    <div class="state" data-state="ready" hidden>
-      <p>You're subscribed. Notifications will appear here.</p>
+    <!-- ====================================================================
+         Device: iOS Chrome / Firefox / Edge
+         All WebKit on iOS but none expose the Push API. Only Safari works.
+         ==================================================================== -->
+    <div class="block" data-device="ios-other">
+      <h2>Open in Safari</h2>
       <p>
-        <button id="btn-test">Send Test Push to Me</button>
+        Chrome, Firefox, and Edge on iPhone and iPad use Apple's WebKit engine
+        but don't expose the Push API.
       </p>
       <p>
-        <button id="btn-disable" class="secondary">Unsubscribe</button>
+        Open this page in <strong>Safari</strong> to enable notifications.
       </p>
     </div>
 
-    <div class="state" data-state="denied" hidden>
-      <p>Notifications are blocked. To re-enable:</p>
-      <p>
-        <strong>iOS:</strong> Settings → Notifications → Push → allow<br />
-        <strong>Desktop:</strong> click the lock icon in the URL bar → site settings
-      </p>
+    <!-- ====================================================================
+         Device: iOS Safari -- install required, then standard permission flow
+         ==================================================================== -->
+    <div class="block" data-device="ios-safari">
+      <div data-state="install-required">
+        <h2>Add to Home Screen</h2>
+        <p>iOS requires this site to be installed before push works.</p>
+        <ol>
+          <li>
+            Tap the
+            <svg class="share-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
+            </svg>
+            Share button in Safari's toolbar
+          </li>
+          <li>Choose <strong>Add to Home Screen</strong></li>
+          <li>
+            Open the app from your <strong>home screen icon</strong> — not
+            from Safari. (iOS doesn't tell us when you install, so this page
+            won't update until you open the standalone app.)
+          </li>
+        </ol>
+      </div>
+
+      <div data-state="awaiting-permission">
+        <h2>Enable notifications</h2>
+        <p>You're running in standalone mode. Tap to allow push.</p>
+        <button class="btn-enable">Enable Notifications</button>
+      </div>
+
+      <div data-state="subscribing"><p>Subscribing…</p></div>
+
+      <div data-state="ready">
+        <h2>You're subscribed</h2>
+        <p>Notifications will appear here when sent.</p>
+        <div class="button-row">
+          <button class="btn-test">Send Test Push</button>
+          <button class="btn-disable secondary">Unsubscribe</button>
+        </div>
+      </div>
+
+      <div data-state="denied">
+        <h2>Notifications blocked</h2>
+        <p>
+          On iPhone or iPad: open
+          <strong>Settings → Notifications → Push</strong> and turn on
+          "Allow Notifications."
+        </p>
+      </div>
     </div>
 
-    <div class="state" data-state="error" hidden>
-      <p>Something went wrong. Check the console.</p>
+    <!-- ====================================================================
+         Device: Android (Chrome / Edge / Firefox / Samsung Internet etc.)
+         Direct push; a2hs optional via beforeinstallprompt (not yet wired).
+         ==================================================================== -->
+    <div class="block" data-device="android">
+      <div data-state="awaiting-permission">
+        <h2>Enable notifications</h2>
+        <p>Tap to allow push.</p>
+        <button class="btn-enable">Enable Notifications</button>
+        <p class="footnote">
+          Tip: install to home screen for the full app experience (optional).
+        </p>
+      </div>
+
+      <div data-state="subscribing"><p>Subscribing…</p></div>
+
+      <div data-state="ready">
+        <h2>You're subscribed</h2>
+        <p>Notifications will appear in your shade.</p>
+        <div class="button-row">
+          <button class="btn-test">Send Test Push</button>
+          <button class="btn-disable secondary">Unsubscribe</button>
+        </div>
+      </div>
+
+      <div data-state="denied">
+        <h2>Notifications blocked</h2>
+        <p>
+          Open <strong>Settings → Site settings → Notifications</strong>
+          (Chrome) and allow this site.
+        </p>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         Device: macOS Safari (Sonoma+)
+         ==================================================================== -->
+    <div class="block" data-device="macos-safari">
+      <div data-state="awaiting-permission">
+        <h2>Enable notifications</h2>
+        <p>Click to allow Safari push (macOS Sonoma or later).</p>
+        <button class="btn-enable">Enable Notifications</button>
+      </div>
+
+      <div data-state="subscribing"><p>Subscribing…</p></div>
+
+      <div data-state="ready">
+        <h2>You're subscribed</h2>
+        <p>Notifications appear in Notification Center.</p>
+        <div class="button-row">
+          <button class="btn-test">Send Test Push</button>
+          <button class="btn-disable secondary">Unsubscribe</button>
+        </div>
+      </div>
+
+      <div data-state="denied">
+        <h2>Notifications blocked</h2>
+        <p>
+          Open <strong>System Settings → Notifications</strong>, find Safari,
+          and re-enable for this site.
+        </p>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         Device: Desktop Chromium / Firefox / Edge
+         ==================================================================== -->
+    <div class="block" data-device="desktop">
+      <div data-state="awaiting-permission">
+        <h2>Enable notifications</h2>
+        <p>Click to allow push.</p>
+        <button class="btn-enable">Enable Notifications</button>
+      </div>
+
+      <div data-state="subscribing"><p>Subscribing…</p></div>
+
+      <div data-state="ready">
+        <h2>You're subscribed</h2>
+        <p>Notifications appear at the edge of your screen.</p>
+        <div class="button-row">
+          <button class="btn-test">Send Test Push</button>
+          <button class="btn-disable secondary">Unsubscribe</button>
+        </div>
+      </div>
+
+      <div data-state="denied">
+        <h2>Notifications blocked</h2>
+        <p>
+          Click the lock icon in the URL bar → site settings → allow
+          notifications.
+        </p>
+      </div>
     </div>
 
     <aside id="debug-panel" hidden>
       <dl>
-        <dt>state</dt><dd id="debug-state">…</dd>
-        <dt>isIOS</dt><dd id="dbg-isIOS">…</dd>
-        <dt>isStandalone</dt><dd id="dbg-isStandalone">…</dd>
-        <dt>supported</dt><dd id="dbg-supported">…</dd>
+        <dt>device</dt><dd id="dbg-device">…</dd>
+        <dt>state</dt><dd id="dbg-state">…</dd>
+        <dt>standalone</dt><dd id="dbg-isStandalone">…</dd>
         <dt>permission</dt><dd id="dbg-permission">…</dd>
         <dt>subscription</dt><dd id="dbg-subscription">…</dd>
       </dl>
