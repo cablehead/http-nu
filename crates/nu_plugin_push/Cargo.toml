@@ -1,0 +1,42 @@
+[package]
+name = "nu_plugin_push"
+version = "0.1.0"
+edition = "2021"
+description = "Nushell plugin exposing Web Push (RFC 8030/8291/8292) via web-push-native + ureq. Sync, no tokio."
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "nu_plugin_push"
+bench = false
+
+[dependencies]
+nu-plugin = "0.112.1"
+nu-protocol = { version = "0.112.1", features = ["plugin"] }
+
+# Web Push: RFC 8030 (delivery), RFC 8291 (encryption), RFC 8292 (VAPID).
+# Transport-agnostic -- produces an http::Request<Vec<u8>> that we POST via ureq.
+web-push-native = "0.4"
+
+# Used directly for header manipulation on the request returned by web-push-native.
+http = "1"
+
+# Sync HTTP client for the actual POST to FCM / Mozilla autopush / Apple push.
+# Chosen deliberately over reqwest to avoid pulling tokio into a sync plugin.
+ureq = { version = "2", default-features = false, features = ["tls"] }
+
+# Subscription JSON parsing and result records.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Derive per-endpoint VAPID `aud` from endpoint origin.
+url = "2"
+
+# URL-safe base64 for VAPID public key, p256dh/auth fields.
+base64 = "0.22"
+
+# Typed errors mapped to LabeledError at the plugin boundary.
+thiserror = "1"
+
+[dev-dependencies]
+getrandom = "0.2"

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tests/test_plugin"]
+members = [".", "tests/test_plugin", "crates/nu_plugin_push"]
 
 [package]
 name = "http-nu"
