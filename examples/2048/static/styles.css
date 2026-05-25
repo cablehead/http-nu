@@ -499,12 +499,12 @@ body.flash-red { animation: flash-red 300ms ease; }
    to use accent-hover instead of accent). */
 .kbd-btn.primary {
   background: var(--accent);
-  font-size: 1.75rem;
-  padding: 0.6rem 1.1rem;
+  font-size: 2.25rem;
+  padding: 0.85rem 1.5rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  border-radius: 6px;
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.3);
   transform: rotate(-2deg);
   transition: transform 0.12s, box-shadow 0.12s, background 0.15s;
 }
@@ -557,8 +557,8 @@ body.flash-red { animation: flash-red 300ms ease; }
   gap: 0.9rem;
 }
 .callouts li { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
-.callouts a { font-size: var(--text-md); }
-.callout-desc { font-size: var(--text-sm); opacity: 0.7; }
+.callouts a { font-size: var(--text-lg); }
+.callout-desc { font-size: var(--text-md); opacity: 0.85; }
 
 /* Article typography. Scoped to .prose so chrome (breadcrumbs, headers,
    sidebars) keeps its own type rules. Used by /notes pages and the
