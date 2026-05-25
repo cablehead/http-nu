@@ -1,12 +1,20 @@
+# Per-repo fnox config. Secrets live in macOS keychain (service = "fnox",
+# matching the user's ~/.config/fnox/config.toml so it composes with their
+# other repos). `mise run push:vapid:generate` populates them via
+# `fnox set -p keychain`; `fnox exec` in push-demo:serve / push-demo:dev
+# injects them as env vars at runtime.
+
+[providers.keychain]
+type = "keychain"
+service = "fnox"
+
 [secrets]
+# Pre-existing; left as-is (inline-plaintext shape was already used here).
 SHELL_FS_TOKEN= { value = "7e701003c51873747ae35aece0b6ca2f36f837384a61e4fa", default = "7e701003c51873747ae35aece0b6ca2f36f837384a61e4fa" }
 
-# push-demo (branch push-native): VAPID keypair + admin token. Populated by
-# `mise run push:vapid:generate` which writes the live values into the macOS
-# keychain via fnox set. The defaults here are intentionally empty so a fresh
-# clone fails loudly (with "VAPID_SUBJECT not set") rather than silently
-# signing pushes against the wrong identity.
-VAPID_PUBLIC_KEY   = { default = "" }
-VAPID_PRIVATE_KEY  = { default = "" }
-VAPID_SUBJECT      = { default = "" }
-PUSH_ADMIN_TOKEN   = { default = "" }
+# push-demo: all four go through the keychain provider so plaintext never
+# lands in fnox.toml. Fresh clones must run `mise run push:vapid:generate`.
+VAPID_PUBLIC_KEY= { provider = "keychain", value = "VAPID_PUBLIC_KEY" }
+VAPID_PRIVATE_KEY= { provider = "keychain", value = "VAPID_PRIVATE_KEY" }
+VAPID_SUBJECT= { provider = "keychain", value = "VAPID_SUBJECT" }
+PUSH_ADMIN_TOKEN= { provider = "keychain", value = "PUSH_ADMIN_TOKEN" }
