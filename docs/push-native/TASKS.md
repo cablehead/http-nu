@@ -57,36 +57,36 @@ each result → xs append push.send.delivered | expired | failed
 ### Foundation
 
 - [x] **#1** Branch `push-native` off `main`
-- [ ] **#2** Scaffold `crates/nu_plugin_push` (Cargo.toml, lib.rs, command stubs that compile)
+- [x] **#2** Scaffold `crates/nu_plugin_push` (Cargo.toml, src/main.rs, 5 command stubs, registered in workspace, builds clean)
 
 ### Plugin commands
 
-- [ ] **#3** `push vapid generate` — P-256 keypair → record `{ public_key, private_key_pem, private_key_b64url }`. Stdout only.
-- [ ] **#4** `push send` — single subscription path. Reads `VAPID_PRIVATE_KEY_PEM` + `VAPID_SUBJECT` from env. Per-endpoint `aud`. Classified `result` field. *(blocked by #2)*
-- [ ] **#5** `push encrypt --dry-run` — emits curl + headers + body_hex. No network. *(blocked by #4)*
-- [ ] **#17** `push subscription validate` — TTL:0 empty-body push, no user-visible notification. *(blocked by #4)*
-- [ ] **#18** Stream-mode `push send` — accepts stdin stream, emits result stream, `--parallel N`. *(blocked by #4)*
+- [x] **#3** `push vapid generate` — P-256 keypair → record `{ public_key, private_key_pem, private_key_b64url }`. Stdout only. Test: `vapid::tests::generate_produces_round_trippable_keypair`.
+- [x] **#4** `push send` — single + batch-list path. Reads `VAPID_PRIVATE_KEY_PEM` (or `VAPID_PRIVATE_KEY` b64url) + `VAPID_SUBJECT` from env. Per-endpoint `aud` handled by web-push-native. Classified `result` field (delivered / expired / payload_too_large / rate_limited / invalid_vapid / push_service_down / other). Test: `send::tests::build_request_emits_signed_encrypted_post`.
+- [x] **#5** `push encrypt` — emits curl + headers + body_hex. No network. Test: `send::tests::dry_run_emits_curl_and_hex_body`. *(Note: dropped `--dry-run` flag — the command's only purpose is the dry-run output; redundant.)*
+- [x] **#17** `push subscription validate` — TTL:0 empty-body push, no user-visible notification. Returns `{ endpoint, reachable, vapid_accepted, status, message? }`.
+- [ ] **#18** Stream-mode `push send` — **PARTIAL**: batch list input (list in → list out, sequential) is in. **TODO**: true streaming (PluginCommand) + `--parallel N` concurrency via `std::thread::scope`. Not blocking demo.
 
 ### Example: push-demo
 
-- [ ] **#6** Scaffold `examples/push-demo/` (directory layout: serve.nu, www/, test/, lib/, icons.svg, cloudflared.yml)
-- [ ] **#7** `www/state.js` — isIOS/isStandalone state machine, debug panel behind `?debug=1`
-- [ ] **#8** `www/sw.js` — install → `skipWaiting()`, activate → `clients.claim()`, push → showNotification (iOS-safe options), notificationclick → focus/open
-- [ ] **#9** `www/manifest.json` + iOS meta tags (`apple-touch-icon`, `apple-mobile-web-app-capable`, theme-color)
-- [ ] **#10** `serve.nu` handlers — `/` static, `/subscribe` (origin-checked → xs), `/unsubscribe`, `/send` (bearer-auth via `PUSH_ADMIN_TOKEN`), `/vapid-public-key`. `Cache-Control: no-cache` on `/sw.js`.
-- [ ] **#22** `lib/subs.nu` — `current_subs` projection over add/expired/unsub events *(blocked by #11)*
-- [ ] **#23** PWA icons via `resvg` CLI from two SVG sources (regular + maskable). Mise task `push-demo:icons`. *(blocked by #6)*
+- [x] **#6** Scaffold `examples/push-demo/` (directory layout: serve.nu, www/, test/, lib/, icons.svg, cloudflared.yml)
+- [x] **#7** `www/state.js` — isIOS/isStandalone state machine, debug panel behind `?debug=1`. Verified in browser preview: state computes correctly, debug panel shows isIOS=false, supported=true, etc.
+- [x] **#8** `www/sw.js` — install → `skipWaiting()`, activate → `clients.claim()`, push → showNotification (iOS-safe options), notificationclick → focus/open
+- [x] **#9** `www/manifest.json` + iOS meta tags (`apple-touch-icon`, `apple-mobile-web-app-capable`, theme-color)
+- [x] **#10** `serve.nu` handlers — `/`, `/manifest.json`, `/sw.js` (no-cache), `/state.js`, `/icons/*`, `/health`, `/vapid-public-key`, `/subscribe` (origin-checked + plugin-validated → xs), `/unsubscribe`, `/send-self`, `/send` (bearer-auth). E2E tested: subscribe → fanout → fake endpoint 404 → expired event → projection excludes. Full reactive lifecycle.
+- [x] **#22** `lib/subs.nu` — `current_subs` projection over add/expired/unsub events. Tested.
+- [x] **#23** PWA icons via `resvg` CLI from two SVG sources (regular + maskable). Mise task `push-demo:icons`. Bell icon (yellow on slate), 192/512/512-maskable/apple-touch-180.
 
 ### xs schema
 
-- [ ] **#11** `docs/push-native/events.md` — schema for `push.subscription.{added,expired,unsubscribed}` and `push.send.{requested,delivered,expired,failed,rate_limited}`. Lifecycle handler sketch.
+- [x] **#11** `docs/push-native/events.md` — schema for `push.subscription.{added,expired,unsubscribed}` and `push.send.{requested,delivered,expired,failed,rate_limited}`. Lifecycle handler sketch.
 
 ### Secrets & deployment
 
-- [ ] **#19** fnox.toml item `http-nu-push-vapid` + mise tasks `push:vapid:generate`, `push:vapid:public`, `push-demo:serve` (injects env from fnox). *(blocked by #3)*
-- [ ] **#21** VAPID `subject` collection — `push:vapid:generate` reads `PUSH_VAPID_SUBJECT` env (or prompts), stores alongside keypair.
-- [ ] **#20** Quick-tunnel + QR dev task — `mise run push-demo:dev` starts cloudflared quick tunnel, captures `*.trycloudflare.com` URL, prints with `qrencode -t ANSIUTF8` for phone scanning.
-- [ ] **#12** `cloudflared.yml` + README — named tunnel config for production, alongside the quick-tunnel dev path.
+- [x] **#19** fnox.toml entries + mise tasks `push:vapid:generate`, `push:vapid:public`, `push:vapid:admin-token`, `push-demo:serve` (injects env from fnox).
+- [x] **#21** VAPID `subject` collection — `push:vapid:generate` reads `PUSH_VAPID_SUBJECT` env, stores in fnox alongside keypair.
+- [x] **#20** Quick-tunnel + QR dev task — `mise run push-demo:dev` starts cloudflared quick tunnel, captures `*.trycloudflare.com` URL, prints with `qrencode -t ANSIUTF8` for phone scanning (falls back gracefully if qrencode missing).
+- [x] **#12** `cloudflared.yml` for production (named tunnel). Quick-tunnel for dev lives in mise.
 
 ### Testing
 
@@ -98,8 +98,8 @@ each result → xs append push.send.delivered | expired | failed
 
 ### Docs
 
-- [ ] **#25** Plugin README (`crates/nu_plugin_push/README.md`) — standalone docs, env vars, command reference, result codes, key rotation warning, "doesn't run in Workers" note. *(blocked by #2)*
-- [ ] **#24** Demo README (`examples/push-demo/README.md`) — 5-step quickstart ending in phone notification + troubleshooting keyed to state machine + security notes (endpoint sensitivity, xs at-rest, VAPID rotation, multi-device subs, CSRF, retention). *(blocked by #20, #22, #23)*
+- [x] **#25** Plugin README (`crates/nu_plugin_push/README.md`) — standalone docs, env vars, command reference, result codes, key rotation warning, "doesn't run in Workers" note.
+- [x] **#24** Demo README (`examples/push-demo/README.md`) — 5-step quickstart ending in phone notification + troubleshooting keyed to state machine + security notes (endpoint sensitivity, xs at-rest, VAPID rotation, multi-device subs, CSRF, retention).
 
 ## Out of scope (deliberately)
 
