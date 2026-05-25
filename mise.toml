@@ -1,0 +1,163 @@
+# mise.toml -- push-native branch.
+#
+# This file currently only contains push-demo tasks. The cedar-native branch
+# carries a larger mise.toml with shared tooling (rust, nu, fnox, includes).
+# When cedar-native merges to main, those sections become the foundation and
+# the push tasks below merge in alongside.
+
+[settings]
+experimental = true
+
+[tools]
+rust                     = "stable"
+"github:nushell/nushell" = "0.112"
+"github:jdx/fnox"        = "1.24"
+"aqua:cloudflare/cloudflared" = "latest"
+# cargo-binstall lets mise resolve `cargo:<crate>` tools (like resvg below)
+# without invoking a full `cargo install` build. Required for push-demo:icons.
+"cargo:cargo-binstall"   = "latest"
+"cargo:resvg"            = "latest"
+# qrencode: install via `brew install qrencode` (Linux: apt install qrencode).
+# The push-demo:dev task falls back gracefully if it isn't on PATH.
+
+[env]
+PORT     = "8080"
+STORE    = "./.store/push-demo"
+HTTP_NU  = "./target/debug/http-nu"
+PLUGIN   = "./target/debug/nu_plugin_push"
+
+# ============================================================================
+# build
+# ============================================================================
+
+[tasks.build]
+description = "Build http-nu debug binary"
+sources = ["src/**/*.rs", "build.rs", "Cargo.toml", "Cargo.lock"]
+outputs = ["target/debug/http-nu"]
+run = "cargo build"
+
+[tasks."push:plugin:build"]
+description = "Build the nu_plugin_push binary"
+sources = ["crates/nu_plugin_push/src/**/*.rs", "crates/nu_plugin_push/Cargo.toml"]
+outputs = ["target/debug/nu_plugin_push"]
+run = "cargo build -p nu_plugin_push"
+
+[tasks."push:plugin:test"]
+description = "Run unit tests for nu_plugin_push"
+run = "cargo test -p nu_plugin_push"
+
+# ============================================================================
+# VAPID keypair management (fnox-backed)
+# ============================================================================
+
+[tasks."push:vapid:generate"]
+description = "Generate a fresh VAPID keypair and store it in fnox (one-time per environment). Reads PUSH_VAPID_SUBJECT from env (mailto: or https: URL)."
+depends = ["push:plugin:build"]
+run = '''
+set -e
+if [ -z "$PUSH_VAPID_SUBJECT" ]; then
+  echo "PUSH_VAPID_SUBJECT must be set (e.g. PUSH_VAPID_SUBJECT=mailto:you@example.com)" >&2
+  exit 1
+fi
+KP=$($PLUGIN_GEN_BIN 2>/dev/null || true)
+# Plugin binary doesn't run standalone -- invoke via http-nu register flow.
+# Simpler: use the nu_plugin_push binary via nu with --plugin.
+KP=$(nu -c "register $PLUGIN; push vapid generate | to json")
+PUBLIC=$(echo "$KP" | jq -r .public_key)
+PRIVATE=$(echo "$KP" | jq -r .private_key_b64url)
+fnox set http-nu VAPID_PUBLIC_KEY "$PUBLIC"
+fnox set http-nu VAPID_PRIVATE_KEY "$PRIVATE"
+fnox set http-nu VAPID_SUBJECT "$PUSH_VAPID_SUBJECT"
+# Admin token: random 32 bytes hex
+fnox set http-nu PUSH_ADMIN_TOKEN "$(openssl rand -hex 32)"
+echo ""
+echo "VAPID keypair stored in fnox (item: http-nu)."
+echo "Public key (browser applicationServerKey):"
+echo "$PUBLIC"
+echo ""
+echo "Run 'mise run push:vapid:public' anytime to print it again."
+'''
+
+[tasks."push:vapid:public"]
+description = "Print VAPID public key (safe to share -- browser embeds this)"
+run = "fnox get http-nu VAPID_PUBLIC_KEY"
+
+[tasks."push:vapid:admin-token"]
+description = "Print admin token for /send endpoint (keep secret)"
+run = "fnox get http-nu PUSH_ADMIN_TOKEN"
+
+# ============================================================================
+# Icons -- resvg renders 4 PNGs from 2 SVG sources
+# ============================================================================
+
+[tasks."push-demo:icons"]
+description = "Generate PWA icons from SVG sources (192, 512, 512-maskable, apple-touch-180)"
+sources = ["examples/push-demo/icons.svg", "examples/push-demo/icons-maskable.svg"]
+outputs = [
+  "examples/push-demo/www/icons/192.png",
+  "examples/push-demo/www/icons/512.png",
+  "examples/push-demo/www/icons/512-maskable.png",
+  "examples/push-demo/www/icons/apple-touch-180.png",
+]
+# resvg comes from the top-level [tools] block (cargo:resvg via cargo-binstall).
+run = '''
+set -e
+mkdir -p examples/push-demo/www/icons
+resvg -w 192 examples/push-demo/icons.svg          examples/push-demo/www/icons/192.png
+resvg -w 512 examples/push-demo/icons.svg          examples/push-demo/www/icons/512.png
+resvg -w 512 examples/push-demo/icons-maskable.svg examples/push-demo/www/icons/512-maskable.png
+resvg -w 180 examples/push-demo/icons.svg          examples/push-demo/www/icons/apple-touch-180.png
+echo "Icons regenerated."
+'''
+
+# ============================================================================
+# Serve -- the demo HTTP server. Reads VAPID env from fnox.
+# ============================================================================
+
+[tasks."push-demo:serve"]
+description = "Run push-demo server (HTTP on $PORT). VAPID env injected from fnox."
+depends = ["build", "push:plugin:build", "push-demo:icons"]
+env = { VAPID_PUBLIC_KEY = "{{exec(command='fnox get http-nu VAPID_PUBLIC_KEY')}}", VAPID_PRIVATE_KEY = "{{exec(command='fnox get http-nu VAPID_PRIVATE_KEY')}}", VAPID_SUBJECT = "{{exec(command='fnox get http-nu VAPID_SUBJECT')}}", PUSH_ADMIN_TOKEN = "{{exec(command='fnox get http-nu PUSH_ADMIN_TOKEN')}}" }
+run = "mkdir -p $STORE && $HTTP_NU --plugin $PLUGIN --store $STORE :$PORT examples/push-demo/serve.nu"
+
+# ============================================================================
+# Dev mode: serve + Cloudflare quick tunnel + QR for phone testing
+# ============================================================================
+
+[tasks."push-demo:dev"]
+description = "Run push-demo + cloudflared quick tunnel + QR (open the *.trycloudflare.com URL on your phone)"
+depends = ["build", "push:plugin:build", "push-demo:icons"]
+env = { VAPID_PUBLIC_KEY = "{{exec(command='fnox get http-nu VAPID_PUBLIC_KEY')}}", VAPID_PRIVATE_KEY = "{{exec(command='fnox get http-nu VAPID_PRIVATE_KEY')}}", VAPID_SUBJECT = "{{exec(command='fnox get http-nu VAPID_SUBJECT')}}", PUSH_ADMIN_TOKEN = "{{exec(command='fnox get http-nu PUSH_ADMIN_TOKEN')}}" }
+run = '''
+set -e
+mkdir -p $STORE
+$HTTP_NU --plugin $PLUGIN --store $STORE :$PORT examples/push-demo/serve.nu &
+SERVE_PID=$!
+trap "kill $SERVE_PID 2>/dev/null || true" EXIT INT TERM
+
+# Wait until the server is responding.
+for i in $(seq 1 50); do
+  if curl -sf "http://127.0.0.1:$PORT/health" > /dev/null 2>&1; then break; fi
+  sleep 0.2
+done
+
+# Open quick tunnel and watch its output for the URL.
+cloudflared tunnel --no-autoupdate --url "http://localhost:$PORT" 2>&1 | while IFS= read -r line; do
+  echo "$line"
+  url=$(echo "$line" | grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" | head -1)
+  if [ -n "$url" ]; then
+    echo ""
+    echo "  ============================================"
+    echo "  Open this on your phone:"
+    echo "  $url"
+    echo "  ============================================"
+    echo ""
+    if command -v qrencode > /dev/null 2>&1; then
+      qrencode -t ANSIUTF8 "$url"
+    else
+      echo "(install qrencode for a QR code: brew install qrencode)"
+    fi
+    echo ""
+  fi
+done
+'''

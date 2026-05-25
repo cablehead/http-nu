@@ -1,0 +1,12 @@
+[secrets]
+SHELL_FS_TOKEN= { value = "7e701003c51873747ae35aece0b6ca2f36f837384a61e4fa", default = "7e701003c51873747ae35aece0b6ca2f36f837384a61e4fa" }
+
+# push-demo (branch push-native): VAPID keypair + admin token. Populated by
+# `mise run push:vapid:generate` which writes the live values into the macOS
+# keychain via fnox set. The defaults here are intentionally empty so a fresh
+# clone fails loudly (with "VAPID_SUBJECT not set") rather than silently
+# signing pushes against the wrong identity.
+VAPID_PUBLIC_KEY   = { default = "" }
+VAPID_PRIVATE_KEY  = { default = "" }
+VAPID_SUBJECT      = { default = "" }
+PUSH_ADMIN_TOKEN   = { default = "" }
