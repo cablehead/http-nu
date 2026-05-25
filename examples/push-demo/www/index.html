@@ -8,10 +8,9 @@
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0f172a" />
 
-    <!-- iOS install-required for the standalone-mode + push pathway. Without
-         apple-mobile-web-app-capable=yes the installed app launches into
-         Safari chrome and navigator.standalone never flips. Most common
-         iOS PWA bug. -->
+    <!-- iOS install metadata. apple-mobile-web-app-capable=yes is what makes
+         navigator.standalone flip true after Add-to-Home-Screen, which is the
+         only path to push on iOS Safari. -->
     <link rel="apple-touch-icon" href="/icons/apple-touch-180.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Push" />
@@ -41,10 +40,8 @@
         text-align: center;
       }
       h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
-      h2 { font-size: 1.15rem; margin: 0.25rem 0 0.75rem; color: var(--fg); }
-      p, ol { color: var(--muted); margin: 0.5rem 0; line-height: 1.5; max-width: 30rem; }
-      ol { text-align: left; padding-left: 1.25rem; }
-      ol li { margin: 0.4rem 0; }
+      h2 { font-size: 1.15rem; margin: 0.25rem 0 0.75rem; }
+      p { color: var(--muted); margin: 0.5rem 0; line-height: 1.5; max-width: 30rem; }
       .icon { width: 96px; height: 96px; margin-bottom: 1rem; }
       button {
         font: inherit;
@@ -56,18 +53,13 @@
         cursor: pointer;
         font-weight: 600;
       }
-      button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+      button.secondary {
+        background: transparent;
+        color: var(--fg);
+        border: 1px solid var(--border);
+      }
       .button-row { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-top: 0.5rem; }
       .block { padding: 1rem; }
-      .share-icon {
-        display: inline-flex;
-        vertical-align: middle;
-        width: 1.1em;
-        height: 1.1em;
-        margin: 0 0.15em;
-        color: var(--accent);
-      }
-      .footnote { font-size: 0.85em; color: var(--muted); margin-top: 0.75rem; }
 
       #debug-panel {
         position: fixed;
@@ -90,192 +82,85 @@
     </style>
   </head>
   <body>
+    <!--
+      <pwa-install> from @khmyznikov/pwa-install handles the install side of
+      the matrix: iOS Safari share-sheet hint modal, Android Chrome's
+      beforeinstallprompt capture, desktop Chrome/Edge install banner. We keep
+      ownership of the *permission/subscribe* flow below, which is small and
+      well-defined post-install.
+    -->
+    <pwa-install
+      id="pwa-install"
+      manifest-url="/manifest.json"
+      name="Push Demo"
+      description="http-nu + xs web push + a2hs demo"
+      icon="/icons/512.png"
+      manual-apple="false"
+      manual-chrome="false"
+    ></pwa-install>
+
     <img src="/icons/192.png" alt="" class="icon" />
     <h1>Push Demo</h1>
 
-    <!-- ====================================================================
-         Device: unsupported
-         (browser missing serviceWorker / PushManager / Notification)
-         ==================================================================== -->
-    <div class="block" data-device="unsupported">
-      <h2>Browser doesn't support push</h2>
-      <p>
-        Try a recent Chrome, Firefox, Safari, or Edge on desktop or mobile.
-      </p>
-    </div>
-
-    <!-- ====================================================================
-         Device: iOS Chrome / Firefox / Edge
-         All WebKit on iOS but none expose the Push API. Only Safari works.
-         ==================================================================== -->
-    <div class="block" data-device="ios-other">
+    <!-- iOS Chrome / Firefox / Edge — WebKit but no Push API even after install.
+         <pwa-install> wouldn't help here; the only fix is to switch browsers. -->
+    <div class="block" data-state="use-safari" hidden>
       <h2>Open in Safari</h2>
       <p>
-        Chrome, Firefox, and Edge on iPhone and iPad use Apple's WebKit engine
-        but don't expose the Push API.
+        Chrome, Firefox, and Edge on iPhone and iPad use WebKit but don't
+        expose push notifications.
       </p>
+      <p>Open this page in <strong>Safari</strong> to continue.</p>
+    </div>
+
+    <!-- Push API unavailable (almost always: iOS Safari pre-install).
+         Defer to <pwa-install> for the install UX. -->
+    <div class="block" data-state="install-required" hidden>
+      <h2>Install required</h2>
+      <p>This site needs to be installed before push notifications work.</p>
+      <button class="btn-install">Show Install Instructions</button>
+    </div>
+
+    <!-- Push API available, permission not yet granted. -->
+    <div class="block" data-state="enable" hidden>
+      <h2>Enable notifications</h2>
+      <p>Tap to allow push.</p>
+      <button class="btn-enable">Enable Notifications</button>
+    </div>
+
+    <!-- Granted and subscribed. -->
+    <div class="block" data-state="subscribed" hidden>
+      <h2>You're subscribed</h2>
+      <p>Notifications will appear when sent.</p>
+      <div class="button-row">
+        <button class="btn-test">Send Test Push</button>
+        <button class="btn-disable secondary">Unsubscribe</button>
+      </div>
+    </div>
+
+    <!-- Permission denied. Per-OS guidance because the toggle path differs. -->
+    <div class="block" data-state="denied" hidden>
+      <h2>Notifications blocked</h2>
       <p>
-        Open this page in <strong>Safari</strong> to enable notifications.
+        Re-enable in your OS settings: iOS Settings → Notifications → Push;
+        Android Chrome Settings → Site settings; desktop browsers via the
+        URL-bar lock icon.
       </p>
-    </div>
-
-    <!-- ====================================================================
-         Device: iOS Safari -- install required, then standard permission flow
-         ==================================================================== -->
-    <div class="block" data-device="ios-safari">
-      <div data-state="install-required">
-        <h2>Add to Home Screen</h2>
-        <p>iOS requires this site to be installed before push works.</p>
-        <ol>
-          <li>
-            Tap the
-            <svg class="share-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-              <polyline points="16 6 12 2 8 6" />
-              <line x1="12" y1="2" x2="12" y2="15" />
-            </svg>
-            Share button in Safari's toolbar
-          </li>
-          <li>Choose <strong>Add to Home Screen</strong></li>
-          <li>
-            Open the app from your <strong>home screen icon</strong> — not
-            from Safari. (iOS doesn't tell us when you install, so this page
-            won't update until you open the standalone app.)
-          </li>
-        </ol>
-      </div>
-
-      <div data-state="awaiting-permission">
-        <h2>Enable notifications</h2>
-        <p>You're running in standalone mode. Tap to allow push.</p>
-        <button class="btn-enable">Enable Notifications</button>
-      </div>
-
-      <div data-state="subscribing"><p>Subscribing…</p></div>
-
-      <div data-state="ready">
-        <h2>You're subscribed</h2>
-        <p>Notifications will appear here when sent.</p>
-        <div class="button-row">
-          <button class="btn-test">Send Test Push</button>
-          <button class="btn-disable secondary">Unsubscribe</button>
-        </div>
-      </div>
-
-      <div data-state="denied">
-        <h2>Notifications blocked</h2>
-        <p>
-          On iPhone or iPad: open
-          <strong>Settings → Notifications → Push</strong> and turn on
-          "Allow Notifications."
-        </p>
-      </div>
-    </div>
-
-    <!-- ====================================================================
-         Device: Android (Chrome / Edge / Firefox / Samsung Internet etc.)
-         Direct push; a2hs optional via beforeinstallprompt (not yet wired).
-         ==================================================================== -->
-    <div class="block" data-device="android">
-      <div data-state="awaiting-permission">
-        <h2>Enable notifications</h2>
-        <p>Tap to allow push.</p>
-        <button class="btn-enable">Enable Notifications</button>
-        <p class="footnote">
-          Tip: install to home screen for the full app experience (optional).
-        </p>
-      </div>
-
-      <div data-state="subscribing"><p>Subscribing…</p></div>
-
-      <div data-state="ready">
-        <h2>You're subscribed</h2>
-        <p>Notifications will appear in your shade.</p>
-        <div class="button-row">
-          <button class="btn-test">Send Test Push</button>
-          <button class="btn-disable secondary">Unsubscribe</button>
-        </div>
-      </div>
-
-      <div data-state="denied">
-        <h2>Notifications blocked</h2>
-        <p>
-          Open <strong>Settings → Site settings → Notifications</strong>
-          (Chrome) and allow this site.
-        </p>
-      </div>
-    </div>
-
-    <!-- ====================================================================
-         Device: macOS Safari (Sonoma+)
-         ==================================================================== -->
-    <div class="block" data-device="macos-safari">
-      <div data-state="awaiting-permission">
-        <h2>Enable notifications</h2>
-        <p>Click to allow Safari push (macOS Sonoma or later).</p>
-        <button class="btn-enable">Enable Notifications</button>
-      </div>
-
-      <div data-state="subscribing"><p>Subscribing…</p></div>
-
-      <div data-state="ready">
-        <h2>You're subscribed</h2>
-        <p>Notifications appear in Notification Center.</p>
-        <div class="button-row">
-          <button class="btn-test">Send Test Push</button>
-          <button class="btn-disable secondary">Unsubscribe</button>
-        </div>
-      </div>
-
-      <div data-state="denied">
-        <h2>Notifications blocked</h2>
-        <p>
-          Open <strong>System Settings → Notifications</strong>, find Safari,
-          and re-enable for this site.
-        </p>
-      </div>
-    </div>
-
-    <!-- ====================================================================
-         Device: Desktop Chromium / Firefox / Edge
-         ==================================================================== -->
-    <div class="block" data-device="desktop">
-      <div data-state="awaiting-permission">
-        <h2>Enable notifications</h2>
-        <p>Click to allow push.</p>
-        <button class="btn-enable">Enable Notifications</button>
-      </div>
-
-      <div data-state="subscribing"><p>Subscribing…</p></div>
-
-      <div data-state="ready">
-        <h2>You're subscribed</h2>
-        <p>Notifications appear at the edge of your screen.</p>
-        <div class="button-row">
-          <button class="btn-test">Send Test Push</button>
-          <button class="btn-disable secondary">Unsubscribe</button>
-        </div>
-      </div>
-
-      <div data-state="denied">
-        <h2>Notifications blocked</h2>
-        <p>
-          Click the lock icon in the URL bar → site settings → allow
-          notifications.
-        </p>
-      </div>
     </div>
 
     <aside id="debug-panel" hidden>
       <dl>
-        <dt>device</dt><dd id="dbg-device">…</dd>
         <dt>state</dt><dd id="dbg-state">…</dd>
-        <dt>standalone</dt><dd id="dbg-isStandalone">…</dd>
+        <dt>pushApi</dt><dd id="dbg-pushapi">…</dd>
+        <dt>standalone</dt><dd id="dbg-standalone">…</dd>
         <dt>permission</dt><dd id="dbg-permission">…</dd>
         <dt>subscription</dt><dd id="dbg-subscription">…</dd>
       </dl>
     </aside>
 
+    <!-- pwa-install web component (pinned). Loaded after the markup so the
+         component upgrades cleanly. -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@khmyznikov/pwa-install@0.6.3/dist/pwa-install.bundle.js"></script>
     <script src="/state.js?v=__STATIC_REV__"></script>
   </body>
 </html>

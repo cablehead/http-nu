@@ -107,7 +107,9 @@ def admin-authorized [req: record] {
     }
 
     {method: "GET", path: "/state.js"} => {
-      static-file "state.js" "application/javascript"
+      # No-cache so iterating on device detection / state machine doesn't get
+      # pinned to a stale Safari cache. Trivially fetched (~6KB).
+      static-file "state.js" "application/javascript" --no-cache
     }
 
     {method: "GET", path: $p} if ($p | str starts-with "/icons/") => {
