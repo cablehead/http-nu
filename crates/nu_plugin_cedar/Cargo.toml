@@ -1,0 +1,17 @@
+[package]
+name = "nu_plugin_cedar"
+version = "0.1.0"
+edition = "2021"
+description = "Nushell plugin exposing Cedar policy authorization (cedar-policy crate)"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "nu_plugin_cedar"
+bench = false
+
+[dependencies]
+nu-plugin = "0.112.1"
+nu-protocol = { version = "0.112.1", features = ["plugin"] }
+cedar-policy = "4"
+serde_json = "1"

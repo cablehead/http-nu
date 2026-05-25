@@ -8,6 +8,7 @@ members = [
     "crates/cloudflare-shell-rpc/server",
     "crates/cloudflare-shell-rpc/client",
     "crates/cloudflare-shell-rpc/demo-rust",
+    "crates/nu_plugin_cedar",
 ]
 
 # Common deps shared across crates/cloudflare-shell{,-workspace} and
