@@ -1,0 +1,6 @@
+code,name_th,name_en,address_format,description_en
+LINE,ไลน์,LINE,LINE personal ID or LINE Official Account user ID,Dominant messaging channel in Thailand (90%+ penetration). Highest engagement.
+EMAIL,อีเมล,Email,RFC 5322 email address,Universal but lower engagement in Thailand. Good for digests and receipts.
+SMS,เอสเอ็มเอส,SMS,E.164 phone number,Reliable delivery; cost per message. Good for OTP and critical alerts.
+PUSH,การแจ้งเตือนแบบ Push,Push,Web Push subscription token (PWA),Requires PWA installation. Free at scale; limited reach until adoption grows.
+IN_APP,การแจ้งเตือนในแอป,In-app,Internal user ID (delivered when user opens app/site),Always works for signed-in users; only seen when user is active.

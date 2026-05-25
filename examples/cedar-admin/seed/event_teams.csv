@@ -1,0 +1,9 @@
+event_id,team_id,division_id,registered_at
+evt_001,team_001,div_001,2026-04-01
+evt_001,team_003,div_001,2026-04-02
+evt_001,team_004,div_002,2026-04-03
+evt_002,team_001,div_001,2026-04-15
+evt_002,team_002,div_004,2026-04-16
+evt_002,team_004,div_002,2026-04-17
+evt_004,team_001,div_001,2026-07-01
+evt_004,team_002,div_004,2026-07-02

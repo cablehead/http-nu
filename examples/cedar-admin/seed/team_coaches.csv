@@ -1,0 +1,6 @@
+team_id,user_id,coach_role_code
+team_001,usr_coach_001,HEAD
+team_001,usr_coach_002,ASSISTANT
+team_002,usr_coach_002,HEAD
+team_003,usr_coach_003,HEAD
+team_004,usr_coach_001,HEAD

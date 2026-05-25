@@ -1,0 +1,15 @@
+code,category,name_th,name_en,description_en
+MATCH_START,Live,เริ่มแข่งขัน,Match Start,A match is starting now
+MATCH_END,Live,จบการแข่งขัน,Match End,A match has ended (final score available)
+SCORE_UPDATE,Live,คะแนนเปลี่ยนแปลง,Score Update,Score changed during a live match
+EVENT_REMINDER,Reminder,เตือนความจำอีเวนต์,Event Reminder,An event is starting soon (24h or 1h before)
+EVENT_CREATED,Discovery,อีเวนต์ใหม่,Event Created,A new event was published in your followed scope
+ROSTER_CHANGE,Team,เปลี่ยนแปลงรายชื่อผู้เล่น,Roster Change,A followed team's roster changed
+REGISTRATION_OPEN,Registration,เปิดลงทะเบียน,Registration Open,Event registration is now open
+REGISTRATION_CLOSING,Registration,ปิดลงทะเบียนเร็วๆนี้,Registration Closing Soon,Event registration is about to close
+DAILY_DIGEST,Digest,สรุปประจำวัน,Daily Digest,Daily summary of activity you follow
+WEEKLY_DIGEST,Digest,สรุปประจำสัปดาห์,Weekly Digest,Weekly summary of activity you follow
+ANNOUNCEMENT,Announcement,ประกาศ,Announcement,General announcement from an organizer or admin
+APPROVAL_REQUEST,Workflow,คำขออนุมัติ,Approval Request,Admin action needed (e.g. pending REFEREE signup)
+APPROVAL_GRANTED,Workflow,ได้รับอนุมัติ,Approval Granted,Your request was approved
+INVITATION,Workflow,คำเชิญ,Invitation,You were invited (co-organizer etc)

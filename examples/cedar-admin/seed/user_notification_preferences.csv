@@ -1,0 +1,9 @@
+user_id,notification_type_code,channel_code,is_enabled
+usr_spectator_001,SCORE_UPDATE,LINE,true
+usr_spectator_001,SCORE_UPDATE,EMAIL,false
+usr_spectator_001,WEEKLY_DIGEST,LINE,false
+usr_spectator_001,WEEKLY_DIGEST,EMAIL,true
+usr_coach_001,APPROVAL_REQUEST,LINE,true
+usr_coach_001,ROSTER_CHANGE,LINE,true
+usr_player_001,MATCH_START,LINE,true
+usr_player_001,DAILY_DIGEST,LINE,false

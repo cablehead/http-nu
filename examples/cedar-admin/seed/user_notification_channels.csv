@@ -1,0 +1,14 @@
+user_id,channel_code,address,address_label,is_enabled,verified_at
+usr_admin_001,EMAIL,admin@remysport.test,primary,true,2026-01-15
+usr_admin_001,LINE,remy_admin,primary,true,2026-01-15
+usr_org_001,LINE,somchai_ad,primary,true,2026-02-10
+usr_org_001,EMAIL,somchai.p@assumption.test,primary,true,2026-02-10
+usr_coach_001,LINE,coach_wichai,primary,true,2026-03-01
+usr_coach_001,EMAIL,wichai.s@assumption.test,primary,false,2026-03-01
+usr_player_001,LINE,thanakorn_b,primary,true,2026-03-15
+usr_player_002,LINE,kanya_g,primary,true,2026-03-20
+usr_spectator_001,LINE,pim_mom,primary,true,2026-04-01
+usr_spectator_001,LINE,suksai_family_group,family_group,true,2026-04-05
+usr_spectator_001,EMAIL,pim.s@example.test,primary,true,2026-04-01
+usr_referee_001,LINE,ref_adisorn,primary,true,2026-03-10
+usr_referee_002,LINE,ref_waraporn,primary,true,

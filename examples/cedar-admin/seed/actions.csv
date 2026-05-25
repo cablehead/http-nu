@@ -1,0 +1,74 @@
+code,object_type_code,category,name_th,name_en
+SIGN_IN_OUT,PLATFORM,Auth,ลงชื่อเข้า / ออก,Sign in / Sign out
+SIGN_UP_AS_SPECTATOR,PLATFORM,Auth,สมัครเป็นผู้ชม,Sign up as Spectator
+SIGN_UP_AS_PLAYER,PLATFORM,Auth,สมัครเป็นผู้เล่น (ผู้ใหญ่),Sign up as Player (adult)
+SIGN_UP_AS_COACH,PLATFORM,Auth,สมัครเป็นโค้ช,Sign up as Coach
+SIGN_UP_AS_ORGANIZER,PLATFORM,Auth,สมัครเป็นผู้จัดการแข่งขัน,Sign up as Organizer
+SIGN_UP_PLAYER_AS_GUARDIAN,PLATFORM,Auth,สมัครผู้เล่น (เด็กในความดูแล),Sign up minor Player as Guardian
+SIGN_UP_AS_REFEREE_REQUEST,PLATFORM,Auth,ส่งคำขอสมัครเป็นผู้ตัดสิน,Submit Referee signup request
+APPROVE_REFEREE,PLATFORM,Admin,อนุมัติผู้ตัดสิน,Approve pending Referee account
+CREATE_USER_ACCOUNT,PLATFORM,Admin,สร้างบัญชีผู้ใช้ (ใดๆ),Create any user account (admin-only minting)
+INVITE_CO_ORGANIZER,EVENT,Events,เชิญผู้ร่วมจัด,Invite Co-organizer to event
+ACCEPT_CO_ORGANIZER_INVITE,EVENT,Events,ตอบรับเป็นผู้ร่วมจัด,Accept Co-organizer invite
+INSTALL_APP,PLATFORM,Live,ติดตั้งแอป (PWA),Install app (PWA)
+MANAGE_ALL_USERS,PLATFORM,Admin,จัดการผู้ใช้ทั้งหมด,Manage all users
+MODERATE_LISTINGS,PLATFORM,Admin,ตรวจสอบและจัดการรายการ,Moderate listings
+BROWSE_EVENTS,PLATFORM,Events,เรียกดูอีเวนต์,Browse events (list)
+BROWSE_TEAMS,PLATFORM,Teams,ค้นหาทีม,Browse / find a team
+CREATE_EVENT,PLATFORM,Events,สร้างอีเวนต์,Create event
+VIEW_EVENT,EVENT,Events,ดูอีเวนต์,View event detail
+EDIT_EVENT,EVENT,Events,แก้ไขอีเวนต์,Edit event
+DELETE_EVENT,EVENT,Events,ลบอีเวนต์,Delete event
+MANAGE_DIVISIONS,EVENT,Events,จัดการดิวิชั่น,Manage event divisions
+REGISTER_TEAM_FOR_EVENT,EVENT,Events,ลงทะเบียนทีมเข้าอีเวนต์,Register team for event
+REGISTER_PLAYER_FOR_EVENT,EVENT,Events,ลงทะเบียนผู้เล่นเข้าอีเวนต์,Register player for event
+CREATE_TEAM,PLATFORM,Teams,สร้างทีม,Create team
+VIEW_TEAM,TEAM,Teams,ดูโปรไฟล์ทีม,View team profile
+EDIT_TEAM_PROFILE,TEAM,Teams,แก้ไขโปรไฟล์ทีม,Edit team profile
+DELETE_TEAM,TEAM,Teams,ลบทีม,Delete team
+MANAGE_ROSTER,TEAM,Teams,จัดการรายชื่อผู้เล่น,Manage team roster
+CREATE_PLAYER,PLATFORM,Players,สร้างโปรไฟล์ผู้เล่น,Create player profile
+VIEW_PLAYER,PLAYER,Players,ดูโปรไฟล์ผู้เล่น,View player profile
+EDIT_PLAYER_PROFILE,PLAYER,Players,แก้ไขโปรไฟล์ผู้เล่น,Edit player profile
+DELETE_PLAYER,PLAYER,Players,ลบโปรไฟล์ผู้เล่น,Delete player profile
+VIEW_PLAYER_STATS,PLAYER,Rankings,ดูสถิติผู้เล่น,View player stats
+FOLLOW_PLAYER,PLAYER,Players,ติดตามผู้เล่น,Follow player
+UNFOLLOW_PLAYER,PLAYER,Players,เลิกติดตามผู้เล่น,Unfollow player
+RECEIVE_PLAYER_NOTIFICATIONS,PLAYER,Live,รับการแจ้งเตือนผู้เล่น,Receive player notifications
+FOLLOW_TEAM,TEAM,Teams,ติดตามทีม,Follow team
+UNFOLLOW_TEAM,TEAM,Teams,เลิกติดตามทีม,Unfollow team
+RECEIVE_TEAM_NOTIFICATIONS,TEAM,Live,รับการแจ้งเตือนทีม,Receive team notifications
+FOLLOW_EVENT,EVENT,Events,ติดตามอีเวนต์,Follow event
+UNFOLLOW_EVENT,EVENT,Events,เลิกติดตามอีเวนต์,Unfollow event
+RECEIVE_EVENT_NOTIFICATIONS,EVENT,Live,รับการแจ้งเตือนอีเวนต์,Receive event notifications
+VIEW_BRACKET,EVENT,Schedules,ดูสายแข่งขัน,View bracket
+VIEW_FIXTURE_SCHEDULE,EVENT,Schedules,ดูตารางแข่งขัน,View fixture schedule
+VIEW_COURT_ASSIGNMENTS,EVENT,Schedules,ดูการจัดสนาม,View court assignments
+GENERATE_BRACKETS,EVENT,Schedules,สร้างสายแข่งขัน,Generate brackets
+GENERATE_FIXTURES,EVENT,Schedules,สร้างตารางแข่งขัน,Generate fixtures
+DEFINE_SESSION_SCHEDULE,EVENT,Schedules,กำหนดตารางเซสชัน,Define session schedule
+ASSIGN_COURTS,EVENT,Schedules,กำหนดสนาม,Assign courts
+ENTER_SCORES,EVENT,Scores,บันทึกคะแนน,Enter scores
+CONFIRM_MATCH_STATUS,EVENT,Scores,ยืนยันสถานะการแข่งขัน,Confirm match status
+RECORD_ATTENDANCE,EVENT,Scores,บันทึกการเข้าร่วม,Record attendance
+VIEW_GAME_RESULTS,EVENT,Scores,ดูผลการแข่งขัน,View game results
+VIEW_MATCH_STATUS,EVENT,Scores,ดูสถานะการแข่งขัน,View match status
+SPOILER_MODE,PLATFORM,Scores,โหมดซ่อนสปอยล์,Spoiler mode preference
+VIEW_RESULTS_ARCHIVE,PLATFORM,Scores,ดูประวัติผลการแข่งขัน,View results archive
+VIEW_STANDINGS,EVENT,Rankings,ดูตารางคะแนน,View standings
+VIEW_RANK_MOVEMENT,EVENT,Rankings,ดูการเปลี่ยนอันดับ,View rank movement
+VIEW_RANKINGS_HISTORY,PLATFORM,Rankings,ดูประวัติอันดับ,View rankings history
+VIEW_SEASON_RECORDS,EVENT,Rankings,ดูสถิติประจำฤดูกาล,View season records
+VIEW_LIVE_SCORES,EVENT,Live,ดูคะแนนสด,View live scores
+RECEIVE_NOTIFICATIONS,PLATFORM,Live,รับการแจ้งเตือน,Receive push notifications
+MANAGE_OWN_NOTIFICATION_CHANNELS,PLATFORM,Live,จัดการช่องทางการแจ้งเตือนของตัวเอง,Manage own notification channels (add / remove / verify / enable / disable)
+MANAGE_OWN_NOTIFICATION_PREFERENCES,PLATFORM,Live,จัดการการตั้งค่าการแจ้งเตือนของตัวเอง,Manage own per-type notification preferences (which type via which channel)
+VIEW_LIVE_STREAM,EVENT,Live,ดูถ่ายทอดสด,View live stream links
+VIEW_COURT_STATUS_BOARD,EVENT,Live,ดูกระดานสถานะสนาม,View court status board
+AI_CREATE_EVENT,PLATFORM,AI,สร้างอีเวนต์ผ่านแชต,Create event via AI chat
+AI_BRACKET_SUGGESTIONS,EVENT,AI,คำแนะนำสายแข่งขัน,AI bracket suggestions
+AI_QA,PLATFORM,AI,ถาม-ตอบ AI,AI Q&A
+VIEW_ACCESS_MATRIX,PLATFORM,PolicyAdmin,ดูเมทริกซ์การเข้าถึง,View access matrix
+VIEW_OWN_PERMISSIONS,PLATFORM,PolicyAdmin,ดูสิทธิ์ของตนเอง,View own effective permissions
+EDIT_POLICY,PLATFORM,PolicyAdmin,แก้ไขกฎสิทธิ์,Edit policy rules (add row)
+DELETE_POLICY,PLATFORM,PolicyAdmin,ลบกฎสิทธิ์,Delete policy rules (remove row)

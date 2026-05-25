@@ -168,6 +168,29 @@ description = "Live quotes board with SSE (needs store)"
 depends = ["build"]
 run = "$HTTP_NU --datastar --store $STORE :$PORT examples/quotes/serve.nu"
 
+[tasks."ex:cedar-admin"]
+description = "Cedar policy admin/editor over remy-sport CSVs (needs store)"
+depends = ["build", "cedar:plugin:build"]
+run = "$HTTP_NU --plugin ./target/debug/nu_plugin_cedar --datastar --store $STORE :$PORT examples/cedar-admin/serve.nu"
+
+[tasks."cedar:plugin:build"]
+description = "Build the nu_plugin_cedar binary used by ex:cedar-admin"
+sources = ["crates/nu_plugin_cedar/**/*.rs", "crates/nu_plugin_cedar/Cargo.toml"]
+outputs = ["target/debug/nu_plugin_cedar"]
+run = "cargo build -p nu_plugin_cedar"
+
+[tasks."cedar-admin:test:install"]
+description = "Install Playwright (via bun) for cedar-admin browser e2e"
+sources = ["examples/cedar-admin/test/package.json"]
+outputs = ["examples/cedar-admin/test/bun.lock"]
+tools = { bun = "1.3.11" }
+run = "bun install --cwd examples/cedar-admin/test"
+
+[tasks."cedar-admin:test"]
+description = "Run cedar-admin checks (unit + SSE + browser e2e)"
+depends = ["build", "cedar:plugin:build", "cedar-admin:test:install"]
+run = "examples/cedar-admin/test/check.sh"
+
 [tasks."ex:tao"]
 description = "The Tao of Datastar (--dev -w)"
 depends = ["build"]

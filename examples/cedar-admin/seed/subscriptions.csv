@@ -1,0 +1,5 @@
+user_id,object_type_code,object_id,subscribed_at
+usr_spectator_001,TEAM,team_002,2026-04-15
+usr_player_001,TEAM,team_002,2026-03-20
+usr_coach_001,EVENT,evt_001,2026-04-01
+usr_admin_001,PLAYER,ply_004,2026-04-10

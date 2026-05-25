@@ -1,0 +1,9 @@
+{
+  "name": "cedar-admin-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end browser tests driving real chromium against an isolated cedar-admin http-nu instance.",
+  "dependencies": {
+    "playwright-core": "^1.59.1"
+  }
+}

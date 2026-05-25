@@ -1,0 +1,20 @@
+code,object_type_code,name_th,name_en,derived_from,derivation_kind,source_table,filter,fk_column
+OWNER,EVENT,เจ้าของ,Owner,events.organizer_user_id,fk,events,organizer_user_id,
+CO_ORGANIZER,EVENT,ผู้ร่วมจัด,Co-organizer,event_co_organizers.user_id,junction,event_co_organizers,,
+HEAD_COACH,TEAM,หัวหน้าผู้ฝึกสอน,Head Coach,team_coaches where coach_role_code=HEAD,junction,team_coaches,coach_role_code=HEAD,
+ASSISTANT_COACH,TEAM,ผู้ช่วยผู้ฝึกสอน,Assistant Coach,team_coaches where coach_role_code=ASSISTANT,junction,team_coaches,coach_role_code=ASSISTANT,
+TEAM_MANAGER,TEAM,ผู้จัดการทีม,Team Manager,team_coaches where coach_role_code=MANAGER,junction,team_coaches,coach_role_code=MANAGER,
+TEAM_PLAYER,TEAM,ผู้เล่นในทีม,Team Player,player_teams (active rows) joined to players for user_id,junction_active_via_players,player_teams,to_date,
+SELF,PLAYER,ตัวเอง,Self,players.user_id,fk,players,user_id,
+GUARDIAN,PLAYER,ผู้ปกครอง,Guardian,guardians.user_id,junction,guardians,,
+FOLLOWER_PLAYER,PLAYER,ผู้ติดตาม (ผู้เล่น),Player Follower,subscriptions where object_type_code=PLAYER,junction,subscriptions,object_type_code=PLAYER,object_id
+FOLLOWER_TEAM,TEAM,ผู้ติดตาม (ทีม),Team Follower,subscriptions where object_type_code=TEAM,junction,subscriptions,object_type_code=TEAM,object_id
+FOLLOWER_EVENT,EVENT,ผู้ติดตาม (อีเวนต์),Event Follower,subscriptions where object_type_code=EVENT,junction,subscriptions,object_type_code=EVENT,object_id
+PLATFORM_ADMIN,PLATFORM,ผู้ดูแลแพลตฟอร์ม,Platform Admin,users where role_code=ADMIN,platform_role,users,role_code=ADMIN,
+ANY_ORGANIZER,PLATFORM,ผู้จัดการแข่งขันใดๆ,Any Organizer,users where role_code=ORGANIZER,platform_role,users,role_code=ORGANIZER,
+ANY_COACH,PLATFORM,โค้ชใดๆ,Any Coach,users where role_code=COACH,platform_role,users,role_code=COACH,
+ANY_PLAYER,PLATFORM,ผู้เล่นใดๆ,Any Player,users where role_code=PLAYER,platform_role,users,role_code=PLAYER,
+ANY_REFEREE,PLATFORM,ผู้ตัดสินใดๆ,Any Referee,users where role_code=REFEREE,platform_role,users,role_code=REFEREE,
+ANY_SPECTATOR,PLATFORM,ผู้ชมใดๆ,Any Spectator,users where role_code=SPECTATOR,platform_role,users,role_code=SPECTATOR,
+ANY_SIGNED_IN,PLATFORM,ผู้ที่เข้าสู่ระบบใดๆ,Any Signed-in User,Any user with an account,signed_in,,,
+PUBLIC,PLATFORM,สาธารณะ,Public,Anyone including anonymous visitors,public,,,
