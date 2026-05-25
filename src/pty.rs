@@ -235,7 +235,7 @@ struct GridFrame {
 /// oldest line drops off and every row's phys index shifts by one, which
 /// makes idiomorph morph each row's content -- brotli on the wire keeps
 /// the bandwidth cost tolerable.
-fn render_grid_html(term: &Terminal) -> GridFrame {
+fn render_grid_html(term: &Terminal, target: &str) -> GridFrame {
     let size = term.get_size();
     let cols = size.cols;
     let phys_rows = size.rows;
@@ -258,7 +258,7 @@ fn render_grid_html(term: &Terminal) -> GridFrame {
     let mut out = String::new();
     let _ = write!(
         out,
-        "<div id=\"grid\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\">"
+        "<div id=\"{target}\" data-cols=\"{cols}\" data-rows=\"{phys_rows}\" data-total=\"{total}\">"
     );
 
     for (row_idx, line) in lines.iter().enumerate() {
@@ -992,6 +992,17 @@ impl Command for PtyViewCommand {
     fn signature(&self) -> Signature {
         Signature::build("pty view")
             .required("sid", SyntaxShape::String, "session id")
+            .named(
+                "target",
+                SyntaxShape::String,
+                "id of the morph-target element (default 'grid'); use a unique id per pane when several views render at once",
+                None,
+            )
+            .switch(
+                "no-signals",
+                "suppress the termCols/termRows/termTitle signal patch (use when multiple views would otherwise collide on the same global signals)",
+                None,
+            )
             .input_output_types(vec![(Type::Nothing, Type::String)])
             .category(Category::Custom("http".into()))
     }
@@ -1005,6 +1016,10 @@ impl Command for PtyViewCommand {
     ) -> Result<PipelineData, ShellError> {
         let head = call.head;
         let sid: String = call.req(engine_state, stack, 0)?;
+        let target: String = call
+            .get_flag(engine_state, stack, "target")?
+            .unwrap_or_else(|| "grid".to_string());
+        let no_signals = call.has_flag(engine_state, stack, "no-signals")?;
 
         // Resolve term + dirty handles once. The session may go away while we
         // stream; we treat that as natural EOF by checking `sessions()` each
@@ -1068,7 +1083,7 @@ impl Command for PtyViewCommand {
                 let gen_now = *lock.lock().unwrap();
                 let frame = {
                     let term_guard = term.lock().unwrap();
-                    render_grid_html(&term_guard)
+                    render_grid_html(&term_guard, &target)
                 };
                 last_gen = gen_now;
                 sent_initial = true;
@@ -1077,11 +1092,15 @@ impl Command for PtyViewCommand {
 
                 // Surface dims + title as signals so the client binds them
                 // declaratively (status line, document.title) instead of
-                // observing DOM attributes. Only emit on change.
-                let meta = (frame.cols, frame.rows, frame.title);
-                if last_meta.as_ref() != Some(&meta) {
-                    emit_patch_signals(buffer, meta.0, meta.1, &meta.2);
-                    last_meta = Some(meta);
+                // observing DOM attributes. Only emit on change, and never
+                // when several views share the page (--no-signals) since the
+                // signals are global and would clobber each other.
+                if !no_signals {
+                    let meta = (frame.cols, frame.rows, frame.title);
+                    if last_meta.as_ref() != Some(&meta) {
+                        emit_patch_signals(buffer, meta.0, meta.1, &meta.2);
+                        last_meta = Some(meta);
+                    }
                 }
                 Ok(true)
             },
