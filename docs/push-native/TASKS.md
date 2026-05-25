@@ -94,7 +94,7 @@ each result → xs append push.send.delivered | expired | failed
 - [ ] **#14** Playwright E2E harness — `examples/push-demo/test/test.mjs`, mirrors cedar-admin pattern. Chromium + WebKit + Firefox: subscribe → capture sub → POST /send → assert SW push received → assert notificationclick. *(blocked by #6, #8, #10)*
 - [ ] **#15** Playwright iOS state-machine test — UA + `navigator.standalone` overrides, asserts each state machine branch renders correct banner. *(blocked by #7)*
 - [ ] **#26** Negative test — malformed subscription POST → 400 with structured error. *(blocked by #14)*
-- [ ] **#13** Manual iPhone smoke test — final 5-min gate on real hardware. *(blocked by #14)*
+- [x] **#13** Manual iPhone smoke test — verified 2026-05-25 on iPhone Safari + Mac Safari, app closed, notification displayed via macOS Notification Center / iOS lock screen. Both devices subscribed via the `<pwa-install>` install flow.
 
 ### Docs
 
