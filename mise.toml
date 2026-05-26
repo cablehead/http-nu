@@ -58,15 +58,16 @@ run = "cd crates/cf_email_worker && fnox exec -- wrangler tail"
 # ============================================================================
 
 [tasks."email:secrets:generate"]
-description = "Generate CF_EMAIL_AUTH_TOKEN + CF_EMAIL_WEBHOOK_HMAC_KEY + EMAIL_ADMIN_TOKEN and store in fnox keychain (one-time per repo clone)."
+description = "Generate CF_EMAIL_AUTH_TOKEN + CF_EMAIL_WEBHOOK_HMAC_KEY + EMAIL_ADMIN_TOKEN and store in macOS keychain (one-time per repo clone). Bypasses `fnox set` because that would auto-register additional env-var mappings in fnox.toml -- we already have the mappings we want."
 run = '''
 set -e
-auth=$(openssl rand -hex 32)
-hmac=$(openssl rand -hex 32)
-admin=$(openssl rand -hex 32)
-fnox set -p keychain HTTP_NU_EMAIL_AUTH_TOKEN "$auth"
-fnox set -p keychain HTTP_NU_EMAIL_WEBHOOK_HMAC_KEY "$hmac"
-fnox set -p keychain HTTP_NU_EMAIL_ADMIN_TOKEN "$admin"
+for entry in "HTTP_NU_EMAIL_AUTH_TOKEN" "HTTP_NU_EMAIL_WEBHOOK_HMAC_KEY" "HTTP_NU_EMAIL_ADMIN_TOKEN"; do
+  value=$(openssl rand -hex 32)
+  # -U updates if the item exists (idempotent re-run). -s fnox matches the
+  # service name fnox itself uses to read these back.
+  security add-generic-password -U -s fnox -a "$entry" -w "$value"
+  echo "ok: $entry"
+done
 echo ""
 echo "Stored CF_EMAIL_AUTH_TOKEN, CF_EMAIL_WEBHOOK_HMAC_KEY, EMAIL_ADMIN_TOKEN."
 echo "Next:"
@@ -75,41 +76,38 @@ echo "  mise run email:worker:url-set -- URL  # store the deployed URL"
 '''
 
 [tasks."email:worker:url-set"]
-description = "Store the deployed Worker URL in fnox. Usage: mise run email:worker:url-set -- https://cf-email-worker.<acct>.workers.dev"
+description = "Store the deployed Worker URL in fnox. Usage: WORKER_URL=https://cf-email-worker.<acct>.workers.dev mise run email:worker:url-set"
 run = '''
 set -e
-url="${1:-}"
-if [ -z "$url" ]; then
-  echo "Usage: mise run email:worker:url-set -- https://cf-email-worker.<acct>.workers.dev" >&2
+if [ -z "${WORKER_URL:-}" ]; then
+  echo "Usage: WORKER_URL=https://cf-email-worker.<acct>.workers.dev mise run email:worker:url-set" >&2
   exit 1
 fi
-fnox set -p keychain HTTP_NU_EMAIL_WORKER_URL "$url"
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_WORKER_URL -w "$WORKER_URL"
 echo "Stored. CF_EMAIL_WORKER_URL is now resolvable via fnox."
 '''
 
 [tasks."email:worker:webhook-set"]
-description = "Store the http-nu webhook URL (where the Worker POSTs inbound mail). Usage: mise run email:worker:webhook-set -- https://http-nu.example.com/webhooks/email/inbound"
+description = "Store the http-nu webhook URL. Usage: WEBHOOK_URL=https://http-nu.example.com/webhooks/email/inbound mise run email:worker:webhook-set"
 run = '''
 set -e
-url="${1:-}"
-if [ -z "$url" ]; then
-  echo "Usage: mise run email:worker:webhook-set -- https://your-http-nu/webhooks/email/inbound" >&2
+if [ -z "${WEBHOOK_URL:-}" ]; then
+  echo "Usage: WEBHOOK_URL=https://your-http-nu/webhooks/email/inbound mise run email:worker:webhook-set" >&2
   exit 1
 fi
-fnox set -p keychain HTTP_NU_EMAIL_WEBHOOK_URL "$url"
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_WEBHOOK_URL -w "$WEBHOOK_URL"
 echo "Stored."
 '''
 
 [tasks."email:worker:domain-set"]
-description = "Store the sender domain in fnox. Usage: mise run email:worker:domain-set -- mail.example.com"
+description = "Store the sender domain in fnox. Usage: SENDER_DOMAIN=mail.example.com mise run email:worker:domain-set"
 run = '''
 set -e
-domain="${1:-}"
-if [ -z "$domain" ]; then
-  echo "Usage: mise run email:worker:domain-set -- mail.example.com" >&2
+if [ -z "${SENDER_DOMAIN:-}" ]; then
+  echo "Usage: SENDER_DOMAIN=mail.example.com mise run email:worker:domain-set" >&2
   exit 1
 fi
-fnox set -p keychain HTTP_NU_EMAIL_SENDER_DOMAIN "$domain"
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_SENDER_DOMAIN -w "$SENDER_DOMAIN"
 echo "Stored."
 '''
 
@@ -225,15 +223,14 @@ dispatch_loop
 # ============================================================================
 
 [tasks."email:test:recipient-set"]
-description = "Store the smoke-test recipient email in fnox. Usage: mise run email:test:recipient-set -- you@example.com"
+description = "Store the smoke-test recipient email in fnox. Usage: RECIPIENT=you@example.com mise run email:test:recipient-set"
 run = '''
 set -e
-addr="${1:-}"
-if [ -z "$addr" ]; then
-  echo "Usage: mise run email:test:recipient-set -- you@example.com" >&2
+if [ -z "${RECIPIENT:-}" ]; then
+  echo "Usage: RECIPIENT=you@example.com mise run email:test:recipient-set" >&2
   exit 1
 fi
-fnox set -p keychain HTTP_NU_EMAIL_TEST_RECIPIENT_EMAIL "$addr"
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_TEST_RECIPIENT_EMAIL -w "$RECIPIENT"
 echo "Stored. TEST_RECIPIENT_EMAIL is now resolvable via fnox."
 '''
 

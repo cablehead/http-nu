@@ -22,7 +22,7 @@ See `docs/email-native/events.md` for the full topic schema and
 mise run email:secrets:generate
 
 # 2. Store the sender domain you'll deploy under.
-mise run email:worker:domain-set -- mail.example.com
+SENDER_DOMAIN=mail.example.com mise run email:worker:domain-set
 
 # 3. Build everything.
 mise run build email:plugin:build email:worker:check
@@ -31,11 +31,11 @@ mise run build email:plugin:build email:worker:check
 mise run email:worker:deploy
 
 # 5. After deploy, store the deployed URL + push runtime secrets.
-mise run email:worker:url-set -- https://cf-email-worker.<acct>.workers.dev
+WORKER_URL=https://cf-email-worker.<acct>.workers.dev mise run email:worker:url-set
 mise run email:worker:secrets:put
 
 # 6. Set the webhook URL (where the worker POSTs inbound mail).
-mise run email:worker:webhook-set -- https://<your-http-nu>/webhooks/email/inbound
+WEBHOOK_URL=https://<your-http-nu>/webhooks/email/inbound mise run email:worker:webhook-set
 
 # 7. Wire DNS + Email Routing.
 mise run email:dns:check               # observe what's there now
@@ -116,7 +116,7 @@ reply. Run it after the full setup chain above:
 
 ```bash
 # One-time: store the inbox you'll check by eye
-mise run email:test:recipient-set -- you@example.com
+RECIPIENT=you@example.com mise run email:test:recipient-set
 
 # Run the smoke
 mise run email-demo:smoke
