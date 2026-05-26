@@ -1,8 +1,13 @@
 [workspace]
-members = [".", "tests/test_plugin", "crates/cf_email_worker"]
+members = [
+    ".",
+    "tests/test_plugin",
+    "crates/cf_email_worker",
+    "crates/nu_plugin_email",
+]
 # cf_email_worker is wasm32-unknown-unknown; default-members keeps host-target
 # commands (cargo build, cargo test) from accidentally trying to compile it.
-default-members = [".", "tests/test_plugin"]
+default-members = [".", "tests/test_plugin", "crates/nu_plugin_email"]
 
 [package]
 name = "http-nu"
