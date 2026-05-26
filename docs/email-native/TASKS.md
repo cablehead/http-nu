@@ -200,7 +200,7 @@ from another repo.
 
 - [x] **#20** Unit tests (14 in total). Plugin: all 6 `Outcome::from_error_code` branches + `as_str` round-trip; `mask_token` boundaries (<=8 redact, >8 4...4); `dry_run` golden (curl + masked-token + pretty body). Worker: `hmac_sha256_hex` against RFC 4231 test vectors; `constant_time_eq` equal/diff; `classify` for each `worker::Error` String-payload variant + fallback.
 - [ ] **#21** Worker integration test -- `wrangler dev --local` + plugin send -> assert `.eml` written; `POST /cdn-cgi/handler/email` simulated inbound -> assert webhook POST with valid HMAC. *(blocked by #5, #6)*
-- [ ] **#22** xs flow E2E -- append `email.send.requested`, assert `email.send.delivered` appears within N ms (against `wrangler dev --local`). *(blocked by #14)*
+- [ ] **#22** xs flow E2E -- append `email.send.requested`, assert `email.send.delivered` appears within N ms. *(blocked by #14, AND http-nu being deployed somewhere CF Workers can reach -- 2026-05-26 user decision: defer until that's in place. The inbound webhook can't terminate at localhost; needs a public URL or `cloudflared` quick tunnel.)*
 - [x] **#23** Paid-tier smoke -- **PASSED 2026-05-26 against gedw99@gmail.com via `mail.amplify-cms.com`**. Outbound-only mode of `examples/email-demo/test/smoke.nu` returned `result=delivered`, CF Email Service returned a message_id. Inbound half deferred until http-nu is deployed publicly. No dashboard click needed -- full chain was scripted thanks to the API discovery codified in `email:sender-domain:add`.
 
 ### Docs
