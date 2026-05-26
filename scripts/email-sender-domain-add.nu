@@ -30,11 +30,17 @@ def auth_headers []: nothing -> list<string> {
     [Authorization $"Bearer ($token)"]
 }
 
-# Strip surrounding quotes from a TXT record content. CF's GET returns
-# them quoted; POST wants them unquoted (or accepts both, but consistent
-# is safer).
-def unquote_txt [content: string]: nothing -> string {
-    $content | str trim --char '"'
+# Normalize a TXT record content for comparison.
+# CF's DNS API stores long TXT records as multiple quoted strings joined
+# by spaces (RFC 1035 sec 3.3.14: each string capped at 255 bytes). E.g.
+# `"v=DKIM1; ...78k" "m4KXw...AB"`. The Email Service "recommended DNS"
+# endpoint returns the same record as one solid `"v=DKIM1; ...AB"`.
+# Compare semantic content by stripping all `"` characters and `" "`
+# continuation markers.
+def normalize_txt [content: string]: nothing -> string {
+    $content
+    | str replace --all '" "' ''
+    | str replace --all '"' ''
 }
 
 # Find the parent zone that contains $subdomain. We list all zones we can
@@ -90,7 +96,7 @@ def ensure_subdomain_registered [zone: any, subdomain: string, headers: list<str
 # pass straight to `http post`.
 def dns_body [rec: any]: nothing -> record {
     let content = if $rec.type == "TXT" {
-        unquote_txt $rec.content
+        normalize_txt $rec.content
     } else {
         $rec.content
     }
@@ -124,12 +130,12 @@ def dns_record_exists [zone_id: string, body: record, headers: list<string>]: no
         return false
     }
     let needle = if $body.type == "TXT" {
-        unquote_txt $body.content
+        normalize_txt $body.content
     } else {
         $body.content
     }
     $resp.result | default [] | any {|r|
-        let r_content = if $r.type == "TXT" { unquote_txt $r.content } else { $r.content }
+        let r_content = if $r.type == "TXT" { normalize_txt $r.content } else { $r.content }
         $r_content == $needle
     }
 }

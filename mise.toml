@@ -166,7 +166,7 @@ description = "Delete all HTTP_NU_EMAIL_* keychain items. Prompts unless --yes i
 run = "./scripts/email-secrets-purge.nu"
 
 [tasks."email:teardown"]
-description = "Drop the entire deployment in the correct order: routing rule -> sender domain (+ its DNS) -> worker -> secrets. Each step is idempotent; safe to run multiple times. Pass --yes-secrets to skip the secrets prompt."
+description = "Drop the entire deployment in the correct order: routing rule -> sender domain (+ its DNS) -> worker -> secrets. Each step is idempotent; safe to run multiple times. Set YES_SECRETS=1 to skip the secrets prompt."
 run = '''
 set -e
 echo "==> 1/4 removing Email Routing rule..."
@@ -179,7 +179,7 @@ echo "==> 3/4 deleting deployed Worker..."
 mise run email:worker:teardown || echo "  (continuing; Worker may already be gone)"
 echo
 echo "==> 4/4 purging keychain items..."
-if [ "${1:-}" = "--yes-secrets" ]; then
+if [ -n "${YES_SECRETS:-}" ]; then
   ./scripts/email-secrets-purge.nu --yes
 else
   ./scripts/email-secrets-purge.nu
@@ -246,7 +246,74 @@ echo "Stored. TEST_RECIPIENT_EMAIL is now resolvable via fnox."
 '''
 
 [tasks."email-demo:smoke"]
-description = "End-to-end smoke test against the deployed Worker. Sends a real email to TEST_RECIPIENT_EMAIL and waits for an inbound reply on xs. Pass --outbound-only to skip inbound."
+description = "End-to-end smoke test against the deployed Worker. Sends a real email to TEST_RECIPIENT_EMAIL and waits for an inbound reply on xs."
 depends = ["email:plugin:build"]
 env = { STORE = "./.store/email-demo" }
-run = "exec fnox exec -- nu --plugin ./target/debug/nu_plugin_email examples/email-demo/test/smoke.nu"
+run = "exec fnox exec -- nu --plugins ./target/debug/nu_plugin_email -c 'source ./examples/email-demo/test/smoke.nu; main'"
+
+[tasks."email-demo:smoke:outbound"]
+description = "Outbound-only smoke test (no inbound xs tail). Use this when http-nu isn't deployed publicly."
+depends = ["email:plugin:build"]
+run = "exec fnox exec -- nu --plugins ./target/debug/nu_plugin_email -c 'source ./examples/email-demo/test/smoke.nu; main --outbound-only'"
+
+[tasks."email-demo:full"]
+description = "One-command bootstrap from a fresh clone to a PASSING outbound smoke. Requires SENDER_DOMAIN + RECIPIENT env vars + a CLOUDFLARE_API_TOKEN resolvable via fnox. Idempotent: safe to re-run; pairs with email:teardown."
+run = '''
+set -e
+if [ -z "${SENDER_DOMAIN:-}" ]; then
+  echo "FAIL: SENDER_DOMAIN env var required (e.g. mail.example.com)" >&2
+  exit 1
+fi
+if [ -z "${RECIPIENT:-}" ]; then
+  echo "FAIL: RECIPIENT env var required (e.g. you@example.com)" >&2
+  exit 1
+fi
+
+echo "==> 1/8 generating runtime secrets in keychain..."
+mise run email:secrets:generate
+
+echo
+echo "==> 2/8 storing SENDER_DOMAIN + RECIPIENT in keychain..."
+SENDER_DOMAIN="$SENDER_DOMAIN" mise run email:worker:domain-set
+RECIPIENT="$RECIPIENT" mise run email:test:recipient-set
+
+echo
+echo "==> 3/8 building plugin + worker check..."
+mise run email:plugin:build
+mise run email:worker:check
+
+echo
+echo "==> 4/8 deploying worker to Cloudflare..."
+# Parse the deployed URL out of wrangler's output.
+deploy_log=$(mise run email:worker:deploy 2>&1)
+echo "$deploy_log" | tail -20
+url=$(echo "$deploy_log" | grep -oE "https://cf-email-worker[a-zA-Z0-9.-]*\.workers\.dev" | head -1)
+if [ -z "$url" ]; then
+  echo "FAIL: could not parse worker URL from deploy output" >&2
+  exit 1
+fi
+echo "  deployed URL: $url"
+
+echo
+echo "==> 5/8 storing deployed URL in keychain..."
+WORKER_URL="$url" mise run email:worker:url-set
+
+echo
+echo "==> 6/8 pushing CF_EMAIL_AUTH_TOKEN to the worker as a wrangler secret..."
+cd crates/cf_email_worker
+fnox exec -- sh -c "printenv CF_EMAIL_AUTH_TOKEN | wrangler secret put CF_EMAIL_AUTH_TOKEN"
+cd ../..
+
+echo
+echo "==> 7/8 registering sender domain on Email Service + publishing DKIM/SPF/DMARC..."
+mise run email:sender-domain:add
+
+echo
+echo "==> 8/8 running outbound smoke..."
+# Wait a couple seconds for the just-published DNS to be visible.
+sleep 5
+mise run email-demo:smoke:outbound
+
+echo
+echo "==> email-demo:full PASS"
+'''

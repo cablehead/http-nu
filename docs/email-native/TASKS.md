@@ -182,6 +182,10 @@ from another repo.
 - [x] **#16** `fnox.toml` -- CLOUDFLARE_API_TOKEN + CF_EMAIL_{AUTH_TOKEN,WEBHOOK_HMAC_KEY,WORKER_URL,WEBHOOK_URL,SENDER_DOMAIN} + EMAIL_ADMIN_TOKEN entries. Keychain item names repo-prefixed (`HTTP_NU_EMAIL_*`) per [[feedback_cloud_project_per_repo]].
 - [x] **#17** Mise tasks -- `email:plugin:{build,test}`, `email:worker:{check,dev,deploy,tail}`, `email:secrets:generate`, `email:worker:{url-set,webhook-set,domain-set}`, `email:worker:secrets:put`. All deploy paths route through `fnox exec`.
 
+### One-command bootstrap (added 2026-05-26)
+
+- [x] `email-demo:full` -- single mise task that runs the entire setup chain in order: `email:secrets:generate` -> `email:worker:domain-set` -> `email:test:recipient-set` -> build -> deploy worker -> capture URL -> `wrangler secret put CF_EMAIL_AUTH_TOKEN` -> `email:sender-domain:add` -> outbound smoke (with retry on `E_DELIVERY_FAILED` for CF's DKIM verification lag, capped at 6 * 20s). Reproducibility verified by teardown + redeploy cycle (2026-05-26).
+
 ### Teardown (added 2026-05-26)
 
 - [x] `email:routing:rule:remove` -- mirror of `apply`; deletes the catch-all rule via CF API (idempotent: silent no-op if rule isn't there). `scripts/email-routing-rule-remove.nu`.

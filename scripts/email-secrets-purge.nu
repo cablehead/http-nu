@@ -42,13 +42,15 @@ def main [--yes] {
     }
 
     for item in $ITEMS {
-        # `fnox delete -p keychain` removes a single item. Non-zero on missing
-        # items, which we treat as a no-op (purge is idempotent).
-        let result = (do { ^fnox delete -p keychain $item } | complete)
+        # `security delete-generic-password` is the macOS keychain CLI.
+        # Use it directly (mirroring email:secrets:generate, which uses
+        # `security add-generic-password`). `fnox` only manipulates the
+        # config file, not the keychain items themselves.
+        let result = (do { ^security delete-generic-password -s fnox -a $item } | complete)
         if $result.exit_code == 0 {
             print $"deleted: ($item)"
         } else {
-            print $"(absent): ($item)"
+            print $"absent:  ($item)"
         }
     }
 

@@ -68,14 +68,39 @@ def main [
         request_ref: $request_ref,
     }
 
-    let result = ($req | email send)
+    # Retry on transient CF errors. The big one: when a sender subdomain
+    # is freshly registered, CF Email Service often needs ~30-60 sec to
+    # complete DKIM verification before it'll accept sends. First attempt
+    # in that window returns E_DELIVERY_FAILED; retries succeed.
+    let max_attempts = 6  # 6 * 20s = 2 min cap
+    let retryable_codes = [
+        "E_DELIVERY_FAILED"
+        "E_SENDER_NOT_VERIFIED"
+    ]
+    mut result = null
+    mut attempt = 1
+    while $attempt <= $max_attempts {
+        $result = ($req | email send)
+        if $result.result == "delivered" {
+            break
+        }
+        let code = ($result.error_code? | default "")
+        if not ($code in $retryable_codes) {
+            break  # non-retryable; fail fast
+        }
+        if $attempt < $max_attempts {
+            print $"  attempt ($attempt)/($max_attempts): result=($result.result), code=($code). Retrying in 20s \(CF often needs ~1min to verify DKIM after fresh subdomain registration\)..."
+            sleep 20sec
+        }
+        $attempt = ($attempt + 1)
+    }
 
     if $result.result != "delivered" {
-        print "FAIL: send did not return delivered."
+        print "FAIL: send did not return delivered after retries."
         print ($result | to nuon --indent 2)
         exit 1
     }
-    print $"OK   delivered. message_id=($result.message_id)"
+    print $"OK   delivered. message_id=($result.message_id) \(attempt ($attempt)/($max_attempts)\)"
     print ""
     print "Eyeball check: open the inbox now. The email should arrive in"
     print "under a minute. If it doesn't, check the worker logs:"
