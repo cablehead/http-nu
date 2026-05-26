@@ -124,3 +124,17 @@ for name in CF_EMAIL_AUTH_TOKEN CF_EMAIL_WEBHOOK_HMAC_KEY CF_EMAIL_WEBHOOK_URL C
 done
 echo "Done. The Worker will pick these up on the next request after deploy."
 '''
+
+# ============================================================================
+# DNS posture check + Email Routing rule setup. Both read
+# $CF_EMAIL_SENDER_DOMAIN and (for the rule) $CLOUDFLARE_API_TOKEN from
+# fnox via `fnox exec`.
+# ============================================================================
+
+[tasks."email:dns:check"]
+description = "Report SPF / DMARC / MX state for the configured sender domain. Read-only; tells you what to add but doesn't mutate DNS."
+run = "fnox exec -- ./scripts/email-dns-check.sh"
+
+[tasks."email:routing:rule:apply"]
+description = "Idempotently create the catch-all CF Email Routing rule that points *@$CF_EMAIL_SENDER_DOMAIN at cf-email-worker. Safe to re-run."
+run = "fnox exec -- ./scripts/email-routing-rule-apply.sh"

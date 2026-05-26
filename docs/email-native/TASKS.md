@@ -175,8 +175,8 @@ from another repo.
 
 - [x] **#16** `fnox.toml` -- CLOUDFLARE_API_TOKEN + CF_EMAIL_{AUTH_TOKEN,WEBHOOK_HMAC_KEY,WORKER_URL,WEBHOOK_URL,SENDER_DOMAIN} entries. Keychain item names repo-prefixed (`HTTP_NU_EMAIL_*`) per [[feedback_cloud_project_per_repo]].
 - [x] **#17** Mise tasks -- `email:plugin:{build,test}`, `email:worker:{check,dev,deploy,tail}`, `email:secrets:generate`, `email:worker:{url-set,webhook-set,domain-set}`, `email:worker:secrets:put`. All deploy paths route through `fnox exec`.
-- [ ] **#18** Sender domain setup script -- mise task that walks DNS for SPF / DKIM / DMARC additions; idempotent; reads target domain from `$CF_EMAIL_SENDER_DOMAIN`. `email-demo:serve` task lands with #12-#14.
-- [ ] **#19** Email Routing rule setup -- mise task using `wrangler` (or CF API) to create `*@$CF_EMAIL_SENDER_DOMAIN -> cf_email_worker` route. Idempotent. Documents the dashboard alternative.
+- [x] **#18** `email:dns:check` -- reports SPF/DMARC/MX state via `dig`, prints Cloudflare-recommended records. Read-only. DKIM points at dashboard (CF generates per-domain). Reads `$CF_EMAIL_SENDER_DOMAIN`. `email-demo:serve` task lands with #12-#14.
+- [x] **#19** `email:routing:rule:apply` -- CF API call (curl + jq, no python) to create catch-all rule pointing `*@$CF_EMAIL_SENDER_DOMAIN` at `cf-email-worker`. Idempotent (looks up zone id, checks existing rules, skips if already present). Dashboard alternative documented in the script header.
 
 ### Testing
 
