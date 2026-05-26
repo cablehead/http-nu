@@ -167,9 +167,15 @@ from another repo.
 
 ### Example: email-demo
 
-- [ ] **#12** Scaffold `examples/email-demo/` (serve.nu, www/, test/, lib/, README.md)
-- [ ] **#13** `serve.nu` handlers -- `/webhooks/email/inbound` (HMAC-verified -> xs `email.received`), `/send` (bearer-auth via `EMAIL_ADMIN_TOKEN` -> xs `email.send.requested`), `/`, static. *(blocked by #12)*
-- [ ] **#14** `lib/send.nu` -- xs handler that tails `email.send.requested` and pipes records into `email send --parallel 8`. Each result appended back to xs. *(blocked by #9, #11)*
+- [x] **#12** Scaffold `examples/email-demo/{serve.nu, lib/send.nu, README.md}`. No www/ -- email has no browser frontend; the demo is service-to-service.
+- [x] **#13** `serve.nu` -- `/webhooks/email/inbound` (HMAC-verified via openssl shellout -> xs `email.received`), `/send` (bearer-auth via `EMAIL_ADMIN_TOKEN` -> xs `email.send.requested`), `/`, `/health`.
+- [x] **#14** `lib/send.nu` -- exports `dispatch_loop` that tails `email.send.requested`, pipes records through `email send`, and appends `email.send.{outcome}` per result with `meta.request_id` set to the originating xs frame id for correlation. Sequential dispatch -- `--parallel N` is a follow-up.
+
+### Demo wiring (alongside #12-#14)
+
+- `fnox.toml` adds `EMAIL_ADMIN_TOKEN` (HTTP_NU_EMAIL_ADMIN_TOKEN keychain item).
+- `mise.toml` adds `build`, `email-demo:serve`, `email-demo:dispatch`.
+- `email:secrets:generate` now also creates EMAIL_ADMIN_TOKEN.
 
 ### Secrets & deployment
 

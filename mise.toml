@@ -59,17 +59,19 @@ run = "cd crates/cf_email_worker && fnox exec -- wrangler tail"
 # ============================================================================
 
 [tasks."email:secrets:generate"]
-description = "Generate CF_EMAIL_AUTH_TOKEN + CF_EMAIL_WEBHOOK_HMAC_KEY and store in fnox keychain (one-time per repo clone)."
+description = "Generate CF_EMAIL_AUTH_TOKEN + CF_EMAIL_WEBHOOK_HMAC_KEY + EMAIL_ADMIN_TOKEN and store in fnox keychain (one-time per repo clone)."
 run = '''
 set -e
 auth=$(openssl rand -hex 32)
 hmac=$(openssl rand -hex 32)
+admin=$(openssl rand -hex 32)
 fnox set -p keychain HTTP_NU_EMAIL_AUTH_TOKEN "$auth"
 fnox set -p keychain HTTP_NU_EMAIL_WEBHOOK_HMAC_KEY "$hmac"
+fnox set -p keychain HTTP_NU_EMAIL_ADMIN_TOKEN "$admin"
 echo ""
-echo "Stored. The plugin and Worker will read these via fnox exec."
+echo "Stored CF_EMAIL_AUTH_TOKEN, CF_EMAIL_WEBHOOK_HMAC_KEY, EMAIL_ADMIN_TOKEN."
 echo "Next:"
-echo "  mise run email:worker:secrets:put     # push to the Worker"
+echo "  mise run email:worker:secrets:put     # push runtime secrets to the Worker"
 echo "  mise run email:worker:url-set -- URL  # store the deployed URL"
 '''
 
@@ -138,3 +140,41 @@ run = "fnox exec -- ./scripts/email-dns-check.sh"
 [tasks."email:routing:rule:apply"]
 description = "Idempotently create the catch-all CF Email Routing rule that points *@$CF_EMAIL_SENDER_DOMAIN at cf-email-worker. Safe to re-run."
 run = "fnox exec -- ./scripts/email-routing-rule-apply.sh"
+
+# ============================================================================
+# Demo service: http-nu + nu_plugin_email running examples/email-demo/serve.nu.
+# Secrets injected via fnox exec.
+# ============================================================================
+
+[tasks.build]
+description = "Build http-nu debug binary"
+sources = ["src/**/*.rs", "build.rs", "Cargo.toml", "Cargo.lock"]
+outputs = ["target/debug/http-nu"]
+run = "cargo build"
+
+[tasks."email-demo:serve"]
+description = "Run examples/email-demo serve.nu with http-nu + nu_plugin_email. Secrets from fnox."
+depends = ["build", "email:plugin:build"]
+env = { PORT = "8080", STORE = "./.store/email-demo" }
+run = '''
+set -e
+mkdir -p "$STORE"
+exec fnox exec -- ./target/debug/http-nu \
+  --plugin ./target/debug/nu_plugin_email \
+  --store "$STORE" \
+  ":$PORT" \
+  examples/email-demo/serve.nu
+'''
+
+[tasks."email-demo:dispatch"]
+description = "Long-lived xs handler: tails email.send.requested and dispatches via the plugin. Run alongside email-demo:serve in a separate terminal."
+depends = ["email:plugin:build"]
+env = { STORE = "./.store/email-demo" }
+run = '''
+set -e
+exec fnox exec -- nu --plugin ./target/debug/nu_plugin_email --commands "
+use ./examples/email-demo/lib/send.nu *
+\$env.XS_STORE = '$STORE'
+dispatch_loop
+"
+'''

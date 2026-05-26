@@ -36,3 +36,8 @@ CF_EMAIL_WEBHOOK_URL = { provider = "keychain", value = "HTTP_NU_EMAIL_WEBHOOK_U
 # code change. Used by setup tasks and (eventually) by the demo handler to
 # log "what address are we sending as".
 CF_EMAIL_SENDER_DOMAIN = { provider = "keychain", value = "HTTP_NU_EMAIL_SENDER_DOMAIN" }
+
+# Bearer token gating examples/email-demo's `POST /send` admin endpoint.
+# Separate from CF_EMAIL_AUTH_TOKEN (which gates plugin -> Worker); this is
+# the demo's "who can ask us to send" boundary.
+EMAIL_ADMIN_TOKEN = { provider = "keychain", value = "HTTP_NU_EMAIL_ADMIN_TOKEN" }
