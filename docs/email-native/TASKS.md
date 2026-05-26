@@ -180,7 +180,7 @@ from another repo.
 
 ### Testing
 
-- [ ] **#20** Plugin unit tests -- result classification covers all six outcome branches; HMAC round-trip; dry-run formatting golden. *(blocked by #9)*
+- [x] **#20** Unit tests (14 in total). Plugin: all 6 `Outcome::from_error_code` branches + `as_str` round-trip; `mask_token` boundaries (<=8 redact, >8 4...4); `dry_run` golden (curl + masked-token + pretty body). Worker: `hmac_sha256_hex` against RFC 4231 test vectors; `constant_time_eq` equal/diff; `classify` for each `worker::Error` String-payload variant + fallback.
 - [ ] **#21** Worker integration test -- `wrangler dev --local` + plugin send -> assert `.eml` written; `POST /cdn-cgi/handler/email` simulated inbound -> assert webhook POST with valid HMAC. *(blocked by #5, #6)*
 - [ ] **#22** xs flow E2E -- append `email.send.requested`, assert `email.send.delivered` appears within N ms (against `wrangler dev --local`). *(blocked by #14)*
 - [ ] **#23** Manual paid-tier smoke -- one real send to a gmail account; one real inbound from a gmail account; recorded in `docs/email-native/smoke.md`. Final gate.

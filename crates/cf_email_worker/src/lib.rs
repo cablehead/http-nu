@@ -402,3 +402,108 @@ fn hmac_sha256_hex(key: &[u8], msg: &[u8]) -> String {
     mac.update(msg);
     hex::encode(mac.finalize().into_bytes())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ------------------------------------------------------------------------
+    // hmac_sha256_hex -- RFC 4231 test vectors. Pinning these means a
+    // crate-bump in `hmac` or `sha2` that changes output would fail loudly
+    // rather than silently corrupting our webhook signatures.
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn hmac_sha256_rfc4231_test_case_1() {
+        // Test case 1 from RFC 4231 section 4.2:
+        // Key  = 0x0b * 20, Data = "Hi There"
+        let key = [0x0bu8; 20];
+        let data = b"Hi There";
+        assert_eq!(
+            hmac_sha256_hex(&key, data),
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_rfc4231_test_case_2() {
+        // Test case 2 from RFC 4231 section 4.3: ASCII key, ASCII data.
+        let key = b"Jefe";
+        let data = b"what do ya want for nothing?";
+        assert_eq!(
+            hmac_sha256_hex(key, data),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+    }
+
+    #[test]
+    fn hmac_sha256_is_deterministic_on_repeated_input() {
+        let key = b"webhook-secret-key";
+        let msg = br#"{"envelope_from":"a@b","envelope_to":"c@d"}"#;
+        let h1 = hmac_sha256_hex(key, msg);
+        let h2 = hmac_sha256_hex(key, msg);
+        assert_eq!(h1, h2);
+        // sha256 output: 64 hex chars
+        assert_eq!(h1.len(), 64);
+    }
+
+    // ------------------------------------------------------------------------
+    // constant_time_eq -- spot-check the basic contract. The constant-time
+    // property itself isn't testable here; we just confirm correctness.
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn constant_time_eq_equal_inputs() {
+        assert!(constant_time_eq(b"", b""));
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(constant_time_eq(
+            b"Bearer secret-1234",
+            b"Bearer secret-1234"
+        ));
+    }
+
+    #[test]
+    fn constant_time_eq_different_inputs() {
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"", b"a"));
+        assert!(!constant_time_eq(b"Bearer x", b"bearer x")); // case sensitive
+    }
+
+    // ------------------------------------------------------------------------
+    // classify -- the String-payload variants are constructable on the host
+    // (no JsValue). UnknownJsError can't be tested here because it carries a
+    // raw JsValue; integration tests covering that path live downstream.
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn classify_maps_typed_email_errors_to_canonical_codes() {
+        let (code, status) = classify(&worker::Error::RateLimitExceeded("oops".into()));
+        assert_eq!(code, "E_RATE_LIMIT_EXCEEDED");
+        assert_eq!(status, 429);
+
+        let (code, status) = classify(&worker::Error::DailyLimitExceeded("daily".into()));
+        assert_eq!(code, "E_DAILY_LIMIT_EXCEEDED");
+        assert_eq!(status, 429);
+
+        let (code, status) = classify(&worker::Error::EmailRecipientNotAllowed("nope".into()));
+        assert_eq!(code, "E_RECIPIENT_NOT_ALLOWED");
+        assert_eq!(status, 400);
+
+        let (code, status) = classify(&worker::Error::EmailRecipientSuppressed("on list".into()));
+        assert_eq!(code, "E_RECIPIENT_SUPPRESSED");
+        assert_eq!(status, 400);
+
+        let (code, status) = classify(&worker::Error::InternalError("transient".into()));
+        assert_eq!(code, "E_INTERNAL_SERVER_ERROR");
+        assert_eq!(status, 502);
+    }
+
+    #[test]
+    fn classify_falls_back_to_unknown_for_other_variants() {
+        // RustError carries a String but isn't an email-classified variant.
+        let (code, status) = classify(&worker::Error::RustError("something".into()));
+        assert_eq!(code, "E_UNKNOWN");
+        assert_eq!(status, 502);
+    }
+}

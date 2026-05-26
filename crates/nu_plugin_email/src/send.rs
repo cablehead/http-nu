@@ -160,3 +160,83 @@ pub fn mask_token(t: &str) -> String {
         format!("{}...{}", &t[..4], &t[t.len() - 4..])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(url: &str, token: &str) -> Config {
+        Config {
+            worker_url: url.into(),
+            auth_token: token.into(),
+        }
+    }
+
+    #[test]
+    fn mask_token_redacts_short_strings_in_full() {
+        // <= 8 chars: no leakage at all -- a 4-char prefix would give too
+        // much away on short tokens.
+        assert_eq!(mask_token(""), "<redacted>");
+        assert_eq!(mask_token("a"), "<redacted>");
+        assert_eq!(mask_token("12345678"), "<redacted>");
+    }
+
+    #[test]
+    fn mask_token_shows_4_4_for_longer_strings() {
+        assert_eq!(mask_token("123456789"), "1234...6789");
+        assert_eq!(mask_token("very-long-secret-here"), "very...here");
+        // 32-char hex (the shape openssl rand -hex 32 emits)
+        let t = "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe";
+        let masked = mask_token(t);
+        assert_eq!(masked, "dead...babe");
+        // Just to be explicit: actual middle is not in output.
+        assert!(!masked.contains("cafe"));
+    }
+
+    #[test]
+    fn dry_run_emits_curl_with_masked_token_and_pretty_body() {
+        let cfg = cfg("https://email.example.workers.dev", "abcdefghijklmnop");
+        let req = EmailRequest {
+            to: "to@example.com".into(),
+            from: "from@example.com".into(),
+            subject: "hello".into(),
+            text: "body".into(),
+            html: None,
+            reply_to: None,
+            request_ref: Some("req-1".into()),
+        };
+        let out = dry_run(&cfg, &req).expect("dry_run is infallible for valid req");
+
+        // Endpoint stitched together.
+        assert!(out.contains("curl -X POST https://email.example.workers.dev/send"));
+        // Token never appears in plaintext.
+        assert!(!out.contains("abcdefghijklmnop"));
+        assert!(out.contains("Bearer abcd...mnop"));
+        // Body fields all present.
+        assert!(out.contains("\"to\": \"to@example.com\""));
+        assert!(out.contains("\"from\": \"from@example.com\""));
+        assert!(out.contains("\"subject\": \"hello\""));
+        assert!(out.contains("\"request_ref\": \"req-1\""));
+    }
+
+    #[test]
+    fn dry_run_handles_trailing_slash_in_worker_url() {
+        // Config::from_env trims trailing slashes, but a hand-built Config
+        // (e.g. tests, or future callers) might not. Belt-and-braces.
+        let cfg = cfg("https://email.example.workers.dev/", "12345678abcd");
+        let req = EmailRequest {
+            to: "x@y".into(),
+            from: "y@x".into(),
+            subject: "s".into(),
+            text: "t".into(),
+            html: None,
+            reply_to: None,
+            request_ref: None,
+        };
+        let out = dry_run(&cfg, &req).unwrap();
+        // We get the URL verbatim -- caller's responsibility to normalize.
+        // This test pins the current behavior; if we change it later, the
+        // test failure signals the wire-format shift.
+        assert!(out.contains("https://email.example.workers.dev//send"));
+    }
+}
