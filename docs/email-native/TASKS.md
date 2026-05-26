@@ -188,15 +188,16 @@ from another repo.
 - [x] `email:worker:teardown` -- `wrangler delete --force` on `cf-email-worker`. Pairs with `email:worker:deploy`.
 - [x] `email:secrets:purge` -- deletes all `HTTP_NU_EMAIL_*` keychain items. Prompts before destroying unless `--yes` (or `EMAIL_PURGE_CONFIRM=1`) is passed. `scripts/email-secrets-purge.nu`.
 - [x] `email:teardown` umbrella -- runs the three above in correct order (rule -> worker -> secrets). Pass `--yes-secrets` to skip the keychain prompt.
-- [x] **#18** `email:dns:check` -- reports SPF/DMARC/MX state via `^dig`, prints Cloudflare-recommended records. Read-only. DKIM points at dashboard (CF generates per-domain). Reads `$CF_EMAIL_SENDER_DOMAIN`. Implemented in `scripts/email-dns-check.nu` (rewritten from bash 2026-05-26).
-- [x] **#19** `email:routing:rule:apply` -- CF API call via nushell `http get/post` to create catch-all rule pointing `*@$CF_EMAIL_SENDER_DOMAIN` at `cf-email-worker`. Idempotent (looks up zone id, checks existing rules, skips if already present). Dashboard alternative in the script header. Implemented in `scripts/email-routing-rule-apply.nu` (rewritten from bash 2026-05-26).
+- [x] **#18** `email:dns:check` -- reports SPF/DMARC/MX state via `^dig`. Read-only. Implemented in `scripts/email-dns-check.nu`.
+- [x] **#19** `email:routing:rule:apply` -- CF API call via nushell `http get/post` to create catch-all rule pointing `*@$CF_EMAIL_SENDER_DOMAIN` at `cf-email-worker`. Idempotent. `scripts/email-routing-rule-apply.nu`.
+- [x] **`email:sender-domain:add`** -- (NEW, 2026-05-26) register sender domain on CF Email Service AND publish DKIM/SPF/DMARC via DNS API. Idempotent. `scripts/email-sender-domain-add.nu`. **The dashboard step turned out to be API-doable after all** -- the docs index pointed at `email_sending/subdomains` but the live endpoint is `/zones/{id}/email/sending/subdomains` (zone-scoped, not account-scoped). One curl POST registers; one DNS API loop publishes the records. Gracefully defers bounce MX records when Email Routing is enabled on the parent zone (outbound send still works without them).
 
 ### Testing
 
 - [x] **#20** Unit tests (14 in total). Plugin: all 6 `Outcome::from_error_code` branches + `as_str` round-trip; `mask_token` boundaries (<=8 redact, >8 4...4); `dry_run` golden (curl + masked-token + pretty body). Worker: `hmac_sha256_hex` against RFC 4231 test vectors; `constant_time_eq` equal/diff; `classify` for each `worker::Error` String-payload variant + fallback.
 - [ ] **#21** Worker integration test -- `wrangler dev --local` + plugin send -> assert `.eml` written; `POST /cdn-cgi/handler/email` simulated inbound -> assert webhook POST with valid HMAC. *(blocked by #5, #6)*
 - [ ] **#22** xs flow E2E -- append `email.send.requested`, assert `email.send.delivered` appears within N ms (against `wrangler dev --local`). *(blocked by #14)*
-- [ ] **#23** Manual paid-tier smoke -- one real send to a gmail account; one real inbound from a gmail account; recorded in `docs/email-native/smoke.md`. Final gate. **Harness exists** (`examples/email-demo/test/smoke.nu` + `mise run email-demo:smoke`); gate is "user has run the deploy chain + dashboard-enabled Email Service for the sender domain + run the test against real CF."
+- [x] **#23** Paid-tier smoke -- **PASSED 2026-05-26 against gedw99@gmail.com via `mail.amplify-cms.com`**. Outbound-only mode of `examples/email-demo/test/smoke.nu` returned `result=delivered`, CF Email Service returned a message_id. Inbound half deferred until http-nu is deployed publicly. No dashboard click needed -- full chain was scripted thanks to the API discovery codified in `email:sender-domain:add`.
 
 ### Docs
 

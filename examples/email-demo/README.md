@@ -38,9 +38,9 @@ mise run email:worker:secrets:put
 WEBHOOK_URL=https://<your-http-nu>/webhooks/email/inbound mise run email:worker:webhook-set
 
 # 7. Wire DNS + Email Routing.
-mise run email:dns:check               # observe what's there now
-# Add the SPF / DMARC records via Cloudflare dashboard, then:
-mise run email:routing:rule:apply      # creates the catch-all routing rule
+mise run email:sender-domain:add       # register sender on Email Service + publish DKIM/SPF/DMARC via DNS API
+mise run email:dns:check               # confirm records landed
+mise run email:routing:rule:apply      # creates the catch-all inbound routing rule
 
 # 8. Run the demo service.
 mise run email-demo:serve
@@ -132,16 +132,16 @@ reply from the configured inbox and close the loop.
 
 **Prereqs for it to actually PASS:**
 
-- Sender domain enabled in **CF dashboard -> Email -> Email Service ->
-  Domains** (this is a one-time dashboard step CF doesn't expose via API).
-- DKIM records added to DNS (CF generates them when you enable the domain
-  above; auto-DNS if the zone is on Cloudflare).
-- Full setup chain run (`email:secrets:generate`, `email:worker:deploy`,
-  `email:worker:url-set`, `email:worker:secrets:put`,
-  `email:worker:webhook-set`, `email:worker:domain-set`,
-  `email:routing:rule:apply`).
+- Full setup chain run -- `email:secrets:generate`,
+  `email:worker:domain-set`, `email:worker:deploy`, `email:worker:url-set`,
+  `email:worker:secrets:put`, `email:sender-domain:add`,
+  `email:routing:rule:apply`, plus `email:worker:webhook-set` if you want
+  the inbound half.
 - `serve.nu` running (`mise run email-demo:serve`) so the inbound webhook
-  has somewhere to POST.
+  has somewhere to POST (only needed for the inbound half of the test).
+- For inbound only: `amplify-cms.com`-style zone with Email Routing
+  enabled in dashboard. CF auto-creates the inbound MX records and our
+  `email:routing:rule:apply` wires the route to `cf-email-worker`.
 
 ## Teardown
 
