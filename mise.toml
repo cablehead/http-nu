@@ -217,3 +217,28 @@ use ./examples/email-demo/lib/send.nu *
 dispatch_loop
 "
 '''
+
+# ============================================================================
+# Smoke test -- half-automated end-to-end. Sends a real outbound to your
+# inbox, then tails xs for an inbound reply. Prereqs: deploy chain done +
+# TEST_RECIPIENT_EMAIL set. See examples/email-demo/test/smoke.nu.
+# ============================================================================
+
+[tasks."email:test:recipient-set"]
+description = "Store the smoke-test recipient email in fnox. Usage: mise run email:test:recipient-set -- you@example.com"
+run = '''
+set -e
+addr="${1:-}"
+if [ -z "$addr" ]; then
+  echo "Usage: mise run email:test:recipient-set -- you@example.com" >&2
+  exit 1
+fi
+fnox set -p keychain HTTP_NU_EMAIL_TEST_RECIPIENT_EMAIL "$addr"
+echo "Stored. TEST_RECIPIENT_EMAIL is now resolvable via fnox."
+'''
+
+[tasks."email-demo:smoke"]
+description = "End-to-end smoke test against the deployed Worker. Sends a real email to TEST_RECIPIENT_EMAIL and waits for an inbound reply on xs. Pass --outbound-only to skip inbound."
+depends = ["email:plugin:build"]
+env = { STORE = "./.store/email-demo" }
+run = "exec fnox exec -- nu --plugin ./target/debug/nu_plugin_email examples/email-demo/test/smoke.nu"

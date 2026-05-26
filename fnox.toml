@@ -41,3 +41,9 @@ CF_EMAIL_SENDER_DOMAIN = { provider = "keychain", value = "HTTP_NU_EMAIL_SENDER_
 # Separate from CF_EMAIL_AUTH_TOKEN (which gates plugin -> Worker); this is
 # the demo's "who can ask us to send" boundary.
 EMAIL_ADMIN_TOKEN = { provider = "keychain", value = "HTTP_NU_EMAIL_ADMIN_TOKEN" }
+
+# Recipient inbox for the half-automated smoke test in
+# examples/email-demo/test/smoke.nu. Not a secret, but kept here so
+# rotating to a different inbox is a `mise run email:test:recipient-set`
+# call instead of editing source.
+TEST_RECIPIENT_EMAIL = { provider = "keychain", value = "HTTP_NU_EMAIL_TEST_RECIPIENT_EMAIL" }

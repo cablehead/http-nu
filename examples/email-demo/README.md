@@ -108,6 +108,41 @@ To watch the lifecycle live:
 - **`E_DAILY_LIMIT_EXCEEDED`** -- Cloudflare's account-standing-based soft
   limit. Don't auto-retry today; circuit-break and resume tomorrow.
 
+## Smoke test
+
+`examples/email-demo/test/smoke.nu` is a half-automated end-to-end check:
+sends a real outbound to a configured inbox, then tails xs for an inbound
+reply. Run it after the full setup chain above:
+
+```bash
+# One-time: store the inbox you'll check by eye
+mise run email:test:recipient-set -- you@example.com
+
+# Run the smoke
+mise run email-demo:smoke
+
+# Outbound-only mode (skip the inbound wait)
+exec fnox exec -- nu examples/email-demo/test/smoke.nu --outbound-only
+```
+
+The script asserts `result == "delivered"` from `email send` (proving the
+plugin -> Worker -> CF Email Service path returned a `message_id`). It
+then waits up to 120 seconds for an `email.received` xs frame so you can
+reply from the configured inbox and close the loop.
+
+**Prereqs for it to actually PASS:**
+
+- Sender domain enabled in **CF dashboard -> Email -> Email Service ->
+  Domains** (this is a one-time dashboard step CF doesn't expose via API).
+- DKIM records added to DNS (CF generates them when you enable the domain
+  above; auto-DNS if the zone is on Cloudflare).
+- Full setup chain run (`email:secrets:generate`, `email:worker:deploy`,
+  `email:worker:url-set`, `email:worker:secrets:put`,
+  `email:worker:webhook-set`, `email:worker:domain-set`,
+  `email:routing:rule:apply`).
+- `serve.nu` running (`mise run email-demo:serve`) so the inbound webhook
+  has somewhere to POST.
+
 ## Teardown
 
 Drop the entire deployment in one command:
