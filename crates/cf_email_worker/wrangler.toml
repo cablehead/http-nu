@@ -1,0 +1,20 @@
+name = "cf-email-worker"
+main = "build/index.js"
+compatibility_date = "2024-10-01"
+
+[build]
+command = "cargo install \"worker-build@^0.8\" && worker-build --release"
+
+# Outbound: the [[send_email]] binding. `EMAIL` is the var name the Rust
+# code accesses via `env.send_email("EMAIL")`.
+[[send_email]]
+name = "EMAIL"
+
+# Inbound is NOT declared here -- per CF docs, the #[event(email)] handler
+# is wired via the dashboard (Email > Email Routing > Email Workers) or the
+# CF API. Deploy is a two-step: `wrangler deploy` ships the binary, then
+# the route assignment is separate.
+#
+# Local dev simulates inbound via `POST /cdn-cgi/handler/email` to
+# `wrangler dev --local` with the raw .eml body and `?from=&to=` query
+# params -- no dashboard interaction needed for tests.
