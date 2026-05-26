@@ -1,0 +1,7 @@
+# Wrangler dev local state -- cache + login session. Build artifact, don't
+# commit. Re-created on every `wrangler dev` / `wrangler deploy`.
+.wrangler/
+
+# worker-build output. `cargo install worker-build` runs from wrangler.toml's
+# [build] command and writes the wasm + JS shim here. Build artifact.
+build/

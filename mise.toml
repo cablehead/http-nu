@@ -4,10 +4,6 @@
 # VAPID / push-demo tasks; when both branches merge to main, the [tools]
 # sections overlap on rust + nushell + fnox (identical pins), and the
 # [tasks.*] namespaces don't collide (push:* vs email:*).
-#
-# Wrangler is NOT installed via mise -- it's an npm-based CLI. Install
-# globally with `npm install -g wrangler` or run as `npx wrangler` in
-# place of `wrangler` in the tasks below.
 
 [settings]
 experimental = true
@@ -16,6 +12,9 @@ experimental = true
 rust                     = "stable"
 "github:nushell/nushell" = "0.112"
 "github:jdx/fnox"        = "1.24"
+# Wrangler from npm. Pinned here so `mise install` provisions it alongside
+# the rest -- no separate `npm install -g` step.
+"npm:wrangler"           = "4.71.0"
 
 # ============================================================================
 # Plugin build / test
@@ -140,6 +139,46 @@ run = "fnox exec -- ./scripts/email-dns-check.sh"
 [tasks."email:routing:rule:apply"]
 description = "Idempotently create the catch-all CF Email Routing rule that points *@$CF_EMAIL_SENDER_DOMAIN at cf-email-worker. Safe to re-run."
 run = "fnox exec -- ./scripts/email-routing-rule-apply.sh"
+
+# ============================================================================
+# Teardown -- reverse of the setup chain. Each step is idempotent and
+# documents the dashboard alternative. The `email:teardown` umbrella runs
+# them in the right order (routing rule first, then worker delete, then
+# secrets purge) so a user can drop the deployment with one command.
+# ============================================================================
+
+[tasks."email:routing:rule:remove"]
+description = "Delete the catch-all CF Email Routing rule (mirror of email:routing:rule:apply). Idempotent."
+run = "fnox exec -- ./scripts/email-routing-rule-remove.sh"
+
+[tasks."email:worker:teardown"]
+description = "Delete the deployed cf-email-worker from Cloudflare. Pairs with email:worker:deploy."
+run = "cd crates/cf_email_worker && fnox exec -- wrangler delete --force"
+
+[tasks."email:secrets:purge"]
+description = "Delete all HTTP_NU_EMAIL_* keychain items. Prompts unless --yes is passed. Idempotent."
+run = "./scripts/email-secrets-purge.sh"
+
+[tasks."email:teardown"]
+description = "Drop the entire deployment in the correct order: routing rule -> worker -> secrets. Each step is idempotent; safe to run multiple times. Pass --yes-secrets to skip the secrets prompt."
+run = '''
+set -e
+echo "==> 1/3 removing Email Routing rule..."
+mise run email:routing:rule:remove || echo "  (continuing; rule remove may have already been done)"
+echo
+echo "==> 2/3 deleting deployed Worker..."
+mise run email:worker:teardown || echo "  (continuing; Worker may already be gone)"
+echo
+echo "==> 3/3 purging keychain items..."
+if [ "${1:-}" = "--yes-secrets" ]; then
+  ./scripts/email-secrets-purge.sh --yes
+else
+  ./scripts/email-secrets-purge.sh
+fi
+echo
+echo "Teardown complete. fnox.toml and mise.toml are unchanged -- redeploy"
+echo "with the usual setup chain whenever you want."
+'''
 
 # ============================================================================
 # Demo service: http-nu + nu_plugin_email running examples/email-demo/serve.nu.

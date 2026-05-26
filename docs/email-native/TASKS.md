@@ -179,8 +179,15 @@ from another repo.
 
 ### Secrets & deployment
 
-- [x] **#16** `fnox.toml` -- CLOUDFLARE_API_TOKEN + CF_EMAIL_{AUTH_TOKEN,WEBHOOK_HMAC_KEY,WORKER_URL,WEBHOOK_URL,SENDER_DOMAIN} entries. Keychain item names repo-prefixed (`HTTP_NU_EMAIL_*`) per [[feedback_cloud_project_per_repo]].
+- [x] **#16** `fnox.toml` -- CLOUDFLARE_API_TOKEN + CF_EMAIL_{AUTH_TOKEN,WEBHOOK_HMAC_KEY,WORKER_URL,WEBHOOK_URL,SENDER_DOMAIN} + EMAIL_ADMIN_TOKEN entries. Keychain item names repo-prefixed (`HTTP_NU_EMAIL_*`) per [[feedback_cloud_project_per_repo]].
 - [x] **#17** Mise tasks -- `email:plugin:{build,test}`, `email:worker:{check,dev,deploy,tail}`, `email:secrets:generate`, `email:worker:{url-set,webhook-set,domain-set}`, `email:worker:secrets:put`. All deploy paths route through `fnox exec`.
+
+### Teardown (added 2026-05-26)
+
+- [x] `email:routing:rule:remove` -- mirror of `apply`; deletes the catch-all rule via CF API (idempotent: silent no-op if rule isn't there). `scripts/email-routing-rule-remove.sh`.
+- [x] `email:worker:teardown` -- `wrangler delete --force` on `cf-email-worker`. Pairs with `email:worker:deploy`.
+- [x] `email:secrets:purge` -- deletes all `HTTP_NU_EMAIL_*` keychain items. Prompts before destroying unless `--yes` (or `EMAIL_PURGE_CONFIRM=1`) is passed. `scripts/email-secrets-purge.sh`.
+- [x] `email:teardown` umbrella -- runs the three above in correct order (rule -> worker -> secrets). Pass `--yes-secrets` to skip the keychain prompt.
 - [x] **#18** `email:dns:check` -- reports SPF/DMARC/MX state via `dig`, prints Cloudflare-recommended records. Read-only. DKIM points at dashboard (CF generates per-domain). Reads `$CF_EMAIL_SENDER_DOMAIN`. `email-demo:serve` task lands with #12-#14.
 - [x] **#19** `email:routing:rule:apply` -- CF API call (curl + jq, no python) to create catch-all rule pointing `*@$CF_EMAIL_SENDER_DOMAIN` at `cf-email-worker`. Idempotent (looks up zone id, checks existing rules, skips if already present). Dashboard alternative documented in the script header.
 

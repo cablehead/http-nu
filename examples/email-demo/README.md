@@ -108,6 +108,31 @@ To watch the lifecycle live:
 - **`E_DAILY_LIMIT_EXCEEDED`** -- Cloudflare's account-standing-based soft
   limit. Don't auto-retry today; circuit-break and resume tomorrow.
 
+## Teardown
+
+Drop the entire deployment in one command:
+
+```bash
+mise run email:teardown
+```
+
+Reverse of the setup chain: removes the Email Routing rule, deletes the
+Worker via wrangler, then purges the `HTTP_NU_EMAIL_*` keychain items.
+Each step is idempotent so it's safe to re-run. Pass `--yes-secrets` to
+skip the destructive-confirmation prompt on the keychain step.
+
+Individual steps if you want to teardown selectively:
+
+```bash
+mise run email:routing:rule:remove   # CF Email Routing rule only
+mise run email:worker:teardown       # Worker only (wrangler delete --force)
+mise run email:secrets:purge         # keychain items only (prompts)
+```
+
+`fnox.toml` and `mise.toml` themselves are unchanged after teardown -- the
+env-var-to-keychain mapping persists, so a future `email:secrets:generate`
+repopulates without editing config.
+
 ## Security notes (read before production)
 
 - Bearer-token auth on `/send` is single-secret; rotate via
