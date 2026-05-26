@@ -134,11 +134,11 @@ echo "Done. The Worker will pick these up on the next request after deploy."
 
 [tasks."email:dns:check"]
 description = "Report SPF / DMARC / MX state for the configured sender domain. Read-only; tells you what to add but doesn't mutate DNS."
-run = "fnox exec -- ./scripts/email-dns-check.sh"
+run = "fnox exec -- ./scripts/email-dns-check.nu"
 
 [tasks."email:routing:rule:apply"]
 description = "Idempotently create the catch-all CF Email Routing rule that points *@$CF_EMAIL_SENDER_DOMAIN at cf-email-worker. Safe to re-run."
-run = "fnox exec -- ./scripts/email-routing-rule-apply.sh"
+run = "fnox exec -- ./scripts/email-routing-rule-apply.nu"
 
 # ============================================================================
 # Teardown -- reverse of the setup chain. Each step is idempotent and
@@ -149,7 +149,7 @@ run = "fnox exec -- ./scripts/email-routing-rule-apply.sh"
 
 [tasks."email:routing:rule:remove"]
 description = "Delete the catch-all CF Email Routing rule (mirror of email:routing:rule:apply). Idempotent."
-run = "fnox exec -- ./scripts/email-routing-rule-remove.sh"
+run = "fnox exec -- ./scripts/email-routing-rule-remove.nu"
 
 [tasks."email:worker:teardown"]
 description = "Delete the deployed cf-email-worker from Cloudflare. Pairs with email:worker:deploy."
@@ -157,7 +157,7 @@ run = "cd crates/cf_email_worker && fnox exec -- wrangler delete --force"
 
 [tasks."email:secrets:purge"]
 description = "Delete all HTTP_NU_EMAIL_* keychain items. Prompts unless --yes is passed. Idempotent."
-run = "./scripts/email-secrets-purge.sh"
+run = "./scripts/email-secrets-purge.nu"
 
 [tasks."email:teardown"]
 description = "Drop the entire deployment in the correct order: routing rule -> worker -> secrets. Each step is idempotent; safe to run multiple times. Pass --yes-secrets to skip the secrets prompt."
@@ -171,9 +171,9 @@ mise run email:worker:teardown || echo "  (continuing; Worker may already be gon
 echo
 echo "==> 3/3 purging keychain items..."
 if [ "${1:-}" = "--yes-secrets" ]; then
-  ./scripts/email-secrets-purge.sh --yes
+  ./scripts/email-secrets-purge.nu --yes
 else
-  ./scripts/email-secrets-purge.sh
+  ./scripts/email-secrets-purge.nu
 fi
 echo
 echo "Teardown complete. fnox.toml and mise.toml are unchanged -- redeploy"
