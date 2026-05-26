@@ -32,3 +32,9 @@ formatting issues. Use ASCII characters only in code, comments, and documentatio
 
 Use `/release [version]` command to execute the automated release workflow. See
 `.claude/commands/release.md` for details.
+
+## Nushell version
+
+When bumping the embedded Nushell (the `nu-*` crate versions in `Cargo.toml`),
+update `hustcer/setup-nu`'s `version` in `.github/workflows/ci.yml` to match, so
+the `tests/*.nu` suites run on the same engine the binary bundles.
