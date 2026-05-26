@@ -163,7 +163,7 @@ from another repo.
 
 ### xs schema
 
-- [ ] **#11** `docs/email-native/events.md` -- finalize schema for `email.send.{requested,delivered,failed,rate_limited,daily_quota_exceeded}` and `email.received`. Document lifecycle handler sketch.
+- [x] **#11** `docs/email-native/events.md` -- schema for `email.send.{requested,delivered,failed,rate_limited,daily_quota_exceeded}` and `email.received`, with lifecycle diagram, idempotency notes (request_ref vs frame id vs Message-ID), retention guidance.
 
 ### Example: email-demo
 
@@ -173,9 +173,9 @@ from another repo.
 
 ### Secrets & deployment
 
-- [ ] **#16** `fnox.toml` item `http-nu-email-cf` -- entries per the Secrets table above.
-- [ ] **#17** Mise tasks -- `email:worker:deploy`, `email:worker:dev`, `email:worker:tail`, `email-demo:serve`. Inject env from fnox.
-- [ ] **#18** Sender domain setup script -- mise task that walks DNS for SPF / DKIM / DMARC additions; idempotent; reads target domain from `$CF_EMAIL_SENDER_DOMAIN`.
+- [x] **#16** `fnox.toml` -- CLOUDFLARE_API_TOKEN + CF_EMAIL_{AUTH_TOKEN,WEBHOOK_HMAC_KEY,WORKER_URL,WEBHOOK_URL,SENDER_DOMAIN} entries. Keychain item names repo-prefixed (`HTTP_NU_EMAIL_*`) per [[feedback_cloud_project_per_repo]].
+- [x] **#17** Mise tasks -- `email:plugin:{build,test}`, `email:worker:{check,dev,deploy,tail}`, `email:secrets:generate`, `email:worker:{url-set,webhook-set,domain-set}`, `email:worker:secrets:put`. All deploy paths route through `fnox exec`.
+- [ ] **#18** Sender domain setup script -- mise task that walks DNS for SPF / DKIM / DMARC additions; idempotent; reads target domain from `$CF_EMAIL_SENDER_DOMAIN`. `email-demo:serve` task lands with #12-#14.
 - [ ] **#19** Email Routing rule setup -- mise task using `wrangler` (or CF API) to create `*@$CF_EMAIL_SENDER_DOMAIN -> cf_email_worker` route. Idempotent. Documents the dashboard alternative.
 
 ### Testing

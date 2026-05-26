@@ -1,0 +1,126 @@
+# mise.toml -- email-native branch.
+#
+# Slim, additive-mergeable. push-native carries a parallel mise.toml with
+# VAPID / push-demo tasks; when both branches merge to main, the [tools]
+# sections overlap on rust + nushell + fnox (identical pins), and the
+# [tasks.*] namespaces don't collide (push:* vs email:*).
+#
+# Wrangler is NOT installed via mise -- it's an npm-based CLI. Install
+# globally with `npm install -g wrangler` or run as `npx wrangler` in
+# place of `wrangler` in the tasks below.
+
+[settings]
+experimental = true
+
+[tools]
+rust                     = "stable"
+"github:nushell/nushell" = "0.112"
+"github:jdx/fnox"        = "1.24"
+
+# ============================================================================
+# Plugin build / test
+# ============================================================================
+
+[tasks."email:plugin:build"]
+description = "Build the nu_plugin_email binary"
+sources = ["crates/nu_plugin_email/src/**/*.rs", "crates/nu_plugin_email/Cargo.toml"]
+outputs = ["target/debug/nu_plugin_email"]
+run = "cargo build -p nu_plugin_email"
+
+[tasks."email:plugin:test"]
+description = "Run unit tests for nu_plugin_email"
+run = "cargo test -p nu_plugin_email"
+
+# ============================================================================
+# Worker build / dev / deploy / tail. All routed through `fnox exec` so
+# wrangler sees CLOUDFLARE_API_TOKEN and the Worker sees its runtime secrets.
+# ============================================================================
+
+[tasks."email:worker:check"]
+description = "Type-check cf_email_worker against wasm32-unknown-unknown (fast, no deploy)"
+sources = ["crates/cf_email_worker/src/**/*.rs", "crates/cf_email_worker/Cargo.toml"]
+run = "cargo check -p cf_email_worker --target wasm32-unknown-unknown"
+
+[tasks."email:worker:dev"]
+description = "Run cf_email_worker locally. Outbound writes to .eml files; simulate inbound with `curl -X POST localhost:8787/cdn-cgi/handler/email --data-binary @sample.eml`."
+run = "cd crates/cf_email_worker && fnox exec -- wrangler dev --local"
+
+[tasks."email:worker:deploy"]
+description = "Deploy cf_email_worker to Cloudflare. After first deploy, run email:worker:url-set with the printed URL."
+run = "cd crates/cf_email_worker && fnox exec -- wrangler deploy"
+
+[tasks."email:worker:tail"]
+description = "Tail logs from the deployed cf_email_worker"
+run = "cd crates/cf_email_worker && fnox exec -- wrangler tail"
+
+# ============================================================================
+# Secrets generation + worker secret-put. Keychain item names are
+# repo-prefixed (HTTP_NU_EMAIL_*) -- see fnox.toml.
+# ============================================================================
+
+[tasks."email:secrets:generate"]
+description = "Generate CF_EMAIL_AUTH_TOKEN + CF_EMAIL_WEBHOOK_HMAC_KEY and store in fnox keychain (one-time per repo clone)."
+run = '''
+set -e
+auth=$(openssl rand -hex 32)
+hmac=$(openssl rand -hex 32)
+fnox set -p keychain HTTP_NU_EMAIL_AUTH_TOKEN "$auth"
+fnox set -p keychain HTTP_NU_EMAIL_WEBHOOK_HMAC_KEY "$hmac"
+echo ""
+echo "Stored. The plugin and Worker will read these via fnox exec."
+echo "Next:"
+echo "  mise run email:worker:secrets:put     # push to the Worker"
+echo "  mise run email:worker:url-set -- URL  # store the deployed URL"
+'''
+
+[tasks."email:worker:url-set"]
+description = "Store the deployed Worker URL in fnox. Usage: mise run email:worker:url-set -- https://cf-email-worker.<acct>.workers.dev"
+run = '''
+set -e
+url="${1:-}"
+if [ -z "$url" ]; then
+  echo "Usage: mise run email:worker:url-set -- https://cf-email-worker.<acct>.workers.dev" >&2
+  exit 1
+fi
+fnox set -p keychain HTTP_NU_EMAIL_WORKER_URL "$url"
+echo "Stored. CF_EMAIL_WORKER_URL is now resolvable via fnox."
+'''
+
+[tasks."email:worker:webhook-set"]
+description = "Store the http-nu webhook URL (where the Worker POSTs inbound mail). Usage: mise run email:worker:webhook-set -- https://http-nu.example.com/webhooks/email/inbound"
+run = '''
+set -e
+url="${1:-}"
+if [ -z "$url" ]; then
+  echo "Usage: mise run email:worker:webhook-set -- https://your-http-nu/webhooks/email/inbound" >&2
+  exit 1
+fi
+fnox set -p keychain HTTP_NU_EMAIL_WEBHOOK_URL "$url"
+echo "Stored."
+'''
+
+[tasks."email:worker:domain-set"]
+description = "Store the sender domain in fnox. Usage: mise run email:worker:domain-set -- mail.example.com"
+run = '''
+set -e
+domain="${1:-}"
+if [ -z "$domain" ]; then
+  echo "Usage: mise run email:worker:domain-set -- mail.example.com" >&2
+  exit 1
+fi
+fnox set -p keychain HTTP_NU_EMAIL_SENDER_DOMAIN "$domain"
+echo "Stored."
+'''
+
+[tasks."email:worker:secrets:put"]
+description = "Push the runtime secrets the Worker needs (CF_EMAIL_AUTH_TOKEN, CF_EMAIL_WEBHOOK_HMAC_KEY, CF_EMAIL_WEBHOOK_URL, CF_EMAIL_SENDER_DOMAIN) via wrangler secret put. Re-run after secret rotation or first deploy."
+run = '''
+set -e
+cd crates/cf_email_worker
+for name in CF_EMAIL_AUTH_TOKEN CF_EMAIL_WEBHOOK_HMAC_KEY CF_EMAIL_WEBHOOK_URL CF_EMAIL_SENDER_DOMAIN; do
+  echo "Pushing $name to wrangler..."
+  # fnox exec injects the env var; we pipe its value to wrangler.
+  fnox exec -- sh -c "printenv $name | wrangler secret put $name"
+done
+echo "Done. The Worker will pick these up on the next request after deploy."
+'''
