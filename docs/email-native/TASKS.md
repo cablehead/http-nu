@@ -195,7 +195,7 @@ from another repo.
 
 - [ ] **#24** Plugin README (`crates/nu_plugin_email/README.md`) -- env vars, command reference, outcome codes, "doesn't run in Workers" note, idempotency guidance. *(blocked by #2)*
 - [ ] **#25** Worker README (`crates/cf_email_worker/README.md`) -- wrangler.toml binding, secrets to set, sender + DKIM setup, Email Routing rule, beta caveat, DMARC-on-reply note. *(blocked by #3)*
-- [ ] **#26** Demo README (`examples/email-demo/README.md`) -- quickstart, troubleshooting, security notes (HMAC rotation, bearer-token rotation, xs at-rest, inbound spam considerations). *(blocked by #14, #16)*
+- [x] **#26** Demo README (`examples/email-demo/README.md`) -- 8-step quickstart through `mise run` chain; routes table; curl example for `POST /send`; troubleshooting keyed to the error codes the plugin emits; security notes (token rotation, HMAC openssl-shellout caveat, xs at-rest, inbound treat-as-untrusted).
 
 ## Out of scope (deliberately)
 
