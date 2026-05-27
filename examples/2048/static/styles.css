@@ -190,6 +190,15 @@ body[data-conn="down"] #rtt { visibility: hidden; }
 #board-wrap { transition: filter 320ms ease; }
 button { transition: opacity 320ms ease; }
 
+/* A move's response hasn't landed yet. Dim the board so a slow or stalled
+   round-trip reads as "waiting" instead of a silently frozen board. The
+   1s reveal delay means normal fast moves never flash; the dim clears as
+   soon as the snapshot patch acks (via the base #board-wrap transition). */
+body.move-pending #board-wrap {
+  filter: grayscale(0.7) brightness(0.85);
+  transition: filter 200ms ease-in 1s;
+}
+
 /* Failed-move flash: brief red wash across the whole page. */
 body.flash-red { animation: flash-red 300ms ease; }
 @keyframes flash-red {
