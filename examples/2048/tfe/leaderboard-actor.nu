@@ -20,8 +20,10 @@
 # in-memory map stays warm without rewalking the stream.
 #
 # Output: a `leaderboard.top` frame per change, `ttl last:5`. Readers
-# do `.last leaderboard.top | get meta.entries`. The 5-frame history
-# is a side benefit; the head is the authoritative state. `meta` also
+# do `.last leaderboard.top | default {} | get meta?.entries? | default []`
+# (the `default {}` guards the empty-topic case -- see CLAUDE.md). The
+# 5-frame history is a side benefit; the head is the authoritative state.
+# `meta` also
 # carries `last_processed_id` = the snapshot frame id that produced
 # this publish, which is what the cursor-style start expression above
 # reads on the next spawn.
@@ -92,5 +94,5 @@ const SIZE = 5
   # summary for. On a fresh / cursor-missing store the try/catch falls
   # back to `"first"`, which replays everything once. Subsequent
   # boots become O(new-snapshots).
-  start: (.last leaderboard.top | get meta?.last_processed_id? | default "first")
+  start: (.last leaderboard.top | default {} | get meta?.last_processed_id? | default "first")
 }

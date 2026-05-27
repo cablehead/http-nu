@@ -262,7 +262,11 @@ let design = source design/serve.nu
             } else { null }
             if $changed_id == null { return {next: $data} }
             let new_meta = if $item.topic == $games_topic {
-              .last $"game.($item.id).snapshot" | get meta? | default null
+              # `default {}` first: a brand-new game may have no snapshot
+              # yet, and `.last` on an empty topic yields an empty pipeline
+              # that crashes `get` ("Pipeline empty") -- the `| default null`
+              # alone never runs. See CLAUDE.md (Nushell Style).
+              .last $"game.($item.id).snapshot" | default {} | get meta? | default null
             } else { $item.meta }
             if $new_meta == null { return {next: $data} }
             let is_new_card = $changed_id not-in ($data | columns)
