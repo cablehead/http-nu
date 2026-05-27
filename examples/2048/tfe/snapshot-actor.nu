@@ -131,5 +131,18 @@
     {next: $state}
   }
   initial: null
-  start: "new"
+  # Resume cursor: start just after the move frame that produced the most
+  # recent snapshot, so a re-register (e.g. --watch reload, restart) picks
+  # up any moves that landed in the handover window instead of dropping
+  # them. `start: "new"` would tail-start and silently lose those moves --
+  # and since the SSE echoes the move frame's req_id independently, the
+  # client's pending indicator would clear with no warning. The cursor is
+  # the snapshot's `last_move_id` (the frame it applied), NOT the snapshot
+  # frame id -- using the snapshot id would skip a move that arrived
+  # between a move and its snapshot. Singleton over all games, so it's the
+  # globally most-recent snapshot. Reprocessing the trailing no-op / unauth
+  # / dead-undo moves after that point is safe -- they append nothing.
+  # Empty store -> null -> framework default (new), which is fine: no moves
+  # to miss yet.
+  start: (.cat | where topic =~ '\.snapshot$' | last 1 | get 0?.meta?.last_move_id?)
 }
