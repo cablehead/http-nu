@@ -91,8 +91,10 @@ const SIZE = 5
   }
   initial: null
   # Resume from the snapshot id the previous spawn last published a
-  # summary for. On a fresh / cursor-missing store the try/catch falls
-  # back to `"first"`, which replays everything once. Subsequent
-  # boots become O(new-snapshots).
+  # summary for. `| default {}` guards the empty-topic case (fresh /
+  # cursor-missing store): without it, .last's empty pipeline crashes
+  # `get` ("Pipeline empty" -- see CLAUDE.md); with it, the missing
+  # `last_processed_id` reads as null and `default "first"` replays
+  # everything once. Subsequent boots become O(new-snapshots).
   start: (.last leaderboard.top | default {} | get meta?.last_processed_id? | default "first")
 }
