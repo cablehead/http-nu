@@ -22,7 +22,8 @@ echo
 echo "=== sse pipeline tests (test-sse.nu) ==="
 STORE_SSE="$(mktemp -d -t 2048-test-sse-XXXXXX)"
 STORE_ACTOR="$(mktemp -d -t 2048-test-actor-XXXXXX)"
-trap "rm -rf $STORE_SSE $STORE_ACTOR" EXIT
+STORE_SSEWC="$(mktemp -d -t 2048-test-ssewc-XXXXXX)"
+trap "rm -rf $STORE_SSE $STORE_ACTOR $STORE_SSEWC" EXIT
 # 15s wraps a potential hang inside the test (e.g. `let s = .cat
 # --follow ...` collecting an infinite stream) so the failure mode
 # becomes a non-zero exit instead of a CI lockup.
@@ -37,6 +38,16 @@ echo "=== snapshot-actor integration (test-snapshot-actor.nu) ==="
 # uses the local debug build (PATH http-nu may predate that flag).
 if ! timeout 30 "$REPO_ROOT/target/debug/http-nu" eval --services --store "$STORE_ACTOR" "$SCRIPT_DIR/test-snapshot-actor.nu"; then
   echo "test-snapshot-actor.nu failed" >&2
+  exit 1
+fi
+echo
+
+echo "=== /sse-wc integration (test-sse-wc.nu) ==="
+# Drives /sse-wc end-to-end with actors -- the consumer waits on a
+# fixed number of `data:` lines, so a missing patch becomes a clean
+# `timeout` exit rather than a hang.
+if ! timeout 30 "$REPO_ROOT/target/debug/http-nu" eval --services --store "$STORE_SSEWC" "$SCRIPT_DIR/test-sse-wc.nu"; then
+  echo "test-sse-wc.nu failed" >&2
   exit 1
 fi
 echo
