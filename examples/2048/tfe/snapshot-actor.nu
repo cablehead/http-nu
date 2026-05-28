@@ -29,7 +29,7 @@
       # Root snapshot. prev points at the games_topic frame itself so the
       # chain terminates cleanly. req_id carries the originating reset
       # POST's id so the client's RTT probe resolves.
-      null | .append $"game.($game_id).snapshot" --meta {
+      null | .append $"game.snapshot.($game_id)" --meta {
         state: $init
         last_move_id: $game_id
         prev: $game_id
@@ -44,16 +44,15 @@
       return {next: $state}
     }
 
-    # --- Move impulses: game.<id>.move ---------------------------------
-    let is_move_topic = ($topic | str starts-with "game.") and ($topic | str ends-with ".move")
-    if not $is_move_topic { return {next: $state} }
+    # --- Move impulses: game.move.<id> ---------------------------------
+    if not ($topic | str starts-with "game.move.") { return {next: $state} }
 
-    let game_id = $topic | str substring 5.. | str replace ".move" ""
+    let game_id = $topic | str substring 10..
     let kind = $frame.meta | get kind? | default "move"
 
     # Read current HEAD. Used both as the state to act on (moves) and as
     # the chain pointer (every new snapshot's meta.prev = head.id).
-    let head = .last $"game.($game_id).snapshot"
+    let head = .last $"game.snapshot.($game_id)"
     if $head == null { return {next: $state} }
     let head_state = $head.meta.state
     let player_id = $head.meta | get player_id? | default ""
@@ -112,11 +111,31 @@
       null
     }
 
-    if $result == null { return {next: $state} }
+    # No state change (no-op move into a wall, unauthorized frame, dead-end
+    # undo). Emit a `--ttl ephemeral` snapshot that carries this move's
+    # req_id so /sse-wc can resolve the client's pending ack from the
+    # snapshot stream alone (no separate move-echo path). The frame reaches
+    # live subscribers and is dropped from the store, so the durable chain
+    # stays untouched -- `prev` still points to the unchanged head.
+    if $result == null {
+      null | .append $"game.snapshot.($game_id)" --ttl ephemeral --meta {
+        state: $head_state
+        last_move_id: $frame.id
+        prev: $head.id
+        intent: $intent
+        player_id: $player_id
+        req_id: $req_id
+        score: ($head.meta | get score? | default 0)
+        max_tile: ($head.meta | get max_tile? | default 0)
+        moves: ($head.meta | get moves? | default 0)
+        game_over: ($head.meta | get game_over? | default false)
+      }
+      return {next: $state}
+    }
 
     let max_tile = if ($result.state.tiles | is-empty) { 0 } else { $result.state.tiles | get value | math max }
     let moves = [0 ($result.state.next_id - 3)] | math max
-    null | .append $"game.($game_id).snapshot" --meta {
+    null | .append $"game.snapshot.($game_id)" --meta {
       state: $result.state
       last_move_id: $frame.id
       prev: $result.snap_prev
@@ -134,15 +153,15 @@
   # Resume cursor: start just after the move frame that produced the most
   # recent snapshot, so a re-register (e.g. --watch reload, restart) picks
   # up any moves that landed in the handover window instead of dropping
-  # them. `start: "new"` would tail-start and silently lose those moves --
-  # and since the SSE echoes the move frame's req_id independently, the
-  # client's pending indicator would clear with no warning. The cursor is
-  # the snapshot's `last_move_id` (the frame it applied), NOT the snapshot
-  # frame id -- using the snapshot id would skip a move that arrived
-  # between a move and its snapshot. Singleton over all games, so it's the
-  # globally most-recent snapshot. Reprocessing the trailing no-op / unauth
-  # / dead-undo moves after that point is safe -- they append nothing.
-  # Empty store -> null -> framework default (new), which is fine: no moves
-  # to miss yet.
-  start: (.cat | where topic =~ '\.snapshot$' | last 1 | get 0?.meta?.last_move_id?)
+  # them. `start: "new"` would tail-start and silently lose those moves.
+  # The cursor is the snapshot's `last_move_id` (the frame it applied),
+  # NOT the snapshot's own frame id -- using the snapshot id would skip a
+  # move that arrived between a move and its snapshot. Singleton over all
+  # games, so it's the globally most-recent snapshot -- `.last
+  # "game.snapshot.*"` is an indexed prefix lookup (reverse iter on the
+  # topic index), O(1)-ish, not a scan. Reprocessing the trailing no-op /
+  # unauth / dead-undo moves after that point is safe -- they append
+  # nothing. Empty store -> default {} -> null -> framework default (new),
+  # which is fine: no moves to miss yet.
+  start: (.last "game.snapshot.*" | default {} | get meta?.last_move_id?)
 }

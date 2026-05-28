@@ -53,7 +53,7 @@ print $"--- end-to-end fold: project-game over a synthetic move stream ---"
 def frames-for [n: int] {
   1..$n | each {|i|
     let dir = ([h j k l] | get (($i + ($i * 7)) mod 4))
-    {topic: $"game.($GAME_ID).move" meta: {intent: $dir req_id: ""}}
+    {topic: $"game.move.($GAME_ID)" meta: {intent: $dir req_id: ""}}
   }
 }
 for n in [100 200 400 800] {

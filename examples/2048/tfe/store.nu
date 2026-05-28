@@ -22,7 +22,7 @@ use ./game.nu *
 # view to render each past game's resting board, and by ad-hoc poking from
 # `http-nu eval`.
 export def replay-game-state [game_id: string]: nothing -> record {
-  (.cat -T $"game.($game_id).move") | project-game $game_id
+  (.cat -T $"game.move.($game_id)") | project-game $game_id
 }
 
 # Resume helper: returns the cheapest known starting point for `game_id`.
@@ -40,7 +40,7 @@ export def replay-game-state [game_id: string]: nothing -> record {
 # self-healing for games that predate the snapshot machinery or were never
 # touched by an SSE connection.
 export def resume-game [game_id: string]: nothing -> record {
-  let snapshot = .last $"game.($game_id).snapshot"
+  let snapshot = .last $"game.snapshot.($game_id)"
   if $snapshot != null {
     return {
       state: $snapshot.meta.state
@@ -51,7 +51,7 @@ export def resume-game [game_id: string]: nothing -> record {
   # No snapshot -- full replay, then backfill so we don't pay this twice.
   let state = replay-game-state $game_id
   let moves = [0 ($state.next_id - 3)] | math max
-  let last_move = .last $"game.($game_id).move"
+  let last_move = .last $"game.move.($game_id)"
   let follow_from_id = if $last_move != null { $last_move.id } else { $game_id }
   let max_tile = if ($state.tiles | is-empty) { 0 } else { $state.tiles | get value | math max }
   # game_id is the id of the player.<uuid>.games frame that started this
@@ -60,7 +60,7 @@ export def resume-game [game_id: string]: nothing -> record {
   let player_id = if $owner_frame != null {
     $owner_frame.topic | str replace "player." "" | str replace ".games" ""
   } else { "" }
-  null | .append $"game.($game_id).snapshot" --meta {
+  null | .append $"game.snapshot.($game_id)" --meta {
     state: $state
     last_move_id: $follow_from_id
     intent: "backfill"
@@ -84,7 +84,7 @@ export def resume-game [game_id: string]: nothing -> record {
 #     follow-game "<game_id>" | each { reject state.tiles }
 #   '
 export def follow-game [game_id: string] {
-  .cat --follow -T $"game.($game_id).move"
+  .cat --follow -T $"game.move.($game_id)"
   | impulses-to-states {
     stack: [(initial-state $game_id)]
     game_id: $game_id
@@ -96,11 +96,11 @@ export def follow-game [game_id: string] {
 # List every game in the store with its move count, biggest first.
 export def list-games [] {
   .cat
-  | where ($it.topic | str starts-with "game.") and ($it.topic | str ends-with ".move")
+  | where ($it.topic | str starts-with "game.move.")
   | group-by topic
   | items {|topic frames|
       {
-        game: ($topic | str replace "game." "" | str replace ".move" "")
+        game: ($topic | str substring 10..)
         moves: ($frames | length)
       }
     }
@@ -119,7 +119,7 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
   # Move counts (for the undo column) are scanned only for the top N.
   list-players | each {|p|
     .cat -T $"player.($p.player).games" | each {|f|
-      let snap = .last $"game.($f.id).snapshot"
+      let snap = .last $"game.snapshot.($f.id)"
       if $snap == null { return null }
       let when = $snap.id | .id unpack | get timestamp
       if $when < $cutoff { return null }
@@ -138,7 +138,7 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
   | sort-by score -r
   | first $limit
   | insert undos {|row|
-      .cat -T $"game.($row.game_id).move"
+      .cat -T $"game.move.($row.game_id)"
       | where ($it.meta?.kind? | default "") == "undo" | length
     }
   | reject game_id
@@ -157,7 +157,7 @@ export def top-players [--limit: int = 10] {
   .cat
   | where ($it.topic | str starts-with "player.") and ($it.topic | str ends-with ".games")
   | each {|f|
-      let snap = .last $"game.($f.id).snapshot"
+      let snap = .last $"game.snapshot.($f.id)"
       if $snap == null { return null }
       let when = try { $snap.id | .id unpack | get timestamp } catch { null }
       {

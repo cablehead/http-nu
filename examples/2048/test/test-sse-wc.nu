@@ -5,12 +5,15 @@ use std/assert
 #
 # Drives the SSE handler end-to-end with the snapshot-actor turning
 # fed `.move` frames into snapshots, and asserts the per-event SSE
-# contract the upcoming no-op-ack refactor will modify:
+# contract:
 #
 #   threshold flush     -> a patch with boardState (the latest state)
-#   no-op move          -> a lastReqId-only echo
-#   state-changing move -> echo, then a full boardState patch
-#   undo                -> echo, then a full boardState patch
+#   no-op move          -> a boardState patch with unchanged state
+#                          (the actor emits an ephemeral snapshot
+#                          carrying the move's req_id)
+#   state-changing move -> a boardState patch with the new state
+#                          (the durable snapshot the actor appends)
+#   undo                -> a boardState patch reverting to the parent
 #
 # Determinism trick: after the actor writes the root snapshot, we
 # append a synthetic snapshot whose state has two value-2 tiles at
@@ -35,7 +38,7 @@ sleep 500ms
 
 let g = (null | .append "player.test-uid.games")
 sleep 800ms
-let root = .last $"game.($g.id).snapshot"
+let root = .last $"game.snapshot.($g.id)"
 assert ($root != null) "harness: root snapshot exists"
 
 # Synthetic head: two value-2 tiles, one at top-left, one at bottom-left.
@@ -49,7 +52,7 @@ let controlled = $root.meta.state
   | upsert score 0
   | upsert game_over false
 
-null | .append $"game.($g.id).snapshot" --meta {
+null | .append $"game.snapshot.($g.id)" --meta {
   state: $controlled
   last_move_id: $g.id
   prev: $root.id
@@ -66,12 +69,10 @@ sleep 200ms
 # --- the contract we're pinning --------------------------------------------
 
 let expectations = [
-  { kind: "initial"                              }   # threshold flush of the synthetic
-  { kind: "lastReqId-only" req_id: "req-noop"    }   # no-op 'h' echo
-  { kind: "lastReqId-only" req_id: "req-real"    }   # state-change 'j' echo
-  { kind: "boardState"     req_id: "req-real"    }   # state-change 'j' snapshot
-  { kind: "lastReqId-only" req_id: "req-undo"    }   # undo echo
-  { kind: "boardState"     req_id: "req-undo"    }   # undo snapshot
+  { kind: "initial"                          }   # threshold flush of the synthetic
+  { kind: "boardState" req_id: "req-noop"    }   # no-op 'h' -- ephemeral snapshot, unchanged state
+  { kind: "boardState" req_id: "req-real"    }   # state-change 'j' -- durable snapshot
+  { kind: "boardState" req_id: "req-undo"    }   # undo -- durable snapshot, reverts to synthetic
 ]
 
 # --- background feeder -----------------------------------------------------
@@ -80,11 +81,11 @@ let expectations = [
 
 let feeder = job spawn {
   sleep 600ms
-  null | .append $"game.($g.id).move" --meta { user_id: "test-uid" session_id: "s" req_id: "req-noop" intent: "h" }
+  null | .append $"game.move.($g.id)" --meta { user_id: "test-uid" session_id: "s" req_id: "req-noop" intent: "h" }
   sleep 300ms
-  null | .append $"game.($g.id).move" --meta { user_id: "test-uid" session_id: "s" req_id: "req-real" intent: "j" }
+  null | .append $"game.move.($g.id)" --meta { user_id: "test-uid" session_id: "s" req_id: "req-real" intent: "j" }
   sleep 300ms
-  null | .append $"game.($g.id).move" --meta { user_id: "test-uid" session_id: "s" req_id: "req-undo" kind: "undo" }
+  null | .append $"game.move.($g.id)" --meta { user_id: "test-uid" session_id: "s" req_id: "req-undo" kind: "undo" }
 }
 
 # --- consumer --------------------------------------------------------------
@@ -116,10 +117,6 @@ $data_lines | enumerate | each {|p|
     "boardState" => {
       assert ("boardState" in $signals)                           $"step ($p.index) boardState: has boardState"
       assert (($signals.lastReqId? | default "") == $want.req_id) $"step ($p.index) boardState: lastReqId == ($want.req_id)"
-    }
-    "lastReqId-only" => {
-      assert (not ("boardState" in $signals))                     $"step ($p.index) echo: boardState absent"
-      assert (($signals.lastReqId? | default "") == $want.req_id) $"step ($p.index) echo: lastReqId == ($want.req_id)"
     }
   }
 } | ignore

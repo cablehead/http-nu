@@ -172,7 +172,7 @@ export def apply-move [dir: string, game_id: string]: record -> record {
 export def filter-for-player [games_topic: string] {
   where {|f| (
     $f.topic == $games_topic
-    or (($f.topic | str starts-with "game.") and ($f.topic | str ends-with ".move"))
+    or ($f.topic | str starts-with "game.move.")
     or $f.topic == "xs.threshold"
     or $f.topic == "xs.pulse"
   ) }
@@ -220,7 +220,7 @@ export def impulses-to-states [initial: record] {
         next: ($s | update stack [$new_state] | update game_id $new_game_id)
       }
     }
-    if $frame.topic != $"game.($s.game_id).move" {
+    if $frame.topic != $"game.move.($s.game_id)" {
       # Some other player's game, or our own old game. Drop.
       return {next: $s}
     }
@@ -255,7 +255,7 @@ export def impulses-to-states [initial: record] {
 # game_id is required -- spawn rolls are seeded from it, so without it the
 # replay would diverge from what the live server produced.
 #
-#   .cat -T $"game.($id).move" | project-game $id | to json
+#   .cat -T $"game.move.($id)" | project-game $id | to json
 export def project-game [game_id: string]: list -> record {
   # Single-statement body: a `let` between a custom command's input and a
   # downstream `generate` (inside impulses-to-states) breaks the implicit

@@ -37,8 +37,7 @@ const SIZE = 5
     let topic = $frame.topic
 
     # Only snapshots matter. Skip everything else cheaply.
-    let is_snapshot = ($topic | str starts-with "game.") and ($topic | str ends-with ".snapshot")
-    if not $is_snapshot { return {next: $state} }
+    if not ($topic | str starts-with "game.snapshot.") { return {next: $state} }
 
     # Lazy-load from the persisted head. After a re-registration the
     # framework restarts the closure with $state = initial (null) even
@@ -61,7 +60,7 @@ const SIZE = 5
     let existing = $top | where {|r| $r.player_id == $player_id} | get score? | first
     if $existing != null and $existing >= $score { return {next: $top} }
 
-    let game_id = $topic | str substring 5.. | str replace ".snapshot" ""
+    let game_id = $topic | str substring 14..
     let entry = {
       player_id: $player_id
       game_id: $game_id

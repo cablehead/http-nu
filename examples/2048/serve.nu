@@ -31,7 +31,7 @@ const SPLASH_GAME_ID = "03g561k2p2p4ftv9p9iykb1kf"
 # Load the snapshot stream ONCE at server start (closures inherit this
 # binding). 2880-ish frames, all in memory, indexable in O(1).
 let SPLASH_STATES = if ($HTTP_NU.store? | default null) == null { [] } else {
-  try { .cat -T $"game.($SPLASH_GAME_ID).snapshot" | get meta.state } catch { [] }
+  try { .cat -T $"game.snapshot.($SPLASH_GAME_ID)" | get meta.state } catch { [] }
 }
 # YYYY-MM-DD of the run (SCRU128 timestamp 1779014675.541 = 2026-05-17).
 # Hardcoded for now -- `.id unpack` isn't in scope at module-init time;
@@ -114,7 +114,7 @@ let design = source design/serve.nu
         }
         null | metadata set { merge {'http.response': {status: 204}} }
       } else {
-        let topic = $"game.($game_id).move"
+        let topic = $"game.move.($game_id)"
         let meta_base = {
           user_id: $session.user_id
           session_id: $session.session_id
@@ -237,7 +237,7 @@ let design = source design/serve.nu
         # initial_data; everything > it is genuinely new.
         let game_frames = try { .cat -T $games_topic } catch { [] }
         let scan = $game_frames | each {|f|
-          let snap = .last $"game.($f.id).snapshot"
+          let snap = .last $"game.snapshot.($f.id)"
           let max_id = if $snap == null { $f.id } else { [$f.id, $snap.id] | sort | last }
           {game_id: $f.id, snap: $snap, max_id: $max_id}
         }
@@ -257,8 +257,8 @@ let design = source design/serve.nu
             if ('event' in $item) { return {out: $item, next: $data} }
             let changed_id = if $item.topic == $games_topic {
               $item.id
-            } else if (($item.topic | str ends-with ".snapshot") and (($item.meta? | get player_id? | default "") == $player_id)) {
-              $item.topic | str replace "game." "" | str replace ".snapshot" ""
+            } else if (($item.topic | str starts-with "game.snapshot.") and (($item.meta? | get player_id? | default "") == $player_id)) {
+              $item.topic | str substring 14..
             } else { null }
             if $changed_id == null { return {next: $data} }
             let new_meta = if $item.topic == $games_topic {
@@ -266,7 +266,7 @@ let design = source design/serve.nu
               # yet, and `.last` on an empty topic yields an empty pipeline
               # that crashes `get` ("Pipeline empty") -- the `| default null`
               # alone never runs. See CLAUDE.md (Nushell Style).
-              .last $"game.($item.id).snapshot" | default {} | get meta? | default null
+              .last $"game.snapshot.($item.id)" | default {} | get meta? | default null
             } else { $item.meta }
             if $new_meta == null { return {next: $data} }
             let is_new_card = $changed_id not-in ($data | columns)
@@ -313,16 +313,20 @@ let design = source design/serve.nu
     (route {method: GET path-matches: "/sse-wc/:game_id"} {|req ctx|
       let game_id = $ctx.game_id
       # The actor owns game state; the SSE handler is a thin reader of
-      # this game's snapshot stream. --from $game_id includes the
-      # games_topic frame at that id and everything after; the
-      # threshold-gate buffers it down to just the latest snapshot for
-      # the initial render. Interleaved with the site-wide presence
-      # stream so a /watch or /play tab sees live "N people on this
-      # game" counts on the same connection.
+      # this game's snapshot stream. Snapshot-only (exact-match -T,
+      # indexed): every move ack now flows through a snapshot --
+      # state-changing as a durable one, no-op as an ephemeral one
+      # carrying just the req_id -- so the SSE has no reason to follow
+      # `game.move.<id>`. --from $game_id includes the games_topic
+      # frame at that id and everything after; threshold-gate buffers
+      # it down to just the latest snapshot for the initial render.
+      # Interleaved with the site-wide presence stream so a /watch or
+      # /play tab sees live "N people on this game" counts on the same
+      # connection.
       # No `let board_stream = ...` -- Nushell `let` would COLLECT
       # the infinite `.cat --follow` before binding, hanging the
       # handler. See examples/2048/CLAUDE.md.
-      .cat --follow -T $"game.($game_id).*" --from $game_id
+      .cat --follow -T $"game.snapshot.($game_id)" --from $game_id
       | frames-to-states
       | threshold-gate-states
       | states-to-wc-signals
@@ -503,7 +507,7 @@ let design = source design/serve.nu
       # state-for-wc's output so the WC reads everything via
       # data-attr:state.
       let hydrated = $entries | each {|e|
-        let snap = .last $"game.($e.game_id).snapshot"
+        let snap = .last $"game.snapshot.($e.game_id)"
         if $snap == null { null } else {
           let lmid = $snap.meta | get last_move_id? | default $e.game_id
           let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int

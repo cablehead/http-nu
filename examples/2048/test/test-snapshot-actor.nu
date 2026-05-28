@@ -27,7 +27,7 @@ sleep 500ms
 # root snapshot for that game (game_id = the games frame's own id).
 let g = (null | .append "player.test-uid.games")
 sleep 800ms
-let root = .last $"game.($g.id).snapshot"
+let root = .last $"game.snapshot.($g.id)"
 assert ($root != null) "new game: root snapshot exists"
 assert ($root.meta.last_move_id == $g.id) "new game: root snapshot's last_move_id == game_id"
 
@@ -36,14 +36,14 @@ assert ($root.meta.last_move_id == $g.id) "new game: root snapshot's last_move_i
 # any tile is below the top row, `k` (up) slides; otherwise `j` (down) does.
 let tiles = $root.meta.state.tiles
 let intent = if ($tiles | any {|t| $t.r > 0 }) { "k" } else { "j" }
-let move = (null | .append $"game.($g.id).move" --meta {
+let move = (null | .append $"game.move.($g.id)" --meta {
   user_id: "test-uid"
   session_id: "s"
   req_id: "real-move"
   intent: $intent
 })
 sleep 500ms
-let after_real = .last $"game.($g.id).snapshot"
+let after_real = .last $"game.snapshot.($g.id)"
 assert ($after_real.id != $root.id) "real move: a new snapshot was written"
 assert ($after_real.meta.last_move_id == $move.id) "real move: snapshot's last_move_id == move frame id"
 assert ($after_real.meta.req_id == "real-move") "real move: snapshot carries the move's req_id"
@@ -55,16 +55,16 @@ assert ($after_real.meta.intent == $intent) "real move: snapshot's intent == the
 # -- that's the no-op. With a bounded board (max 16 tiles) and a spawn per
 # state change, repeated same-direction moves saturate within a small budget.
 mut saw_noop = false
-mut count = (.cat | where topic == $"game.($g.id).snapshot" | length)
+mut count = (.cat | where topic == $"game.snapshot.($g.id)" | length)
 for i in 0..30 {
-  null | .append $"game.($g.id).move" --meta {
+  null | .append $"game.move.($g.id)" --meta {
     user_id: "test-uid"
     session_id: "s"
     req_id: $"noop-($i)"
     intent: $intent
   }
   sleep 350ms
-  let now = (.cat | where topic == $"game.($g.id).snapshot" | length)
+  let now = (.cat | where topic == $"game.snapshot.($g.id)" | length)
   if $now == $count {
     $saw_noop = true
     break
@@ -76,16 +76,16 @@ assert $saw_noop "no-op move: a repeated same-direction move eventually produces
 # --- 4. undo ---------------------------------------------------------------
 # Undo walks back via `meta.prev`. The new snapshot's tiles should match the
 # parent's tiles (the actor clears spawned/merged flags on the way back).
-let head_before_undo = .last $"game.($g.id).snapshot"
+let head_before_undo = .last $"game.snapshot.($g.id)"
 let parent = .get $head_before_undo.meta.prev
-null | .append $"game.($g.id).move" --meta {
+null | .append $"game.move.($g.id)" --meta {
   user_id: "test-uid"
   session_id: "s"
   req_id: "undo-1"
   kind: "undo"
 }
 sleep 500ms
-let after_undo = .last $"game.($g.id).snapshot"
+let after_undo = .last $"game.snapshot.($g.id)"
 assert ($after_undo.id != $head_before_undo.id) "undo: a new snapshot was written"
 assert ($after_undo.meta.intent == "undo") "undo: snapshot's intent == \"undo\""
 let undo_tiles  = $after_undo.meta.state.tiles | each {|t| {r: $t.r, c: $t.c, value: $t.value}} | sort-by r c

@@ -35,7 +35,7 @@ def seed [players: int, games_per_player: int, snapshots_per_game: int] {
       # across players (top players are determined by their best game).
       let peak = ($p * 1000 + $g * 50)
       for i in 1..$snapshots_per_game {
-        null | .append $"game.($game_id).snapshot" --meta {
+        null | .append $"game.snapshot.($game_id)" --meta {
           state: {}
           player_id: $player_id
           last_move_id: ""
