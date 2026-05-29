@@ -232,3 +232,9 @@ minijinja = "2"
 
 
 
+
+# joeblew999 fork: override cross-stream with the relay-url-env branch
+# so http-nu picks up XS_RELAY_URL support. Remove once upstream merges
+# https://github.com/cablehead/xs/pull/<NNN>.
+[patch.crates-io]
+cross-stream = { git = "https://github.com/joeblew999/xs", branch = "feature/relay-url-env" }
