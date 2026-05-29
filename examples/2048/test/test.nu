@@ -110,16 +110,16 @@ assert ($rightmost.value == 4) "right-side merge yields 4 on slide right"
 
 let frames = [
   {topic: "player.alice.games"}        # alice's index -- keep
-  {topic: "game.abc.move"}             # any game move topic -- keep
-  {topic: "game.xyz.move"}             # any game move topic -- keep
+  {topic: "game.move.abc"}             # any game move topic -- keep
+  {topic: "game.move.xyz"}             # any game move topic -- keep
   {topic: "xs.threshold"}              # threshold marker -- keep
   {topic: "player.bob.games"}          # bob's index -- drop
   {topic: "templates.html"}            # unrelated -- drop
-  {topic: "game.abc"}                  # missing .move suffix -- drop
-  {topic: "abc.move"}                  # missing game. prefix -- drop
+  {topic: "game.snapshot.abc"}         # not a move topic -- drop
+  {topic: "abc.move"}                  # missing game.move. prefix -- drop
 ]
 let kept = $frames | filter-for-player "player.alice.games" | get topic
-let expected = ["player.alice.games" "game.abc.move" "game.xyz.move" "xs.threshold"]
+let expected = ["player.alice.games" "game.move.abc" "game.move.xyz" "xs.threshold"]
 assert ($kept == $expected) $"filter kept ($kept), expected ($expected)"
 
 # --- impulses-to-states stack discipline ------------------------------------
@@ -133,7 +133,7 @@ let known = {
   next_id: 3 score: 0 game_over: false
 }
 let GAMES_TOPIC = $"player.test-pid.games"
-let MOVE_TOPIC = $"game.($GID).move"
+let MOVE_TOPIC = $"game.move.($GID)"
 let init = {stack: [$known] mode: "game" game_id: $GID games_topic: $GAMES_TOPIC}
 
 # Helper: feed a list of frames through impulses-to-states and return the
@@ -176,7 +176,7 @@ assert (($r2_first | get threshold) == true) "threshold marker carries threshold
 assert (tiles-equal $r2_first.state.tiles $known.tiles) "threshold emits current top"
 
 # 3. A move that changes the board emits one state.
-let r3 = drive [{topic: "game.test-game-aaaa.move" meta: {intent: "h"}}] $init
+let r3 = drive [{topic: "game.move.test-game-aaaa" meta: {intent: "h"}}] $init
 let r3_state = $r3 | first | get state
 let changed = not (tiles-equal $r3_state.tiles $known.tiles)
 assert $changed "left move on known state changes the board"
@@ -184,8 +184,8 @@ assert (($r3 | first | get direction) == "h") "move record carries direction"
 
 # 4. Undo after a real move restores the pre-move state.
 let move_then_undo = [
-  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
-  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
+  {topic: "game.move.test-game-aaaa" meta: {intent: "h"}}
+  {topic: "game.move.test-game-aaaa" meta: {kind: "undo"}}
   {topic: "xs.threshold"}
 ]
 let r4 = drive $move_then_undo $init
@@ -195,18 +195,18 @@ assert (tiles-equal $r4_final.state.tiles $known.tiles) "undo restores the prior
 # 5. Undo + same direction reproduces the original spawn (the whole point
 #    of game_id-based deterministic rolls).
 let move_undo_redo = [
-  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
-  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
-  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
+  {topic: "game.move.test-game-aaaa" meta: {intent: "h"}}
+  {topic: "game.move.test-game-aaaa" meta: {kind: "undo"}}
+  {topic: "game.move.test-game-aaaa" meta: {intent: "h"}}
   {topic: "xs.threshold"}
 ]
 let r5 = drive $move_undo_redo $init
 let r5_final = $r5 | where threshold == true | first
-let r3_final_again = drive [{topic: "game.test-game-aaaa.move" meta: {intent: "h"}} {topic: "xs.threshold"}] $init | where threshold == true | first
+let r3_final_again = drive [{topic: "game.move.test-game-aaaa" meta: {intent: "h"}} {topic: "xs.threshold"}] $init | where threshold == true | first
 assert (tiles-equal $r5_final.state.tiles $r3_final_again.state.tiles) "undo + redo same dir = same board"
 
 # 6. Undo at the bottom of the stack is a no-op echo (state unchanged).
-let r6 = drive [{topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}] $init
+let r6 = drive [{topic: "game.move.test-game-aaaa" meta: {kind: "undo"}}] $init
 assert (tiles-equal ($r6 | first | get state | get tiles) $known.tiles) "undo at bottom echoes current"
 
 # 7. A no-op move does NOT push, so a subsequent undo finds the stack at
@@ -217,8 +217,8 @@ let edge = {
 }
 let init_edge = {stack: [$edge] mode: "game" game_id: $GID games_topic: $GAMES_TOPIC}
 let r7 = drive [
-  {topic: "game.test-game-aaaa.move" meta: {intent: "h"}}
-  {topic: "game.test-game-aaaa.move" meta: {kind: "undo"}}
+  {topic: "game.move.test-game-aaaa" meta: {intent: "h"}}
+  {topic: "game.move.test-game-aaaa" meta: {kind: "undo"}}
   {topic: "xs.threshold"}
 ] $init_edge
 let r7_final = $r7 | where threshold == true | first
@@ -234,7 +234,7 @@ let pair = {
   next_id: 3 score: 0 game_over: false
 }
 let init_pair = {stack: [$pair] mode: "game" game_id: $GID games_topic: $GAMES_TOPIC}
-let r8 = drive [{topic: "game.test-game-aaaa.move" meta: {intent: "slam-h"}}] $init_pair
+let r8 = drive [{topic: "game.move.test-game-aaaa" meta: {intent: "slam-h"}}] $init_pair
 assert (tiles-equal ($r8 | first | get state | get tiles) $pair.tiles) "legacy slam-X is a no-op echo"
 
 # 9. A frame on the player's games_topic starts a new game: stack resets,
@@ -249,7 +249,7 @@ assert (tiles-equal $r9_state.tiles $expected9) "new game frame resets to initia
 #     effect because impulses-to-states only matches `game.<current>.move`).
 let r10 = drive [
   {topic: $GAMES_TOPIC id: "new-game-zzzz" meta: {}}
-  {topic: $"game.($GID).move" meta: {intent: "h"}}    # old game -- dropped
+  {topic: $"game.move.($GID)" meta: {intent: "h"}}    # old game -- dropped
   {topic: "xs.threshold"}
 ] $init
 let r10_final = $r10 | where threshold == true | first
@@ -258,50 +258,44 @@ assert (tiles-equal $r10_final.state.tiles $new_init_tiles) "stale game's move i
 
 # --- frames-to-states ------------------------------------------------------
 #
-# Contract: every `game.<id>.move` frame -- empty-intent ping, h/j/k/l,
-# undo -- must emit a state record carrying the originating req_id, so
-# the client's pending RTT probe resolves whether or not the actor
-# follows up with a snapshot frame.
+# Contract: snapshot frames yield one state record carrying boardState and
+# req_id; threshold and pre-converted events flow through. Move frames are
+# DROPPED -- every move ack now flows through a snapshot (state-changing as
+# durable, no-op as an ephemeral one carrying just the req_id), so the SSE
+# handler no longer follows `game.move.<id>` and the pipeline no longer
+# echoes them.
 
-let MOVE_TOPIC2 = $"game.($GID).move"
-let SNAP_TOPIC  = $"game.($GID).snapshot"
+let MOVE_TOPIC2 = $"game.move.($GID)"
+let SNAP_TOPIC  = $"game.snapshot.($GID)"
 
-# Helper: pump a single frame through frames-to-states and return the
-# non-acc-init records (filter out the {next: ...} accumulator entries).
+# Helper: pump a list of frames through frames-to-states and return the
+# emitted records as a list.
 def drive-frames [frames: list]: nothing -> list {
   $frames | frames-to-states
 }
 
-# 11. RTT-ping move frame (intent="") echoes current state with req_id.
-let r11 = drive-frames [{id: "m1" topic: $MOVE_TOPIC2 meta: {intent: "" req_id: "ping-1"}}]
-assert (($r11 | length) == 1) "intent=\"\" emits exactly one record"
-assert (($r11 | first | get req_id) == "ping-1") "RTT ping echoes req_id"
+# 11. Move frames are dropped (no record emitted). The ack rides the
+#     snapshot that the actor emits in response.
+let r11 = drive-frames [
+  {id: "m1" topic: $MOVE_TOPIC2 meta: {intent: "h" req_id: "probe-42"}}
+  {id: "m2" topic: $MOVE_TOPIC2 meta: {kind: "undo" req_id: "undo-7"}}
+]
+assert (($r11 | length) == 0) "move frames are dropped by frames-to-states"
 
-# 12. h/j/k/l move frames echo with req_id too, so the RTT probe
-#     resolves even on no-op moves (where the actor writes no snapshot).
-let r12 = drive-frames [{id: "m2" topic: $MOVE_TOPIC2 meta: {intent: "h" req_id: "probe-42"}}]
-assert (($r12 | length) == 1) "h-move emits exactly one record"
-assert (($r12 | first | get req_id) == "probe-42") "h-move echoes req_id (NO-OP RTT resolution)"
-
-# 13. Undo move frame also echoes (kind=undo, intent unset).
-let r13 = drive-frames [{id: "m3" topic: $MOVE_TOPIC2 meta: {kind: "undo" req_id: "undo-7"}}]
-assert (($r13 | length) == 1) "undo move emits exactly one record"
-assert (($r13 | first | get req_id) == "undo-7") "undo move echoes req_id"
-
-# 14. A snapshot frame emits a state record carrying its meta.req_id and
-#     the snapshot's state. This is the normal "real move" path -- the
-#     echo from #12 lands first; this one then re-renders with new tiles.
+# 12. A snapshot frame emits one state record carrying its meta.req_id and
+#     the snapshot's state -- both state-changing (durable) and no-op
+#     (ephemeral) snapshots flow through the same path.
 let snap_state = {tiles: [{id: 1 r: 0 c: 0 value: 4}] next_id: 2 score: 4 game_over: false ghosts: []}
-let r14 = drive-frames [{id: "s1" topic: $SNAP_TOPIC meta: {state: $snap_state req_id: "probe-42" intent: "h"}}]
-assert (($r14 | length) == 1) "snapshot emits one record"
-assert (tiles-equal ($r14 | first | get state | get tiles) $snap_state.tiles) "snapshot state propagates"
-assert (($r14 | first | get req_id) == "probe-42") "snapshot carries req_id"
+let r12 = drive-frames [{id: "s1" topic: $SNAP_TOPIC meta: {state: $snap_state req_id: "probe-42" intent: "h"}}]
+assert (($r12 | length) == 1) "snapshot emits one record"
+assert (tiles-equal ($r12 | first | get state | get tiles) $snap_state.tiles) "snapshot state propagates"
+assert (($r12 | first | get req_id) == "probe-42") "snapshot carries req_id"
 
-# 15. Pre-converted SSE event records (e.g. from pulse-keepalive) flow
+# 13. Pre-converted SSE event records (e.g. from pulse-keepalive) flow
 #     through unchanged so downstream stages can dispatch by `event`.
 let evt = {event: "datastar-patch-signals" data: ["signals {}"]}
-let r15 = drive-frames [$evt]
-assert (($r15 | first) == $evt) "event records pass through unchanged"
+let r13 = drive-frames [$evt]
+assert (($r13 | first) == $evt) "event records pass through unchanged"
 
 # --- notes/split-md --------------------------------------------------------
 #

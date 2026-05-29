@@ -19,10 +19,14 @@ use ./render.nu *
 
 # Frames -> state records.
 #   snapshot frames      -> {state, direction, changed, req_id, move_id, threshold: false}
-#   move frames          -> {state: <last seen>, req_id, threshold: false}  (RTT echo)
 #   xs.threshold marker  -> {state, threshold: true}
 #   everything else      -> dropped
 # Pre-converted events pass through.
+#
+# Every move ack now rides a snapshot frame -- state-changing as the durable
+# snapshot the actor appends, no-op as an ephemeral snapshot the actor emits
+# carrying the move's `req_id`. So `frames-to-states` no longer needs to
+# echo `.move` frames; the SSE handler doesn't follow them in the first place.
 export def frames-to-states [] {
   generate {|f, acc = {state: null}|
     if ('event' in $f) {
@@ -31,7 +35,7 @@ export def frames-to-states [] {
     let t = $f.topic
     if $t == "xs.threshold" {
       {out: {state: $acc.state, threshold: true}, next: $acc}
-    } else if ($t | str ends-with ".snapshot") {
+    } else if ($t | str starts-with "game.snapshot.") {
       let state = $f.meta.state
       let intent = $f.meta | get intent? | default ""
       let req_id = $f.meta | get req_id? | default ""
@@ -39,16 +43,6 @@ export def frames-to-states [] {
         out: {state: $state, direction: $intent, changed: true, threshold: false, req_id: $req_id, move_id: ($f.meta | get last_move_id? | default "")}
         next: ($acc | upsert state $state)
       }
-    } else if ($t | str ends-with ".move") {
-      # Every move frame emits a state record carrying its req_id.
-      # Downstream emits a {lastReqId} signal patch the client uses to
-      # resolve its pending RTT probe (window.onAck in script.js).
-      # State-changing moves also produce a snapshot frame (its own
-      # record, emitted separately) -- that's where the new board
-      # state actually flows. No-op moves produce no snapshot, so this
-      # echo is their only resolution.
-      let req_id = $f.meta | get req_id? | default ""
-      {out: {state: $acc.state, req_id: $req_id, threshold: false}, next: $acc}
     } else {
       {next: $acc}
     }

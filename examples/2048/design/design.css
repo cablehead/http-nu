@@ -1,5 +1,13 @@
 /* /design viewer layout. 2-col: sidebar list + focused preview. */
 
+/* The component viewer caps at the site's 900px content width by default;
+   the palette rows (16 tiles, up to 64K) want more room to read like real
+   tiles. Widen the whole /design chrome so the header/breadcrumb stay
+   aligned with the preview. */
+body.design .page,
+body.design .site-header,
+body.design .site-footer { max-width: 1200px; }
+
 .design-main {
   display: grid;
   grid-template-columns: 220px 1fr;
@@ -60,6 +68,41 @@
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+}
+
+/* /design/palettes: one row of tile-like swatches per progression, one per
+   tile value (2 -> 64K), plus a muted note. Each swatch carries its own
+   bg/fg inline; grid-auto-flow keeps the whole ladder on a single row
+   regardless of how many values there are. Rounding matches the game board
+   so they read as tiles, not just color chips. */
+.swatch-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  /* Frame the row exactly like the game board: same wood-colored
+     backing, 6px padding + 6px gaps showing through, 6px outer radius.
+     The tiles then read as a single row lifted off a real board. */
+  gap: 6px;
+  padding: 6px;
+  background: #bbada0;
+  border-radius: 6px;
+  width: 100%;
+}
+.swatch-row .sw {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;  /* match .tile in game-board.js */
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(9px, 1.1vw, 15px);
+}
+.story .note {
+  font-size: var(--text-sm);
+  opacity: 0.8;
+  line-height: 1.5;
+  max-width: 65ch;
 }
 
 /* /design/board playground. Two columns: the WC on the left,

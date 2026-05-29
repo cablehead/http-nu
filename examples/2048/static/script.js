@@ -56,6 +56,10 @@ const move = (intent) => {
   const reqId = crypto.randomUUID();
   movePending = { id: reqId, t: performance.now() };
   setPressed(intent);
+  // Mark a move in flight. CSS dims the board on a 1s delay, so normal
+  // fast moves never flash -- the dim only appears if the response is
+  // slow or the SSE stream has stalled. Cleared on ack / failure.
+  document.body.classList.add("move-pending");
   if ("hjkl".includes(intent)) {
     document.querySelector("#board-wrap")?.setAttribute("data-pending", intent);
   }
@@ -68,12 +72,14 @@ const move = (intent) => {
     if (!r.ok) {
       movePending = null;
       document.querySelector("#board-wrap")?.removeAttribute("data-pending");
+      document.body.classList.remove("move-pending");
       setPressed(null);
       flashRed();
     }
   }).catch(() => {
     movePending = null;
     document.querySelector("#board-wrap")?.removeAttribute("data-pending");
+    document.body.classList.remove("move-pending");
     setPressed(null);
     flashRed();
   });
@@ -144,6 +150,7 @@ window.onAck = (reqId) => {
     const rtt = Math.round(performance.now() - movePending.t);
     movePending = null;
     document.querySelector("#board-wrap")?.removeAttribute("data-pending");
+    document.body.classList.remove("move-pending");
     setPressed(null);
     rttEl()?.replaceChildren(`${rtt}ms`);
   }

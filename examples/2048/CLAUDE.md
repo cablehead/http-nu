@@ -9,19 +9,35 @@ caught the live `/sse-wc` hang once we wired test-sse.nu in.
 
 ## Nushell Style
 
-- `.last` returns null when the topic has no frames -- verified in
-  `xs/src/nu/commands/last_command.rs` (returns `PipelineData::Empty`).
-  Don't wrap it in `try { .last ... } catch { null }` -- the catch is
-  dead weight. `.get` is different: it raises a `ShellError` on miss,
-  so `try { .get $id } catch { null }` is correct there. When in doubt,
-  read the command's source before adding defensive `try`.
+- `.last` on a topic with no frames returns an **empty pipeline**
+  (`PipelineData::Empty`, see `xs/src/nu/commands/last_command.rs`), NOT a
+  `null` value. The distinction is load-bearing:
+    * **Bound** -- `let f = .last "topic"` -- the empty pipeline collapses
+      to `null`, so `let f = .last "topic"; if $f == null { ... }` is
+      correct and needs no `try`. The catch in `try { .last ... } catch
+      { null }` is dead weight here.
+    * **Piped into a command or cell path** -- `.last "topic" | get ...`
+      or `(.last "topic").field` -- the empty pipeline is NOT null. `get`
+      raises "Pipeline empty" and a cell path raises "empty pipeline
+      doesn't support cell paths", and any trailing `| default` never
+      runs. Guard it: `.last "topic" | default {} | get ...` (coerces the
+      empty pipeline to `{}`), or bind first and check for null.
+  `.get` is different: it raises a `ShellError` on miss, so
+  `try { .get $id } catch { null }` is correct there. When in doubt, read
+  the command's source before adding defensive `try`.
 - Use `get -i` (or `get foo?`) for optional record fields rather than
   `try { $r.foo } catch { null }`.
-- For chained `.last "topic" | get meta.field` where both the lookup
-  and the field may be missing, prefer the optional-access form:
-  `.last "topic" | get meta?.field? | default <fallback>`. That's
-  one expression, no try, no temporary binding, and surfaces the
-  field name in plain sight. Avoid the older
+- For chained `.last "topic" | get meta.field` where the topic may be
+  empty AND the field may be missing, guard the empty pipeline first:
+  `.last "topic" | default {} | get meta?.field? | default <fallback>`.
+  The leading `| default {}` turns a missing topic's empty pipeline into
+  `{}` so `get` can't crash; `meta?.field?` handles a missing field; the
+  trailing `| default` supplies the fallback. WITHOUT the `| default {}`,
+  an empty topic raises "Pipeline empty" at `get` and the trailing
+  `default` never runs (this is exactly how the leaderboard-actor's
+  `start:` expression silently died). If the topic is *guaranteed*
+  non-empty you can drop the `| default {}`, but add it whenever
+  existence isn't certain. Either way, prefer this over the older
   `try { .last "topic" | get meta.field } catch { <fallback> }`.
 - `let foo = (expr)` -- parens are NOT needed for single-line let
   values, even when the value is a pipeline. `let s = resolve-session

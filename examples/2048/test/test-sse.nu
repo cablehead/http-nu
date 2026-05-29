@@ -1,45 +1,39 @@
 use std/assert
 
-# SSE-pipeline regression tests for examples/2048. Requires --store
-# (pings the in-process xs); the wrapper in `check.sh` mints a temp
-# store and runs this script under a `timeout` so a hang (e.g. the
-# `let stream = .cat --follow ...` footgun) becomes a non-zero exit
-# instead of a CI lockup.
+# SSE-pipeline regression tests for examples/2048. Requires --store (it
+# appends to the in-process xs). check.sh mints a temp store and runs
+# this under `timeout`, so a hang -- e.g. the `let s = .cat --follow ...`
+# footgun below -- becomes a non-zero exit instead of a CI lockup.
 
 const script_dir = path self | path dirname
 use ($script_dir | path join ".." "tfe" "sse.nu") *
 use http-nu/datastar *
 
-# -- T1: interleave argument shape ------------------------------------------
-#
-# `interleave` takes CLOSURES (`{|| ... }`), not stream values. Passing
-# a stream value errors at runtime when the engine tries to invoke it
-# as a closure -- but inside an SSE handler that error sits behind any
-# upstream stream-collection (see T3) and shows up as a hang. Guard the
-# correct shape and the wrong shape both, so future refactors can't
-# silently swap them.
+# --- interleave needs closures, not stream values --------------------------
+# The SSE handlers build output as `interleave { stream-a } { stream-b }`.
+# Passed a stream *value* instead of a `{|| ... }` closure, interleave
+# errors at runtime -- and inside an SSE handler that error hides behind
+# upstream stream collection (see "/sse-wc emits without hanging" below)
+# and surfaces as a hang. Guard both the right and the wrong shape.
 
-let t1a = [{a: 1}] | interleave { [{b: 2}] } | first 2
-assert (($t1a | length) == 2) "T1a: interleave with closure produces items"
+let closure_items = [{a: 1}] | interleave { [{b: 2}] } | first 2
+assert (($closure_items | length) == 2) "interleave with a closure produces items"
 
-# The live regression was `interleave (presence-stream)` -- a function
-# call whose return type the parser can't see (no annotation), so the
-# literal-form parse error doesn't apply. Mirror that shape: declare
-# the helper WITHOUT an output type so the parser can't reject the
-# call statically; the bad invocation must trip at runtime, where the
-# try/catch can observe it.
-def t1b-make-stream [] { [{b: 2}] }
-let t1b_errored = try {
-  [{a: 1}] | interleave (t1b-make-stream) | first 1
+# The live bug was `interleave (presence-stream)` -- a call with no output
+# annotation, so the parser can't reject it statically; it has to trip at
+# runtime. Mirror that: a helper with no declared output type, invoked the
+# wrong way, caught by try.
+def make-stream [] { [{b: 2}] }
+let value_errored = try {
+  [{a: 1}] | interleave (make-stream) | first 1
   false
 } catch { true }
-assert $t1b_errored "T1b: interleave (value) -- not (closure) -- must error at runtime"
+assert $value_errored "interleave given a stream value (not a closure) errors at runtime"
 
-# -- T2: presence-stream emits a Datastar signal patch on the head ----------
-#
-# Seed `_presence.summary` so presence-stream has something to project
-# on connect. The output of `presence-stream` is a single SSE event
-# record per summary change; we assert the shape, not the content.
+# --- presence-stream emits a Datastar patch per summary --------------------
+# Seed _presence.summary so presence-stream has something to project on
+# connect. Assert the output shape -- one signal-patch event per summary
+# change -- not the content.
 
 null | .append "_presence.summary" --ttl last:1 --meta {
   totalTabs: 3
@@ -47,49 +41,36 @@ null | .append "_presence.summary" --ttl last:1 --meta {
   byScope: {splash: 3}
   byGame: {}
 }
-let t2 = presence-stream | first
-assert (($t2.event? | default "") == "datastar-patch-signals") "T2: presence-stream emits a Datastar signal patch"
+let presence_patch = presence-stream | first
+assert (($presence_patch.event? | default "") == "datastar-patch-signals") "presence-stream projects a summary into a Datastar signal patch"
 
-# -- T2b: xs.threshold marker is filtered out before .meta access -----------
-#
-# `.cat --last N --follow` injects a synthetic `xs.threshold` frame
-# after the historical replay (xs/api.rs:566). That frame has no
-# `meta` column. Presence-stream's projection accessed `$f.meta`
-# without a topic guard, so any reader connecting against an empty
-# summary topic crashed:
-#   Error: nu::shell::column_not_found
-#   x Cannot find column 'meta'
-# Mirror the projection inline against a fixture that contains both a
-# threshold-shaped frame and a real summary, and assert only the
-# summary survives the filter.
+# --- presence-stream skips the synthetic xs.threshold marker ---------------
+# A --follow stream gets an xs.threshold frame at the history->live
+# boundary (xs/api.rs:566); it has no `meta` column. The projection read
+# `$f.meta` with no topic guard, so connecting against an empty summary
+# topic crashed with "Cannot find column 'meta'". Mirror the projection
+# against a fixture holding both the marker and a real summary; assert
+# only the summary survives the filter.
 
-let t2b_mixed = [
+let marker_and_summary = [
   {topic: "xs.threshold", id: "thresh-0"}                                   # no meta column
   {topic: "_presence.summary", id: "sum-0", meta: {totalTabs: 7}}
 ]
-let t2b_projected = $t2b_mixed
+let projected = $marker_and_summary
   | where ($it.topic? | default "") == "_presence.summary"
   | each {|f| {presence: ($f.meta | default {})} | to datastar-patch-signals}
-assert (($t2b_projected | length) == 1) "T2b: xs.threshold marker is filtered out before .meta access"
-assert ((($t2b_projected | first | get event?) | default "") == "datastar-patch-signals") "T2b: surviving summary projects to a signal patch"
+assert (($projected | length) == 1) "xs.threshold marker is filtered out before .meta access"
+assert ((($projected | first | get event?) | default "") == "datastar-patch-signals") "the surviving summary projects to a signal patch"
 
-# -- T3: /sse-wc route closure doesn't hang ---------------------------------
-#
-# This is the test that would have caught the live regression. The
-# buggy shape was:
-#
-#   let board_stream = .cat --follow -T ... --from $game_id
-#     | frames-to-states | ... | html-to-patches
-#   $board_stream | interleave { presence-stream } | to sse
-#
-# `let` collects the pipeline before binding -- `.cat --follow` is
-# infinite, so the let never returns and the closure hangs before any
-# headers are sent. With this test under a wrapper `timeout 15`, the
-# hang becomes a test failure rather than a CI lockup.
-#
-# The seed pings (a games_topic frame + a summary frame already from
-# T2 above) give the interleaved pipeline something to emit, so on the
-# fixed shape `first 1` resolves quickly.
+# --- /sse-wc emits without hanging -----------------------------------------
+# Catches the let-collects-an-infinite-stream hang. The buggy shape was:
+#   let s = .cat --follow ... | frames-to-states | ... | to sse
+# `let` collects the pipeline before binding, and `.cat --follow` never
+# ends -- so the handler hangs before sending headers. Drive the real
+# route closure and assert it emits a chunk; the wrapper `timeout 15`
+# turns a hang into a failure. The games + summary frames seeded above
+# give the interleaved pipeline something to emit, so `first` resolves
+# quickly on the correct shape.
 
 let games_frame = null | .append "player.test-uid.games" --meta {}
 let game_id = $games_frame.id
@@ -102,10 +83,9 @@ let req = {
   query: {}
   mount_prefix: ""
 }
-# `to sse` yields a streaming string, not a list; take the first non-
-# empty line. SSE chunks always start with `event: ...` or `data: ...`,
-# so a non-empty first line is sufficient proof the handler emitted.
-let t3 = do $handler $req | lines | first
-assert (($t3 | str length) > 0) "T3: /sse-wc route emits at least one SSE chunk"
+# `to sse` yields a streaming string, not a list; the first non-empty
+# line (an `event:`/`data:` chunk) is proof the handler emitted.
+let first_chunk = do $handler $req | lines | first
+assert (($first_chunk | str length) > 0) "/sse-wc emits at least one SSE chunk (didn't hang)"
 
 print "examples/2048/test/test-sse.nu: all assertions passed"

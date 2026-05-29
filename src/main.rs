@@ -135,6 +135,11 @@ enum Command {
         #[clap(long)]
         store: Option<PathBuf>,
 
+        /// Enable actors, services, and actions (requires --store)
+        #[cfg(feature = "cross-stream")]
+        #[clap(long)]
+        services: bool,
+
         /// Define $DATASTAR_JS_PATH and related Datastar consts
         #[clap(long)]
         datastar: bool,
@@ -544,6 +549,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         commands,
         #[cfg(feature = "cross-stream")]
         store,
+        #[cfg(feature = "cross-stream")]
+        services,
         datastar,
     }) = args.command
     {
@@ -586,9 +593,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         #[cfg(feature = "cross-stream")]
         if let Some(ref path) = store {
-            let xs_store = xs::store::Store::new(path.clone())?;
-            let eval_store = Store::from_inner(xs_store, path.clone());
+            // --services switches us from the bare `from_inner` (no API
+            // server, no actor/service/action dispatchers) to the full
+            // `init` path the server uses, so actors actually run during
+            // eval. Without --store this flag is a no-op (we never enter
+            // this branch); the dispatcher needs a real keyspace.
+            let eval_store = if services {
+                Store::init(path.clone(), true, args.expose.clone()).await?
+            } else {
+                let xs_store = xs::store::Store::new(path.clone())?;
+                Store::from_inner(xs_store, path.clone())
+            };
             eval_store.configure_engine(&mut engine)?;
+        } else if services {
+            eprintln!("Error: --services requires --store");
+            std::process::exit(1);
         }
 
         for plugin_path in &args.plugins {

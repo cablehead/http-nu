@@ -20,8 +20,10 @@
 # in-memory map stays warm without rewalking the stream.
 #
 # Output: a `leaderboard.top` frame per change, `ttl last:5`. Readers
-# do `.last leaderboard.top | get meta.entries`. The 5-frame history
-# is a side benefit; the head is the authoritative state. `meta` also
+# do `.last leaderboard.top | default {} | get meta?.entries? | default []`
+# (the `default {}` guards the empty-topic case -- see CLAUDE.md). The
+# 5-frame history is a side benefit; the head is the authoritative state.
+# `meta` also
 # carries `last_processed_id` = the snapshot frame id that produced
 # this publish, which is what the cursor-style start expression above
 # reads on the next spawn.
@@ -35,8 +37,7 @@ const SIZE = 5
     let topic = $frame.topic
 
     # Only snapshots matter. Skip everything else cheaply.
-    let is_snapshot = ($topic | str starts-with "game.") and ($topic | str ends-with ".snapshot")
-    if not $is_snapshot { return {next: $state} }
+    if not ($topic | str starts-with "game.snapshot.") { return {next: $state} }
 
     # Lazy-load from the persisted head. After a re-registration the
     # framework restarts the closure with $state = initial (null) even
@@ -59,7 +60,7 @@ const SIZE = 5
     let existing = $top | where {|r| $r.player_id == $player_id} | get score? | first
     if $existing != null and $existing >= $score { return {next: $top} }
 
-    let game_id = $topic | str substring 5.. | str replace ".snapshot" ""
+    let game_id = $topic | str substring 14..
     let entry = {
       player_id: $player_id
       game_id: $game_id
@@ -89,8 +90,10 @@ const SIZE = 5
   }
   initial: null
   # Resume from the snapshot id the previous spawn last published a
-  # summary for. On a fresh / cursor-missing store the try/catch falls
-  # back to `"first"`, which replays everything once. Subsequent
-  # boots become O(new-snapshots).
-  start: (.last leaderboard.top | get meta?.last_processed_id? | default "first")
+  # summary for. `| default {}` guards the empty-topic case (fresh /
+  # cursor-missing store): without it, .last's empty pipeline crashes
+  # `get` ("Pipeline empty" -- see CLAUDE.md); with it, the missing
+  # `last_processed_id` reads as null and `default "first"` replays
+  # everything once. Subsequent boots become O(new-snapshots).
+  start: (.last leaderboard.top | default {} | get meta?.last_processed_id? | default "first")
 }

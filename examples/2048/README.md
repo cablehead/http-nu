@@ -21,11 +21,13 @@ http://localhost:3002.
 ## How state moves
 
 ```
-POST /move        ->  appends `game.<id>.move`        (intent only)
+POST /move        ->  appends `game.move.<id>`        (intent only)
 snapshot-actor    ->  reads .last snapshot, applies move, appends
-                       `game.<id>.snapshot`            (canonical state)
-GET  /sse/<id>    ->  follows `game.<id>.*`, gates on xs.threshold,
-                       renders Datastar element patches
+                       `game.snapshot.<id>`            (canonical state;
+                       no-op moves append it `--ttl ephemeral` with
+                       unchanged state so the client's ack still flows)
+GET  /sse/<id>    ->  follows `game.snapshot.<id>`, gates on xs.threshold,
+                       renders Datastar signal patches
 ```
 
 Move POSTs never compute state. A singleton xs actor owns writes, so two
@@ -79,10 +81,10 @@ follow-game "03g54..." | each { reject state.tiles }
 | topic                       | written by      | meta                                                              |
 | --------------------------- | --------------- | ----------------------------------------------------------------- |
 | `player.<uuid>.games`       | `GET /new`      | (none) -- frame id is the game id                                 |
-| `game.<id>.move`            | `POST /move`    | `{intent, req_id, kind?}` -- `intent` in `h,j,k,l`; `kind: undo`  |
-| `game.<id>.snapshot`        | snapshot-actor  | `{state, score, max_tile, moves, game_over, player_id, prev, ...}` |
+| `game.move.<id>`            | `POST /move`    | `{intent, req_id, kind?}` -- `intent` in `h,j,k,l`; `kind: undo`  |
+| `game.snapshot.<id>`        | snapshot-actor  | `{state, score, max_tile, moves, game_over, player_id, prev, ...}` |
 
-`.last game.<id>.snapshot` is the canonical HEAD for a game.
+`.last game.snapshot.<id>` is the canonical HEAD for a game.
 
 ## Animation
 
