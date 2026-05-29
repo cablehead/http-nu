@@ -1,7 +1,0 @@
-code,name_th,name_en,description_en
-ADMIN,ผู้ดูแลระบบ,Admin,Internal staff managing the platform — full write access across all data
-ORGANIZER,ผู้จัดการแข่งขัน,Organizer,Creates and runs tournaments leagues camps showcases
-COACH,โค้ช,Coach,Manages a team — roster registration attendance
-PLAYER,ผู้เล่น,Player,Individual athlete — own profile registrations stats
-SPECTATOR,ผู้ชม,Spectator,Read-only follower — parents fans casual viewers
-REFEREE,ผู้ตัดสิน,Referee,Certified official — score entry match status

@@ -1,6 +1,0 @@
-event_id,venue_id,is_primary
-evt_001,ven_002,true
-evt_001,ven_001,false
-evt_002,ven_001,true
-evt_003,ven_003,true
-evt_004,ven_002,true

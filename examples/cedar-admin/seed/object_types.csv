@@ -1,7 +1,0 @@
-code,name_th,name_en,description_en
-EVENT,อีเวนต์,Event,Tournaments leagues camps showcases — subtype lives in events.type_code
-TEAM,ทีม,Team,Team profile and roster
-PLAYER,ผู้เล่น,Player,Individual player profile
-ORG,องค์กร,Organisation,Schools clubs federations
-DIVISION,ดิวิชั่น,Division,Competitive division within events
-PLATFORM,แพลตฟอร์ม,Platform,Global actions not tied to a specific object

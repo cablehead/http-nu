@@ -1,5 +1,0 @@
-id,name_th,name_en,type_code,format_code,organizer_user_id,org_id,start_date,end_date,city,province_code,is_fiba_certified
-evt_001,การแข่งขัน Sponsor Thailand Basketball League 2026 รอบกรุงเทพ,Sponsor Thailand Basketball League 2026 — Bangkok Round,TOURNAMENT,5x5,usr_org_001,org_001,2026-06-10,2026-06-15,Bangkok,BKK,false
-evt_002,ลีกบาสเกตบอลโรงเรียนกรุงเทพ ฤดูกาล 2026,Bangkok Schools Basketball League 2026,LEAGUE,5x5,usr_org_002,,2026-05-01,2026-09-30,Bangkok,BKK,false
-evt_003,ค่ายฝึกบาสเกตบอลภาคฤดูร้อน เชียงใหม่ 2026,Chiang Mai Summer Basketball Camp 2026,CAMP,5x5,usr_org_003,org_003,2026-04-15,2026-04-19,Chiang Mai,CMI,false
-evt_004,การโชว์ผู้เล่นบาสเกตบอลประเทศไทย 2026,Thailand Basketball Showcase 2026,SHOWCASE,5x5,usr_org_001,org_004,2026-08-01,2026-08-02,Bangkok,BKK,true

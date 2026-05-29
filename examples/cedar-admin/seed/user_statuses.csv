@@ -1,5 +1,0 @@
-code,name_th,name_en,description_en
-ACTIVE,ใช้งานอยู่,Active,Account is fully active and can use the platform
-PENDING_APPROVAL,รออนุมัติ,Pending Approval,Account exists but is waiting for admin approval (e.g. REFEREE awaiting BAT certification verification)
-SUSPENDED,ระงับชั่วคราว,Suspended,Account is temporarily suspended by admin
-DEACTIVATED,ปิดใช้งาน,Deactivated,Account is permanently deactivated

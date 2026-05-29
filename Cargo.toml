@@ -2,17 +2,10 @@
 members = [
     ".",
     "tests/test_plugin",
-    "crates/cloudflare-shell",
-    "crates/cloudflare-shell-workspace",
-    "crates/cloudflare-shell-rpc/types",
-    "crates/cloudflare-shell-rpc/server",
-    "crates/cloudflare-shell-rpc/client",
-    "crates/cloudflare-shell-rpc/demo-rust",
-    "crates/nu_plugin_cedar",
-    "crates/nu_plugin_push",
-    "crates/cf_email_worker",
-    "crates/nu_plugin_email",
 ]
+# The cloudflare-shell family + nushell plugins moved to
+# https://github.com/joeblew999/workers-rs-util. http-nu's CF port consumes
+# cloudflare-shell{,-workspace} from there as a git dependency (below).
 # NOTE: intentionally NO `default-members`. http-nu is the workspace ROOT
 # package, so a bare `cargo build`/`worker-build` at the root builds only
 # http-nu -- exactly what cf:build needs for the wasm `cloudflare` target.
@@ -127,7 +120,7 @@ worker = { version = "0.8", optional = true }
 # Backend-agnostic FileSystem trait + types. Path dep today; could
 # move to a registry version if we publish it. Optional because
 # desktop builds don't need it.
-cloudflare-shell = { version = "0.1.0", path = "crates/cloudflare-shell", features = ["workers"], optional = true }
+cloudflare-shell = { git = "https://github.com/joeblew999/workers-rs-util", features = ["workers"], optional = true }
 # DurableObject + R2 impl of cloudflare-shell::FileSystem. Wasm-only
 # (depends on `worker` unconditionally); gated by target_arch below.
 
@@ -193,7 +186,7 @@ console_error_panic_hook = "0.1"
 # Workspace impl. Pulled only on wasm because it depends unconditionally
 # on `worker` (which is itself wasm-only). The actual gate that decides
 # whether to USE it lives on `feature = "cloudflare"` at the call sites.
-cloudflare-shell-workspace = { version = "0.1.0", path = "crates/cloudflare-shell-workspace" }
+cloudflare-shell-workspace = { git = "https://github.com/joeblew999/workers-rs-util" }
 
 [build-dependencies]
 syntect = "5.3.0"

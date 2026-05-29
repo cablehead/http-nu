@@ -1,7 +1,0 @@
-id,name_th,name_en,age_group_code,gender_code,skill_tier
-div_001,U16 ชาย,U16 Boys,U16,M,
-div_002,U18 ชาย,U18 Boys,U18,M,
-div_003,U16 หญิง,U16 Girls,U16,F,
-div_004,U18 หญิง,U18 Girls,U18,F,
-div_005,U18 ชาย ระดับสูง,U18 Boys Premier,U18,M,Premier
-div_006,U16 ชาย ระดับสูง,U16 Boys Premier,U16,M,Premier
