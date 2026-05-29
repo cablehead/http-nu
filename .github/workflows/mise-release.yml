@@ -46,9 +46,7 @@ jobs:
           cache: true
 
       - name: Build (release)
-        # http-nu has no build:release task; use cargo directly. Default
-        # features include `desktop` which the http-nu binary requires.
-        run: cargo build --release --bin http-nu
+        run: mise run build:release
 
       - name: Package binary (unix tar.gz)
         if: matrix.archive == 'tar.gz'

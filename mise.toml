@@ -56,6 +56,12 @@ sources = [
 outputs = ["target/debug/http-nu"]
 run = "cargo build"
 
+[tasks."build:release"]
+description = "Build the http-nu binary (release) -- what CI ships"
+sources = ["src/**/*.rs", "build.rs", "Cargo.toml", "Cargo.lock"]
+outputs = ["target/release/http-nu"]
+run = "cargo build --release --bin http-nu"
+
 [tasks."build:plugin"]
 description = "Build the nu_plugin_test binary used by cargo test"
 sources = ["tests/test_plugin/**/*.rs", "tests/test_plugin/Cargo.toml"]
