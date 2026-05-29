@@ -103,10 +103,8 @@ pub fn build_request(
 
     // Override TTL -- web-push-native ties it to JWT validity (12h default),
     // but for actual push delivery we want caller-controlled (often 60s or 0).
-    req.headers_mut().insert(
-        "TTL",
-        HeaderValue::from(opts.ttl_secs),
-    );
+    req.headers_mut()
+        .insert("TTL", HeaderValue::from(opts.ttl_secs));
 
     if let Some(u) = &opts.urgency {
         req.headers_mut().insert(
@@ -337,7 +335,9 @@ mod tests {
         assert!(auth_str.contains(", k="), "VAPID k= component");
 
         assert_eq!(
-            req.headers().get("Content-Encoding").and_then(|v| v.to_str().ok()),
+            req.headers()
+                .get("Content-Encoding")
+                .and_then(|v| v.to_str().ok()),
             Some("aes128gcm")
         );
         assert_eq!(

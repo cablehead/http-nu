@@ -89,7 +89,11 @@ impl SimplePluginCommand for SendCommand {
 
     fn signature(&self) -> Signature {
         Signature::build("push send")
-            .required("payload", SyntaxShape::String, "Payload string (JSON or text)")
+            .required(
+                "payload",
+                SyntaxShape::String,
+                "Payload string (JSON or text)",
+            )
             .named(
                 "ttl",
                 SyntaxShape::Int,
@@ -143,10 +147,8 @@ impl SimplePluginCommand for SendCommand {
         }
 
         // Single path
-        let sub = value_to_subscription(input)
-            .map_err(|e| label(format!("subscription: {e}")))?;
-        let result = send::send_one(&sub, body, &opts)
-            .map_err(|e| label(format!("send: {e}")))?;
+        let sub = value_to_subscription(input).map_err(|e| label(format!("subscription: {e}")))?;
+        let result = send::send_one(&sub, body, &opts).map_err(|e| label(format!("send: {e}")))?;
         Ok(send_result_to_value(result, call.head))
     }
 }
@@ -196,8 +198,8 @@ impl SimplePluginCommand for EncryptCommand {
         let payload: String = call.req(1)?;
         let opts = send_opts_from_call(call)?;
 
-        let sub = value_to_subscription(&sub_val)
-            .map_err(|e| label(format!("subscription: {e}")))?;
+        let sub =
+            value_to_subscription(&sub_val).map_err(|e| label(format!("subscription: {e}")))?;
 
         let req = send::build_request(&sub, payload.into_bytes(), &opts)
             .map_err(|e| label(format!("build: {e}")))?;
@@ -238,8 +240,7 @@ impl SimplePluginCommand for SubscriptionParseCommand {
         _input: &Value,
     ) -> Result<Value, LabeledError> {
         let json: String = call.req(0)?;
-        let sub = PushSubscription::parse_json(&json)
-            .map_err(|e| label(format!("parse: {e}")))?;
+        let sub = PushSubscription::parse_json(&json).map_err(|e| label(format!("parse: {e}")))?;
         // Also exercise crypto-part decoding so we catch malformed keys early.
         sub.into_crypto_parts()
             .map_err(|e| label(format!("invalid keys: {e}")))?;
@@ -287,8 +288,8 @@ impl SimplePluginCommand for SubscriptionValidateCommand {
         } else {
             input.clone()
         };
-        let sub = value_to_subscription(&sub_val)
-            .map_err(|e| label(format!("subscription: {e}")))?;
+        let sub =
+            value_to_subscription(&sub_val).map_err(|e| label(format!("subscription: {e}")))?;
 
         let res = send::validate(&sub).map_err(|e| label(format!("validate: {e}")))?;
         Ok(validate_result_to_value(res, call.head))
@@ -320,9 +321,7 @@ fn value_to_subscription(v: &Value) -> Result<PushSubscription, String> {
     if let Ok(rec) = v.as_record() {
         let endpoint = require_str_rec(rec, "endpoint")?;
         let keys_val = rec.get("keys").ok_or("missing field: keys")?;
-        let keys = keys_val
-            .as_record()
-            .map_err(|e| format!("keys: {e}"))?;
+        let keys = keys_val.as_record().map_err(|e| format!("keys: {e}"))?;
         let p256dh = require_str_rec(keys, "p256dh")?;
         let auth = require_str_rec(keys, "auth")?;
         let expiration_time = rec
@@ -350,7 +349,10 @@ fn keypair_to_value(kp: GeneratedKeypair, span: Span) -> Value {
     let mut r = Record::new();
     r.push("public_key", Value::string(kp.public_key_b64url, span));
     r.push("private_key_pem", Value::string(kp.private_key_pem, span));
-    r.push("private_key_b64url", Value::string(kp.private_key_b64url, span));
+    r.push(
+        "private_key_b64url",
+        Value::string(kp.private_key_b64url, span),
+    );
     Value::record(r, span)
 }
 
