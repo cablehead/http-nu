@@ -27,6 +27,10 @@ rust                     = "stable"
 "aqua:cloudflare/cloudflared" = "latest"
 "cargo:cargo-binstall"   = "latest"
 "cargo:resvg"            = "latest"
+# email-native: wrangler from npm. The email:worker:* tasks call `wrangler`
+# directly and rely on this global pin (the cedar cf:* tasks pin their own
+# wrangler per-task, which overrides this).
+"npm:wrangler"           = "4.71.0"
 
 [env]
 CARGO_TERM_COLOR = "always"
@@ -1094,4 +1098,304 @@ cloudflared tunnel --no-autoupdate --url "http://localhost:$PORT" 2>&1 | while I
     echo ""
   fi
 done
+'''
+
+# ############################################################################
+# email-native: nu_plugin_email + cf_email_worker (CF Email Service)
+# ############################################################################
+
+# ============================================================================
+# Plugin build / test
+# ============================================================================
+
+[tasks."email:plugin:build"]
+description = "Build the nu_plugin_email binary"
+sources = ["crates/nu_plugin_email/src/**/*.rs", "crates/nu_plugin_email/Cargo.toml"]
+outputs = ["target/debug/nu_plugin_email"]
+run = "cargo build -p nu_plugin_email"
+
+[tasks."email:plugin:test"]
+description = "Run unit tests for nu_plugin_email"
+run = "cargo test -p nu_plugin_email"
+
+# ============================================================================
+# Worker build / dev / deploy / tail. All routed through `fnox exec` so
+# wrangler sees CLOUDFLARE_API_TOKEN and the Worker sees its runtime secrets.
+# ============================================================================
+
+[tasks."email:worker:check"]
+description = "Type-check cf_email_worker against wasm32-unknown-unknown (fast, no deploy)"
+sources = ["crates/cf_email_worker/src/**/*.rs", "crates/cf_email_worker/Cargo.toml"]
+run = "cargo check -p cf_email_worker --target wasm32-unknown-unknown"
+
+[tasks."email:worker:dev"]
+description = "Run cf_email_worker locally. Outbound writes to .eml files; simulate inbound with `curl -X POST localhost:8787/cdn-cgi/handler/email --data-binary @sample.eml`."
+run = "cd crates/cf_email_worker && fnox exec -- wrangler dev --local"
+
+[tasks."email:worker:deploy"]
+description = "Deploy cf_email_worker to Cloudflare. After first deploy, run email:worker:url-set with the printed URL."
+run = "cd crates/cf_email_worker && fnox exec -- wrangler deploy"
+
+[tasks."email:worker:tail"]
+description = "Tail logs from the deployed cf_email_worker"
+run = "cd crates/cf_email_worker && fnox exec -- wrangler tail"
+
+# ============================================================================
+# Secrets generation + worker secret-put. Keychain item names are
+# repo-prefixed (HTTP_NU_EMAIL_*) -- see fnox.toml.
+# ============================================================================
+
+[tasks."email:secrets:generate"]
+description = "Generate CF_EMAIL_AUTH_TOKEN + CF_EMAIL_WEBHOOK_HMAC_KEY + EMAIL_ADMIN_TOKEN and store in macOS keychain (one-time per repo clone). Bypasses `fnox set` because that would auto-register additional env-var mappings in fnox.toml -- we already have the mappings we want."
+run = '''
+set -e
+for entry in "HTTP_NU_EMAIL_AUTH_TOKEN" "HTTP_NU_EMAIL_WEBHOOK_HMAC_KEY" "HTTP_NU_EMAIL_ADMIN_TOKEN"; do
+  value=$(openssl rand -hex 32)
+  # -U updates if the item exists (idempotent re-run). -s fnox matches the
+  # service name fnox itself uses to read these back.
+  security add-generic-password -U -s fnox -a "$entry" -w "$value"
+  echo "ok: $entry"
+done
+echo ""
+echo "Stored CF_EMAIL_AUTH_TOKEN, CF_EMAIL_WEBHOOK_HMAC_KEY, EMAIL_ADMIN_TOKEN."
+echo "Next:"
+echo "  mise run email:worker:secrets:put     # push runtime secrets to the Worker"
+echo "  mise run email:worker:url-set -- URL  # store the deployed URL"
+'''
+
+[tasks."email:worker:url-set"]
+description = "Store the deployed Worker URL in fnox. Usage: WORKER_URL=https://cf-email-worker.<acct>.workers.dev mise run email:worker:url-set"
+run = '''
+set -e
+if [ -z "${WORKER_URL:-}" ]; then
+  echo "Usage: WORKER_URL=https://cf-email-worker.<acct>.workers.dev mise run email:worker:url-set" >&2
+  exit 1
+fi
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_WORKER_URL -w "$WORKER_URL"
+echo "Stored. CF_EMAIL_WORKER_URL is now resolvable via fnox."
+'''
+
+[tasks."email:worker:webhook-set"]
+description = "Store the http-nu webhook URL. Usage: WEBHOOK_URL=https://http-nu.example.com/webhooks/email/inbound mise run email:worker:webhook-set"
+run = '''
+set -e
+if [ -z "${WEBHOOK_URL:-}" ]; then
+  echo "Usage: WEBHOOK_URL=https://your-http-nu/webhooks/email/inbound mise run email:worker:webhook-set" >&2
+  exit 1
+fi
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_WEBHOOK_URL -w "$WEBHOOK_URL"
+echo "Stored."
+'''
+
+[tasks."email:worker:domain-set"]
+description = "Store the sender domain in fnox. Usage: SENDER_DOMAIN=mail.example.com mise run email:worker:domain-set"
+run = '''
+set -e
+if [ -z "${SENDER_DOMAIN:-}" ]; then
+  echo "Usage: SENDER_DOMAIN=mail.example.com mise run email:worker:domain-set" >&2
+  exit 1
+fi
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_SENDER_DOMAIN -w "$SENDER_DOMAIN"
+echo "Stored."
+'''
+
+[tasks."email:worker:secrets:put"]
+description = "Push the runtime secrets the Worker needs (CF_EMAIL_AUTH_TOKEN, CF_EMAIL_WEBHOOK_HMAC_KEY, CF_EMAIL_WEBHOOK_URL, CF_EMAIL_SENDER_DOMAIN) via wrangler secret put. Re-run after secret rotation or first deploy."
+run = '''
+set -e
+cd crates/cf_email_worker
+for name in CF_EMAIL_AUTH_TOKEN CF_EMAIL_WEBHOOK_HMAC_KEY CF_EMAIL_WEBHOOK_URL CF_EMAIL_SENDER_DOMAIN; do
+  echo "Pushing $name to wrangler..."
+  # fnox exec injects the env var; we pipe its value to wrangler.
+  fnox exec -- sh -c "printenv $name | wrangler secret put $name"
+done
+echo "Done. The Worker will pick these up on the next request after deploy."
+'''
+
+# ============================================================================
+# DNS posture check + Email Routing rule setup. Both read
+# $CF_EMAIL_SENDER_DOMAIN and (for the rule) $CLOUDFLARE_API_TOKEN from
+# fnox via `fnox exec`.
+# ============================================================================
+
+[tasks."email:dns:check"]
+description = "Report SPF / DMARC / MX state for the configured sender domain. Read-only; tells you what to add but doesn't mutate DNS."
+run = "fnox exec -- ./scripts/email-dns-check.nu"
+
+[tasks."email:sender-domain:add"]
+description = "Register $CF_EMAIL_SENDER_DOMAIN on Cloudflare Email Service AND publish DKIM/SPF/DMARC records via the DNS API. Idempotent; full setup with zero dashboard clicks. Pairs with email:sender-domain:remove."
+run = "fnox exec -- ./scripts/email-sender-domain-add.nu"
+
+[tasks."email:sender-domain:remove"]
+description = "Deregister $CF_EMAIL_SENDER_DOMAIN from CF Email Service AND remove the DNS records we added (matched by comment marker). Idempotent."
+run = "fnox exec -- ./scripts/email-sender-domain-remove.nu"
+
+[tasks."email:routing:rule:apply"]
+description = "Idempotently create the catch-all CF Email Routing rule that points *@$CF_EMAIL_SENDER_DOMAIN at cf-email-worker. Safe to re-run."
+run = "fnox exec -- ./scripts/email-routing-rule-apply.nu"
+
+# ============================================================================
+# Teardown -- reverse of the setup chain. Each step is idempotent and
+# documents the dashboard alternative. The `email:teardown` umbrella runs
+# them in the right order (routing rule first, then worker delete, then
+# secrets purge) so a user can drop the deployment with one command.
+# ============================================================================
+
+[tasks."email:routing:rule:remove"]
+description = "Delete the catch-all CF Email Routing rule (mirror of email:routing:rule:apply). Idempotent."
+run = "fnox exec -- ./scripts/email-routing-rule-remove.nu"
+
+[tasks."email:worker:teardown"]
+description = "Delete the deployed cf-email-worker from Cloudflare. Pairs with email:worker:deploy."
+run = "cd crates/cf_email_worker && fnox exec -- wrangler delete --force"
+
+[tasks."email:secrets:purge"]
+description = "Delete all HTTP_NU_EMAIL_* keychain items. Prompts unless --yes is passed. Idempotent."
+run = "./scripts/email-secrets-purge.nu"
+
+[tasks."email:teardown"]
+description = "Drop the entire deployment in the correct order: routing rule -> sender domain (+ its DNS) -> worker -> secrets. Each step is idempotent; safe to run multiple times. Set YES_SECRETS=1 to skip the secrets prompt."
+run = '''
+set -e
+echo "==> 1/4 removing Email Routing rule..."
+mise run email:routing:rule:remove || echo "  (continuing; rule remove may have already been done)"
+echo
+echo "==> 2/4 deregistering sender domain from Email Service + cleaning DNS..."
+mise run email:sender-domain:remove || echo "  (continuing; sender-domain remove may have already been done)"
+echo
+echo "==> 3/4 deleting deployed Worker..."
+mise run email:worker:teardown || echo "  (continuing; Worker may already be gone)"
+echo
+echo "==> 4/4 purging keychain items..."
+if [ -n "${YES_SECRETS:-}" ]; then
+  ./scripts/email-secrets-purge.nu --yes
+else
+  ./scripts/email-secrets-purge.nu
+fi
+echo
+echo "Teardown complete. fnox.toml and mise.toml are unchanged -- redeploy"
+echo "with the usual setup chain whenever you want."
+'''
+
+# ============================================================================
+# Demo service: http-nu + nu_plugin_email running examples/email-demo/serve.nu.
+# Secrets injected via fnox exec.
+# ============================================================================
+
+[tasks."email-demo:serve"]
+description = "Run examples/email-demo serve.nu with http-nu + nu_plugin_email. Secrets from fnox."
+depends = ["build", "email:plugin:build"]
+env = { PORT = "8080", STORE = "./.store/email-demo" }
+run = '''
+set -e
+mkdir -p "$STORE"
+exec fnox exec -- ./target/debug/http-nu \
+  --plugin ./target/debug/nu_plugin_email \
+  --store "$STORE" \
+  ":$PORT" \
+  examples/email-demo/serve.nu
+'''
+
+[tasks."email-demo:dispatch"]
+description = "Long-lived xs handler: tails email.send.requested and dispatches via the plugin. Run alongside email-demo:serve in a separate terminal."
+depends = ["email:plugin:build"]
+env = { STORE = "./.store/email-demo" }
+run = '''
+set -e
+exec fnox exec -- nu --plugin ./target/debug/nu_plugin_email --commands "
+use ./examples/email-demo/lib/send.nu *
+\$env.XS_STORE = '$STORE'
+dispatch_loop
+"
+'''
+
+# ============================================================================
+# Smoke test -- half-automated end-to-end. Sends a real outbound to your
+# inbox, then tails xs for an inbound reply. Prereqs: deploy chain done +
+# TEST_RECIPIENT_EMAIL set. See examples/email-demo/test/smoke.nu.
+# ============================================================================
+
+[tasks."email:test:recipient-set"]
+description = "Store the smoke-test recipient email in fnox. Usage: RECIPIENT=you@example.com mise run email:test:recipient-set"
+run = '''
+set -e
+if [ -z "${RECIPIENT:-}" ]; then
+  echo "Usage: RECIPIENT=you@example.com mise run email:test:recipient-set" >&2
+  exit 1
+fi
+security add-generic-password -U -s fnox -a HTTP_NU_EMAIL_TEST_RECIPIENT_EMAIL -w "$RECIPIENT"
+echo "Stored. TEST_RECIPIENT_EMAIL is now resolvable via fnox."
+'''
+
+[tasks."email-demo:smoke"]
+description = "End-to-end smoke test against the deployed Worker. Sends a real email to TEST_RECIPIENT_EMAIL and waits for an inbound reply on xs."
+depends = ["email:plugin:build"]
+env = { STORE = "./.store/email-demo" }
+run = "exec fnox exec -- nu --plugins ./target/debug/nu_plugin_email -c 'source ./examples/email-demo/test/smoke.nu; main'"
+
+[tasks."email-demo:smoke:outbound"]
+description = "Outbound-only smoke test (no inbound xs tail). Use this when http-nu isn't deployed publicly."
+depends = ["email:plugin:build"]
+run = "exec fnox exec -- nu --plugins ./target/debug/nu_plugin_email -c 'source ./examples/email-demo/test/smoke.nu; main --outbound-only'"
+
+[tasks."email-demo:full"]
+description = "One-command bootstrap from a fresh clone to a PASSING outbound smoke. Requires SENDER_DOMAIN + RECIPIENT env vars + a CLOUDFLARE_API_TOKEN resolvable via fnox. Idempotent: safe to re-run; pairs with email:teardown."
+run = '''
+set -e
+if [ -z "${SENDER_DOMAIN:-}" ]; then
+  echo "FAIL: SENDER_DOMAIN env var required (e.g. mail.example.com)" >&2
+  exit 1
+fi
+if [ -z "${RECIPIENT:-}" ]; then
+  echo "FAIL: RECIPIENT env var required (e.g. you@example.com)" >&2
+  exit 1
+fi
+
+echo "==> 1/8 generating runtime secrets in keychain..."
+mise run email:secrets:generate
+
+echo
+echo "==> 2/8 storing SENDER_DOMAIN + RECIPIENT in keychain..."
+SENDER_DOMAIN="$SENDER_DOMAIN" mise run email:worker:domain-set
+RECIPIENT="$RECIPIENT" mise run email:test:recipient-set
+
+echo
+echo "==> 3/8 building plugin + worker check..."
+mise run email:plugin:build
+mise run email:worker:check
+
+echo
+echo "==> 4/8 deploying worker to Cloudflare..."
+# Parse the deployed URL out of wrangler's output.
+deploy_log=$(mise run email:worker:deploy 2>&1)
+echo "$deploy_log" | tail -20
+url=$(echo "$deploy_log" | grep -oE "https://cf-email-worker[a-zA-Z0-9.-]*\.workers\.dev" | head -1)
+if [ -z "$url" ]; then
+  echo "FAIL: could not parse worker URL from deploy output" >&2
+  exit 1
+fi
+echo "  deployed URL: $url"
+
+echo
+echo "==> 5/8 storing deployed URL in keychain..."
+WORKER_URL="$url" mise run email:worker:url-set
+
+echo
+echo "==> 6/8 pushing CF_EMAIL_AUTH_TOKEN to the worker as a wrangler secret..."
+cd crates/cf_email_worker
+fnox exec -- sh -c "printenv CF_EMAIL_AUTH_TOKEN | wrangler secret put CF_EMAIL_AUTH_TOKEN"
+cd ../..
+
+echo
+echo "==> 7/8 registering sender domain on Email Service + publishing DKIM/SPF/DMARC..."
+mise run email:sender-domain:add
+
+echo
+echo "==> 8/8 running outbound smoke..."
+# Wait a couple seconds for the just-published DNS to be visible.
+sleep 5
+mise run email-demo:smoke:outbound
+
+echo
+echo "==> email-demo:full PASS"
 '''

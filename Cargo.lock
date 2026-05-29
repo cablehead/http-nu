@@ -917,6 +917,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cf_email_worker"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "console_error_panic_hook",
+ "hex",
+ "hmac",
+ "mail-builder",
+ "serde",
+ "serde_json",
+ "sha2",
+ "worker 0.8.3 (git+https://github.com/cloudflare/workers-rs?rev=3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4)",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1081,7 +1096,7 @@ dependencies = [
 name = "cloudflare-shell"
 version = "0.1.0"
 dependencies = [
- "worker",
+ "worker 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1096,7 +1111,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "worker",
+ "worker 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1108,7 +1123,7 @@ dependencies = [
  "console_error_panic_hook",
  "percent-encoding",
  "serde_json",
- "worker",
+ "worker 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1126,7 +1141,7 @@ dependencies = [
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "worker",
+ "worker 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1145,7 +1160,7 @@ dependencies = [
  "cloudflare-shell",
  "futures-util",
  "serde",
- "worker",
+ "worker 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -3194,7 +3209,7 @@ dependencies = [
  "uuid",
  "v_htmlescape",
  "win_uds",
- "worker",
+ "worker 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "xxhash-rust",
 ]
 
@@ -3932,9 +3947,9 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jiff"
-version = "0.2.27"
+version = "0.2.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "392c70591e8749fe235ddaf513e6f58b26bce3dcc16524cecc8936f75afa161e"
+checksum = "4603d3033e49e2b0e31229fcab20a5d40089c607d975cd9c80551dc69eed9102"
 dependencies = [
  "jiff-static",
  "jiff-tzdb-platform",
@@ -3947,9 +3962,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "0.2.27"
+version = "0.2.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47b605b0c050d845fc355bb11eb3f9a8deddc218ea60c76e61aa1f2adfb2c96a"
+checksum = "782d32378dddf207193ac91cefb848ad41abb58195c95168e1291227a0832b47"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4409,6 +4424,12 @@ name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
+
+[[package]]
+name = "mail-builder"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "900998f307338c4013a28ab14d760b784067324b164448c6d98a89e44810473b"
 
 [[package]]
 name = "markdown"
@@ -5537,6 +5558,18 @@ dependencies = [
  "nu-plugin",
  "nu-protocol",
  "serde_json",
+]
+
+[[package]]
+name = "nu_plugin_email"
+version = "0.1.0"
+dependencies = [
+ "nu-plugin",
+ "nu-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "ureq 2.12.1",
 ]
 
 [[package]]
@@ -8877,6 +8910,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]
@@ -10243,8 +10278,38 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams 0.5.0",
  "web-sys",
- "worker-macros",
- "worker-sys",
+ "worker-macros 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "worker-sys 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "worker"
+version = "0.8.3"
+source = "git+https://github.com/cloudflare/workers-rs?rev=3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4#3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures-channel",
+ "futures-util",
+ "http",
+ "http-body",
+ "js-sys",
+ "matchit",
+ "pin-project",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "serde_urlencoded",
+ "strum",
+ "tokio",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-streams 0.5.0",
+ "web-sys",
+ "worker-macros 0.8.3 (git+https://github.com/cloudflare/workers-rs?rev=3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4)",
+ "worker-sys 0.8.3 (git+https://github.com/cloudflare/workers-rs?rev=3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4)",
 ]
 
 [[package]]
@@ -10261,7 +10326,23 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-macro-support",
- "worker-sys",
+ "worker-sys 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "worker-macros"
+version = "0.8.3"
+source = "git+https://github.com/cloudflare/workers-rs?rev=3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4#3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4"
+dependencies = [
+ "async-trait",
+ "proc-macro2",
+ "quote",
+ "strum",
+ "syn 2.0.117",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-macro-support",
+ "worker-sys 0.8.3 (git+https://github.com/cloudflare/workers-rs?rev=3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4)",
 ]
 
 [[package]]
@@ -10269,6 +10350,17 @@ name = "worker-sys"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0e59a8504685d87649b8fda877d95fcc48f8c8177dbd77a4dc8e67f8fc80240"
+dependencies = [
+ "cfg-if",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "worker-sys"
+version = "0.8.3"
+source = "git+https://github.com/cloudflare/workers-rs?rev=3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4#3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4"
 dependencies = [
  "cfg-if",
  "js-sys",

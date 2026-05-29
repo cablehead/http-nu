@@ -1,0 +1,26 @@
+[package]
+name = "nu_plugin_email"
+version = "0.1.0"
+edition = "2021"
+description = "Nushell plugin: thin HTTPS client to a Cloudflare Worker that sends mail via the [[send_email]] binding"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "nu_plugin_email"
+bench = false
+
+[lib]
+
+[dependencies]
+nu-plugin = "0.112.1"
+nu-protocol = { version = "0.112.1", features = ["plugin"] }
+
+# Blocking HTTP -- the worker accepts a JSON POST and returns a JSON result.
+# Sync API keeps the plugin process small (no tokio runtime).
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+thiserror = "1"

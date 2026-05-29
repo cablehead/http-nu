@@ -10,6 +10,22 @@ members = [
     "crates/cloudflare-shell-rpc/demo-rust",
     "crates/nu_plugin_cedar",
     "crates/nu_plugin_push",
+    "crates/cf_email_worker",
+    "crates/nu_plugin_email",
+]
+# The wasm32-unknown-unknown Workers (cf_email_worker, cloudflare-shell-workspace,
+# and the cloudflare-shell-rpc server + demo-rust) must not be built on the host
+# target. default-members keeps `cargo build` / `cargo test` (no --workspace) to
+# the host-buildable crates; build the wasm crates explicitly via worker-build.
+default-members = [
+    ".",
+    "tests/test_plugin",
+    "crates/cloudflare-shell",
+    "crates/cloudflare-shell-rpc/types",
+    "crates/cloudflare-shell-rpc/client",
+    "crates/nu_plugin_cedar",
+    "crates/nu_plugin_push",
+    "crates/nu_plugin_email",
 ]
 
 # Common deps shared across crates/cloudflare-shell{,-workspace} and

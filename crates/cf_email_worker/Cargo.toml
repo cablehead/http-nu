@@ -1,0 +1,36 @@
+[package]
+name = "cf_email_worker"
+version = "0.1.0"
+edition = "2021"
+description = "Cloudflare Worker: sends mail via [[send_email]] binding; receives inbound and forwards to http-nu webhook"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# `#[event(email)]` lives on the workers-rs `main` branch but is not yet on
+# crates.io (latest published is 0.8.3 which predates commit 3d0903a, the
+# one that added the EmailWorkers feature). Pin to the commit so builds are
+# reproducible without depending on an unreleased crates.io version.
+worker = { git = "https://github.com/cloudflare/workers-rs", rev = "3d0903aac3332a69ed5393d5a6cceb9ddb2f17b4" }
+# default-features = false drops `gethostname`, which doesn't build for
+# wasm32-unknown-unknown. We supply our own `date` and `message_id` headers
+# (see workers-rs send-email example for the upstream workaround context).
+mail-builder = { version = "0.4", default-features = false }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HMAC-SHA256 for the outbound webhook (Worker -> http-nu). The receiving
+# serve.nu verifies the same signature.
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+# Raw MIME bytes are forwarded base64-encoded inside the JSON payload so the
+# wire format stays UTF-8 even when the message contains binary parts.
+base64 = "0.22"
+
+console_error_panic_hook = "0.1"
