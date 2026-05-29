@@ -124,8 +124,13 @@ cloudflare-shell = { git = "https://github.com/joeblew999/workers-rs-util", feat
 # DurableObject + R2 impl of cloudflare-shell::FileSystem. Wasm-only
 # (depends on `worker` unconditionally); gated by target_arch below.
 
+# joeblew999 fork: depend directly on the LOCAL xs checkout (sibling repo at
+# ../xs, on `main` which carries XS_RELAY_URL relay support). A [patch] was
+# silently ignored because xs is 0.12.1-dev and the old `version = "0.12.0"`
+# requirement excludes pre-releases -- a direct path dep avoids that. Requires
+# xs checked out side-by-side under .../joeblew999/xs.
 [dependencies.cross-stream]
-version = "0.12.0"
+path = "../xs"
 optional = true
 
 [features]
@@ -237,8 +242,3 @@ minijinja = "2"
 
 
 
-# joeblew999 fork: override cross-stream with the relay-url-env branch
-# so http-nu picks up XS_RELAY_URL support. Remove once upstream merges
-# https://github.com/cablehead/xs/pull/<NNN>.
-[patch.crates-io]
-cross-stream = { git = "https://github.com/joeblew999/xs", branch = "feature/relay-url-env" }
