@@ -18,8 +18,12 @@ type = "keychain"
 service = "fnox"
 
 [secrets]
-# Pre-existing; left as-is (inline-plaintext shape was already used here).
-SHELL_FS_TOKEN= { value = "7e701003c51873747ae35aece0b6ca2f36f837384a61e4fa", default = "7e701003c51873747ae35aece0b6ca2f36f837384a61e4fa" }
+# cloudflare-shell-rpc bearer (gates the FS-RPC Worker; pushed to wrangler as a
+# secret by cf:fs:deploy:all). Keychain-backed, repo-prefixed item name so it
+# can't collide in the shared `fnox` service when another repo consumes the
+# same deployed Worker. Store/rotate with:
+#   security add-generic-password -U -s fnox -a HTTP_NU_SHELL_FS_TOKEN -w "$(openssl rand -hex 24)"
+SHELL_FS_TOKEN = { provider = "keychain", value = "HTTP_NU_SHELL_FS_TOKEN" }
 
 # push-demo: all four go through the keychain provider so plaintext never
 # lands in fnox.toml. Fresh clones must run `mise run push:vapid:generate`.
