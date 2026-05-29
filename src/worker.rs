@@ -2,8 +2,8 @@ use crate::commands::RESPONSE_TX;
 use crate::logging::log_error;
 use crate::request::{request_to_value, Request};
 use crate::response::{
-    extract_http_response_meta, value_to_bytes, value_to_json, HttpResponseMeta, Response,
-    ResponseTransport,
+    extract_http_response_meta, infer_content_type, value_to_bytes, value_to_json,
+    HttpResponseMeta, Response, ResponseTransport,
 };
 use nu_protocol::{
     engine::{Job, StateWorkingSet, ThreadJob},
@@ -54,43 +54,9 @@ pub fn spawn_eval_thread(
         });
         let output = result?;
 
-        // Content-type inference (when pipeline metadata has no content-type):
-        //
-        // | Value type       | Content-Type           | Conversion          |
-        // |------------------|------------------------|---------------------|
-        // | Record (__html)  | text/html              | unwrap __html       |
-        // | Record           | application/json       | JSON object         |
-        // | List             | application/json       | JSON array          |
-        // | Binary           | application/octet-stream | raw bytes         |
-        // | Empty/Nothing    | None (no header)       | empty               |
-        // | ListStream       | application/x-ndjson   | JSONL (if records)  |
-        // | Other            | text/html (default)    | .to_string()        |
-        //
-        let inferred_content_type = match &output {
-            PipelineData::Value(Value::Record { val, .. }, meta)
-                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
-            {
-                if val.get("__html").is_some() {
-                    Some("text/html; charset=utf-8".to_string())
-                } else {
-                    Some("application/json".to_string())
-                }
-            }
-            PipelineData::Value(Value::List { .. }, meta)
-                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
-            {
-                Some("application/json".to_string())
-            }
-            PipelineData::Value(Value::Binary { .. }, meta)
-                if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
-            {
-                Some("application/octet-stream".to_string())
-            }
-            PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
-                meta.as_ref().and_then(|m| m.content_type.clone())
-            }
-            _ => None,
-        };
+        // Content-type inference shared with src/cf/mod.rs (wasm) -- both
+        // call the same helper in src/response.rs.
+        let inferred_content_type = infer_content_type(&output);
         match output {
             PipelineData::Empty => {
                 let _ = body_tx.send((

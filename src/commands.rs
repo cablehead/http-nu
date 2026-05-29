@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-use crate::logging::log_print;
+use crate::log::log_print;
 use crate::response::{Response, ResponseBodyType};
 use nu_engine::command_prelude::*;
 use nu_protocol::{
@@ -13,7 +13,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use tokio::sync::oneshot;
 
-use minijinja::{path_loader, AutoEscape, Environment};
+use minijinja::{AutoEscape, Environment};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use syntect::html::{ClassStyle, ClassedHTMLGenerator};
@@ -36,9 +36,14 @@ fn hash_source_and_path(source: &str, base_dir: &std::path::Path) -> u128 {
     xxhash_rust::xxh3::xxh3_128(&data)
 }
 
-/// Compile template and insert into cache. Returns hash.
+/// Compile template and insert into cache. Returns hash. Transitive
+/// `{% include %}` / `{% extends %}` reads go through `crate::vfs::Vfs`.
 fn compile_template(source: &str, base_dir: &std::path::Path) -> Result<u128, minijinja::Error> {
-    compile_template_with_loader(source, base_dir, path_loader(base_dir))
+    compile_template_with_loader(
+        source,
+        base_dir,
+        crate::template_loader::vfs(base_dir.to_path_buf()),
+    )
 }
 
 /// Compile template with a custom loader and insert into cache. Returns hash.
@@ -684,15 +689,10 @@ impl Command for MjCommand {
         let mut env = Environment::new();
         env.set_auto_escape_callback(|_| AutoEscape::Html);
         let tmpl = if let Some(ref path) = file {
-            // File mode: resolve from filesystem only
             let path = std::path::Path::new(path);
-            let abs_path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                std::env::current_dir().unwrap_or_default().join(path)
-            };
+            let abs_path = crate::vfs::resolve_relative(path);
             if let Some(parent) = abs_path.parent() {
-                env.set_loader(path_loader(parent));
+                env.set_loader(crate::template_loader::vfs(parent.to_path_buf()));
             }
             let name = abs_path
                 .file_name()
@@ -911,15 +911,10 @@ impl Command for MjCompileCommand {
         }
 
         let hash = if let Some(ref path) = file {
-            // File mode: filesystem only
             let path = std::path::Path::new(path);
-            let abs_path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                std::env::current_dir().unwrap_or_default().join(path)
-            };
+            let abs_path = crate::vfs::resolve_relative(path);
             let base_dir = abs_path.parent().unwrap_or(&abs_path).to_path_buf();
-            let source = std::fs::read_to_string(&abs_path).map_err(|e| {
+            let source = crate::vfs::read_to_string(&abs_path).map_err(|e| {
                 ShellError::Generic(GenericError::new(
                     format!("Failed to read template file: {e}"),
                     "could not read file",
@@ -1724,6 +1719,9 @@ impl Command for BusPubCommand {
 
 #[derive(Clone)]
 pub struct BusSubCommand {
+    // The desktop fn run uses self.bus to subscribe; the wasm stub returns
+    // an error before touching it, so the wasm build sees this as dead.
+    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
     bus: Arc<Bus>,
 }
 
@@ -1758,6 +1756,7 @@ yields only events whose topic matches. `*` matches any run of characters includ
             .category(Category::Experimental)
     }
 
+    #[cfg(feature = "desktop")]
     fn run(
         &self,
         engine_state: &EngineState,
@@ -1814,5 +1813,25 @@ yields only events whose topic matches. `*` matches any run of characters includ
         );
 
         Ok(PipelineData::ListStream(stream, None))
+    }
+
+    // wasm path: the desktop impl uses std::thread::spawn + a fresh tokio
+    // runtime to bridge async broadcast -> sync ListStream. Neither exists
+    // on Workers; the real wasm impl will be a BusDO + WS Hibernation bridge
+    // (see CLOUDFLARE.md). For now, surface a clear error.
+    #[cfg(not(feature = "desktop"))]
+    fn run(
+        &self,
+        _engine_state: &EngineState,
+        _stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        use nu_protocol::shell_error::generic::GenericError;
+        Err(ShellError::Generic(GenericError::new(
+            ".bus sub is not yet implemented on this target",
+            "use the desktop binary, or wait for the BusDO bridge",
+            call.head,
+        )))
     }
 }

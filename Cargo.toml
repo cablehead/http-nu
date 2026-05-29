@@ -1,5 +1,35 @@
 [workspace]
-members = [".", "tests/test_plugin"]
+members = [
+    ".",
+    "tests/test_plugin",
+]
+# The cloudflare-shell family + nushell plugins moved to
+# https://github.com/joeblew999/workers-rs-util. http-nu's CF port consumes
+# cloudflare-shell{,-workspace} from there as a git dependency (below).
+# NOTE: intentionally NO `default-members`. http-nu is the workspace ROOT
+# package, so a bare `cargo build`/`worker-build` at the root builds only
+# http-nu -- exactly what cf:build needs for the wasm `cloudflare` target.
+# A default-members spanning the host plugins makes cargo co-build them and
+# unify nu-* features onto shared crates, dragging os-only deps (crossterm,
+# os_pipe) into the wasm build and breaking it. Build the plugins + wasm
+# Workers via their own -p tasks (push:plugin:build, email:plugin:build,
+# cedar:plugin:build, email:worker:check, cf:fs:build) or `cargo X --workspace`.
+
+# Common deps shared across crates/cloudflare-shell{,-workspace} and
+# the four new crates under crates/cloudflare-shell-rpc/. Each member
+# uses `<dep>.workspace = true` instead of repeating the version. The
+# top-level http-nu crate keeps its own dep table for now -- its
+# version pins are entangled with optional / conditional features.
+[workspace.dependencies]
+worker = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+base64 = "0.22"
+console_error_panic_hook = "0.1"
+futures-util = "0.3"
 
 [package]
 name = "http-nu"
@@ -17,6 +47,12 @@ categories = ["web-programming", "command-line-utilities"]
 [[bin]]
 name = "http-nu"
 path = "src/main.rs"
+required-features = ["desktop"]
+
+# rlib for the desktop binary; cdylib for worker-build / wasm-pack output.
+# cdylib is harmless on desktop (extra .dylib artifact, never linked).
+[lib]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -26,10 +62,12 @@ serde_json = "1"
 http-serde = "2.1.1"
 
 http = "1.1.0"
+http-body = "1"
 http-body-util = "0.1"
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full", "server-auto"] }
-tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["full"], optional = true }
+hyper-util = { version = "0.1", features = ["full", "server-auto"], optional = true }
+# tokio narrowed to wasm-portable subset; desktop adds `full` via the cascade.
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "macros", "io-util", "time"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io", "compat"] }
 futures-util = "0.3"
@@ -37,49 +75,118 @@ futures-util = "0.3"
 bytes = "1.6.0"
 url = "2.5.0"
 
-nu-cli = "0.112.1"
-nu-cmd-lang = "0.112.1"
-nu-cmd-extra = "0.112.1"
-nu-command = { version = "0.112.1", features = ["sqlite"] }
-nu-engine = "0.112.1"
-nu-parser = "0.112.1"
-nu-plugin-engine = "0.112.1"
-nu-protocol = { version = "0.112.1", features = ["plugin"] }
-ctrlc = "3.4"
+# nu-* crates: features made explicit so the wasm build can opt out of
+# `os` (which pulls os_pipe). Desktop behavior is unchanged: the `desktop`
+# feature below cascades the same effective feature set that was implicit
+# before.
+nu-cli = { version = "0.112.1", optional = true }
+nu-cmd-lang = { version = "0.112.1", default-features = false }
+nu-cmd-extra = { version = "0.112.1", default-features = false }
+nu-command = { version = "0.112.1", default-features = false }
+nu-engine = { version = "0.112.1", default-features = false }
+nu-parser = { version = "0.112.1", default-features = false }
+nu-plugin-engine = { version = "0.112.1", optional = true }
+nu-protocol = { version = "0.112.1", default-features = false }
+ctrlc = { version = "3.4", optional = true }
 arc-swap = "1.7"
-rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
-rustls-pemfile = "2.1.0"
-tokio-rustls = "0.26.0"
+rustls = { version = "0.23.28", features = ["aws_lc_rs"], optional = true }
+rustls-pemfile = { version = "2.1.0", optional = true }
+tokio-rustls = { version = "0.26.0", optional = true }
 scru128 = { version = "3", features = ["serde"] }
 miette = "7"
-crossterm = "0.29"
+crossterm = { version = "0.29", optional = true }
 chrono = "0.4"
 ipnet = "2"
-tower-http = { version = "0.6.6", features = ["fs"] }
-tower = { version = "0.5.2", features = ["util"] }
+tower-http = { version = "0.6.6", features = ["fs"], optional = true }
+tower = { version = "0.5.2", features = ["util"], optional = true }
 brotli = "8"
 http_encoding_headers = "0.2.0"
 headers = "0.4.1"
 minijinja = { version = "2", features = ["json", "urlencode", "loop_controls", "loader"] }
 v_htmlescape = "0.15"
-nu-std = "0.112.1"
-nu-utils = "0.112.1"
+nu-std = { version = "0.112.1", default-features = false }
+nu-utils = { version = "0.112.1", default-features = false }
 typetag = "0.2"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
-syntect = "5.3.0"
-syntect-assets = "0.23.6"
+# default features pull `regex-onig` (C oniguruma, no wasm32). regex-fancy
+# is the pure-Rust backend; works on both targets.
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "default-themes", "regex-fancy", "html", "plist-load", "yaml-load", "dump-load", "dump-create"] }
+syntect-assets = { version = "0.23.6", default-features = false, features = ["regex-fancy"] }
 pulldown-cmark = "0.12.2"
-notify = "8"
+notify = { version = "8", optional = true }
+
+# CF Workers runtime (gated by the `cloudflare` feature)
+worker = { version = "0.8", optional = true }
+# Backend-agnostic FileSystem trait + types. Path dep today; could
+# move to a registry version if we publish it. Optional because
+# desktop builds don't need it.
+cloudflare-shell = { git = "https://github.com/joeblew999/workers-rs-util", features = ["workers"], optional = true }
+# DurableObject + R2 impl of cloudflare-shell::FileSystem. Wasm-only
+# (depends on `worker` unconditionally); gated by target_arch below.
 
 [dependencies.cross-stream]
 version = "0.12.0"
 optional = true
 
 [features]
-default = ["cross-stream"]
+# `cloudflare` enables the worker-rs entrypoint (src/cf/) and pulls the
+# Workers SDK. Build with: `cargo build --target wasm32-unknown-unknown
+# --no-default-features --features cloudflare` (or via worker-build).
+#
+# nu-command/js enables JS-environment-friendly versions of commands
+# that would otherwise need `os`. Matches nu-on-web's wasm recipe.
+# Transitively enables `rand` (random integer etc) + getrandom/wasm_js.
+# nu-command/sqlite is NOT here -- libsqlite3-sys needs a C toolchain
+# we don't have for wasm32. `stor` examples need a CF-side shadow over
+# ctx.storage.sql; tracked in the gap list below.
+cloudflare = ["dep:worker", "dep:cloudflare-shell", "nu-command/js"]
+# `desktop` cascades the nu-* feature set that http-nu has always used.
+# Splitting it out lets a future `cloudflare` feature opt out of `os` (which
+# pulls os_pipe, no wasm32 support) and opt into `js` for nu-command.
+default = ["desktop", "cross-stream"]
+desktop = [
+    # desktop-only optional crates
+    "dep:nu-cli",
+    "dep:nu-plugin-engine",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:ctrlc",
+    "dep:notify",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:tokio-rustls",
+    "dep:crossterm",
+    "dep:tower",
+    "dep:tower-http",
+    # tokio runs as a real multi-threaded async runtime on desktop.
+    "tokio/full",
+    # crates that *have* an `os` feature (verified via crates.io 0.112.1)
+    "nu-cmd-lang/os",
+    "nu-command/os",
+    "nu-command/network",
+    "nu-command/rustls-tls",
+    "nu-command/sqlite",
+    "nu-engine/os",
+    "nu-protocol/os",
+    "nu-protocol/plugin",
+    "nu-utils/os",
+    # nu-cmd-extra, nu-parser, nu-std have no `os` feature; nothing to cascade.
+]
 
 [target.'cfg(windows)'.dependencies]
 win_uds = "=0.2.2"
+
+# Wasm32 needs `getrandom/wasm_js` to provide entropy. Desktop uses OS-level
+# randomness via the default backend, untouched by this target-specific dep.
+# console_error_panic_hook + uuid/js are also wasm-only essentials.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+uuid = { version = "1", features = ["js"] }
+console_error_panic_hook = "0.1"
+# Workspace impl. Pulled only on wasm because it depends unconditionally
+# on `worker` (which is itself wasm-only). The actual gate that decides
+# whether to USE it lives on `feature = "cloudflare"` at the call sites.
+cloudflare-shell-workspace = { git = "https://github.com/joeblew999/workers-rs-util" }
 
 [build-dependencies]
 syntect = "5.3.0"
@@ -129,3 +236,9 @@ minijinja = "2"
 
 
 
+
+# joeblew999 fork: override cross-stream with the relay-url-env branch
+# so http-nu picks up XS_RELAY_URL support. Remove once upstream merges
+# https://github.com/cablehead/xs/pull/<NNN>.
+[patch.crates-io]
+cross-stream = { git = "https://github.com/joeblew999/xs", branch = "feature/relay-url-env" }

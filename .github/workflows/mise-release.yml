@@ -1,0 +1,104 @@
+name: release-mise
+
+# Build and upload release binaries via mise + native GH runners. Replaces
+# the upstream Dagger-based release-binaries.yml. Trigger by pushing a v* tag.
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # gh release upload
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-latest
+            artifact_suffix: linux-amd64.tar.gz
+            archive: tar.gz
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            artifact_suffix: linux-arm64.tar.gz
+            archive: tar.gz
+          - target: macos-arm64
+            runner: macos-latest
+            artifact_suffix: macos-arm64.tar.gz
+            archive: tar.gz
+          - target: windows-amd64
+            runner: windows-latest
+            artifact_suffix: windows-amd64.zip
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v4
+        with:
+          version: 2026.5.1
+          install: true
+          cache: true
+
+      - name: Build (release)
+        # http-nu has no build:release task; use cargo directly. Default
+        # features include `desktop` which the http-nu binary requires.
+        run: cargo build --release --bin http-nu
+
+      - name: Package binary (unix tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="http-nu-${GITHUB_REF_NAME}-${{ matrix.artifact_suffix }}"
+          STAGE="http-nu-${GITHUB_REF_NAME}"
+          mkdir -p "stage/$STAGE"
+          cp target/release/http-nu "stage/$STAGE/"
+          tar -czf "$NAME" -C stage "$STAGE"
+          echo "artifact=$NAME" >> "$GITHUB_ENV"
+
+      - name: Package binary (windows zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $name = "http-nu-${env:GITHUB_REF_NAME}-${{ matrix.artifact_suffix }}"
+          $stage = "http-nu-${env:GITHUB_REF_NAME}"
+          New-Item -ItemType Directory -Force "stage/$stage" | Out-Null
+          Copy-Item target/release/http-nu.exe "stage/$stage/"
+          Compress-Archive -Path "stage/$stage" -DestinationPath $name
+          "artifact=$name" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.artifact }}
+          if-no-files-found: error
+
+  release:
+    name: Attach to GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+          find dist -type f \( -name "*.tar.gz" -o -name "*.zip" \) -print \
+            | xargs -I{} gh release upload "$GITHUB_REF_NAME" "{}" --repo "$GITHUB_REPOSITORY" --clobber

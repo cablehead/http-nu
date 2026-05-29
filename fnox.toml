@@ -1,0 +1,16 @@
+# Per-repo fnox config. Secrets live in the macOS keychain (service = "fnox").
+# The LEFT of each [secrets] entry is the env var the code reads; `value` is the
+# keychain item name. mise tasks run wrangler under `fnox exec`.
+#
+# The FS-RPC (SHELL_FS_TOKEN), push (VAPID_*), and email (CF_EMAIL_*) secrets
+# moved to https://github.com/joeblew999/workers-rs-util along with their crates.
+# http-nu only needs the Cloudflare API token for deploying its own CF Worker.
+
+[providers.keychain]
+type = "keychain"
+service = "fnox"
+
+[secrets]
+# Cloudflare API token for `cf:deploy` (the http-nu Worker). Shared global token
+# on this machine; for a scoped token, point `value` at a repo-prefixed item.
+CLOUDFLARE_API_TOKEN = { provider = "keychain", value = "CLOUDFLARE_API_TOKEN" }

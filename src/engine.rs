@@ -3,11 +3,13 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 use tokio_util::sync::CancellationToken;
 
+#[cfg(feature = "desktop")]
 use nu_cli::{add_cli_context, gather_parent_env_vars};
 use nu_cmd_lang::create_default_context;
 use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
+#[cfg(feature = "desktop")]
 use nu_plugin_engine::{GetPlugin, PluginDeclaration};
 use nu_protocol::engine::Command;
 use nu_protocol::format_cli_error;
@@ -15,9 +17,10 @@ use nu_protocol::{
     debugger::WithoutDebug,
     engine::{Closure, EngineState, Redirection, Stack, StateWorkingSet},
     shell_error::generic::GenericError,
-    OutDest, PipelineData, PluginIdentity, RegisteredPlugin, ShellError, Signals, Span, Type,
-    Value,
+    OutDest, PipelineData, ShellError, Signals, Span, Type, Value,
 };
+#[cfg(feature = "desktop")]
+use nu_protocol::{PluginIdentity, RegisteredPlugin};
 
 use crate::bus::Bus;
 use crate::commands::{
@@ -25,7 +28,7 @@ use crate::commands::{
     MdCommand, MjCommand, MjCompileCommand, MjRenderCommand, PrintCommand, ReverseProxyCommand,
     RunNuCommand, StaticCommand, ToSse,
 };
-use crate::logging::log_error;
+use crate::log::log_error;
 use crate::stdlib::load_http_nu_stdlib;
 use crate::Error;
 
@@ -57,14 +60,41 @@ impl Engine {
         let mut engine_state = create_default_context();
 
         engine_state = add_shell_command_context(engine_state);
-        engine_state = add_cli_context(engine_state);
+        #[cfg(feature = "desktop")]
+        {
+            engine_state = add_cli_context(engine_state);
+        }
         engine_state = nu_cmd_extra::extra::add_extra_command_context(engine_state);
 
         load_http_nu_stdlib(&mut engine_state)?;
+        // nu_std's load_standard_library parses `use std/prelude *` against
+        // a placeholder file path, which triggers nu-protocol's cwd() check.
+        // On wasm32 there's no real cwd and Path::exists() always returns
+        // false, so this fails. Skip on non-desktop; scripts that need the
+        // std/ prelude won't run on wasm until upstream gates this load.
+        #[cfg(feature = "desktop")]
         nu_std::load_standard_library(&mut engine_state)?;
 
-        let init_cwd = std::env::current_dir()?;
-        gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
+        #[cfg(feature = "desktop")]
+        {
+            let init_cwd = std::env::current_dir()?;
+            gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
+        }
+        // wasm: no parent process, no real cwd. Nu's parser still expects
+        // $env.PWD to be set (use-statement path resolution touches it).
+        // FIXME: today the Nu parser rejects this synthetic value at runtime
+        // ("$env.PWD is not an absolute path") even though "/tmp" is
+        // absolute. Likely a Nu-side check that touches the path beyond a
+        // simple "starts with /" test. See CLOUDFLARE.md "Status".
+        #[cfg(not(feature = "desktop"))]
+        {
+            // PWD = "/" -- the wasm32 std path module is the unix variant
+            // (per std::sys::path::mod.rs cfg_select fallback), so root
+            // counts as absolute. Anything deeper has historically been
+            // rejected by nu_path::AbsolutePathBuf::try_from on wasm32;
+            // keeping PWD minimal sidesteps it.
+            engine_state.add_env_var("PWD".into(), Value::string("/", Span::unknown()));
+        }
 
         Ok(Self {
             state: engine_state,
@@ -111,6 +141,7 @@ impl Engine {
     }
 
     /// Load a Nushell plugin from the given path
+    #[cfg(feature = "desktop")]
     pub fn load_plugin(&mut self, path: &Path) -> Result<(), Error> {
         // Canonicalize the path
         let path = path.canonicalize().map_err(|e| {
@@ -221,6 +252,10 @@ impl Engine {
             .into());
         }
 
+        // merge_env() calls std::env::set_current_dir based on $env.PWD,
+        // which can't work on wasm32 (no real cwd). Skip on non-desktop.
+        // The closure already captured what it needs from the stack.
+        #[cfg(feature = "desktop")]
         self.state.merge_env(&mut stack)?;
 
         self.closure = Some(closure);

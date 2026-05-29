@@ -24,6 +24,9 @@ fn main() {
     dump_to_file(&syntax_set, &dest_path).expect("Failed to save SyntaxSet");
 
     println!("cargo:rerun-if-changed=syntaxes/");
+    // Cloudflare build picks the embedded handler script via this env var.
+    // mise tasks (ex:cf:*) set it; src/cf/mod.rs reads it via env!().
+    println!("cargo:rerun-if-env-changed=CF_HANDLER_PATH");
 
     // Extract dependency versions for runtime display
     if let Ok(metadata) = cargo_metadata::MetadataCommand::new().exec() {

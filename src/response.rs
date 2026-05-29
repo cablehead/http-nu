@@ -1,4 +1,4 @@
-use nu_protocol::Value;
+use nu_protocol::{PipelineData, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -47,6 +47,51 @@ pub enum ResponseTransport {
     Empty,
     Full(Vec<u8>),
     Stream(tokio::sync::mpsc::Receiver<Vec<u8>>),
+}
+
+/// Content-type inference shared between the desktop response builder
+/// (`src/worker.rs`) and the wasm response builder (`src/cf/mod.rs`).
+///
+/// | Value type       | Content-Type             | Conversion          |
+/// |------------------|--------------------------|---------------------|
+/// | Record (__html)  | text/html                | unwrap __html       |
+/// | Record           | application/json         | JSON object         |
+/// | List             | application/json         | JSON array          |
+/// | Binary           | application/octet-stream | raw bytes           |
+/// | Empty/Nothing    | None (no header)         | empty               |
+/// | ListStream       | application/x-ndjson     | JSONL (if records)  |
+/// | Other            | metadata's content-type  | -                   |
+///
+/// `ListStream` content-type is set to `application/x-ndjson` only when
+/// the *first* value is a record without `__html`; the caller is expected
+/// to handle that by peeking the iterator. This function returns the
+/// non-streaming inference; `application/x-ndjson` is decided by the caller.
+pub fn infer_content_type(pd: &PipelineData) -> Option<String> {
+    match pd {
+        PipelineData::Value(Value::Record { val, .. }, meta)
+            if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+        {
+            if val.get("__html").is_some() {
+                Some("text/html; charset=utf-8".into())
+            } else {
+                Some("application/json".into())
+            }
+        }
+        PipelineData::Value(Value::List { .. }, meta)
+            if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+        {
+            Some("application/json".into())
+        }
+        PipelineData::Value(Value::Binary { .. }, meta)
+            if meta.as_ref().and_then(|m| m.content_type.clone()).is_none() =>
+        {
+            Some("application/octet-stream".into())
+        }
+        PipelineData::Value(_, meta) | PipelineData::ListStream(_, meta) => {
+            meta.as_ref().and_then(|m| m.content_type.clone())
+        }
+        _ => None,
+    }
 }
 
 pub fn value_to_json(value: &Value) -> serde_json::Value {
@@ -139,6 +184,11 @@ pub fn value_to_bytes(value: Value) -> Vec<u8> {
         Value::List { .. } | Value::Record { .. } => serde_json::to_string(&value_to_json(&value))
             .unwrap_or_else(|_| String::new())
             .into_bytes(),
+
+        // Error variants -- emit the formatted message and let the stream
+        // close gracefully. Previously this hit a todo!() which panicked
+        // mid-stream and left the chunked response hanging.
+        Value::Error { error, .. } => format!("[error] {error}\n").into_bytes(),
 
         _ => todo!("value_to_bytes: {:?}", value),
     }
