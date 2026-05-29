@@ -33,7 +33,7 @@ futures-util = "0.3"
 
 [package]
 name = "http-nu"
-version = "0.16.1-dev"
+version = "0.17.0"
 edition = "2021"
 rust-version = "1.88.0"
 description = "The surprisingly performant, Nushell-scriptable, cross.stream-powered, Datastar-ready HTTP server that fits in your back pocket."
@@ -124,13 +124,13 @@ cloudflare-shell = { git = "https://github.com/joeblew999/workers-rs-util", feat
 # DurableObject + R2 impl of cloudflare-shell::FileSystem. Wasm-only
 # (depends on `worker` unconditionally); gated by target_arch below.
 
-# joeblew999 fork: depend directly on the LOCAL xs checkout (sibling repo at
-# ../xs, on `main` which carries XS_RELAY_URL relay support). A [patch] was
-# silently ignored because xs is 0.12.1-dev and the old `version = "0.12.0"`
-# requirement excludes pre-releases -- a direct path dep avoids that. Requires
-# xs checked out side-by-side under .../joeblew999/xs.
+# joeblew999 fork: depend on our xs fork, which carries XS_RELAY_URL relay
+# support, pinned to the matching release tag. A direct git dep (not a local
+# path) so the release CI -- which only checks out http-nu -- can fetch it.
+# For a local dev loop against a working copy, override locally (uncommitted).
 [dependencies.cross-stream]
-path = "../xs"
+git = "https://github.com/joeblew999/xs"
+tag = "v0.17.0"
 optional = true
 
 [features]

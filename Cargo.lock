@@ -1180,7 +1180,8 @@ checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "cross-stream"
-version = "0.12.1-dev"
+version = "0.17.0"
+source = "git+https://github.com/joeblew999/xs?tag=v0.17.0#acd94123f3e8afb0cfd934e00e11fcd9b3009f47"
 dependencies = [
  "base64 0.22.1",
  "bon",
@@ -2608,7 +2609,7 @@ dependencies = [
 
 [[package]]
 name = "http-nu"
-version = "0.16.1-dev"
+version = "0.17.0"
 dependencies = [
  "arc-swap",
  "assert_cmd",
