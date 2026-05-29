@@ -232,6 +232,9 @@ set -euo pipefail
 export CF_HANDLER_PATH="${CF_HANDLER_PATH:-../../examples/blog/serve.nu}"
 MODE="${CF_BUILD_MODE:-dev}"
 echo "embedding handler: $CF_HANDLER_PATH  (mode: $MODE)"
+# Builds only http-nu: the workspace has no default-members, so worker-build
+# at the root resolves to the root package alone (no plugin feature unification
+# that would pull os-only crates into the wasm build). See Cargo.toml note.
 case "$MODE" in
   dev)
     # --dev skips wasm-opt and uses cargo debug profile -> ~5-10s incremental

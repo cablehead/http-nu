@@ -13,20 +13,14 @@ members = [
     "crates/cf_email_worker",
     "crates/nu_plugin_email",
 ]
-# The wasm32-unknown-unknown Workers (cf_email_worker, cloudflare-shell-workspace,
-# and the cloudflare-shell-rpc server + demo-rust) must not be built on the host
-# target. default-members keeps `cargo build` / `cargo test` (no --workspace) to
-# the host-buildable crates; build the wasm crates explicitly via worker-build.
-default-members = [
-    ".",
-    "tests/test_plugin",
-    "crates/cloudflare-shell",
-    "crates/cloudflare-shell-rpc/types",
-    "crates/cloudflare-shell-rpc/client",
-    "crates/nu_plugin_cedar",
-    "crates/nu_plugin_push",
-    "crates/nu_plugin_email",
-]
+# NOTE: intentionally NO `default-members`. http-nu is the workspace ROOT
+# package, so a bare `cargo build`/`worker-build` at the root builds only
+# http-nu -- exactly what cf:build needs for the wasm `cloudflare` target.
+# A default-members spanning the host plugins makes cargo co-build them and
+# unify nu-* features onto shared crates, dragging os-only deps (crossterm,
+# os_pipe) into the wasm build and breaking it. Build the plugins + wasm
+# Workers via their own -p tasks (push:plugin:build, email:plugin:build,
+# cedar:plugin:build, email:worker:check, cf:fs:build) or `cargo X --workspace`.
 
 # Common deps shared across crates/cloudflare-shell{,-workspace} and
 # the four new crates under crates/cloudflare-shell-rpc/. Each member
