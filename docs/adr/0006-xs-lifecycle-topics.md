@@ -106,9 +106,8 @@ schema-version bump:
 | all modules | `xs.module.` |
 | one module's history | `xs.module.game.` |
 
-Dispatcher startup collapses from a full-stream scan to a prefix-scoped
-read of its own namespace -- in practice a few hundred frames instead of
-110k.
+At startup, each dispatcher reads only the frames in its own namespace --
+a few hundred, not 110k.
 
 ### Lifecycle vocabulary
 
@@ -294,8 +293,8 @@ atomic with the version bump.
   `idx_topic_prefix_keys` hierarchical index serves every runtime query
   in O(matches).
 - Dispatcher cold-start drops from "scan whole stream for lifecycle
-  topics" to "prefix-scan `xs.<kind>.`". For our 110k-frame measurement
-  this collapses the historical phase from ~1.9s to milliseconds.
+  topics" to "prefix-scan `xs.<kind>.`". On our 110k-frame measurement
+  the historical phase drops from ~1.9s to milliseconds.
 - Action gains an undefine (`term`) and a real lifecycle vocabulary,
   closing the gaps from the audit (broken `.define` retried every boot;
   `.error` overloading parse + runtime failure).
