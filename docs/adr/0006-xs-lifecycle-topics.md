@@ -48,6 +48,32 @@ namespace as user data.
    This drives the historical-scan cost we measured at ~17us/frame ×
    110k frames per dispatcher start.
 
+### Concrete deficiencies enumerated
+
+The problems above surface as eight specific bugs in today's
+implementation. Each is referenced by the invariant set below.
+
+1. Service `.stopped {reason=finished}` and `.stopped {reason=error}`
+   restart on boot. Contrary to "if it chose to stop, it stays stopped."
+2. Service hot-replace where the new `.spawn` has a parse error: old
+   keeps running live (correct), but compaction is latest-wins so the
+   broken `.spawn` survives and the service vanishes on next boot.
+3. Action hot-replace + parse error: same shape as #2 -- broken `.define`
+   overwrites; previously-good define is lost on restart.
+4. Action with a broken `.define` retries the broken version on every
+   boot. Dispatcher doesn't scan `.error` historically; no "skip broken"
+   path.
+5. Actor hot-replace + parse error kills *both*: the old instance
+   self-terminates on any duplicate `.register` before the new is
+   validated; the new then parse-fails. Net: nothing running.
+6. Action has no undefine. Once defined, the only way to remove is to
+   edit history.
+7. Action `.error` overloads parse failure (`register_action` Err) and
+   runtime failure (per-call `execute_action` Err) -- can't tell apart
+   at the topic level.
+8. Actor `.unregistered` overloads parse failure with graceful
+   teardown -- only `meta.error`'s presence distinguishes them.
+
 ## Decision
 
 ### Namespace
@@ -162,6 +188,60 @@ else:          nothing to start
 if xs died before the `fin.term` ack landed. Acceptable -- a `term` in
 the log is a clear user intent, and respecting it without waiting for
 the ack matches what the user wanted.
+
+### Invariants
+
+The compaction algorithm and topic vocabulary above exist to honor these
+contracts. Each one is testable; together they cover every deficiency in
+the previous section.
+
+- **I1. Stop persistence.** Once `term` or any `fin.*` has been observed
+  for a `<kind>.<name>`, no subsequent restart starts the prior `create`.
+- **I2. Run persistence.** A `<kind>.<name>` with an `active` and no
+  subsequent `fin.*`/`term` resumes on every restart until something
+  terminal lands.
+- **I3. Hot-replace fallback.** When a newer `create₂` follows a
+  known-good `create₁`, and `create₂` is broken (`parse.error`) or
+  untested (no ack), restarts fall back to `create₁`. Live behaviour
+  and post-restart behaviour agree.
+- **I4. Bidirectional lifecycle.** Every kind supports a user-driven
+  `term` that ends the thing and prevents restart.
+- **I5. Distinct exit categories.** The topic alone (no meta needed)
+  distinguishes: failed-to-init vs user-terminated vs runtime-crashed
+  vs naturally-finished vs replaced vs server-shut-down.
+- **I6. Ack traceability.** Every runtime-emitted ack (`active`,
+  `parse.error`, `fin.*`, `replaced`) carries a meta pointer to its
+  originating `create` (or `term`).
+- **I7. Server-shutdown invisibility.** A `stopped` event does not
+  affect compaction; the thing resumes on next start.
+- **I8. Single live instance.** At most one running instance per
+  `<kind>.<name>` at any time.
+
+### Coverage check
+
+Each enumerated deficiency would be caught by a test of the named
+invariant:
+
+| # | Deficiency | Caught by |
+|---|---|---|
+| 1 | Service `.stopped {finished/error}` restarts on boot | I1 |
+| 2 | Service hot-replace + parse error: old version lost on restart | I3 |
+| 3 | Action hot-replace + parse error: same | I3 |
+| 4 | Action broken `.define` retries every boot | I3 |
+| 5 | Actor hot-replace + parse error kills both | I3 |
+| 6 | Action has no undefine | I4 |
+| 7 | Action `.error` overloads parse and runtime failure | I5 |
+| 8 | Actor `.unregistered` overloads parse-failure with graceful teardown | I5 |
+
+I6 and I8 don't catch one of the enumerated deficiencies directly, but
+they're load-bearing for the invariants that do: without ack traceability
+(I6) you can't pair `parse.error` to its `create`, so I3 is unenforceable;
+without single-instance (I8) you can't unambiguously define "the thing"
+that I1/I2 track. They stay in the set as supporting invariants.
+
+I7 is implied by I2 + I1 (`stopped` isn't `fin.*` so it doesn't satisfy
+I1's "stop observed"), but stating it explicitly closes a likely
+misreading of `stopped` as a terminal event.
 
 ### Action subset
 
