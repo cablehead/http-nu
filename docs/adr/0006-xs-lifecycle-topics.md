@@ -27,7 +27,7 @@ namespace as user data.
 1. **Hot-replace with parse error**. Service and action keep the *old*
    instance running live (correct), but their *historical compaction* is
    latest-wins: on restart, the broken `.spawn` / `.define` is what's
-   "remembered" and the previously good version is lost. Actor is worse --
+   "remembered" and the previously good version is lost. Actor is worse:
    the old instance self-terminates before the new one is validated, so a
    broken hot-replace kills both.
 
@@ -44,7 +44,7 @@ namespace as user data.
 
 4. **Runtime lifecycle frames share the user namespace**. To find "all
    actor lifecycle events," the runtime has to scan every frame in the
-   store and filter by suffix -- O(stream), no index can help cheaply.
+   store and filter by suffix, an O(stream) cost that no index helps.
    This drives the historical-scan cost we measured at ~17us/frame ×
    110k frames per dispatcher start.
 
@@ -58,7 +58,7 @@ implementation. Each is referenced by the invariant set below.
 2. Service hot-replace where the new `.spawn` has a parse error: old
    keeps running live (correct), but compaction is latest-wins so the
    broken `.spawn` survives and the service vanishes on next boot.
-3. Action hot-replace + parse error: same shape as #2 -- broken `.define`
+3. Action hot-replace + parse error: same shape as #2. Broken `.define`
    overwrites; previously-good define is lost on restart.
 4. Action with a broken `.define` retries the broken version on every
    boot. Dispatcher doesn't scan `.error` historically; no "skip broken"
@@ -69,16 +69,16 @@ implementation. Each is referenced by the invariant set below.
 6. Action has no undefine. Once defined, the only way to remove is to
    edit history.
 7. Action `.error` overloads parse failure (`register_action` Err) and
-   runtime failure (per-call `execute_action` Err) -- can't tell apart
-   at the topic level.
+   runtime failure (per-call `execute_action` Err); the two cannot be
+   told apart at the topic level.
 8. Actor `.unregistered` overloads parse failure with graceful
-   teardown -- only `meta.error`'s presence distinguishes them.
+   teardown; only `meta.error`'s presence distinguishes them.
 
 ## Decision
 
 ### Namespace
 
-Lifecycle frames live under `xs.` -- a namespace owned by the runtime.
+Lifecycle frames live under `xs.`, a namespace owned by the runtime.
 User-chosen data topics stay where they are.
 
 ```
@@ -95,7 +95,7 @@ Glance test: a topic starting with `xs.` is runtime-managed; everything
 else is app data.
 
 Runtime queries become pure prefix scans on the existing hierarchical
-`idx_topic` index -- no new index keyspace, no suffix matcher, no
+`idx_topic` index, with no new index keyspace, no suffix matcher, and no
 schema-version bump:
 
 | Query | Prefix |
@@ -106,7 +106,7 @@ schema-version bump:
 | all modules | `xs.module.` |
 | one module's history | `xs.module.game.` |
 
-At startup, each dispatcher reads only the frames in its own namespace --
+At startup, each dispatcher reads only the frames in its own namespace,
 a few hundred, not 110k.
 
 ### Lifecycle vocabulary
@@ -119,7 +119,7 @@ Apply uniformly across actor, service, and action (action uses a subset).
 | `create` | in | user wants this thing running |
 | `term` | in | user wants this thing stopped |
 | `active` | out | runtime is up; `meta` points at the originating `create` |
-| `parse.error` | out | source failed to parse; `meta` points at the originating `create` |
+| `invalid` | out | source failed to parse (or any other init-time validation); `meta` points at the originating `create` |
 | `fin.error` | out | runtime crashed |
 | `fin.ok` | out | task ran to natural completion |
 | `fin.term` | out | exited because of `term` |
@@ -144,7 +144,7 @@ State transitions:
 |---|---|
 | `create` | `pending = this` |
 | `active(source=X)` | `confirmed = create-X`; clear `pending` if it points at X |
-| `parse.error(source=X)` | clear `pending` if it points at X |
+| `invalid(source=X)` | clear `pending` if it points at X |
 | `term` | clear both |
 | `fin.*` (error / ok / term) | clear both |
 | `replaced` | no effect |
@@ -163,7 +163,7 @@ else:          nothing to start
 - **Hot-replace race** (`create₁ → active₁ → create₂ → ???` and xs dies):
   on restart, `confirmed=create₁`, `pending=create₂`. Try `create₂`; on
   fail, fall back to `create₁`.
-- **Hot-replace, broken replacement** (`parse.error₂` lands live):
+- **Hot-replace, broken replacement** (`invalid₂` lands live):
   `pending` cleared, `confirmed=create₁` survives. Old version restarts on
   boot.
 - **Hot-replace success during transition window**: `replaced` does not
@@ -172,21 +172,21 @@ else:          nothing to start
   overwrites `confirmed` cleanly.
 - **First create, never acked** (xs died before processing): `pending` set,
   `confirmed` empty. Try `pending`. If it succeeds, advance; if it fails,
-  nothing to fall back to -- correct.
+  nothing to fall back to (correct).
 - **Server crash mid-run**: `confirmed` set, `pending` empty. Start
-  `confirmed` -- service was running fine, server crash should resume.
+  `confirmed`: service was running fine, server crash should resume.
 - **Server shutdown**: `stopped` doesn't affect compaction; `confirmed`
   persists; service resumes on next boot.
 - **User `term` while xs offline is impossible** (fjall is single-writer),
   but `term` appended in a prior live session clears both slots, so the
   thing stays down on next boot.
 
-### Trade-off accepted
+### Property: ack-independence of `term` and `fin.*`
 
-`fin.*` clears both slots: a `term` is treated as a successful stop even
-if xs died before the `fin.term` ack landed. Acceptable -- a `term` in
-the log is a clear user intent, and respecting it without waiting for
-the ack matches what the user wanted.
+`term` and `fin.*` clear both compaction slots on observation. The
+algorithm never waits for a paired ack. If `term` is in the log but
+xs died before processing it (so no `fin.term` was emitted), the
+`term` alone keeps the thing stopped on the next restart.
 
 ### Invariants
 
@@ -200,7 +200,7 @@ the previous section.
   subsequent `fin.*`/`term` resumes on every restart until something
   terminal lands.
 - **I3. Hot-replace fallback.** When a newer `create₂` follows a
-  known-good `create₁`, and `create₂` is broken (`parse.error`) or
+  known-good `create₁`, and `create₂` is broken (`invalid`) or
   untested (no ack), restarts fall back to `create₁`. Live behaviour
   and post-restart behaviour agree.
 - **I4. Bidirectional lifecycle.** Every kind supports a user-driven
@@ -209,7 +209,7 @@ the previous section.
   distinguishes: failed-to-init vs user-terminated vs runtime-crashed
   vs naturally-finished vs replaced vs server-shut-down.
 - **I6. Ack traceability.** Every runtime-emitted ack (`active`,
-  `parse.error`, `fin.*`, `replaced`) carries a meta pointer to its
+  `invalid`, `fin.*`, `replaced`) carries a meta pointer to its
   originating `create` (or `term`).
 - **I7. Server-shutdown invisibility.** A `stopped` event does not
   affect compaction; the thing resumes on next start.
@@ -234,7 +234,7 @@ invariant:
 
 I6 and I8 don't catch one of the enumerated deficiencies directly, but
 they're load-bearing for the invariants that do: without ack traceability
-(I6) you can't pair `parse.error` to its `create`, so I3 is unenforceable;
+(I6) you can't pair `invalid` to its `create`, so I3 is unenforceable;
 without single-instance (I8) you can't unambiguously define "the thing"
 that I1/I2 track. They stay in the set as supporting invariants.
 
@@ -246,8 +246,8 @@ misreading of `stopped` as a terminal event.
 
 Actions don't run long-lived tasks. The events they use:
 
-- `create` (was `.define`), `term` (new -- adds the missing undefine),
-  `active` (was `.ready`), `parse.error`, `fin.term` (on user undefine),
+- `create` (was `.define`), `term` (new, adds the missing undefine),
+  `active` (was `.ready`), `invalid`, `fin.term` (on user undefine),
   `fin.replaced` (on re-define), `replaced` (transient).
 - No `fin.ok` (actions don't naturally finish), no `fin.error` at the
   *lifecycle* level (per-invocation runtime errors stay on the app's
@@ -270,17 +270,17 @@ api.spawn                    -> xs.service.api.create
 api.terminate                -> xs.service.api.term
 api.stopped (reason=...)     -> xs.service.api.fin.{ok|error|term} or .replaced
 api.shutdown                 -> xs.service.api.stopped
-api.parse.error              -> xs.service.api.parse.error
+api.parse.error              -> xs.service.api.invalid
 greet.define                 -> xs.action.greet.create
 greet.ready                  -> xs.action.greet.active
-greet.error                  -> xs.action.greet.parse.error  (parse cases only)
+greet.error                  -> xs.action.greet.invalid  (parse cases only)
 game.nu                      -> xs.module.game
 ```
 
 Same `idx_topic` entries get rewritten alongside. CAS bytes are
 untouched.
 
-After migration, the runtime only knows the new vocabulary -- any
+After migration, the runtime only knows the new vocabulary; any
 remaining old-shape frames in a partially-migrated store would be ignored
 as app data, which is incorrect, so the migration is mandatory and
 atomic with the version bump.
