@@ -233,7 +233,7 @@ invariant:
 | 8 | Actor `.unregistered` overloads parse-failure with graceful teardown | I5 |
 
 I6 and I8 don't catch one of the enumerated deficiencies directly, but
-they're load-bearing for the invariants that do: without ack traceability
+the invariants that do depend on them: without ack traceability
 (I6) you can't pair `invalid` to its `create`, so I3 is unenforceable;
 without single-instance (I8) you can't unambiguously define "the thing"
 that I1/I2 track. They stay in the set as supporting invariants.
