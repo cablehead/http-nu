@@ -1,3 +1,5 @@
+> **joeblew999 fork.** Companion repos: **[xs](https://github.com/joeblew999/xs)** (the cross.stream event store that powers it) and **[workers-rs-util](https://github.com/joeblew999/workers-rs-util)** (the `cloudflare-shell` FS plus nushell plugins it depends on).
+
 <!-- LOGO -->
 <h1>
 <p align="center">
