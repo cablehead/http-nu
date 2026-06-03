@@ -42,15 +42,13 @@ def all-pages []: nothing -> list {
       let root_req = $req | upsert mount_prefix ($req.mount_prefix | str replace -r '/notes$' '')
       let pages = all-pages
       ([
-        (DIV {class: "page"}
-          (H1 "notes")
-          (P "a wandering set of pages about 2048 -- the game, its history, and how this implementation works.")
-          (UL ($pages | each {|p|
-            (LI (A {href: ($req | href $"/($p.slug)")} $p.title))
-          })))
+        (H1 "notes")
+        (P "a wandering set of pages about 2048 -- the game, its history, and how this implementation works.")
+        (UL ($pages | each {|p|
+          (LI (A {href: ($req | href $"/($p.slug)")} $p.title))
+        }))
       ] | layout $root_req $REV $DATASTAR_JS_PATH
-            --title "nu2048 / notes"
-            --body-class "notes")
+            --title "nu2048 / notes")
     })
 
     (route {method: GET path-matches: "/:slug"} {|req ctx|
@@ -61,12 +59,10 @@ def all-pages []: nothing -> list {
         let root_req = $req | upsert mount_prefix ($req.mount_prefix | str replace -r '/notes$' '')
         let rendered = $page.body | .md | get __html
         ([
-          (DIV {class: "page"}
-            (H1 $page.title)
-            (DIV {class: "prose"} {__html: $rendered}))
+          (H1 $page.title)
+          {__html: $rendered}
         ] | layout $root_req $REV $DATASTAR_JS_PATH
-              --title $"nu2048 / ($page.title)"
-              --body-class "notes")
+              --title $"nu2048 / ($page.title)")
       }
     })
   ]
