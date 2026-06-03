@@ -355,8 +355,8 @@ def render-stories [slug: string]: nothing -> list {
     ]
     "palettes" => (palette-catalog | each {|p| palette-story $p })
     "markdown" => [
-      (story "rendered via .md; raw-tag typography (the /notes pages add the <main> column)" [
-        {__html: ($MD_SAMPLE | .md | get __html)}
+      (story "rendered via .md, in <main> exactly as the /notes pages render it" [
+        (MAIN {__html: ($MD_SAMPLE | .md | get __html)})
       ])
     ]
     _ => []
