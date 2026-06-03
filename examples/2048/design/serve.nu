@@ -355,9 +355,11 @@ def render-stories [slug: string]: nothing -> list {
     ]
     "palettes" => (palette-catalog | each {|p| palette-story $p })
     "markdown" => [
-      (story "rendered via .md, in <main> exactly as the /notes pages render it" [
-        (MAIN {__html: ($MD_SAMPLE | .md | get __html)})
-      ])
+      # Page content, not a component, so it skips the .render preview
+      # frame and renders straight into <main>, exactly as /notes does.
+      (SECTION {class: "story"}
+        (P {class: "label"} "rendered via .md, in <main> exactly as the /notes pages render it")
+        (MAIN {__html: ($MD_SAMPLE | .md | get __html)}))
     ]
     _ => []
   }
