@@ -426,6 +426,8 @@ let design = source design/serve.nu
                     (SPAN {class: "callout-desc"} "the basic rules"))
                 (LI (A {href: ($req | href "/notes/backstory")} "2048 is a broken game")
                     (SPAN {class: "callout-desc"} "how a clone of a clone ate Threes!"))
+                (LI (A {href: ($req | href "/notes/why-is-this-so-addictive")} "why is this so addictive?!")
+                    (SPAN {class: "callout-desc"} "the hooks, and the rabbit hole"))
                 (LI (A {href: ($req | href "/notes/in-nushell")} "in Nushell?")
                     (SPAN {class: "callout-desc"} "how this is built"))))
             (DIV {class: "preview"}

@@ -77,10 +77,7 @@ head and rich enough to surprise you. Each merge is a tiny dopamine
 hit. The board is small enough that every move feels consequential.
 And it's free -- no install, no account, no ads.
 
-Next: [the ones worth playing](./best-of-2048) -- the ancestor, the
-canonical version, and a variant worth your time.
-
-# Best of 2048
+## The ones worth playing
 
 **Threes!** -- the careful 14-month original. Pay for it. It's the
 version made by people who hoped you'd put it down sometimes.
@@ -102,8 +99,7 @@ free, in any browser tab.
 parody variant where merges resolve by absurdist British game-show
 logic instead of arithmetic. Worth a few rounds for the joke alone.
 
-Next: [how this is built](./in-nushell) -- the same game on top of
-event-sourcing, SSE, and view transitions.
+Next: [why is this so addictive?](./why-is-this-so-addictive)
 
 # In Nushell
 
@@ -147,3 +143,5 @@ The source: [examples/2048 on
 GitHub](https://github.com/cablehead/http-nu/tree/main/examples/2048).
 Browse the [/design](../design/) component viewer for the live mirror
 of every server-rendered piece.
+
+Next: [back to the rules](./the-rules), and round again.
