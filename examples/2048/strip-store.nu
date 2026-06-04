@@ -105,7 +105,9 @@ def main [src: string, dst: string] {
       }
   )
 
-  $kept | each {|fr| $fr | to json --raw } | str join "\n" | save --raw $dst
+  # Trailing newline so line-at-a-time readers (e.g. shell `while read`)
+  # don't drop the last frame; nushell `lines` is fine either way.
+  ($kept | each {|fr| $fr | to json --raw } | str join "\n") + "\n" | save --raw $dst
 
   let games = ($kept | where {|fr| is-games $fr.topic } | length)
   let moves = ($kept | where {|fr| is-move $fr.topic } | length)
