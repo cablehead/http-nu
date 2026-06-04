@@ -1847,7 +1847,7 @@ async fn test_services_flag_enables_handlers() {
         .arg(&sock_path)
         .arg("-d")
         .arg(handler_script)
-        .arg("http://localhost/append/echo.register")
+        .arg("http://localhost/append/xs.actor.echo.create")
         .output()
         .await
         .expect("Failed to register handler");
@@ -1869,7 +1869,7 @@ async fn test_services_flag_enables_handlers() {
             eprintln!("[TEST] Received frame: {line}");
             let frame: serde_json::Value = serde_json::from_str(&line).unwrap();
             let topic = frame["topic"].as_str().unwrap();
-            if topic == "echo.active" || topic == "echo.unregistered" {
+            if topic == "xs.actor.echo.active" || topic == "xs.actor.echo.invalid" {
                 return frame;
             }
         }
@@ -1878,7 +1878,7 @@ async fn test_services_flag_enables_handlers() {
     .expect("Handler did not become active or fail");
 
     assert_eq!(
-        active_frame["topic"], "echo.active",
+        active_frame["topic"], "xs.actor.echo.active",
         "Handler failed to activate"
     );
 
@@ -2433,7 +2433,7 @@ async fn test_watch_topic_reload_picks_up_module_changes() {
 
     let sock_path = store_path.join("sock");
 
-    // Append a VFS module `greeter.nu` that returns "foo"
+    // Append a VFS module `greeter` (topic `xs.module.greeter`) that returns "foo"
     let output = tokio::process::Command::new("curl")
         .arg("-s")
         .arg("--unix-socket")
@@ -2442,7 +2442,7 @@ async fn test_watch_topic_reload_picks_up_module_changes() {
         .arg("POST")
         .arg("-d")
         .arg(r#"export def hello [] { "foo" }"#)
-        .arg("http://localhost/append/greeter.nu")
+        .arg("http://localhost/append/xs.module.greeter")
         .output()
         .await
         .expect("curl append module failed");
@@ -2488,7 +2488,7 @@ async fn test_watch_topic_reload_picks_up_module_changes() {
         .arg("POST")
         .arg("-d")
         .arg(r#"export def hello [] { "bar" }"#)
-        .arg("http://localhost/append/greeter.nu")
+        .arg("http://localhost/append/xs.module.greeter")
         .output()
         .await
         .expect("curl append updated module failed");

@@ -570,7 +570,7 @@ Enable with `--store <path>`. Add `--services` to enable xs
 [services](https://cablehead.github.io/xs/reference/services/), and
 [actions](https://cablehead.github.io/xs/reference/actions/) - external clients
 can register automation via the store's API (e.g.,
-`xs append ./store echo.register ...`).
+`xs append ./store xs.actor.echo.create ...`).
 
 ```bash
 $ http-nu :3001 --store ./store ./serve.nu

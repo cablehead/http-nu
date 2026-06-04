@@ -13,7 +13,7 @@ const HTTP_MOD: &str = include_str!("http/mod.nu");
 
 fn create_virt_file(working_set: &mut StateWorkingSet, name: &str, content: &str) -> VirtualPathId {
     let sanitized_name = PathBuf::from(name).to_string_lossy().to_string();
-    let file_id = working_set.add_file(sanitized_name.clone(), content.as_bytes());
+    let file_id = working_set.add_file(&sanitized_name, content.as_bytes());
     working_set.add_virtual_path(sanitized_name, VirtualPath::File(file_id))
 }
 
