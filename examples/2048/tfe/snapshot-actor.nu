@@ -1,6 +1,6 @@
 # xs actor: 2048 game-state singleton.
 #
-# Stateless per-game. For each impulse, reads `.last game.<id>.snapshot`
+# Stateless per-game. For each impulse, reads `.last game.snapshot.<id>`
 # (current HEAD), computes the new state, and appends a new snapshot
 # carrying `meta.prev = <previous HEAD's frame id>`. ttl: forever, so the
 # tree is preserved.
@@ -161,7 +161,13 @@
   # "game.snapshot.*"` is an indexed prefix lookup (reverse iter on the
   # topic index), O(1)-ish, not a scan. Reprocessing the trailing no-op /
   # unauth / dead-undo moves after that point is safe -- they append
-  # nothing. Empty store -> default {} -> null -> framework default (new),
-  # which is fine: no moves to miss yet.
-  start: (.last "game.snapshot.*" | default {} | get meta?.last_move_id?)
+  # nothing.
+  #
+  # No snapshot at all (fresh, stripped, or migrated store) -> `default
+  # "first"` replays the whole stream once, rebuilding every game's
+  # snapshot chain (root + prev links) from the move log. The next boot
+  # then finds a snapshot and resumes from it, so the full replay is a
+  # one-time cost. This makes the actor the sole snapshot writer: read
+  # paths never backfill (see store.nu `game-head`).
+  start: (.last "game.snapshot.*" | default {} | get meta?.last_move_id? | default "first")
 }

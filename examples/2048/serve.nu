@@ -42,30 +42,30 @@ let SPLASH_DATE = "2026-05-17"
 const SPLASH_PLAYER_ID = "542221d8-be77-4fac-91cb-1bfa49ae3b2a"
 
 # Register the xs snapshot-actor (singleton): it watches every
-# `player.*.games` + `game.*.move` frame and writes the canonical
-# `game.<id>.snapshot` (ttl: last:1). Requires `--store` + `--services`;
+# `player.*.games` + `game.move.*` frame and writes the canonical
+# `game.snapshot.<id>` (ttl: last:1). Requires `--store` + `--services`;
 # guarded so that test.nu, which sources serve.nu without a store, stays
 # happy. Re-registering on each startup replaces the running actor (per
-# xs's `<name>.register` semantics), so this is restart-safe.
+# xs's `xs.actor.<name>.create` semantics), so this is restart-safe.
 if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default false) {
   # `--ttl last:1` caps each registration topic to a single frame:
   # --watch reloads of serve.nu still re-append, but xs evicts the
   # previous frame as the new one lands so the topic never grows.
-  # The active actor still receives the new register live and
-  # self-terminates (actor.rs:252-264); the spawn that replaces it
-  # uses the surviving frame. Same shape for `game.nu` -- it's a
-  # module topic the snapshot-actor consumes via `use game *`.
-  open ($SCRIPT_DIR | path join "tfe" "game.nu")               | .append game.nu                    --ttl last:1
-  open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu")     | .append snapshot-actor.register    --ttl last:1
-  open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu")  | .append leaderboard-actor.register --ttl last:1
-  open ($SCRIPT_DIR | path join "tfe" "presence-actor.nu")     | .append presence-actor.register    --ttl last:1
+  # The active actor still receives the new create live and
+  # self-terminates; the spawn that replaces it uses the surviving
+  # frame. Same shape for `game.nu` -- it's a module topic
+  # (`xs.module.game`) the snapshot-actor consumes via `use game *`.
+  open ($SCRIPT_DIR | path join "tfe" "game.nu")               | .append xs.module.game                    --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu")     | .append xs.actor.snapshot-actor.create    --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu")  | .append xs.actor.leaderboard-actor.create --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "presence-actor.nu")     | .append xs.actor.presence-actor.create    --ttl last:1
 }
 
-# Render a card from a games_topic frame (the initial page render). Resumes
-# the game to get state, then defers to render-card-from-state.
+# Render a card from a games_topic frame (the initial page render). Reads
+# the game's head snapshot for state, then defers to render-card-from-state.
 # Caller chooses the destination via `--href`; defaults to /play.
 def render-game-card [req: record game_frame: record --href: string]: nothing -> record {
-  let resumed = resume-game $game_frame.id
+  let resumed = game-head $game_frame.id
   let h = if ($href | is-empty) { ($req | href $"/play/($game_frame.id)") } else { $href }
   render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id --href $h
 }
@@ -498,7 +498,7 @@ let design = source design/serve.nu
       # Per-player top-5 by score. The leaderboard-actor maintains
       # `leaderboard.top` (ttl last:5) -- meta.entries is the canonical
       # table. `.last` is O(1); no scan-on-request. State for each
-      # entry's board comes from `.last game.<id>.snapshot`, one cheap
+      # entry's board comes from `.last game.snapshot.<id>`, one cheap
       # head-lookup per row. Static page; v2 will SSE-follow
       # `leaderboard.top` for live re-renders.
       let head = .last leaderboard.top
@@ -581,7 +581,7 @@ let design = source design/serve.nu
       # Live SSE patches merge per-game updates into the same shape;
       # no HTML re-render needed for snapshot changes.
       let games_signal = $games | reduce -f {} {|f acc|
-        let resumed = resume-game $f.id
+        let resumed = game-head $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
         let state = $resumed.state | state-for-wc | upsert playedMs $played_ms
@@ -682,7 +682,7 @@ let design = source design/serve.nu
       let games_topic = $"player.($player_id).games"
       let games = try { .cat -T $games_topic | reverse } catch { [] }
       let games_signal = $games | reduce -f {} {|f acc|
-        let resumed = resume-game $f.id
+        let resumed = game-head $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
         let state = $resumed.state | state-for-wc | upsert playedMs $played_ms

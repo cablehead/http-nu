@@ -32,8 +32,8 @@ const SCRIPT_DIR = path self | path dirname
 
 # --- setup -----------------------------------------------------------------
 
-open ($SCRIPT_DIR | path join ".." "tfe" "game.nu")           | .append game.nu                 --ttl last:1
-open ($SCRIPT_DIR | path join ".." "tfe" "snapshot-actor.nu") | .append snapshot-actor.register --ttl last:1
+open ($SCRIPT_DIR | path join ".." "tfe" "game.nu")           | .append xs.module.game                 --ttl last:1
+open ($SCRIPT_DIR | path join ".." "tfe" "snapshot-actor.nu") | .append xs.actor.snapshot-actor.create --ttl last:1
 sleep 500ms
 
 let g = (null | .append "player.test-uid.games")

@@ -1,6 +1,6 @@
 # xs actor: 2048 leaderboard maintainer.
 #
-# Watches every `game.<id>.snapshot` frame and maintains a single
+# Watches every `game.snapshot.<id>` frame and maintains a single
 # `leaderboard.top` head whose meta carries the current top-5, sorted
 # by score. Per-player dedup: each player gets one slot (their best
 # game), so the table stays varied. In-flight games count -- ranking

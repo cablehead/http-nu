@@ -28,7 +28,7 @@ use ./render.nu *
 # carrying the move's `req_id`. So `frames-to-states` no longer needs to
 # echo `.move` frames; the SSE handler doesn't follow them in the first place.
 export def frames-to-states [] {
-  generate {|f, acc = {state: null}|
+  generate {|f, acc: record = {state: null}|
     if ('event' in $f) {
       return {out: $f, next: $acc}
     }

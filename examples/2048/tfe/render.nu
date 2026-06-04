@@ -150,7 +150,7 @@ export def control-pad []: nothing -> record {
 }
 
 # Render a card from already-known state. Callers pass state straight
-# out of a snapshot frame's meta, avoiding a redundant resume-game lookup.
+# out of a snapshot frame's meta, avoiding a redundant game-head lookup.
 # Render a SCRU128 id's embedded timestamp as a short, human-readable
 # string. Under a minute reads as "in play" (the game is still warm);
 # beyond that it's "Xm ago" / "Xh ago" / "Xd ago" / "Xw ago".
