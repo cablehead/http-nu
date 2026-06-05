@@ -45,13 +45,15 @@ export def render-score [score: int]: nothing -> record {
   # Bound to the $score signal: Datastar's text plugin overwrites
   # textContent on mount and on every signal patch, so post-init
   # score updates flow as signals patches rather than element morphs.
-  # The undo tally sits on the same baseline; data-show hides it until
-  # the game has actually used an undo, so a clean game stays clean.
+  # The undo tally sits on the same baseline, to the LEFT of the score:
+  # board-controls is right-anchored, so keeping the score the rightmost
+  # item means it doesn't shift when the tally first appears. data-show
+  # hides the tally until the game has actually used an undo.
   (DIV {class: "score-block"}
-    (SPAN {id: "score" "data-text": "$score"} ($score | into string))
     (SPAN {id: "undos" class: "undo-tally"
            "data-show": "$undos > 0"
-           "data-text": "$undos + ($undos === 1 ? ' undo' : ' undos')"} ""))
+           "data-text": "$undos + ($undos === 1 ? ' undo' : ' undos')"} "")
+    (SPAN {id: "score" "data-text": "$score"} ($score | into string)))
 }
 
 # Breadcrumb header: a one-row nav element shared by / and /play. Left

@@ -2,9 +2,10 @@
 #
 # Watches every `game.snapshot.<id>` frame and maintains a single
 # `leaderboard.top` head whose meta carries the current top-5, sorted
-# by score. Clean runs only: snapshots reached with any undo are
-# skipped, so the board ranks unaided scores. Per-player dedup: each
-# player gets one slot (their best game), so the table stays varied. In-flight games count -- ranking
+# by score. Clean runs only: a game that uses any undo is removed from
+# the board (even if it ranked earlier), so it ranks fully-unaided runs.
+# Per-player dedup: each player gets one slot (their best game), so the
+# table stays varied. In-flight games count -- ranking
 # uses the snapshot's score, which only climbs (undo can lower a
 # player's current game score but never their persisted leaderboard
 # slot, because we skip updates whose score is below the player's
@@ -51,22 +52,33 @@ const SIZE = 5
       if $head == null { [] } else { $head.meta | get entries? | default [] }
     } else { $state }
 
+    let game_id = $topic | str substring 14..
+
+    # Disqualify on undo: a game that has used any undo is removed from
+    # the table -- even if it ranked earlier on a clean snapshot. The
+    # count is cumulative and monotonic, so once tainted a game never
+    # re-ranks. (Old snapshots lacking the field read as 0 = clean; a
+    # rebuild repopulates them.)
+    if (($frame.meta | get undos? | default 0) > 0) {
+      let pruned = $top | where {|r| $r.game_id != $game_id}
+      if ($pruned | length) == ($top | length) { return {next: $top} }
+      null | .append "leaderboard.top" --ttl last:5 --meta {
+        entries: $pruned
+        last_processed_id: $frame.id
+      }
+      return {next: $pruned}
+    }
+
     let player_id = $frame.meta | get player_id? | default ""
     let score = $frame.meta | get score? | default 0
     # No player attribution or zero score = not a leaderboard candidate.
     if ($player_id | is-empty) or ($score <= 0) { return {next: $top} }
-    # Clean runs only: a snapshot reached with any undo can't rank. The
-    # count is cumulative, so a game's pre-undo scores still qualify, but
-    # nothing achieved with undo help does. (Old snapshots lacking the
-    # field read as 0 = clean; a rebuild repopulates them.)
-    if (($frame.meta | get undos? | default 0) > 0) { return {next: $top} }
 
     # If this player already holds an equal-or-higher score in the
     # table, the current snapshot can't improve their slot.
     let existing = $top | where {|r| $r.player_id == $player_id} | get score? | first
     if $existing != null and $existing >= $score { return {next: $top} }
 
-    let game_id = $topic | str substring 14..
     let entry = {
       player_id: $player_id
       game_id: $game_id
