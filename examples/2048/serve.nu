@@ -550,7 +550,7 @@ let design = source design/serve.nu
               (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
             ])
           (H1 {class: "leaderboard-title"} "leaderboard")
-          (P {class: "leaderboard-lede"} "top 5 -- per-player best, in-flight or finished.")
+          (P {class: "leaderboard-lede"} "top 5 -- per-player best, clean runs only (no undos).")
           (if $empty {
             (P {class: "hint empty-state"} "no scored games tracked yet -- play one and check back.")
           } else {

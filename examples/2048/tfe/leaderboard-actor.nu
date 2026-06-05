@@ -2,8 +2,9 @@
 #
 # Watches every `game.snapshot.<id>` frame and maintains a single
 # `leaderboard.top` head whose meta carries the current top-5, sorted
-# by score. Per-player dedup: each player gets one slot (their best
-# game), so the table stays varied. In-flight games count -- ranking
+# by score. Clean runs only: snapshots reached with any undo are
+# skipped, so the board ranks unaided scores. Per-player dedup: each
+# player gets one slot (their best game), so the table stays varied. In-flight games count -- ranking
 # uses the snapshot's score, which only climbs (undo can lower a
 # player's current game score but never their persisted leaderboard
 # slot, because we skip updates whose score is below the player's
@@ -54,6 +55,11 @@ const SIZE = 5
     let score = $frame.meta | get score? | default 0
     # No player attribution or zero score = not a leaderboard candidate.
     if ($player_id | is-empty) or ($score <= 0) { return {next: $top} }
+    # Clean runs only: a snapshot reached with any undo can't rank. The
+    # count is cumulative, so a game's pre-undo scores still qualify, but
+    # nothing achieved with undo help does. (Old snapshots lacking the
+    # field read as 0 = clean; a rebuild repopulates them.)
+    if (($frame.meta | get undos? | default 0) > 0) { return {next: $top} }
 
     # If this player already holds an equal-or-higher score in the
     # table, the current snapshot can't improve their slot.
