@@ -317,16 +317,18 @@ let design = source design/serve.nu
       # indexed): every move ack now flows through a snapshot --
       # state-changing as a durable one, no-op as an ephemeral one
       # carrying just the req_id -- so the SSE has no reason to follow
-      # `game.move.<id>`. --from $game_id includes the games_topic
-      # frame at that id and everything after; threshold-gate buffers
-      # it down to just the latest snapshot for the initial render.
+      # `game.move.<id>`. `--last 1` reads only the current head
+      # snapshot via the topic index (O(1)), then follows live deltas;
+      # threshold-gate emits the head for the initial render. Reading
+      # `--from $game_id` instead would replay the game's entire
+      # snapshot chain on every connect (74k frames for a long game).
       # Interleaved with the site-wide presence stream so a /watch or
       # /play tab sees live "N people on this game" counts on the same
       # connection.
       # No `let board_stream = ...` -- Nushell `let` would COLLECT
       # the infinite `.cat --follow` before binding, hanging the
       # handler. See examples/2048/CLAUDE.md.
-      .cat --follow -T $"game.snapshot.($game_id)" --from $game_id
+      .cat --last 1 --follow -T $"game.snapshot.($game_id)"
       | frames-to-states
       | threshold-gate-states
       | states-to-wc-signals
