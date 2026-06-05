@@ -666,7 +666,7 @@ let design = source design/serve.nu
               # inner data-signals declaration takes effect.
               --body-attrs {
                 "data-game-id": $game_id
-                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: ''}"
+                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, undos: 0, gameStatus: ''}"
               }
               --sse true)
       }
@@ -812,7 +812,7 @@ let design = source design/serve.nu
               "data-player-id": $player_id
               "data-game-id": $game_id
               "data-move-url": ($req | href "/move")
-              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}}"
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, undos: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}}"
             }
         | session-cookies set $session)
       }

@@ -385,6 +385,15 @@ body.flash-red { animation: flash-red 300ms ease; }
   color: var(--fg-header);
   font-variant-numeric: tabular-nums;
 }
+/* Undo tally: small, muted, on the score's baseline. Hidden (data-show)
+   until the game uses an undo, so a clean run shows just the score. */
+.undo-tally {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fg);
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Thumb control pad (/play): a cross D-pad -- up / left+right / down.
    (Undo is a meta action and lives in the breadcrumb, not here.) Same
