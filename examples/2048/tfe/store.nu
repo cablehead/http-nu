@@ -95,7 +95,7 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
   # HEAD snapshot (indexed by topic). The snapshot's id timestamp is the
   # last activity -- gate on that before keeping the row, so games that
   # went quiet earlier than `--since` cost only one `.last` each.
-  # Move counts (for the undo column) are scanned only for the top N.
+  # Undo counts come straight from the snapshot meta (O(1)), no move scan.
   list-players | each {|p|
     .cat -T $"player.($p.player).games" | each {|f|
       let snap = .last $"game.snapshot.($f.id)"
@@ -110,16 +110,13 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
         score: ($snap.meta.score? | default 0)
         max: ($snap.meta.max_tile? | default 0)
         moves: ($snap.meta.moves? | default 0)
+        undos: ($snap.meta.undos? | default 0)
       }
     }
   }
   | flatten | compact
   | sort-by score -r
   | first $limit
-  | insert undos {|row|
-      .cat -T $"game.move.($row.game_id)"
-      | where ($it.meta?.kind? | default "") == "undo" | length
-    }
   | reject game_id
 }
 
