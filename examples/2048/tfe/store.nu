@@ -75,8 +75,7 @@ export def follow-game [game_id: string] {
 
 # List every game in the store with its move count, biggest first.
 export def list-games [] {
-  .cat
-  | where ($it.topic | str starts-with "game.move.")
+  .cat -T "game.move.*"
   | group-by topic
   | items {|topic frames|
       {
@@ -134,8 +133,8 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
 # us the head row. Group by player, pick best per player, sort, head N.
 # See test/bench-leaderboard.nu for the scaling profile.
 export def top-players [--limit: int = 10] {
-  .cat
-  | where ($it.topic | str starts-with "player.") and ($it.topic | str ends-with ".games")
+  .cat -T "player.*"
+  | where ($it.topic | str ends-with ".games")
   | each {|f|
       let snap = .last $"game.snapshot.($f.id)"
       if $snap == null { return null }
@@ -161,8 +160,8 @@ export def top-players [--limit: int = 10] {
 
 # List every player seen in the store with their game count and latest game id.
 export def list-players [] {
-  .cat
-  | where ($it.topic | str starts-with "player.") and ($it.topic | str ends-with ".games")
+  .cat -T "player.*"
+  | where ($it.topic | str ends-with ".games")
   | group-by topic
   | items {|topic frames|
       {
