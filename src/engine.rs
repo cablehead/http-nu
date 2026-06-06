@@ -360,26 +360,29 @@ impl Engine {
     /// Adds cross.stream store commands (.cat, .append, .cas, .last) to the engine
     #[cfg(feature = "cross-stream")]
     pub fn add_store_commands(&mut self, store: &xs::store::Store) -> Result<(), Error> {
-        self.add_commands(vec![
-            Box::new(xs::nu::commands::cat_stream_command::CatStreamCommand::new(
-                store.clone(),
-            )),
-            Box::new(xs::nu::commands::append_command::AppendCommand::new(
-                store.clone(),
-                serde_json::json!({}),
-            )),
-            Box::new(xs::nu::commands::cas_command::CasCommand::new(
-                store.clone(),
-            )),
-            Box::new(xs::nu::commands::last_stream_command::LastStreamCommand::new(store.clone())),
-            Box::new(xs::nu::commands::get_command::GetCommand::new(
-                store.clone(),
-            )),
-            Box::new(xs::nu::commands::remove_command::RemoveCommand::new(
-                store.clone(),
-            )),
-            Box::new(xs::nu::commands::scru128_command::Scru128Command::new()),
-        ])
+        // Delegate to cross.stream's canonical command surface (core + read +
+        // write) rather than maintaining our own list. That parallel list is
+        // exactly what silently fell behind when xs added `.import` /
+        // `.cas-post`; routing through xs's helpers keeps http-nu's eval and
+        // handlers in lockstep with the store's own command set. We expose the
+        // streaming readers (`--follow`) and a direct, untagged `.append`.
+        //
+        // The helpers take `xs::nu::Engine`, a newtype over EngineState, so
+        // borrow our state into one for the duration and move it back.
+        let mut xe = xs::nu::Engine {
+            state: std::mem::replace(&mut self.state, EngineState::new()),
+        };
+        let res = xs::nu::add_core_commands(&mut xe, store)
+            .and_then(|()| xs::nu::add_read_commands(&mut xe, store, xs::nu::ReadMode::Stream))
+            .and_then(|()| {
+                xs::nu::add_write_commands(
+                    &mut xe,
+                    store,
+                    xs::nu::AppendMode::Direct(serde_json::json!({})),
+                )
+            });
+        self.state = xe.state;
+        res.map_err(|e| Error::from(e.to_string()))
     }
 
     /// Re-registers .mj commands with store access for stream-backed template loading

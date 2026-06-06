@@ -37,25 +37,26 @@
 # move topics are rewritten. Kept frames carry no CAS, so there is no
 # cas/ to copy.
 #
-# Workflow (source and destination are vanilla `xs serve` stores; the
-# game id is the player.<uuid>.games frame id, so ids MUST be preserved --
-# `.import` inserts verbatim, `.append` would mint new ids):
+# Workflow. Frame ids MUST be preserved -- the game id is its
+# player.<uuid>.games frame id -- so import with `.import` (inserts
+# verbatim), never `.append` (mints new ids):
 #
-#   xs serve ./store-old &                  # source
+#   # 1. dump the source store
+#   xs serve ./store-old &
 #   xs cat ./store-old/sock | save raw.jsonl
 #
+#   # 2. strip + normalize
 #   nu strip-store.nu raw.jsonl stripped.jsonl
 #
-#   xs serve ./store-new &                  # fresh, empty
-#   # Bulk import in one server-side eval -- `.import` (xs >= 0.13.2)
-#   # takes a frame or a JSON line and inserts it with its id intact.
-#   # One round-trip for the whole file, not a process per frame. Use an
-#   # absolute path: `open` runs on the server, relative to its cwd.
-#   xs eval ./store-new/sock -c 'open --raw /abs/stripped.jsonl | lines | where {|l| ($l | str trim) != ""} | each {|l| $l | .import } | ignore'
+#   # 3. import into a fresh store in one shot. `.import` is part of the
+#   #    eval command surface (http-nu bundles xs >= 0.13.2); --store opens
+#   #    the store directly, no serve/socket needed. One pass over the file,
+#   #    not a process per frame.
+#   http-nu eval --store ./store-new -c 'open --raw stripped.jsonl | lines | where {|l| ($l | str trim) != ""} | each {|l| $l | .import } | ignore'
 #
+#   # 4. serve it; the snapshot-actor finds no snapshots, so start: "first"
+#   #    replays the move log once and rebuilds every game from scratch.
 #   http-nu --services --store ./store-new :3002 examples/2048/serve.nu
-#   # The snapshot-actor finds no snapshots, so `start: "first"` replays
-#   # the move log once and rebuilds every game from scratch.
 
 def is-move [t: string] {
   ($t | str starts-with "game.move.") or (($t | str starts-with "game.") and ($t | str ends-with ".move"))
