@@ -686,6 +686,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         services: false,
     };
 
+    // Cold-start timer: spans engine build + handler evaluation (including
+    // serve.nu's SPLASH_STATES slurp and any module/template compilation) +
+    // listener bind. Created here, before the synchronous source eval below,
+    // so startup_ms reflects real startup rather than just the bind.
+    let start_time = std::time::Instant::now();
+
     // Create base engine with commands, signals, and plugins
     let base_engine = create_base_engine(
         interrupt.clone(),
@@ -763,7 +769,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             datastar: args.datastar,
             dev: args.dev,
         },
-        std::time::Instant::now(),
+        start_time,
         startup_options,
     )
     .await?;
