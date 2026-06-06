@@ -39,7 +39,7 @@
 #
 # Workflow (source and destination are vanilla `xs serve` stores; the
 # game id is the player.<uuid>.games frame id, so ids MUST be preserved --
-# use `xs import`, never `xs append`):
+# `.import` inserts verbatim, `.append` would mint new ids):
 #
 #   xs serve ./store-old &                  # source
 #   xs cat ./store-old/sock | save raw.jsonl
@@ -47,10 +47,11 @@
 #   nu strip-store.nu raw.jsonl stripped.jsonl
 #
 #   xs serve ./store-new &                  # fresh, empty
-#   open stripped.jsonl
-#   | lines
-#   | each {|l| $l | xs import ./store-new/sock }
-#   | ignore
+#   # Bulk import in one server-side eval -- `.import` (xs >= 0.13.2)
+#   # takes a frame or a JSON line and inserts it with its id intact.
+#   # One round-trip for the whole file, not a process per frame. Use an
+#   # absolute path: `open` runs on the server, relative to its cwd.
+#   xs eval ./store-new/sock -c 'open --raw /abs/stripped.jsonl | lines | where {|l| ($l | str trim) != ""} | each {|l| $l | .import } | ignore'
 #
 #   http-nu --services --store ./store-new :3002 examples/2048/serve.nu
 #   # The snapshot-actor finds no snapshots, so `start: "first"` replays
