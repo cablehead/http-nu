@@ -24,6 +24,11 @@ fn main() {
     dump_to_file(&syntax_set, &dest_path).expect("Failed to save SyntaxSet");
 
     println!("cargo:rerun-if-changed=syntaxes/");
+    // Declaring any rerun-if disables Cargo's "re-run on any change" default,
+    // so the dep-version capture below would otherwise go stale on a lockfile
+    // bump (e.g. cross-stream 0.13.0 -> 0.13.2 showed the old `xs` version in
+    // the banner). Re-run when the resolved dependency set changes.
+    println!("cargo:rerun-if-changed=Cargo.lock");
 
     // Extract dependency versions for runtime display
     if let Ok(metadata) = cargo_metadata::MetadataCommand::new().exec() {
