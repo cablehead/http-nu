@@ -8,11 +8,11 @@ experimental = true
 # (gh, jq, fnox, nu) propagate from the lib; consumers don't pin them
 # globally. Tag bumps -> see https://github.com/joeblew999/.github/blob/main/CHANGELOG.md
 includes = [
-  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.20.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.20.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/rust.toml?ref=v0.20.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/cf.toml?ref=v0.20.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/wrangler.toml?ref=v0.20.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.33.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.33.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/rust.toml?ref=v0.33.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/cf.toml?ref=v0.33.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/wrangler.toml?ref=v0.33.0",
 ]
 
 [tools]
