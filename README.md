@@ -164,6 +164,12 @@ This watches the script's directory for any changes (including included files)
 and hot-reloads the handler. Active [SSE connections](#server-sent-events) are
 aborted on reload to trigger client reconnection.
 
+> [!WARNING]
+> The watch is recursive: keep only files that should trigger a reload in the
+> script's directory (`serve.nu`, `templates/`, `static/`, ...). Otherwise
+> unrelated writes reload too -- e.g. a `--store` under it loops forever with
+> `--services`.
+
 ### Reading from stdin
 
 Pass `-` to read the script from stdin:
