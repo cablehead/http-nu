@@ -340,6 +340,15 @@ fn event_to_string(config: &Config, val: Value) -> Result<String, ShellError> {
         }
     };
     let mut out = String::new();
+    // A `comment` field emits an SSE comment line (`: text`). Used for idle
+    // keepalives; the browser ignores it but proxies keep the stream open.
+    if let Some(comment) = rec.get("comment") {
+        if !matches!(comment, Value::Nothing { .. }) {
+            out.push_str(": ");
+            out.push_str(&comment.to_expanded_string("", config));
+            out.push_str(LINE_ENDING);
+        }
+    }
     if let Some(event) = rec.get("event") {
         if !matches!(event, Value::Nothing { .. }) {
             out.push_str("event: ");
@@ -1814,5 +1823,34 @@ yields only events whose topic matches. `*` matches any run of characters includ
         );
 
         Ok(PipelineData::ListStream(stream, None))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::event_to_string;
+    use nu_protocol::{record, Config, Value};
+
+    // Regression: a `comment` field emits an SSE comment line (`: text`).
+    #[test]
+    fn comment_only_emits_sse_comment() {
+        let rec = Value::test_record(record! { "comment" => Value::test_string("hb") });
+        assert_eq!(
+            event_to_string(&Config::default(), rec).unwrap(),
+            ": hb\n\n"
+        );
+    }
+
+    // The comment line precedes the data line, matching field order.
+    #[test]
+    fn comment_precedes_data() {
+        let rec = Value::test_record(record! {
+            "comment" => Value::test_string("hb"),
+            "data" => Value::test_string("x"),
+        });
+        assert_eq!(
+            event_to_string(&Config::default(), rec).unwrap(),
+            ": hb\ndata: x\n\n"
+        );
     }
 }
