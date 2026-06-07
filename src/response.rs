@@ -68,7 +68,12 @@ pub fn value_to_json(value: &Value) -> serde_json::Value {
             }
             serde_json::Value::Object(map)
         }
-        _ => todo!(),
+        // Types without a direct JSON analogue (dates, durations, filesizes,
+        // binary, closures, ...) fall back to their string rendering rather
+        // than panicking.
+        other => serde_json::Value::String(
+            other.to_expanded_string(", ", &nu_protocol::Config::default()),
+        ),
     }
 }
 
@@ -141,5 +146,28 @@ pub fn value_to_bytes(value: Value) -> Vec<u8> {
             .into_bytes(),
 
         _ => todo!("value_to_bytes: {:?}", value),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::value_to_json;
+    use nu_protocol::{record, Span, Value};
+
+    // Regression: types without a direct JSON analogue render as their string
+    // form instead of panicking (the fallback arm used to be `todo!()`).
+    #[test]
+    fn unsupported_scalar_falls_back_to_string() {
+        let dur = Value::duration(3_600_000_000_000, Span::test_data());
+        assert!(matches!(value_to_json(&dur), serde_json::Value::String(_)));
+    }
+
+    #[test]
+    fn unsupported_value_nested_in_record_falls_back() {
+        let rec = Value::test_record(record! {
+            "elapsed" => Value::duration(1_000_000_000, Span::test_data()),
+        });
+        let json = value_to_json(&rec);
+        assert!(json.get("elapsed").map(|v| v.is_string()).unwrap_or(false));
     }
 }
