@@ -1575,6 +1575,159 @@ async fn test_watch_directory_change_triggers_reload() {
     let _ = child.kill().await;
 }
 
+/// Regression: with `--watch`, writes under the `--store` directory must NOT
+/// trigger a reload, even when the store lives inside the watched (script's)
+/// directory. Registering a service writes lifecycle frames into the store;
+/// before `--store` was excluded from the recursive watch, that looped forever
+/// (the reload re-registered the service, which wrote again, which reloaded).
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_watch_ignores_store_writes() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let script_path = tmp.path().join("serve.nu");
+    let store_path = tmp.path().join("store"); // store INSIDE the watched dir
+
+    std::fs::write(&script_path, r#"{|req| "v1"}"#).unwrap();
+
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
+    cmd.arg("--log-format")
+        .arg("jsonl")
+        .arg("--store")
+        .arg(&store_path)
+        .arg("--services")
+        .arg("127.0.0.1:0")
+        .arg(&script_path)
+        .arg("-w");
+
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start http-nu server");
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+
+    // Count `reloaded` lifecycle events off the jsonl log stream, and capture
+    // the bound address from the `started` event.
+    let reloads = Arc::new(AtomicUsize::new(0));
+    let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+    let mut addr_tx = Some(addr_tx);
+    let reloads_reader = reloads.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDOUT] {line}");
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                if json.get("message").and_then(|m| m.as_str()) == Some("reloaded") {
+                    reloads_reader.fetch_add(1, Ordering::SeqCst);
+                }
+                if addr_tx.is_some() {
+                    if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                        if let Some(tx) = addr_tx.take() {
+                            let _ = tx.send(addr_str.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            eprintln!("[HTTP-NU STDERR] {line}");
+        }
+    });
+
+    let address = timeout(std::time::Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Failed to get address")
+        .expect("Channel closed");
+
+    // Sanity: initial handler is served.
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("{address}/"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "v1");
+
+    // Wait for the xs API socket so we can register a service against it.
+    let sock_path = store_path.join("sock");
+    timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if sock_path.exists() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("xs API socket was not created");
+
+    // Let any startup churn settle, then baseline the reload count.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let baseline = reloads.load(Ordering::SeqCst);
+
+    // Rok's exact repro: register a service. The dispatcher writes lifecycle
+    // frames (create/active/fin) into the store, which sits under the watched
+    // directory.
+    let service = r#"{ run: {|| sleep 1sec; { hello: "world" } } }"#;
+    let register = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-X")
+        .arg("POST")
+        .arg("--unix-socket")
+        .arg(&sock_path)
+        .arg("-d")
+        .arg(service)
+        .arg("http://localhost/append/xs.service.air-quality.create")
+        .output()
+        .await
+        .expect("Failed to register service");
+    assert!(
+        register.status.success(),
+        "Service registration failed: {}",
+        String::from_utf8_lossy(&register.stderr)
+    );
+
+    // Give the service time to register, activate, and finish -- all of which
+    // write frames into the store. None of it should reload the handler.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let after_register = reloads.load(Ordering::SeqCst);
+    assert_eq!(
+        after_register,
+        baseline,
+        "store writes triggered {} reload(s); --store must be excluded from the watch",
+        after_register - baseline
+    );
+
+    // Positive control: a real script edit must still reload. This proves the
+    // watcher is alive and we only filtered the store path, not watching itself.
+    std::fs::write(&script_path, r#"{|req| "v2"}"#).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg(format!("{address}/"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "v2");
+    assert!(
+        reloads.load(Ordering::SeqCst) > after_register,
+        "script edit did not trigger a reload"
+    );
+
+    let _ = child.kill().await;
+}
+
 /// Tests that stdin mode works without -w (one-shot read)
 #[tokio::test]
 async fn test_stdin_one_shot() {
