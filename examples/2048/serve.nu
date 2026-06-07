@@ -418,7 +418,12 @@ let design = source design/serve.nu
             tabId: $tab_id
           } | to json --raw)
         }
-          (H2 "2048, in Nushell!")
+          (H2 "2048, in Nushell + Datastar "
+            (IMG {
+              src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"
+              alt: "Datastar rocket"
+              style: "height: 1em; vertical-align: -0.1em;"
+            }))
           (DIV {class: "splits"}
             (DIV {class: "lede"}
               (P {class: "desc"} "The sliding-tile puzzle, served from a few hundred lines of shell script.")
