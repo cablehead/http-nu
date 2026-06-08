@@ -93,6 +93,10 @@ eget cablehead/http-nu
 ### Homebrew (macOS)
 
 ```bash
+# Homebrew now asks you to trust a third-party tap before installing from it
+brew trust --formula cablehead/tap/http-nu
+# or if you use a few of cablehead's projects, and trust me 😆, the whole tap
+# brew trust cablehead/tap
 brew install cablehead/tap/http-nu
 ```
 
