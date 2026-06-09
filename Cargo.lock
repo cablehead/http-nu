@@ -1166,9 +1166,9 @@ checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "cross-stream"
-version = "0.13.2"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea28b505eaedfa21288c429ae8361ed3f6980c4aa9e6b3852921c7c5dd035899"
+checksum = "a8138385fb398870cda06244639caa3bf928a1452b8ee5a37c46f3359df87f63"
 dependencies = [
  "base64 0.22.1",
  "bon",

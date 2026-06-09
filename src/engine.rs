@@ -375,11 +375,7 @@ impl Engine {
         let res = xs::nu::add_core_commands(&mut xe, store)
             .and_then(|()| xs::nu::add_read_commands(&mut xe, store, xs::nu::ReadMode::Stream))
             .and_then(|()| {
-                xs::nu::add_write_commands(
-                    &mut xe,
-                    store,
-                    xs::nu::AppendMode::Direct(serde_json::json!({})),
-                )
+                xs::nu::add_write_commands(&mut xe, store, xs::nu::AppendMode::Direct)
             });
         self.state = xe.state;
         res.map_err(|e| Error::from(e.to_string()))
