@@ -5,13 +5,67 @@ use crate::response::{
     extract_http_response_meta, value_to_bytes, value_to_json, HttpResponseMeta, Response,
     ResponseTransport,
 };
-use nu_protocol::{
-    engine::{Job, StateWorkingSet, ThreadJob},
-    format_cli_error, PipelineData, Value,
-};
+use nu_protocol::{engine::StateWorkingSet, format_cli_error, PipelineData, Value};
 use std::io::Read;
-use std::sync::{mpsc, Arc};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
+
+type EvalJob = Box<dyn FnOnce() + Send>;
+
+/// Fixed pool of eval threads for the request hot path. Spawning a thread per
+/// request cost ~10us; reusing workers removes that. Plain-value responses
+/// complete on the worker in microseconds. Streaming responses (SSE, byte
+/// streams) hand their drain loop to a freshly spawned thread -- amortized
+/// over the connection's lifetime -- so a long-lived stream never pins a
+/// worker. If every worker is busy (slow, blocking evals), execute falls back
+/// to thread-per-request, so the pool can never starve the server.
+struct EvalPool {
+    tx: std::sync::mpsc::Sender<EvalJob>,
+    idle: Arc<AtomicUsize>,
+}
+
+static EVAL_POOL: OnceLock<EvalPool> = OnceLock::new();
+
+fn eval_pool() -> &'static EvalPool {
+    EVAL_POOL.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<EvalJob>();
+        let rx = Arc::new(Mutex::new(rx));
+        let idle = Arc::new(AtomicUsize::new(0));
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        for i in 0..workers {
+            let rx = rx.clone();
+            let idle = idle.clone();
+            std::thread::Builder::new()
+                .name(format!("eval-{i}"))
+                .spawn(move || loop {
+                    idle.fetch_add(1, Ordering::Relaxed);
+                    let job = rx.lock().expect("eval pool rx poisoned").recv();
+                    idle.fetch_sub(1, Ordering::Relaxed);
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    }
+                })
+                .expect("failed to spawn eval worker");
+        }
+        EvalPool { tx, idle }
+    })
+}
+
+impl EvalPool {
+    fn execute(&self, job: EvalJob) {
+        if self.idle.load(Ordering::Relaxed) == 0 {
+            std::thread::spawn(job);
+            return;
+        }
+        if let Err(send_err) = self.tx.send(job) {
+            std::thread::spawn(send_err.0);
+        }
+    }
+}
 
 /// Check if a value is a record without __html field
 fn is_jsonl_record(value: &Value) -> bool {
@@ -123,57 +177,66 @@ pub fn spawn_eval_thread(
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
                 let mut iter = stream.into_inner();
 
-                // Peek first value to determine mode
-                let first = iter.next();
-                let use_jsonl = first.as_ref().is_some_and(is_jsonl_record);
-                let content_type = if use_jsonl {
-                    Some("application/x-ndjson".to_string())
-                } else {
-                    inferred_content_type
-                };
-
-                let _ = body_tx.send((
-                    content_type,
-                    http_meta,
-                    ResponseTransport::Stream(stream_rx),
-                ));
-
-                // Helper to send a value
-                let send_value = |stream_tx: &tokio_mpsc::Sender<Vec<u8>>, value: Value| -> bool {
-                    let bytes = if use_jsonl {
-                        let mut line =
-                            serde_json::to_vec(&value_to_json(&value)).unwrap_or_default();
-                        line.push(b'\n');
-                        line
+                // Everything from the first-value peek on runs handler code:
+                // the stream is lazy, and for a follow-style SSE handler even
+                // the *first* value can block for minutes. Hand the whole
+                // thing -- peek, response send, drain loop -- to a dedicated
+                // thread so it never pins a pool worker. The client sees the
+                // same timing as before: the response starts once the first
+                // value (and with it the content-type) is known.
+                std::thread::spawn(move || {
+                    let first = iter.next();
+                    let use_jsonl = first.as_ref().is_some_and(is_jsonl_record);
+                    let content_type = if use_jsonl {
+                        Some("application/x-ndjson".to_string())
                     } else {
-                        value_to_bytes(value)
+                        inferred_content_type
                     };
-                    stream_tx.blocking_send(bytes).is_ok()
-                };
 
-                // Process first value
-                if let Some(value) = first {
-                    if let Value::Error { error, .. } = &value {
-                        let working_set = StateWorkingSet::new(&engine.state);
-                        log_error(&format_cli_error(None, &working_set, error.as_ref(), None));
-                        return Ok(());
-                    }
-                    if !send_value(&stream_tx, value) {
-                        return Ok(());
-                    }
-                }
+                    let _ = body_tx.send((
+                        content_type,
+                        http_meta,
+                        ResponseTransport::Stream(stream_rx),
+                    ));
 
-                // Process remaining values
-                for value in iter {
-                    if let Value::Error { error, .. } = &value {
-                        let working_set = StateWorkingSet::new(&engine.state);
-                        log_error(&format_cli_error(None, &working_set, error.as_ref(), None));
-                        break;
+                    // Helper to send a value
+                    let send_value =
+                        |stream_tx: &tokio_mpsc::Sender<Vec<u8>>, value: Value| -> bool {
+                            let bytes = if use_jsonl {
+                                let mut line =
+                                    serde_json::to_vec(&value_to_json(&value)).unwrap_or_default();
+                                line.push(b'\n');
+                                line
+                            } else {
+                                value_to_bytes(value)
+                            };
+                            stream_tx.blocking_send(bytes).is_ok()
+                        };
+
+                    // Process first value
+                    if let Some(value) = first {
+                        if let Value::Error { error, .. } = &value {
+                            let working_set = StateWorkingSet::new(&engine.state);
+                            log_error(&format_cli_error(None, &working_set, error.as_ref(), None));
+                            return;
+                        }
+                        if !send_value(&stream_tx, value) {
+                            return;
+                        }
                     }
-                    if !send_value(&stream_tx, value) {
-                        break;
+
+                    // Process remaining values
+                    for value in iter {
+                        if let Value::Error { error, .. } = &value {
+                            let working_set = StateWorkingSet::new(&engine.state);
+                            log_error(&format_cli_error(None, &working_set, error.as_ref(), None));
+                            break;
+                        }
+                        if !send_value(&stream_tx, value) {
+                            break;
+                        }
                     }
-                }
+                });
                 Ok(())
             }
             PipelineData::ByteStream(stream, meta) => {
@@ -191,61 +254,60 @@ pub fn spawn_eval_thread(
                 let mut reader = stream
                     .reader()
                     .ok_or_else(|| "ByteStream has no reader".to_string())?;
-                let mut buf = vec![0; 8192];
-                loop {
-                    match reader.read(&mut buf) {
-                        Ok(0) => break, // EOF
-                        Ok(n) => {
-                            if stream_tx.blocking_send(buf[..n].to_vec()).is_err() {
+                // Drain on a dedicated thread; see the ListStream arm.
+                std::thread::spawn(move || {
+                    let mut buf = vec![0; 8192];
+                    loop {
+                        match reader.read(&mut buf) {
+                            Ok(0) => break, // EOF
+                            Ok(n) => {
+                                if stream_tx.blocking_send(buf[..n].to_vec()).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                // Try to extract ShellError from the io::Error for proper formatting
+                                use nu_protocol::shell_error::bridge::ShellErrorBridge;
+                                if let Some(bridge) = err
+                                    .get_ref()
+                                    .and_then(|e| e.downcast_ref::<ShellErrorBridge>())
+                                {
+                                    let working_set = StateWorkingSet::new(&engine.state);
+                                    log_error(&format_cli_error(
+                                        None,
+                                        &working_set,
+                                        &bridge.0,
+                                        None,
+                                    ));
+                                } else {
+                                    log_error(&err.to_string());
+                                }
                                 break;
                             }
                         }
-                        Err(err) => {
-                            // Try to extract ShellError from the io::Error for proper formatting
-                            use nu_protocol::shell_error::bridge::ShellErrorBridge;
-                            if let Some(bridge) = err
-                                .get_ref()
-                                .and_then(|e| e.downcast_ref::<ShellErrorBridge>())
-                            {
-                                let working_set = StateWorkingSet::new(&engine.state);
-                                log_error(&format_cli_error(None, &working_set, &bridge.0, None));
-                                break; // Error already logged, just stop streaming
-                            }
-                            return Err(err.into());
-                        }
                     }
-                }
+                });
                 Ok(())
             }
         }
     }
 
-    // Create a thread job for this evaluation
-    let (sender, _receiver) = mpsc::channel();
-    let signals = engine.state.signals().clone();
-    let job = ThreadJob::new(signals, Some("HTTP Request".to_string()), sender);
-
-    // Add the job to the engine's job table
-    let job_id = {
-        let mut jobs = engine.state.jobs.lock().expect("jobs mutex poisoned");
-        jobs.add_job(Job::Thread(job.clone()))
-    };
-
-    std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
+    eval_pool().execute(Box::new(move || {
         let mut meta_tx_opt = Some(meta_tx);
         let mut body_tx_opt = Some(body_tx);
 
         // Wrap the evaluation in catch_unwind so that panics don't poison the
         // async runtime and we can still send a response back to the caller.
+        //
+        // The engine is used as-is: run_closure never mutates the state, and
+        // the engine carries a long-lived background job (attached at
+        // construction) so externals spawned by the handler are tracked.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut local_engine = (*engine).clone();
-            local_engine.state.current_job.background_thread_job = Some(job);
-
             // Take the senders for the inner call. If the evaluation completes
             // successfully, these senders will have been consumed. Otherwise we
             // will use the remaining ones to send an error response.
             inner(
-                Arc::new(local_engine),
+                engine,
                 request,
                 stream,
                 meta_tx_opt.take().unwrap(),
@@ -276,15 +338,7 @@ pub fn spawn_eval_thread(
                 ));
             }
         }
-
-        // Clean up job when done
-        {
-            let mut jobs = engine.state.jobs.lock().expect("jobs mutex poisoned");
-            jobs.remove_job(job_id);
-        }
-
-        Ok(())
-    });
+    }));
 
     (meta_rx, body_rx)
 }
