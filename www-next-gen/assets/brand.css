@@ -83,9 +83,10 @@ body th {
 }
 
 /* code blocks use base's --code-bg: stellar's primary code surface, the one its
-   syntax palette is tuned for; the hue is set by colors.code.index (a cooler
-   index so it harmonizes with the blue). The brand only adds the line border and
-   gentle corners; inline <code> keeps the secondary --code-inner-bg. */
+   syntax palette is tuned for; the hue is set by colors.code.index (a warm cream
+   index that echoes the sand brand accent - it reads as a light cream panel on the
+   blue and drops to a near-black on navy in dark). The brand only adds the line
+   border and gentle corners; inline <code> keeps the secondary --code-inner-bg. */
 body pre {
   border-color: var(--line);
   border-radius: var(--border-radius-0);
