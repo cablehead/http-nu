@@ -135,7 +135,7 @@ h6 a:hover {
 }
 
 p {
-  margin: var(--size-0) 0;
+  margin: var(--size--2) 0;
 }
 
 /* links ride the surrounding text color, set apart by their underline; this
@@ -230,7 +230,7 @@ pre code {
 
 ul,
 ol {
-  margin: var(--size-0) 0;
+  margin: var(--size--2) 0;
   padding-left: var(--size-3);
   line-height: var(--font-line-height-0);
 }
@@ -616,13 +616,49 @@ pre .invalid {
   margin: var(--size-1) 0 var(--size--2);
 }
 
-/* pager: prev / next links beneath a doc page */
+/* pager: prev / next cards beneath a doc page. Two columns so the next card
+   stays right even when there is no prev; each is a panel that lifts on hover. */
 .pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--size-1);
+  margin-top: var(--size-3);
+}
+.pager-link {
   display: flex;
-  justify-content: space-between;
-  margin-top: var(--size-4);
-  padding-top: var(--size-1);
-  border-top: var(--border-width-1) solid var(--neutral-4);
+  flex-direction: column;
+  gap: 0.15em;
+  padding: var(--size-0) var(--size-1);
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-0);
+  text-decoration: none;
+  transition-property: transform, box-shadow, background;
+  transition-duration: var(--anim-duration-fast);
+  transition-timing-function: var(--anim-ease-standard);
+}
+.pager-link:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-3);
+}
+.pager-prev {
+  grid-column: 1;
+  align-items: flex-start;
+}
+.pager-next {
+  grid-column: 2;
+  align-items: flex-end;
+  text-align: right;
+}
+.pager-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-size: var(--font-size--1);
+  text-transform: uppercase;
+  letter-spacing: var(--font-letter-spacing-1);
+}
+.pager-page {
+  font-weight: var(--font-weight-semi-bold);
 }
 
 /* code block with a copy button (markup from inject-copy-btns) */

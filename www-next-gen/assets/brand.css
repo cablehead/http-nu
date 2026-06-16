@@ -120,6 +120,24 @@ body a.card:hover {
   background: var(--named-navy-2);
 }
 
+/* pager: prev/next ride the .panel surface; cream page title, dim direction
+   label, brightening one ramp step on hover */
+.pager-link {
+  border-color: var(--line);
+}
+.pager-link:hover {
+  background: var(--named-ocean-2);
+}
+.dark .pager-link:hover {
+  background: var(--named-navy-2);
+}
+.pager-dir {
+  color: var(--on-dim);
+}
+.pager-page {
+  color: var(--named-sand-0);
+}
+
 /* sidebar */
 .toc a {
   color: var(--on-dim);

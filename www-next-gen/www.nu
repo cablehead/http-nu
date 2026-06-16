@@ -271,8 +271,16 @@ def give-it-a-try [] {
               (ARTICLE
                 $content
                 (NAV {class: "pager"}
-                  (SPAN (if ($idx > 0) { A {href: $"/docs/($prev.slug)"} $"<- ($prev.title)" }))
-                  (SPAN (if ($next != null) { A {href: $"/docs/($next.slug)"} $"($next.title) ->" })))))
+                  (if ($idx > 0) {
+                    (A {class: "pager-link panel pager-prev" href: $"/docs/($prev.slug)"}
+                      (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Previous")
+                      (SPAN {class: "pager-page"} $prev.title))
+                  } else { "" })
+                  (if ($next != null) {
+                    (A {class: "pager-link panel pager-next" href: $"/docs/($next.slug)"}
+                      (SPAN {class: "pager-dir"} "Next" (icon "lucide:arrow-right"))
+                      (SPAN {class: "pager-page"} $next.title))
+                  } else { "" }))))
             (copy-script)
           )
         )
