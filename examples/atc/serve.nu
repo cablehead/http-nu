@@ -137,8 +137,8 @@ def page []: nothing -> string {
 <title>Heathrow approach -- fan-in slice</title>
 <script type="module" src="/datastar@1.0.2.js"></script>
 <style>
- body{background:#0a0f0a;color:#7CFC7C;font-family:ui-monospace,monospace;margin:0;padding:1rem}
- .wrap{display:grid;grid-template-columns:1fr;gap:1.4rem;max-width:1080px;margin:0 auto;align-items:start}
+ body{background:#0a0f0a;color:#7CFC7C;font-family:ui-monospace,monospace;margin:0;padding:1rem;min-height:100vh;box-sizing:border-box;display:grid;place-content:center}
+ .wrap{display:grid;grid-template-columns:1fr;gap:1.4rem;width:100%;max-width:1080px;margin:0 auto;align-items:center}
  @media (min-width:760px){ .wrap{grid-template-columns:340px 1fr} }
  .panel{display:flex;flex-direction:column;gap:.75rem;text-align:left}
  .radar{display:flex;justify-content:center}
@@ -146,9 +146,9 @@ def page []: nothing -> string {
  .lede{color:#9aa;font-size:.8rem;max-width:60ch;margin:0;line-height:1.45}
  .lede b{color:#9ec;font-weight:600}
  .sel{margin:0;display:flex;flex-wrap:wrap;gap:.3rem}
- button{background:#06120a;color:#7CFC7C;border:1px solid #1c3;font-family:inherit;padding:.3rem .9rem;cursor:pointer}
+ button{background:#06120a;color:#7CFC7C;border:1px solid #1c3;font-family:inherit;padding:.5rem 1.1rem;font-size:.9rem;cursor:pointer}
  button.active{background:#1c3;color:#021}
- .scope{position:relative;width:min(72vmin,560px);height:min(72vmin,560px);border-radius:50%;border:1px solid #1c3;background:#06120a;overflow:hidden;margin:0}
+ .scope{position:relative;width:min(78vmin,600px);height:min(78vmin,600px);border-radius:50%;border:1px solid #1c3;background:#06120a;overflow:hidden;margin:0}
  .ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:1px solid #103d22;border-radius:50%}
  .ring1{width:50%;height:50%}
  .ring2{width:78%;height:78%}
