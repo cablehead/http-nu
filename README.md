@@ -75,11 +75,11 @@
   - [Datastar SDK](#datastar-sdk)
   - [Cookies](#cookies)
 - [Extending & eval](#extending--eval)
+  - [Eval Subcommand](#eval-subcommand)
   - [Plugins](#plugins)
   - [Module Paths](#module-paths)
   - [Runtime Constants](#runtime-constants)
   - [Evaluating User-Submitted Scripts](#evaluating-user-submitted-scripts)
-  - [Eval Subcommand](#eval-subcommand)
   - [Building and Releases](#building-and-releases)
   - [History](#history)
 
@@ -148,6 +148,16 @@ locally with the [examples hub](examples/README.md):
 $ http-nu --datastar :3001 examples/serve.nu
 $ http-nu --datastar --store ./store :3001 examples/serve.nu  # enables store-dependent examples
 ```
+
+You can also run a command or pipeline without starting a server, handy for
+trying the examples throughout these docs:
+
+```bash
+$ http-nu eval -c '1 + 2'
+3
+```
+
+See [Eval Subcommand](#eval-subcommand) for details.
 
 ### UNIX domain sockets
 
@@ -411,19 +421,6 @@ collects the entire input into memory.
 {|req| $in | from json }
 ```
 
-For routing, `dispatch` must be first in the closure to receive the body. In
-handlers, put body-consuming commands first:
-
-```nushell
-{|req|
-  dispatch $req [
-    (route {method: "POST"} {|req ctx|
-      from json  # receives body implicitly
-    })
-  ]
-}
-```
-
 ## Serving & operations
 
 Serve files, watch for changes, log requests, trust proxies, and enable TLS.
@@ -660,10 +657,13 @@ Templates can also load from the store using `.mj --topic` and
 ```nushell
 {|req|
   .last quotes --follow
-  | each {|frame| $frame.meta | to datastar-patch-elements }
+  | each {|frame| {data: $frame.meta} }
   | to sse
 }
 ```
+
+`to sse` pairs naturally with the [Datastar SDK](#datastar-sdk) when you want
+this stream to drive live DOM updates.
 
 **Combining with the [Local Bus](#local-bus):**
 
@@ -940,6 +940,21 @@ Routes match in order. First match wins. Closure tests return a record (match,
 context passed to handler) or null (no match). If no routes match, returns
 `501 Not Implemented`.
 
+`dispatch` must come first in the closure to receive the request body, and
+inside a handler put body-consuming commands (`from json`, etc.) first, since
+input only streams when received implicitly (see
+[Streaming Input](#streaming-input)):
+
+```nushell
+{|req|
+  dispatch $req [
+    (route {method: "POST"} {|req ctx|
+      from json  # receives body implicitly
+    })
+  ]
+}
+```
+
 **Mounting sub-handlers:**
 
 `mount` serves a handler under a path prefix. Requests to `/prefix` redirect to
@@ -1200,7 +1215,50 @@ cookie delete [
 
 ## Extending & eval
 
-Plugins, module paths, evaluating user scripts, the eval subcommand, and releases.
+The eval subcommand, plugins, module paths, evaluating user scripts, and releases.
+
+### Eval Subcommand
+
+Test http-nu commands without running a server.
+
+```bash
+# From command line
+$ http-nu eval -c '1 + 2'
+3
+
+# From file
+$ http-nu eval script.nu
+
+# From stdin
+$ echo '1 + 2' | http-nu eval -
+3
+
+# Test .mj commands
+$ http-nu eval -c '.mj compile --inline "Hello, {{ name }}" | describe'
+CompiledTemplate
+```
+
+#### Unit Testing Endpoints
+
+`source` loads a handler script and returns the closure. `do` invokes it with a
+request record. `assert` checks the response.
+
+```nushell
+# test.nu
+use std/assert
+
+const script_dir = path self | path dirname
+
+let handler = source ($script_dir | path join serve.nu)
+let response = do $handler {method: GET, path: "/", headers: {}}
+assert ($response | str contains "<h1>State in the Right Place</h1>")
+```
+
+```bash
+$ http-nu eval test.nu
+```
+
+See [`examples/tao/test.nu`](examples/tao/test.nu).
 
 ### Plugins
 
@@ -1266,49 +1324,6 @@ the caller's bindings and environment are also hidden from the script.
 > The submitted script has full access to whatever the http-nu process can do --
 > files, network, the embedded store. Only expose `.run` on localhost or in
 > trusted environments.
-
-### Eval Subcommand
-
-Test http-nu commands without running a server.
-
-```bash
-# From command line
-$ http-nu eval -c '1 + 2'
-3
-
-# From file
-$ http-nu eval script.nu
-
-# From stdin
-$ echo '1 + 2' | http-nu eval -
-3
-
-# Test .mj commands
-$ http-nu eval -c '.mj compile --inline "Hello, {{ name }}" | describe'
-CompiledTemplate
-```
-
-#### Unit Testing Endpoints
-
-`source` loads a handler script and returns the closure. `do` invokes it with a
-request record. `assert` checks the response.
-
-```nushell
-# test.nu
-use std/assert
-
-const script_dir = path self | path dirname
-
-let handler = source ($script_dir | path join serve.nu)
-let response = do $handler {method: GET, path: "/", headers: {}}
-assert ($response | str contains "<h1>State in the Right Place</h1>")
-```
-
-```bash
-$ http-nu eval test.nu
-```
-
-See [`examples/tao/test.nu`](examples/tao/test.nu).
 
 ### Building and Releases
 
