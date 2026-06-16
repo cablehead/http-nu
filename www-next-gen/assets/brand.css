@@ -1,27 +1,30 @@
 /*
  * brand.css - the http-nu brand layer, loaded site-wide on top of base.css.
  *
- * The whole site rides the brand-blue surface: ocean in light, a deep ocean
- * navy in dark, both stellar-seeded (stellar.config.json: ocean/navy/sand/
- * orange/grape/red/green/stream). Everything is built from that surface role's
- * ramp the way the reference builds from neutral: the page is step 0, raised
- * panels and borders are higher steps (the `.panel` utility, `--line`), `-on`
- * is the text and `-dim` is secondary text. `--surface*`/`--on-dim`/`--line`
- * just alias those ramp tokens and flip ocean->navy with the mode; no
- * hand-mixed tints.
+ * Two brand colors, one per mode: ocean for light, a deeper navy for dark -
+ * hand-picked stellar named seeds (stellar.config.json, with the sand / orange
+ * grape / red / green / stream accents). Whichever mode is active, that one
+ * color IS the page surface; `--surface` / `--surface-on` / `--on-dim` /
+ * `--line` name its parts, and the `.dark body` block swaps the whole set
+ * ocean->navy. We choose the two colors by hand because they're exact brand
+ * blues stellar's tonal math wouldn't land on, and because the ocean->navy pair
+ * is a deliberate design choice, not two ends of one ramp.
  *
- * The named seeds are static across light/dark, hence the per-mode aliases. A
- * few hero geometry values (sticker shadow, tilt angles, tight badge padding)
+ * Within a mode, everything is built from the active color's ramp the way the
+ * reference builds from neutral: the page is step 0, raised panels and borders
+ * are higher steps (the `.panel` utility, `--line`), `-on` is the text, `-dim`
+ * is secondary text. No hand-mixed tints.
+ *
+ * A few hero geometry values (sticker shadow, tilt angles, tight badge padding)
  * are literal on purpose - no stellar token matches them - and keep the landing
  * pixel-faithful to the original ./www splash. Fonts also match the original.
  */
 
-/* --- the brand surface: the whole page ---------------------------------- */
+/* --- the brand surface: ocean (light mode) ------------------------------ */
+/* the active brand color and its parts: the step is the page, -on is text,
+   -dim is secondary text, and a higher step is the border (raised panels use
+   the .panel utility). `.dark body` below swaps all of this to the navy color. */
 body {
-  /* the surface role, built from the brand's ocean ramp (navy in dark) the way
-     the reference builds from neutral: the step is the page, its -on is the
-     text, its -dim is secondary text. Borders and raised panels are other
-     ramp steps, no hand-mixed tints. */
   --surface: var(--named-ocean-0);
   --surface-on: var(--named-ocean-0-on);
   --on-dim: var(--named-ocean-0-dim);
@@ -33,6 +36,9 @@ body {
   color: var(--surface-on);
 }
 
+/* --- the brand surface: navy (dark mode) -------------------------------- */
+/* the second brand color; swapping these four tokens re-points the whole
+   surface system (panels, borders, dim text) at navy in one place. */
 .dark body {
   --surface: var(--named-navy-0);
   --surface-on: var(--named-navy-0-on);
