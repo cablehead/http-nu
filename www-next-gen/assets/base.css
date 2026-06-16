@@ -182,6 +182,8 @@ code {
      the chip doesn't blow out the prose line-height. */
   padding: 0.2em 0.45em;
   border-radius: var(--border-radius--2);
+  /* keep short code spans whole - don't break a token like --topic at its hyphen */
+  white-space: nowrap;
 }
 
 kbd {
@@ -198,7 +200,7 @@ kbd {
    stellar's line-heights are absolute rems tuned for prose (~1.5 on the code
    font), too loose to connect box-drawing; this is the named exception. */
 :root {
-  --code-line-height: 1.2;
+  --code-line-height: 1.25;
 }
 
 pre {
@@ -212,7 +214,7 @@ pre {
   padding: var(--size--2) var(--size--1);
   overflow-x: auto;
   scrollbar-gutter: stable;
-  margin: var(--size-1) 0;
+  margin: var(--size--1) 0;
 }
 
 pre code {
@@ -221,6 +223,9 @@ pre code {
   padding: 0;
   color: inherit;
   font-size: inherit;
+  /* block code keeps the pre's preserved newlines; the inline `code` nowrap
+     must not collapse a fenced block onto one line */
+  white-space: pre;
 }
 
 ul,
@@ -231,7 +236,9 @@ ol {
 }
 
 li {
-  margin: var(--size--2) 0;
+  /* tight item spacing; --size--2 (the floor, ~13px) is far too padded for a
+     list. em-relative, justified literal like the other tight component gaps. */
+  margin: 0.35em 0;
 }
 
 li > ul,
