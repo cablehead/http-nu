@@ -66,6 +66,18 @@ body pre {
   border-color: var(--line);
 }
 
+/* cards ride the brand panel - the same frosted surface as table headers and
+   inline code - so they harmonize with the blue instead of being grey islands.
+   Text rides the surface color; hover brightens the panel a touch (the dim). */
+body .card {
+  background: var(--panel);
+  color: var(--surface-on);
+  border-color: var(--line);
+}
+body a.card:hover {
+  background: color-mix(in oklch, var(--surface-on) 14%, transparent);
+}
+
 /* sidebar */
 .toc a {
   color: var(--on-dim);

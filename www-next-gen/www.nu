@@ -240,8 +240,8 @@ def give-it-a-try [] {
             (DIV {class: "grid"}
               ($pages | each {|p|
                 let secs = ($page_secs | get $p.slug)
-                (DIV {class: "card"}
-                  (H3 (A {href: $"/docs/($p.slug)"} $p.title))
+                (A {class: "card" href: $"/docs/($p.slug)"}
+                  (H3 $p.title)
                   (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
               })))
           (copy-script)
