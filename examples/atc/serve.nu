@@ -101,8 +101,10 @@ def render-scope [sectors: list]: nothing -> string {
   } else {
     $"($per | first | get s | str capitalize) -- ($acs | length) tracked"
   }
-  # Every child carries a stable id so morphing matches them across patches.
-  $'<div id="scope" class="scope"><div id="ring2" class="ring ring2"></div><div id="ring1" class="ring ring1"></div><div id="hsplit" class="hsplit"></div><div id="labN" class="lab labN">N</div><div id="labS" class="lab labS">S</div><div id="lhr" class="lhr"></div><div id="meta" class="meta">($count)</div>($blips)</div>'
+  # Two top-level elements patched by id: the count line (outside the circular
+  # scope, which clips its corners) and the scope itself.
+  $'<div id="count" class="count">($count)</div>
+<div id="scope" class="scope"><div id="ring2" class="ring ring2"></div><div id="ring1" class="ring ring1"></div><div id="hsplit" class="hsplit"></div><div id="labN" class="lab labN">N</div><div id="labS" class="lab labS">S</div><div id="lhr" class="lhr"></div>($blips)</div>'
 }
 
 # detail card for one aircraft. Server-rendered HTML, appended to <body> on
@@ -151,7 +153,7 @@ def page []: nothing -> string {
  .labN{top:.3rem}
  .labS{bottom:.3rem}
  .lhr{position:absolute;left:50%;top:50%;width:7px;height:7px;background:#fe6;border-radius:50%;transform:translate(-50%,-50%)}
- .meta{position:absolute;right:.6rem;top:.5rem;color:#5a5;font-size:.7rem}
+ .count{color:#9c9;font-size:.85rem;margin:.3rem auto .1rem;min-height:1.1em}
  .ac{position:absolute;cursor:pointer;z-index:1}
  .ac:hover,.ac.picked{z-index:3}
  .ac .dot{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:6px;height:6px;border-radius:50%;background:#9ef;box-shadow:0 0 3px #9ef9}
@@ -177,14 +179,15 @@ def page []: nothing -> string {
 </style></head>
 <body data-signals='{"sel":"both","ac":"","cx":0,"cy":0}' data-on:click__window="$ac = ''; document.getElementById('card')?.remove()">
  <h1>Fan-in &mdash; live Heathrow arrivals</h1>
- <p class="lede">A controller's scope is the live <b>merge of the sector feeds it subscribes to</b>. North and South are two independent feeds (planes hand off between them at the line); <b>Both</b> fans them into one stream &mdash; the final director's view. Click a plane for detail.</p>
+ <p class="lede">A controller's scope is the live merge of the <b>sector feeds</b> it subscribes to. <b>North</b> and <b>South</b> are two independent feeds; planes <b>hand off</b> between them at the line. <b>Both</b> fans them into one stream, the <b>final director</b>'s view. Click a plane for detail.</p>
  <div class="sel">
   <button data-on:click="$sel = 'north'" data-class:active="$sel == 'north'">North</button>
   <button data-on:click="$sel = 'south'" data-class:active="$sel == 'south'">South</button>
   <button data-on:click="$sel = 'both'" data-class:active="$sel == 'both'">Both (final director)</button>
  </div>
+ <div id="count" class="count">connecting&hellip;</div>
  <div data-effect="$sel; @get('/scope')">
-  <div id="scope" class="scope"><div class="meta">connecting&hellip;</div></div>
+  <div id="scope" class="scope"></div>
  </div>
 </body></html>'#
 }

@@ -102,7 +102,8 @@ Each wake re-renders and patches `#scope` via
 
 [`render-scope` L92-105](serve.nu#L92-L105) reads the current head of each
 selected feed (`.last "feed.sector.<s>"`) and draws the merged set of aircraft.
-The `#meta` readout shows the count; in **Both** it breaks down per sector
+The `#count` line (rendered outside the circular scope, which would clip a
+corner) shows the count; in **Both** it breaks down per sector
 (e.g. `North 17 + South 10 = 27 tracked`).
 [`blip` L58-79](serve.nu#L58-L79) places each one by **bearing + range from
 Heathrow** (longitude squeezed by `cos(lat)` so the scope stays round), which is
