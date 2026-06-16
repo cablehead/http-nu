@@ -27,6 +27,13 @@ let pages = ($readme | pages $groups)
 let anchors = ($readme | anchor-map $groups)
 let titles = ($readme | headings | reduce --fold {} {|h, acc| $acc | upsert $h.slug $h.title })
 
+# Precompute each page's h3 sub-sections at load (parsing the README at request
+# time, deep in the DSL tree, overflows the stack). Map: page slug -> sections.
+let all_headings = ($readme | headings)
+let page_secs = ($pages | reduce --fold {} {|p, acc|
+  $acc | upsert $p.slug ($all_headings | where line > $p.start and line <= $p.end and level == ($p.level + 1) | select slug title)
+})
+
 def icon [name: string] {
   {__html: $"<iconify-icon icon=\"($name)\" noobserver></iconify-icon>"}
 }
@@ -99,24 +106,21 @@ document.addEventListener('click', function(e) {
 
 # --- docs navigation -------------------------------------------------
 
-# Sidebar / index nav: pages in document order, with a group label
-# emitted whenever the group changes.
+# Sidebar nav: pages in order; the active page expands to its sections.
+# Build the list in the body (outer lets are in scope here); pass the finished
+# list to UL - a closure passed to the DSL evaluates in a scope without them.
 def docs-nav [current: string] {
-  let items = ($pages | reduce --fold {seen: [], html: []} {|p, acc|
-    let label = (if $p.group != null and ($p.group not-in $acc.seen) {
-      [(SPAN {class: "toc-group"} ($titles | get $p.group))]
+  let items = ($pages | each {|p|
+    let active = ($p.slug == $current)
+    let sub = (if $active {
+      let secs = ($page_secs | get $p.slug)
+      if ($secs | is-empty) { [] } else {
+        [(UL ($secs | each {|s| LI (A {href: $"/docs/($p.slug)#($s.slug)"} $s.title)}))]
+      }
     } else { [] })
-    {
-      seen: (if $p.group == null { $acc.seen } else { $acc.seen | append $p.group })
-      html: ($acc.html | append $label | append (
-        LI (A {
-          href: $"/docs/($p.slug)"
-          class: (if $p.slug == $current { "active" } else { "" })
-        } $p.title)
-      ))
-    }
+    (LI (A {href: $"/docs/($p.slug)" class: (if $active { "active" } else { "" })} $p.title) ...$sub)
   })
-  (UL ($items.html))
+  (UL $items)
 }
 
 # --- routes ----------------------------------------------------------
@@ -230,11 +234,16 @@ def give-it-a-try [] {
           (MAIN {class: "container"}
             (DIV {class: "prose"}
               (H1 "Documentation")
-              (P {class: "muted"} "Generated from the project "
+              (P {class: "muted"} "The project "
                 (A {href: "https://github.com/cablehead/http-nu/blob/main/README.md"} "README")
-                ", split into pages by section."))
-            (DIV {class: "toc"}
-              (docs-nav "")))
+                ", split into pages. Pick a topic:"))
+            (DIV {class: "grid"}
+              ($pages | each {|p|
+                let secs = ($page_secs | get $p.slug)
+                (DIV {class: "card"}
+                  (H3 (A {href: $"/docs/($p.slug)"} $p.title))
+                  (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
+              })))
           (copy-script)
         )
       )
@@ -256,7 +265,11 @@ def give-it-a-try [] {
           (BODY
             (nav-bar)
             (MAIN {class: "container with-sidebar"}
-              (ASIDE {class: "toc"} (docs-nav $slug))
+              (DETAILS {class: "docs-menu" open: true}
+                (SUMMARY "Pages")
+                (NAV {class: "toc"} (docs-nav $slug)))
+              # collapse the menu on narrow screens before the article paints
+              (SCRIPT {__html: r#'(function(){var d=document.querySelector('.docs-menu');if(d&&matchMedia('(max-width:768px)').matches)d.open=false;})();'#})
               (ARTICLE {class: "prose"}
                 $content
                 (NAV {class: "pager"}

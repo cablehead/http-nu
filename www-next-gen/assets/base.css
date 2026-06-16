@@ -482,21 +482,51 @@ pre .meta.string {
   box-shadow: var(--shadow-1);
 }
 
+/* sub-text inside a card dims the card's own color, not the page surface */
+.card :is(small, .muted) {
+  color: inherit;
+  opacity: 0.7;
+}
+
 /* sidebar layout: a flex row that stacks on small screens */
 .with-sidebar { display: flex; gap: var(--size-3); align-items: flex-start; }
 .with-sidebar > * { min-width: 0; }
-.with-sidebar > aside {
-  flex-shrink: 0;
-  width: 210px;
-  position: sticky;
-  top: var(--size-2);
-  max-height: calc(100vh - var(--size-3));
-  overflow-y: auto;
+
+/* docs menu: a sticky sidebar on desktop, a collapsible disclosure on narrow
+   screens. Rendered <details open>; a tiny script collapses it below 769px.
+   Resets the generic `details` chrome (it's a menu, not a content panel). */
+.docs-menu {
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: none;
+}
+.docs-menu > summary {
+  cursor: pointer;
+  list-style: none;
+  font-weight: var(--font-weight-semi-bold);
+  padding: var(--size--1) 0;
+  border-bottom: var(--border-width-1) solid var(--line, var(--neutral-4));
+}
+.docs-menu > summary::-webkit-details-marker { display: none; }
+.docs-menu > summary::after { content: " \25be"; }
+.docs-menu[open] > summary::after { content: " \25b4"; }
+
+@media (min-width: 769px) {
+  .docs-menu {
+    flex-shrink: 0;
+    width: 210px;
+    position: sticky;
+    top: var(--size-2);
+    max-height: calc(100vh - var(--size-3));
+    overflow-y: auto;
+  }
+  .docs-menu > summary { display: none; }
 }
 
 @media (max-width: 768px) {
   .with-sidebar { flex-direction: column; }
-  .with-sidebar > aside { width: 100%; position: static; max-height: none; }
+  .docs-menu { width: 100%; }
 }
 
 /* toc: nav list with group labels and an active item */
