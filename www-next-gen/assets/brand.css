@@ -37,9 +37,6 @@ body {
 article :is(h1, h2, h3, h4, h5, h6) {
   color: var(--named-sand-0);
 }
-body h2 {
-  border-bottom-color: var(--line);
-}
 body small,
 body .muted,
 body figcaption,

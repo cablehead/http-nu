@@ -92,8 +92,6 @@ h2 {
   font-size: var(--font-size-3);
   font-weight: var(--font-weight-semi-bold);
   margin: var(--size-3) 0 var(--size-1);
-  padding-bottom: var(--size--2);
-  border-bottom: var(--border-width-1) solid var(--neutral-4);
 }
 
 h3 {
