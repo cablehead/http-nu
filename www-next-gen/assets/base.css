@@ -12,20 +12,33 @@
 
 /* ------------------------------------------------------------------ */
 /* Fonts: self-hosted, names must match the stellar --font-* tokens.   */
-/* One variable woff2 per family covers every weight.                  */
+/* Static 400 + 700 cuts (the weights the site uses), matching the     */
+/* live site exactly; no variable-weight axis to mis-render on older   */
+/* browsers.                                                           */
 /* ------------------------------------------------------------------ */
 
 @font-face {
   font-family: "Source Sans 3";
-  src: url("/assets/source-sans-3.woff2") format("woff2");
-  font-weight: 100 900;
+  src: url("/assets/source-sans-3-400.woff2") format("woff2");
+  font-weight: 400;
   font-display: swap;
 }
-
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/assets/source-sans-3-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
 @font-face {
   font-family: "Source Code Pro";
-  src: url("/assets/source-code-pro.woff2") format("woff2");
-  font-weight: 100 900;
+  src: url("/assets/source-code-pro-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("/assets/source-code-pro-700.woff2") format("woff2");
+  font-weight: 700;
   font-display: swap;
 }
 
