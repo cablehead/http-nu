@@ -139,13 +139,12 @@ def page []: nothing -> string {
 <style>
  body{background:#0a0f0a;color:#7CFC7C;font-family:ui-monospace,monospace;margin:0;padding:1rem;min-height:100vh;box-sizing:border-box;display:grid;place-content:center}
  .wrap{display:grid;grid-template-columns:1fr;gap:1.4rem;width:100%;max-width:1080px;margin:0 auto;align-items:center}
- @media (min-width:900px){ .wrap{grid-template-columns:340px 1fr} }
- .panel{display:flex;flex-direction:column;gap:.75rem;text-align:left}
+ .panel{display:flex;flex-direction:column;gap:.75rem;text-align:center}
  .radar{display:flex;justify-content:center}
  h1{font-size:1rem;font-weight:normal;margin:0}
- .lede{color:#9aa;font-size:.8rem;max-width:60ch;margin:0;line-height:1.45}
+ .lede{color:#9aa;font-size:.8rem;max-width:60ch;margin:0 auto;line-height:1.45}
  .lede b{color:#9ec;font-weight:600}
- .sel{margin:0;display:flex;flex-wrap:wrap;gap:.3rem}
+ .sel{margin:0;display:flex;flex-wrap:wrap;gap:.3rem;justify-content:center}
  button{background:#06120a;color:#7CFC7C;border:1px solid #1c3;font-family:inherit;padding:.5rem 1.1rem;font-size:.9rem;cursor:pointer}
  button.active{background:#1c3;color:#021}
  .scope{position:relative;width:min(78vmin,600px);height:min(78vmin,600px);border-radius:50%;border:1px solid #1c3;background:#06120a;overflow:hidden;margin:0}
@@ -180,6 +179,7 @@ def page []: nothing -> string {
  .row{display:flex;flex-wrap:nowrap;justify-content:space-between;gap:1.5rem;padding:.08rem 0}
  .row .k{color:#5a8a5a;white-space:nowrap}
  .row .v{color:#cfe;white-space:nowrap}
+ @media (min-width:900px){ .wrap{grid-template-columns:340px 1fr} .panel{text-align:left} .sel{justify-content:flex-start} }
 </style></head>
 <body data-signals='{"sel":"both","ac":"","cx":0,"cy":0}' data-on:click__window="$ac = ''; document.getElementById('card')?.remove()">
  <div class="wrap">
