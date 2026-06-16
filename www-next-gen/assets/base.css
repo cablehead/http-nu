@@ -483,18 +483,10 @@ pre .meta.string {
   color: var(--neutral-2-on);
   border: var(--border-width-1) solid var(--neutral-4);
   border-radius: var(--border-radius-2);
-  padding: var(--size-2);
+  padding: var(--size-1);
   box-shadow: var(--shadow-2);
   text-decoration: none;
   transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
-}
-/* a card that is itself a link lifts toward you on hover: elevation grows
-   (stellar shadow ramp) and the surface dims one neutral step. Only the lift
-   distance is a literal - transforms are not tokenized. */
-a.card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-4);
-  background: var(--neutral-3);
 }
 
 /* sub-text inside a card dims the card's own color, not the page surface */

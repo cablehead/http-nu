@@ -66,16 +66,32 @@ body pre {
   border-color: var(--line);
 }
 
-/* cards ride the brand panel - the same frosted surface as table headers and
-   inline code - so they harmonize with the blue instead of being grey islands.
-   Text rides the surface color; hover brightens the panel a touch (the dim). */
+/* cards are blocky badge-style panels: the brand panel surface, sharp corners,
+   and the same hard sticker shadow as the splash badges. Each card sits at a
+   slight fixed tilt that varies card to card (a 5-step cycle, so it scatters
+   across the 3-column grid rather than lining up); hover does not change the
+   tilt - it lifts the card straight up and grows the shadow. The tilt is held
+   in --card-tilt so hover can keep the angle and add the lift. (The tilt
+   degrees and offset shadow are brand literals, like the badges.) */
 body .card {
   background: var(--panel);
   color: var(--surface-on);
   border-color: var(--line);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
 }
+.grid .card {
+  transform: rotate(var(--card-tilt, 0deg));
+}
+.grid .card:nth-child(5n + 1) { --card-tilt: -1deg; }
+.grid .card:nth-child(5n + 2) { --card-tilt: 0.7deg; }
+.grid .card:nth-child(5n + 3) { --card-tilt: -0.5deg; }
+.grid .card:nth-child(5n + 4) { --card-tilt: 1deg; }
+.grid .card:nth-child(5n + 5) { --card-tilt: -0.8deg; }
 body a.card:hover {
   background: color-mix(in oklch, var(--surface-on) 14%, transparent);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.2);
+  transform: rotate(var(--card-tilt, 0deg)) translateY(-4px);
 }
 
 /* sidebar */
@@ -96,6 +112,7 @@ body a.card:hover {
 .nav .brand a {
   color: var(--named-sand-0);
   font-family: var(--font-mono);
+  font-size: var(--font-size-3);
   text-decoration: underline;
 }
 .nav .brand a:hover,
@@ -130,11 +147,6 @@ body a.card:hover {
 }
 
 /* --- landing hero (these selectors only match on the landing markup) ---- */
-
-/* the brand grows in the hero; elsewhere it sits at nav size */
-.splash-hero .nav .brand a {
-  font-size: var(--font-size-6);
-}
 
 /* tagline card: just tilted, on the surface, like the original */
 .taglines {
