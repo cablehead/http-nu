@@ -51,9 +51,37 @@ stellar.config.json`.
 
 ## Fonts
 
-Source Sans 3 and Source Code Pro are **self-hosted**: variable `woff2` files in
-`assets/`, declared with `@font-face` in `base.css` whose family names match the
-`--font-sans` / `--font-mono` tokens exactly. `settings.export.includeFontImports`
-is off, so `stellar.css` imports no CDN font either - the page makes zero
-third-party font requests. The `/assets/:file` route matches one path segment,
-so keep font files flat in `assets/`.
+Both fonts are **self-hosted** `woff2` in `assets/`, declared with `@font-face`
+in `base.css` whose family names match the `--font-sans` / `--font-mono` tokens
+exactly. `settings.export.includeFontImports` is off, so `stellar.css` imports
+no CDN font either - the page makes zero third-party font requests. The
+`/assets/:file` route matches one path segment, so keep font files flat in
+`assets/`.
+
+- **Prose** (`--font-sans`): Source Sans 3, 400 / 700.
+- **Code** (`--font-mono`): **Iosevka X**, a custom no-ligature build, 400 / 700.
+  Chosen over Source Code Pro because it ships box-drawing glyphs, so Nushell
+  table output and ASCII line up (Source Code Pro lacked them, forcing a
+  mismatched-width fallback). Ligatures are off so readers see the literal
+  characters they would type.
+
+### Regenerating Iosevka X
+
+The build recipe is [`iosevka-x.build-plan.toml`](iosevka-x.build-plan.toml)
+(no ligatures, dotted zero, a few variant touches; regular + bold, upright,
+normal width). To rebuild:
+
+```bash
+git clone --depth 1 -b v34.6.3 https://github.com/be5invis/Iosevka.git
+cp iosevka-x.build-plan.toml Iosevka/private-build-plans.toml
+cd Iosevka && npm install && npm run build -- ttf::iosevka-X   # needs ttfautohint
+```
+
+Then subset each weight to the web (keeps it ~40 KB instead of ~10 MB):
+
+```bash
+RANGES="U+0000-00FF,U+2010-2027,U+2030-205F,U+20AC,U+2190-21FF,U+2200-22FF,U+2500-259F,U+25A0-25FF"
+pyftsubset dist/iosevka-X/TTF/iosevka-X-Regular.ttf --unicodes="$RANGES" \
+  --layout-features='' --flavor=woff2 --output-file=assets/iosevka-x-400.woff2
+# repeat for Bold -> iosevka-x-700.woff2
+```

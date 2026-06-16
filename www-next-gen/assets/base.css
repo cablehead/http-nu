@@ -11,10 +11,11 @@
  */
 
 /* ------------------------------------------------------------------ */
-/* Fonts: self-hosted, names must match the stellar --font-* tokens.   */
-/* Static 400 + 700 cuts (the weights the site uses), matching the     */
-/* live site exactly; no variable-weight axis to mis-render on older   */
-/* browsers.                                                           */
+/* Fonts: self-hosted, names must match the stellar --font-* tokens.    */
+/* Source Sans 3 for prose (--font-sans); Iosevka X for code            */
+/* (--font-mono) - a custom no-ligature build with box-drawing glyphs,  */
+/* so Nushell tables and ASCII line up (Source Code Pro lacked them).   */
+/* 400 + 700 only; subset to Latin + punctuation + box/blocks/shapes.   */
 /* ------------------------------------------------------------------ */
 
 @font-face {
@@ -30,14 +31,14 @@
   font-display: swap;
 }
 @font-face {
-  font-family: "Source Code Pro";
-  src: url("/assets/source-code-pro-400.woff2") format("woff2");
+  font-family: "Iosevka X";
+  src: url("/assets/iosevka-x-400.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
-  font-family: "Source Code Pro";
-  src: url("/assets/source-code-pro-700.woff2") format("woff2");
+  font-family: "Iosevka X";
+  src: url("/assets/iosevka-x-700.woff2") format("woff2");
   font-weight: 700;
   font-display: swap;
 }
