@@ -138,6 +138,17 @@ p {
   margin: var(--size--2) 0;
 }
 
+/* a paragraph that introduces a list hugs it, so a "label:" + its list read as
+   one unit. 0.4em is a justified literal - below the stellar size floor. */
+p:has(+ ul),
+p:has(+ ol) {
+  margin-bottom: 0.4em;
+}
+p + ul,
+p + ol {
+  margin-top: 0;
+}
+
 /* links ride the surrounding text color, set apart by their underline; this
    works on any surface (neutral or a brand blue), so no per-surface color */
 a {
@@ -628,7 +639,8 @@ pre .invalid {
   display: flex;
   flex-direction: column;
   gap: 0.15em;
-  padding: var(--size-0) var(--size-1);
+  /* compact; the stellar size floor is too padded for a small nav card */
+  padding: 0.5rem 0.85rem;
   border: var(--border-width-1) solid var(--neutral-4);
   border-radius: var(--border-radius-0);
   text-decoration: none;
