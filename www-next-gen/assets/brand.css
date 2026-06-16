@@ -253,7 +253,7 @@ body pre {
   color: var(--surface-on);
   padding: var(--size-1);
   overflow-x: auto;
-  line-height: var(--font-line-height-2);
+  line-height: 1.4;
 }
 .terminal-body .prompt,
 .terminal-body .out {

@@ -191,7 +191,7 @@ kbd {
 pre {
   font-family: var(--font-mono);
   font-size: var(--font-size--1);
-  line-height: var(--font-line-height-1);
+  line-height: 1.4; /* tight, terminal-like (the rem line-heights are tuned for prose) */
   background: var(--code-bg);
   color: var(--code-fg);
   border: var(--border-width-1) solid var(--code-border);
