@@ -8,11 +8,13 @@ noLigation = true
 
 [buildPlans.iosevka-X.variants.design]
 zero = 'dotted'
+asterisk = 'penta-low'
 tilde = 'low'
 underscore = 'low'
 brace = 'straight'
 dollar = 'open'
 four = 'closed-serifless'
+eight = 'crossing'
 
 [buildPlans.iosevka-X.weights.Regular]
 shape = 400

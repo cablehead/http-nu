@@ -987,7 +987,7 @@
       "baseMax": 0.5,
       "scaleMin": "Major Third",
       "scaleMax": "Major Third",
-      "negativeSteps": 0,
+      "negativeSteps": 2,
       "positiveSteps": 6,
       "pairs": [
         {

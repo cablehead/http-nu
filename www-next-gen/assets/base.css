@@ -143,11 +143,13 @@ p {
 a {
   color: inherit;
   text-underline-offset: 0.15em;
-  text-decoration-thickness: var(--border-width-1);
+  /* the font's own (thin) underline metric; border-width tokens are too heavy
+     for a text underline. Thickens to a token on hover. */
+  text-decoration-thickness: from-font;
 }
 
 a:hover {
-  text-decoration-thickness: var(--border-width-2);
+  text-decoration-thickness: var(--border-width-1);
 }
 
 strong {
@@ -172,12 +174,14 @@ samp {
 }
 
 code {
-  background: var(--code-inner-bg);
+  background: var(--code-bg);
   color: var(--code-fg);
-  padding: 0.1em 0.3em 0.2em;
-  /* em-relative like the padding: a subtle chip radius that scales with the
-     surrounding text (no stellar radius token is small enough for inline) */
-  border-radius: 0.2em;
+  /* justified literal: stellar's spacing scale is viewport-fluid and floors at
+     ~13px, too wide for an inline chip, so it can't express tight text-relative
+     padding. em keeps it proportional to the text; the vertical stays small so
+     the chip doesn't blow out the prose line-height. */
+  padding: 0.2em 0.45em;
+  border-radius: var(--border-radius--2);
 }
 
 kbd {
@@ -185,20 +189,29 @@ kbd {
   color: var(--neutral-3-on);
   border: var(--border-width-1) solid var(--neutral-5);
   border-bottom-width: var(--border-width-2);
-  border-radius: var(--border-radius-0);
-  padding: 0.1em 0.4em;
+  border-radius: var(--border-radius--1);
+  padding: var(--size--2) var(--size--1);
+}
+
+/* code line-height: a tight terminal ratio so stacked box-drawing glyphs
+   (Nushell tables) join into continuous lines. A unitless literal on purpose -
+   stellar's line-heights are absolute rems tuned for prose (~1.5 on the code
+   font), too loose to connect box-drawing; this is the named exception. */
+:root {
+  --code-line-height: 1.2;
 }
 
 pre {
   font-family: var(--font-mono);
   font-size: var(--font-size--1);
-  line-height: var(--font-line-height--2); /* ~1.5 on the code font; clears the overflow scrollbar */
+  line-height: var(--code-line-height);
   background: var(--code-bg);
   color: var(--code-fg);
   border: var(--border-width-1) solid var(--code-border);
   border-radius: var(--border-radius-1);
   padding: var(--size--2) var(--size--1);
   overflow-x: auto;
+  scrollbar-gutter: stable;
   margin: var(--size-1) 0;
 }
 
@@ -214,6 +227,7 @@ ul,
 ol {
   margin: var(--size-0) 0;
   padding-left: var(--size-3);
+  line-height: var(--font-line-height-0);
 }
 
 li {
@@ -267,7 +281,10 @@ th {
 
 th,
 td {
-  padding: var(--size--1) var(--size-0);
+  /* tight fixed cell padding: stellar's size scale floors at ~13px and is
+     viewport-fluid (layout spacing), too loose for compact table cells - the
+     same justified-literal case as inline code. */
+  padding: 0.2rem 0.55rem;
   border: var(--border-width-1) solid var(--neutral-4);
 }
 
@@ -577,8 +594,8 @@ pre .meta.string {
   position: absolute;
   top: var(--size--1);
   right: var(--size--1);
-  background: var(--code-inner-bg);
-  border: var(--border-width-1) solid var(--code-border-subtle);
+  background: var(--code-bg);
+  border: var(--border-width-1) solid var(--code-border);
   color: var(--code-fg);
   cursor: pointer;
   opacity: 0;
