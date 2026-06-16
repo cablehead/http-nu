@@ -161,6 +161,13 @@ def splash-hero [] {
     (wave-divider))
 }
 
+# A section heading that links to its own anchor (like ./www), so each
+# section is addressable. Extra children (e.g. a gif) sit after the link.
+def section-head [title: string ...extra] {
+  let slug = ($title | str downcase | str replace --all ' ' '-')
+  (H2 {id: $slug} (A {href: $"#($slug)"} $title) ...$extra)
+}
+
 # "Give it a try": install method tabs (Datastar $tab signal) over a terminal
 # that shows the chosen install command, then the hello-world run.
 def give-it-a-try [] {
@@ -171,7 +178,7 @@ def give-it-a-try [] {
     [nix "Nix" "nix-shell -p http-nu"]
   ]
   (DIV {"data-signals:tab": "'brew'"}
-    (H2 "Give it a try "
+    (section-head "Give it a try"
       (IMG {class: "rocket" alt: "" src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"}))
     (DIV {class: "terminal"}
       (DIV {class: "terminal-bar"}
@@ -202,7 +209,7 @@ def give-it-a-try [] {
 
             (P {class: "center"} (STRONG (A {href: "/docs"} "Read the docs ->")))
 
-            (H2 "Why http-nu")
+            (section-head "Why http-nu")
             (DIV {class: "grid"}
               (DIV {class: "card"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
               (DIV {class: "card"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))

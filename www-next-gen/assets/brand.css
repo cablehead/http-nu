@@ -84,6 +84,7 @@ body pre {
 .nav .brand a {
   color: var(--named-sand-0);
   font-family: var(--font-mono);
+  text-decoration: underline;
 }
 .nav .brand a:hover,
 .nav .links a:hover {
@@ -165,7 +166,7 @@ body pre {
   margin-block: 0.5rem;
   padding: 0.4rem 1.1rem;
   font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-3);
+  font-size: var(--font-size-2);
   line-height: 1.5;
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
 }
@@ -262,6 +263,7 @@ body pre {
 /* animated rocket gif by the section heading */
 .rocket {
   height: 1em;
+  margin-left: 0.25em;
   vertical-align: -0.15em;
   border-radius: 0;
 }
