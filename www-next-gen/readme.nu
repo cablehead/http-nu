@@ -158,12 +158,19 @@ export def render-page [
     let heading_md = ($hashes + " " + ($lines | get ($h.line - 1) | str replace -ra '^#+\s*' ''))
     let body_md = ($lines | slice $h.line..($seg_end - 1) | str join "\n")
 
-    # render markdown, then post-process the resulting HTML: give the
-    # heading its anchor id and rewrite links by attribute (robust against
-    # code fences, html blocks, etc.)
+    # render markdown, then post-process the resulting HTML: give the heading
+    # its anchor id and wrap its text in a self-link (so the title clicks
+    # through to its own location), then rewrite links by attribute - which
+    # also rebases this #slug self-link to its owning page. A heading that
+    # already holds a link of its own is left alone (no nested anchors).
+    let plain = (not ($heading_md =~ '\]\('))
+    let open = $"<h($level) id=\"($h.slug)\">" + (if $plain { $"<a href=\"#($h.slug)\">" } else { "" })
+    let close = (if $plain { "</a>" } else { "" }) + $"</h($level)>"
+
     ($heading_md + "\n" + $body_md)
     | .md | get __html
-    | str replace $"<h($level)>" $"<h($level) id=\"($h.slug)\">"
+    | str replace $"<h($level)>" $open
+    | str replace $"</h($level)>" $close
     | rewrite-links $anchors $base $repo
   } | str join "\n")
 
