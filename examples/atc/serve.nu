@@ -5,7 +5,7 @@ use http-nu/http *
 # Heathrow approach: a round radar scope centered on LHR, arrivals only,
 # split into two half-disk sectors (North / South) by an east-west line
 # through the field. Each sector is a "channel"; Both = the full circle
-# (the final-director fan-in of both halves).
+# (the final-director fan-in of both halves). Click a blip for a detail card.
 
 const LHR_LAT = 51.4775
 const LHR_LON = -0.4614
@@ -30,6 +30,13 @@ if ($HTTP_NU.store? | default null) != null {
               alt: ($a.alt_baro? | default 0)
               gs: ($a.gs? | default 0)
               vs: ($a.baro_rate? | default 0)
+              reg: ($a.r? | default "")
+              type: ($a.t? | default "")
+              track: ($a.track? | default 0)
+              squawk: ($a.squawk? | default "")
+              cat: ($a.category? | default "")
+              dst: ($a.dst? | default 0)
+              dir: ($a.dir? | default 0)
             }}
           # arrivals-ish: numeric altitude below the ceiling, not climbing
           | where {|a| (($a.alt | describe) != "string") and ($a.alt < $ALT_CEIL) and ($a.vs < 200) })
@@ -48,7 +55,7 @@ def clamp [v: float]: nothing -> float {
   [$a 100.0] | math min
 }
 
-# one arrival -> a blip placed by bearing+range from Heathrow
+# one arrival -> a clickable blip placed by bearing+range from Heathrow
 def blip [a: record]: nothing -> string {
   let dx = (($a.lon - $LHR_LON) * $COSLAT)
   let dy = ($a.lat - $LHR_LAT)
@@ -57,28 +64,63 @@ def blip [a: record]: nothing -> string {
   let label = if (($a.flight | default "") | is-empty) { $a.hex } else { $a.flight }
   # Stable id keyed on the ICAO hex so the patch MORPHS each plane in place
   # (position/text updated) instead of tearing down and rebuilding the blip.
-  # Without it, every 2s patch wipes the subtree and you lose text selection.
   let key = if (($a.hex | default "") | is-empty) { ($label | str replace --all " " "") } else { $a.hex }
   # vertical trend from baro_rate (fpm): descending arrivals pulse so it's
   # obvious the altitude is live and dropping.
   let tr = if $a.vs < -100 { "down" } else if $a.vs > 100 { "up" } else { "level" }
   let ar = if $tr == "down" { "v" } else if $tr == "up" { "^" } else { "=" }
-  $'<div id="ac-($key)" class="ac" style="left:($x)%;top:($y)%"><span class="cs">($label)</span><span class="alt"><span class="num">($a.alt)</span><span class="u"> ft</span> <span class="tr ($tr)">($ar)</span></span></div>'
+  # click highlights this blip, records cursor, drops any open card, and asks
+  # the server to append a freshly-rendered one. Dropping the old card first
+  # means no stale frame while the new one is in flight.
+  let click = ("$ac = '" + $key + "'; $cx = Math.min(evt.clientX, innerWidth - 270); $cy = Math.min(evt.clientY, innerHeight - 230); document.getElementById('card')?.remove(); @get('/flight/" + $key + "')")
+  let issel = $"$ac == '($key)'"
+  # dot + callsign always; altitude/trend revealed on hover or when selected
+  $'<div id="ac-($key)" class="ac" data-on:click__stop="($click)" data-class:picked="($issel)" style="left:($x)%;top:($y)%"><span class="dot"></span><span class="lbl"><span class="cs">($label)</span><span class="alt"><span class="num">($a.alt)</span><span class="u"> ft</span> <span class="tr ($tr)">($ar)</span></span></span></div>'
 }
 
 def sectors-for [sel: string]: nothing -> list {
   match $sel { "north" => [north], "south" => [south], _ => [north south] }
 }
 
-def render-scope [sectors: list]: nothing -> string {
-  let acs = ($sectors | each {|s|
+# read the current aircraft across the given sectors (feed heads)
+def aircraft-in [sectors: list]: nothing -> list {
+  $sectors | each {|s|
     .last $"feed.sector.($s)" | default {} | get meta?.aircraft? | default []
-  } | flatten)
+  } | flatten
+}
+
+def render-scope [sectors: list]: nothing -> string {
+  let acs = (aircraft-in $sectors)
   let blips = ($acs | each {|a| blip $a } | str join "\n")
   let title = ($sectors | str join "+")
   # Every child carries a stable id so morphing matches them across patches
   # (the static furniture stays put; blips update in place).
   $'<div id="scope" class="scope"><div id="ring2" class="ring ring2"></div><div id="ring1" class="ring ring1"></div><div id="hsplit" class="hsplit"></div><div id="labN" class="lab labN">N</div><div id="labS" class="lab labS">S</div><div id="lhr" class="lhr"></div><div id="meta" class="meta">($title) -- ($acs | length) arrivals</div>($blips)</div>'
+}
+
+# detail card for one aircraft. Server-rendered HTML, appended to <body> on
+# click and positioned at the cursor; removed from the DOM directly (no server
+# round-trip) on close or outside-click.
+def render-card [a: any, hex: string, left: int, top: int]: nothing -> string {
+  let style = $"left:($left)px;top:($top)px"
+  let close = "$ac = ''; document.getElementById('card')?.remove()"
+  if ($a == null) {
+    return $'<div id="card" class="card" style="($style)" data-on:click__stop="true"><div class="chead"><b>($hex)</b><button class="x" data-on:click__stop="($close)">close</button></div><div class="row">out of range now</div></div>'
+  }
+  let cs = if (($a.flight | default "") | is-empty) { $hex } else { $a.flight }
+  let vs = ($a.vs | default 0)
+  let trend = if $vs < -100 { $"descending ($vs | math abs) fpm" } else if $vs > 100 { $"climbing ($vs) fpm" } else { "level" }
+  let rows = ([
+    ["reg" ($a.reg | default "-")]
+    ["type" ($a.type | default "-")]
+    ["category" ($a.cat | default "-")]
+    ["altitude" $"($a.alt) ft (($trend))"]
+    ["ground speed" $"($a.gs | math round) kt"]
+    ["track" $"($a.track | math round) deg"]
+    ["from LHR" $"($a.dst | math round --precision 1) nm, brg ($a.dir | math round) deg"]
+    ["squawk" ($a.squawk | default "-")]
+  ] | each {|r| $'<div class="row"><span class="k">($r.0)</span><span class="v">($r.1)</span></div>' } | str join)
+  $'<div id="card" class="card" style="($style)" data-on:click__stop="true"><div class="chead"><b>($cs)</b><button class="x" data-on:click__stop="($close)">close</button></div>($rows)</div>'
 }
 
 def page []: nothing -> string {
@@ -103,9 +145,14 @@ def page []: nothing -> string {
  .labS{bottom:.3rem}
  .lhr{position:absolute;left:50%;top:50%;width:7px;height:7px;background:#fe6;border-radius:50%;transform:translate(-50%,-50%)}
  .meta{position:absolute;right:.6rem;top:.5rem;color:#5a5;font-size:.7rem}
- .ac{position:absolute;transform:translate(-50%,-50%);font-size:.55rem;line-height:1.15;white-space:nowrap;text-align:center}
+ .ac{position:absolute;cursor:pointer;z-index:1}
+ .ac:hover,.ac.picked{z-index:3}
+ .ac .dot{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:6px;height:6px;border-radius:50%;background:#9ef;box-shadow:0 0 3px #9ef9}
+ .ac .lbl{position:absolute;left:0;top:5px;transform:translateX(-50%);font-size:.5rem;line-height:1.1;white-space:nowrap;text-align:center}
  .ac .cs{display:block;color:#9ef;font-weight:700;letter-spacing:.02em}
  .ac .alt{display:block;font-size:.5rem}
+ .ac:hover .lbl,.ac.picked .lbl{background:#06120af2;border-radius:2px;box-shadow:0 0 0 3px #06120af2,0 0 0 4px #1c3}
+ .ac.picked .dot{background:#fc6;box-shadow:0 0 6px #fc6}
  .ac .num{color:#fc6;font-weight:600}
  .ac .u{color:#a85;font-size:.42rem}
  .ac .tr{font-weight:700}
@@ -113,10 +160,17 @@ def page []: nothing -> string {
  .ac .tr.up{color:#6f6}
  .ac .tr.level{color:#7a7}
  @keyframes trpulse{0%,100%{opacity:.3}50%{opacity:1}}
+ .card{position:fixed;z-index:5;text-align:left;background:#0b1a10;border:1px solid #1c3;padding:.55rem .8rem;min-width:230px;width:max-content;max-width:360px;font-size:.72rem;box-shadow:0 2px 12px #000a}
+ .chead{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.4rem}
+ .chead b{color:#9ef;font-size:.95rem}
+ .card .x{font-size:.58rem;padding:.1rem .4rem;margin:0;color:#7a7}
+ .row{display:flex;flex-wrap:nowrap;justify-content:space-between;gap:1.5rem;padding:.08rem 0}
+ .row .k{color:#5a8a5a;white-space:nowrap}
+ .row .v{color:#cfe;white-space:nowrap}
 </style></head>
-<body data-signals='{"sel":"both"}'>
+<body data-signals='{"sel":"both","ac":"","cx":0,"cy":0}' data-on:click__window="$ac = ''; document.getElementById('card')?.remove()">
  <h1>Fan-in &mdash; live Heathrow arrivals</h1>
- <p class="lede">A controller's scope is the live <b>merge of the sector feeds it subscribes to</b>. North and South are two independent feeds (planes hand off between them at the line); <b>Both</b> fans them into one stream &mdash; the final director's view.</p>
+ <p class="lede">A controller's scope is the live <b>merge of the sector feeds it subscribes to</b>. North and South are two independent feeds (planes hand off between them at the line); <b>Both</b> fans them into one stream &mdash; the final director's view. Click a plane for detail.</p>
  <div class="sel">
   <button data-on:click="$sel = 'north'" data-class:active="$sel == 'north'">North</button>
   <button data-on:click="$sel = 'south'" data-class:active="$sel == 'south'">South</button>
@@ -143,6 +197,17 @@ def page []: nothing -> string {
         | each {|f| render-scope $sectors | to datastar-patch-elements }
         | to sse
       }
+    })
+    (route {method: GET path-matches: "/flight/:hex"} {|req ctx|
+      let sig = ("" | from datastar-signals $req)
+      let left = (($sig | get cx? | default 0 | into int) + 14)
+      let top = (($sig | get cy? | default 0 | into int) - 10)
+      let hex = $ctx.hex
+      let match = (aircraft-in [north south] | where hex == $hex)
+      let a = if ($match | is-empty) { null } else { $match | first }
+      render-card $a $hex $left $top
+      | to datastar-patch-elements --selector "body" --mode append
+      | to sse
     })
     (route {method: GET path: "/"} {|req ctx|
       page | metadata set { merge {'http.response': {headers: {"content-type": "text/html; charset=utf-8"}}} }

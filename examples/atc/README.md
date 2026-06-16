@@ -3,7 +3,8 @@
 A one-file http-nu app that demonstrates **fan-in**: many independent source
 streams merged into one consumer. It's framed as a **Heathrow approach radar**
 -- live arrivals split into two sectors, where each air traffic controller's
-scope is the live merge of the sectors they're watching.
+scope is the live merge of the sectors they're watching. Click a plane for a
+detail card.
 
 ```sh
 cd examples/atc
@@ -55,17 +56,17 @@ adsb.lol  ──poll 2s──▶  assign N/S  ──▶  feed.sector.north ─�
 
 ### 1. The datasource: a poller turning ADS-B into two sector feeds
 
-[`serve.nu` L17-44](serve.nu#L17-L44). On startup (guarded on `--store`) a
+[`serve.nu` L17-51](serve.nu#L17-L51). On startup (guarded on `--store`) a
 background [`job spawn`](https://www.nushell.sh/commands/docs/job_spawn.html)
 loop polls the free, no-auth [adsb.lol](https://api.adsb.lol) aggregator every
 2s for aircraft within 45nm of Heathrow.
 
-- **arrivals filter** ([L34-35](serve.nu#L34-L35)): keep only numeric altitudes
+- **arrivals filter** ([L41-42](serve.nu#L41-L42)): keep only numeric altitudes
   below 13,000ft that aren't climbing (`baro_rate < 200`), so overflights and
   departures drop out and every blip means "descending toward the field."
-- **the split** ([L36-37](serve.nu#L36-L37)): one line of latitude through
+- **the split** ([L43-44](serve.nu#L43-L44)): one line of latitude through
   Heathrow divides arrivals into `north` and `south`.
-- **the feeds** ([L38-39](serve.nu#L38-L39)): each half is written to its own
+- **the feeds** ([L45-46](serve.nu#L45-L46)): each half is written to its own
   topic with `.append ... --ttl last:1`, so each feed topic holds exactly one
   frame -- the current state of that sector. `last:1` means the store
   garbage-collects the previous frame as each new one lands (see the
@@ -76,17 +77,17 @@ listening.
 
 ### 2. The fan-in: the `/scope` SSE route
 
-[`serve.nu` L122-134](serve.nu#L122-L134). This is the consumer, one controller's
-scope.
+[`serve.nu` L187-200](serve.nu#L187-L200). This is the consumer, one
+controller's scope.
 
-- **selection** ([L123](serve.nu#L123)): `from datastar-signals $req` reads the
+- **selection** ([L188](serve.nu#L188)): `from datastar-signals $req` reads the
   client's `$sel` signal (Datastar sends signals as the `datastar` query param on
-  a GET). `sectors-for` ([L65-67](serve.nu#L65-L67)) turns it into a list of
+  a GET). `sectors-for` ([L81-83](serve.nu#L81-L83)) turns it into a list of
   sector names.
-- **one sector** ([L125-129](serve.nu#L125-L129)): a plain
+- **one sector** ([L190-194](serve.nu#L190-L194)): a plain
   `.cat --last 1 --follow` over that sector's feed -- `--last 1` paints the
   current state immediately on connect, `--follow` streams every update after.
-- **fan-in** ([L130-134](serve.nu#L130-L134)): for *Both*,
+- **fan-in** ([L195-199](serve.nu#L195-L199)): for *Both*,
   [`interleave`](https://www.nushell.sh/commands/docs/interleave.html) merges the
   two `.cat --follow` streams into one. **This is the whole point** -- two source
   feeds become one stream the scope reads through a single connection. (Note the
@@ -99,12 +100,15 @@ Each wake re-renders and patches `#scope` via
 
 ### 3. Rendering: feeds to a round scope
 
-[`render-scope` L69-78](serve.nu#L69-L78) reads the current head of each selected
+[`render-scope` L92-99](serve.nu#L92-L99) reads the current head of each selected
 feed (`.last "feed.sector.<s>"`) and draws the merged set of aircraft.
-[`blip` L52-63](serve.nu#L52-L63) places each one by **bearing + range from
+[`blip` L58-79](serve.nu#L58-L79) places each one by **bearing + range from
 Heathrow** (longitude squeezed by `cos(lat)` so the scope stays round), which is
 why the layout reads as a radar centered on the airport rather than a flat map.
-Each blip's `<b>` is the callsign and `<i>` is the altitude in feet.
+Each blip is a dot with a label: callsign on top, altitude below with a
+`v`/`^`/`=` trend marker (the descent marker pulses). Altitude is the liveliest
+value, so it stays visible as the sense of motion; hovering or selecting a plane
+lifts its label into a bordered box above its neighbours and turns its dot amber.
 
 Every element carries a **stable `id`** -- the furniture (`#ring1`, `#hsplit`,
 ...) and one blip per aircraft (`id="ac-<hex>"`). The default
@@ -115,21 +119,44 @@ replaces it every tick.
 
 ### 4. The client: Datastar, no JS
 
-[`page` L80-118](serve.nu#L80-L118) is static HTML. The reactivity is
+[`page` L126-183](serve.nu#L126-L183) is static HTML. The reactivity is
 [Datastar](https://data-star.dev/docs) data-attributes:
 
-- [`data-signals` L106](serve.nu#L106): seeds `$sel = "both"`.
-- [`data-effect` L114](serve.nu#L114): `"$sel; @get('/scope')"` -- runs on load
+- [`data-signals` L171](serve.nu#L171): seeds `$sel = "both"` (plus `$ac` for the
+  selected plane and `$cx/$cy` for the cursor).
+- [`data-effect` L179](serve.nu#L179): `"$sel; @get('/scope')"` -- runs on load
   **and whenever `$sel` changes**, re-opening the SSE for the newly selected
   sector. This is the "subscribe to the channel(s) I'm responsible for" action,
   driven entirely by one signal.
-- [buttons L110-112](serve.nu#L110-L112): `data-on:click` just sets `$sel`;
+- [buttons L175-177](serve.nu#L175-L177): `data-on:click` just sets `$sel`;
   `data-class:active` highlights the current one.
 
 Responses are processed by content-type: the page is `text/html`, `/scope` is
 `text/event-stream` carrying
 [`datastar-patch-elements`](https://data-star.dev/reference/sse_events) events
 that morph `#scope` by id.
+
+### 5. Click-to-card: server-pushed HTML, removed client-side
+
+The detail card is **not in the DOM until you click a plane**, and it's
+server-rendered HTML, not client-side data binding.
+
+- A blip's click handler (in [`blip` L72-78](serve.nu#L72-L78)) sets `$ac`
+  (highlight), records the cursor, **removes any open card node**, then
+  `@get('/flight/<hex>')`. Dropping the old card first means no stale frame
+  while the new one is in flight.
+- [`/flight/:hex` L201-211](serve.nu#L201-L211) looks the aircraft up in the
+  feeds, renders the card ([`render-card` L101-124](serve.nu#L101-L124))
+  positioned at the cursor, and patches it in with
+  `to datastar-patch-elements --selector "body" --mode append`. So the server
+  pushes finished HTML; the client just hosts it.
+- **Close and outside-click remove the node directly** -- the close button and
+  the body's `data-on:click__window` ([L171](serve.nu#L171)) call
+  `document.getElementById('card')?.remove()`, no server round-trip. The blip
+  uses `data-on:click__stop` so a click on a plane re-opens rather than closing.
+
+(The selected-blip class is `picked`, deliberately not `sel`, so it doesn't
+collide with the `.sel` selector-bar rule.)
 
 ## What it fakes (so you don't over-trust it)
 
