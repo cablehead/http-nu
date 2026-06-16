@@ -120,12 +120,12 @@ body pre {
 
 /* the brand grows in the hero; elsewhere it sits at nav size */
 .splash-hero .nav .brand a {
-  font-size: var(--font-size-7);
+  font-size: var(--font-size-6);
 }
 
 /* tagline card: just tilted, on the surface, like the original */
 .taglines {
-  max-width: 54rem;
+  max-width: 48rem;
   margin: 0 auto;
   text-align: center;
   transform: rotate(-1deg);
