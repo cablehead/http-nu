@@ -90,12 +90,19 @@ def aircraft-in [sectors: list]: nothing -> list {
 }
 
 def render-scope [sectors: list]: nothing -> string {
-  let acs = (aircraft-in $sectors)
+  # per-sector aircraft, so the Both view can show the N/S breakdown
+  let per = ($sectors | each {|s|
+    {s: $s, acs: (.last $"feed.sector.($s)" | default {} | get meta?.aircraft? | default [])}
+  })
+  let acs = ($per | get acs | flatten)
   let blips = ($acs | each {|a| blip $a } | str join "\n")
-  let title = ($sectors | str join "+")
-  # Every child carries a stable id so morphing matches them across patches
-  # (the static furniture stays put; blips update in place).
-  $'<div id="scope" class="scope"><div id="ring2" class="ring ring2"></div><div id="ring1" class="ring ring1"></div><div id="hsplit" class="hsplit"></div><div id="labN" class="lab labN">N</div><div id="labS" class="lab labS">S</div><div id="lhr" class="lhr"></div><div id="meta" class="meta">($title) -- ($acs | length) arrivals</div>($blips)</div>'
+  let count = if ($per | length) > 1 {
+    (($per | each {|p| $"($p.s | str capitalize) ($p.acs | length)"} | str join " + ") + $" = ($acs | length) tracked")
+  } else {
+    $"($per | first | get s | str capitalize) -- ($acs | length) tracked"
+  }
+  # Every child carries a stable id so morphing matches them across patches.
+  $'<div id="scope" class="scope"><div id="ring2" class="ring ring2"></div><div id="ring1" class="ring ring1"></div><div id="hsplit" class="hsplit"></div><div id="labN" class="lab labN">N</div><div id="labS" class="lab labS">S</div><div id="lhr" class="lhr"></div><div id="meta" class="meta">($count)</div>($blips)</div>'
 }
 
 # detail card for one aircraft. Server-rendered HTML, appended to <body> on

@@ -77,17 +77,17 @@ listening.
 
 ### 2. The fan-in: the `/scope` SSE route
 
-[`serve.nu` L187-200](serve.nu#L187-L200). This is the consumer, one
+[`serve.nu` L194-207](serve.nu#L194-L207). This is the consumer, one
 controller's scope.
 
-- **selection** ([L188](serve.nu#L188)): `from datastar-signals $req` reads the
+- **selection** ([L195](serve.nu#L195)): `from datastar-signals $req` reads the
   client's `$sel` signal (Datastar sends signals as the `datastar` query param on
   a GET). `sectors-for` ([L81-83](serve.nu#L81-L83)) turns it into a list of
   sector names.
-- **one sector** ([L190-194](serve.nu#L190-L194)): a plain
+- **one sector** ([L197-201](serve.nu#L197-L201)): a plain
   `.cat --last 1 --follow` over that sector's feed -- `--last 1` paints the
   current state immediately on connect, `--follow` streams every update after.
-- **fan-in** ([L195-199](serve.nu#L195-L199)): for *Both*,
+- **fan-in** ([L202-206](serve.nu#L202-L206)): for *Both*,
   [`interleave`](https://www.nushell.sh/commands/docs/interleave.html) merges the
   two `.cat --follow` streams into one. **This is the whole point** -- two source
   feeds become one stream the scope reads through a single connection. (Note the
@@ -100,8 +100,10 @@ Each wake re-renders and patches `#scope` via
 
 ### 3. Rendering: feeds to a round scope
 
-[`render-scope` L92-99](serve.nu#L92-L99) reads the current head of each selected
-feed (`.last "feed.sector.<s>"`) and draws the merged set of aircraft.
+[`render-scope` L92-105](serve.nu#L92-L105) reads the current head of each
+selected feed (`.last "feed.sector.<s>"`) and draws the merged set of aircraft.
+The `#meta` readout shows the count; in **Both** it breaks down per sector
+(e.g. `North 17 + South 10 = 27 tracked`).
 [`blip` L58-79](serve.nu#L58-L79) places each one by **bearing + range from
 Heathrow** (longitude squeezed by `cos(lat)` so the scope stays round), which is
 why the layout reads as a radar centered on the airport rather than a flat map.
@@ -119,16 +121,16 @@ replaces it every tick.
 
 ### 4. The client: Datastar, no JS
 
-[`page` L126-183](serve.nu#L126-L183) is static HTML. The reactivity is
+[`page` L133-190](serve.nu#L133-L190) is static HTML. The reactivity is
 [Datastar](https://data-star.dev/docs) data-attributes:
 
-- [`data-signals` L171](serve.nu#L171): seeds `$sel = "both"` (plus `$ac` for the
+- [`data-signals` L178](serve.nu#L178): seeds `$sel = "both"` (plus `$ac` for the
   selected plane and `$cx/$cy` for the cursor).
-- [`data-effect` L179](serve.nu#L179): `"$sel; @get('/scope')"` -- runs on load
+- [`data-effect` L186](serve.nu#L186): `"$sel; @get('/scope')"` -- runs on load
   **and whenever `$sel` changes**, re-opening the SSE for the newly selected
   sector. This is the "subscribe to the channel(s) I'm responsible for" action,
   driven entirely by one signal.
-- [buttons L175-177](serve.nu#L175-L177): `data-on:click` just sets `$sel`;
+- [buttons L182-184](serve.nu#L182-L184): `data-on:click` just sets `$sel`;
   `data-class:active` highlights the current one.
 
 Responses are processed by content-type: the page is `text/html`, `/scope` is
@@ -145,13 +147,13 @@ server-rendered HTML, not client-side data binding.
   (highlight), records the cursor, **removes any open card node**, then
   `@get('/flight/<hex>')`. Dropping the old card first means no stale frame
   while the new one is in flight.
-- [`/flight/:hex` L201-211](serve.nu#L201-L211) looks the aircraft up in the
-  feeds, renders the card ([`render-card` L101-124](serve.nu#L101-L124))
+- [`/flight/:hex` L208-218](serve.nu#L208-L218) looks the aircraft up in the
+  feeds, renders the card ([`render-card` L107-130](serve.nu#L107-L130))
   positioned at the cursor, and patches it in with
   `to datastar-patch-elements --selector "body" --mode append`. So the server
   pushes finished HTML; the client just hosts it.
 - **Close and outside-click remove the node directly** -- the close button and
-  the body's `data-on:click__window` ([L171](serve.nu#L171)) call
+  the body's `data-on:click__window` ([L178](serve.nu#L178)) call
   `document.getElementById('card')?.remove()`, no server round-trip. The blip
   uses `data-on:click__stop` so a click on a plane re-opens rather than closing.
 
