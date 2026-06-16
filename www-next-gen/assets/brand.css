@@ -127,12 +127,12 @@ body pre {
 
 /* the brand grows in the hero; elsewhere it sits at nav size */
 .splash-hero .nav .brand a {
-  font-size: var(--font-size-4);
+  font-size: var(--font-size-7);
 }
 
 /* tagline card: just tilted, on the surface, like the original */
 .taglines {
-  max-width: 50rem;
+  max-width: 54rem;
   margin: 0 auto;
   text-align: center;
   transform: rotate(-1deg);
@@ -169,10 +169,11 @@ body pre {
 .badge {
   display: block;
   width: fit-content;
-  margin: 0.5rem 0;
-  padding: 0.25rem 1rem;
+  margin-block: 0.5rem;
+  padding: 0.4rem 1.1rem;
   font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-2);
+  font-size: var(--font-size-3);
+  line-height: 1.5;
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
 }
 
