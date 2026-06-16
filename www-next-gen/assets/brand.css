@@ -80,13 +80,10 @@ body pre {
   color: var(--on-dim);
 }
 
-/* --- nav: cream mono brand, Source Sans links, ghost toggle ------------- */
-.nav {
-  font-family: "Source Sans 3", sans-serif;
-}
+/* --- nav: cream mono brand, ghost toggle (text inherits the body font) -- */
 .nav .brand a {
   color: var(--named-sand-0);
-  font-family: "Source Code Pro", monospace;
+  font-family: var(--font-mono);
 }
 .nav .brand a:hover,
 .nav .links a:hover {
@@ -120,10 +117,6 @@ body pre {
 }
 
 /* --- landing hero (these selectors only match on the landing markup) ---- */
-
-.splash-hero {
-  font-family: "Source Sans 3", sans-serif;
-}
 
 /* the brand grows in the hero; elsewhere it sits at nav size */
 .splash-hero .nav .brand a {
@@ -196,4 +189,86 @@ body pre {
   display: block;
   width: 100%;
   height: 100px;
+}
+
+/* --- terminal: a window-chrome code panel (install tabs + hello world) -- *
+ * Playful, like the original: a purple titlebar and a body that's just the
+ * page surface darkened with a black overlay (so it stays a dark terminal on
+ * either blue, no fixed color). On narrow screens it bleeds to both edges. */
+.terminal {
+  margin-block: var(--size-2);
+  border-radius: var(--border-radius-2);
+  overflow: hidden;
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+}
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--size--1);
+  padding: var(--size--1) var(--size-0);
+  background: var(--named-purple-0);
+  color: var(--named-purple-0-on);
+}
+.terminal-dots {
+  display: flex;
+  gap: 0.35rem;
+  margin-right: var(--size--1);
+}
+.terminal-dots span {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+}
+.terminal-dots span:nth-child(1) {
+  background: #ff5f56;
+}
+.terminal-dots span:nth-child(2) {
+  background: #ffbd2e;
+}
+.terminal-dots span:nth-child(3) {
+  background: #27c93f;
+}
+.terminal-tab {
+  font: inherit;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+}
+.terminal-tab:hover {
+  background: none;
+  opacity: 0.8;
+}
+.terminal-tab.is-active {
+  opacity: 1;
+  font-weight: var(--font-weight-bold);
+}
+.terminal-body {
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--surface-on);
+  padding: var(--size-1);
+  overflow-x: auto;
+  line-height: var(--font-line-height-2);
+}
+.terminal-body .prompt,
+.terminal-body .out {
+  opacity: 0.6;
+}
+
+/* animated rocket gif by the section heading */
+.rocket {
+  height: 1em;
+  vertical-align: -0.15em;
+  border-radius: 0;
+}
+
+@media (max-width: 640px) {
+  .terminal {
+    margin-inline: calc(-1 * var(--size-2));
+    border-radius: 0;
+  }
 }

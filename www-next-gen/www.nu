@@ -162,6 +162,33 @@ def splash-hero [] {
     (wave-divider))
 }
 
+# "Give it a try": install method tabs (Datastar $tab signal) over a terminal
+# that shows the chosen install command, then the hello-world run.
+def give-it-a-try [] {
+  let methods = [
+    [brew "Homebrew" "brew install cablehead/tap/http-nu"]
+    [cargo "Cargo" "cargo install --locked http-nu"]
+    [eget "eget" "eget cablehead/http-nu"]
+    [nix "Nix" "nix-shell -p http-nu"]
+  ]
+  (DIV {"data-signals:tab": "'brew'"}
+    (H2 "Give it a try "
+      (IMG {class: "rocket" alt: "" src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"}))
+    (DIV {class: "terminal"}
+      (DIV {class: "terminal-bar"}
+        (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
+        ($methods | each {|m|
+          BUTTON {class: "terminal-tab" "data-class:is-active": $"$tab === '($m.0)'" "data-on:click": $"$tab = '($m.0)'"} $m.1
+        }))
+      (DIV {class: "terminal-body"}
+        ($methods | each {|m|
+          DIV {"data-show": $"$tab === '($m.0)'"} (SPAN {class: "prompt"} "$ ") $m.2
+        })
+        (DIV (SPAN {class: "prompt"} "$ ") "http-nu :3001 -c '{|req| \"Hello world\"}'")
+        (DIV (SPAN {class: "prompt"} "$ ") "curl -s localhost:3001")
+        (DIV {class: "out"} "Hello world"))))
+}
+
 {|req|
   dispatch $req [
 
@@ -171,8 +198,8 @@ def splash-hero [] {
         (page-head "http-nu")
         (BODY
           (splash-hero)
-          (MAIN {class: "container prose"}
-            ("```bash\n$ http-nu :3001 -c '{|req| \"Hello world\"}'\n$ curl -s localhost:3001\nHello world\n```" | .md | inject-copy-btns)
+          (MAIN {class: "container"}
+            (give-it-a-try)
 
             (P {class: "center"} (STRONG (A {href: "/docs"} "Read the docs ->")))
 
