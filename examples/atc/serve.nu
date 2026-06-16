@@ -139,7 +139,7 @@ def page []: nothing -> string {
 <style>
  body{background:#0a0f0a;color:#7CFC7C;font-family:ui-monospace,monospace;margin:0;padding:1rem;min-height:100vh;box-sizing:border-box;display:grid;place-content:center}
  .wrap{display:grid;grid-template-columns:1fr;gap:1.4rem;width:100%;max-width:1080px;margin:0 auto;align-items:center}
- @media (min-width:760px){ .wrap{grid-template-columns:340px 1fr} }
+ @media (min-width:900px){ .wrap{grid-template-columns:340px 1fr} }
  .panel{display:flex;flex-direction:column;gap:.75rem;text-align:left}
  .radar{display:flex;justify-content:center}
  h1{font-size:1rem;font-weight:normal;margin:0}
