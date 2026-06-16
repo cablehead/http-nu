@@ -6,7 +6,10 @@
       "disabled": false,
       "min": 320,
       "max": 1440,
-      "baseFontSize": 16
+      "baseFont": {
+        "mode": "multiplier",
+        "value": 1.125
+      }
     },
     "size": {
       "disabled": false,
@@ -55,12 +58,6 @@
     },
     "aspectRatio": {
       "disabled": false,
-      "baseMin": 0,
-      "baseMax": 0,
-      "scaleMin": "Minor Second",
-      "scaleMax": "Minor Second",
-      "negativeSteps": 1,
-      "positiveSteps": 0,
       "pairs": [],
       "named": [
         {
@@ -299,7 +296,8 @@
           "name": "navy",
           "color": "#0a3d62"
         }
-      ]
+      ],
+      "prefix": "named"
     },
     "charts": {
       "disabled": false,
@@ -309,7 +307,16 @@
       "apca": {
         "onTargetLc": 90,
         "dimTargetLc": 30
-      }
+      },
+      "qualitativeExport": true,
+      "divergingExport": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
     },
     "gradients": {
       "disabled": false,
@@ -725,19 +732,10 @@
         {
           "name": "mono",
           "faces": [
-            "Dank Mono",
-            "Operator Mono",
-            "Inconsolata",
-            "Fira Mono",
+            "Source Code Pro",
             "ui-monospace",
             "SF Mono",
-            "Monaco",
-            "Droid Sans Mono",
-            "Source Code Pro",
-            "Cascadia Code",
             "Menlo",
-            "Consolas",
-            "DejaVu Sans Mono",
             "monospace"
           ]
         },
@@ -808,6 +806,7 @@
         {
           "name": "sans",
           "faces": [
+            "Source Sans 3",
             "system-ui",
             "sans-serif"
           ]
