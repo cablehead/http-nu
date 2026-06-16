@@ -82,11 +82,11 @@ body th {
   color: var(--named-navy-1-on);
 }
 
-/* code blocks keep stellar's coordinated code surface and its readable syntax
-   palette - the cooler --code-inner-bg, the same surface inline <code> uses, so
-   the two match. Only the corners are squared to match the cards. */
+/* code blocks use base's --code-bg: stellar's primary code surface, the one its
+   syntax palette is tuned for; the hue is set by colors.code.index (a cooler
+   index so it harmonizes with the blue). The brand only adds the line border and
+   gentle corners; inline <code> keeps the secondary --code-inner-bg. */
 body pre {
-  background: var(--code-inner-bg);
   border-color: var(--line);
   border-radius: var(--border-radius-0);
 }

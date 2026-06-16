@@ -175,7 +175,9 @@ code {
   background: var(--code-inner-bg);
   color: var(--code-fg);
   padding: 0.1em 0.3em 0.2em;
-  border-radius: var(--border-radius-0);
+  /* em-relative like the padding: a subtle chip radius that scales with the
+     surrounding text (no stellar radius token is small enough for inline) */
+  border-radius: 0.2em;
 }
 
 kbd {
