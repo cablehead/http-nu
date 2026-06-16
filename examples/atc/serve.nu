@@ -137,14 +137,18 @@ def page []: nothing -> string {
 <title>Heathrow approach -- fan-in slice</title>
 <script type="module" src="/datastar@1.0.2.js"></script>
 <style>
- body{background:#0a0f0a;color:#7CFC7C;font-family:ui-monospace,monospace;margin:0;padding:1rem;text-align:center}
- h1{font-size:1rem;font-weight:normal;margin:.2rem 0}
- .lede{color:#5a8a5a;font-size:.78rem;max-width:60ch;margin:.2rem auto .4rem;line-height:1.35}
+ body{background:#0a0f0a;color:#7CFC7C;font-family:ui-monospace,monospace;margin:0;padding:1rem}
+ .wrap{display:grid;grid-template-columns:1fr;gap:1.4rem;max-width:1080px;margin:0 auto;align-items:start}
+ @media (min-width:760px){ .wrap{grid-template-columns:340px 1fr} }
+ .panel{display:flex;flex-direction:column;gap:.75rem;text-align:left}
+ .radar{display:flex;justify-content:center}
+ h1{font-size:1rem;font-weight:normal;margin:0}
+ .lede{color:#9aa;font-size:.8rem;max-width:60ch;margin:0;line-height:1.45}
  .lede b{color:#9ec;font-weight:600}
- .sel{margin:.5rem 0}
- button{background:#06120a;color:#7CFC7C;border:1px solid #1c3;font-family:inherit;padding:.3rem .9rem;cursor:pointer;margin:0 .15rem}
+ .sel{margin:0;display:flex;flex-wrap:wrap;gap:.3rem}
+ button{background:#06120a;color:#7CFC7C;border:1px solid #1c3;font-family:inherit;padding:.3rem .9rem;cursor:pointer}
  button.active{background:#1c3;color:#021}
- .scope{position:relative;width:80vmin;height:80vmin;border-radius:50%;border:1px solid #1c3;background:#06120a;overflow:hidden;margin:.5rem auto}
+ .scope{position:relative;width:min(72vmin,560px);height:min(72vmin,560px);border-radius:50%;border:1px solid #1c3;background:#06120a;overflow:hidden;margin:0}
  .ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:1px solid #103d22;border-radius:50%}
  .ring1{width:50%;height:50%}
  .ring2{width:78%;height:78%}
@@ -153,7 +157,7 @@ def page []: nothing -> string {
  .labN{top:.3rem}
  .labS{bottom:.3rem}
  .lhr{position:absolute;left:50%;top:50%;width:7px;height:7px;background:#fe6;border-radius:50%;transform:translate(-50%,-50%)}
- .count{color:#9c9;font-size:.85rem;margin:.3rem auto .1rem;min-height:1.1em}
+ .count{color:#9c9;font-size:.85rem;margin:0;min-height:1.1em}
  .ac{position:absolute;cursor:pointer;z-index:1}
  .ac:hover,.ac.picked{z-index:3}
  .ac .dot{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:6px;height:6px;border-radius:50%;background:#9ef;box-shadow:0 0 3px #9ef9}
@@ -178,16 +182,22 @@ def page []: nothing -> string {
  .row .v{color:#cfe;white-space:nowrap}
 </style></head>
 <body data-signals='{"sel":"both","ac":"","cx":0,"cy":0}' data-on:click__window="$ac = ''; document.getElementById('card')?.remove()">
- <h1>Fan-in &mdash; live Heathrow arrivals</h1>
- <p class="lede">A controller's scope is the live merge of the <b>sector feeds</b> it subscribes to. <b>North</b> and <b>South</b> are two independent feeds; planes <b>hand off</b> between them at the line. <b>Both</b> fans them into one stream, the <b>final director</b>'s view. Click a plane for detail.</p>
- <div class="sel">
-  <button data-on:click="$sel = 'north'" data-class:active="$sel == 'north'">North</button>
-  <button data-on:click="$sel = 'south'" data-class:active="$sel == 'south'">South</button>
-  <button data-on:click="$sel = 'both'" data-class:active="$sel == 'both'">Both (final director)</button>
- </div>
- <div id="count" class="count">connecting&hellip;</div>
- <div data-effect="$sel; @get('/scope')">
-  <div id="scope" class="scope"></div>
+ <div class="wrap">
+  <div class="panel">
+   <h1>Fan-in &mdash; live Heathrow arrivals</h1>
+   <p class="lede">Air traffic controllers split the sky into <b>sectors</b>; each owns the aircraft in its slice and <b>hands off</b> a plane to the next as it crosses a boundary. These are London Heathrow's live arrivals, descending toward the runway and split into <b>North</b> and <b>South</b> sectors, two independent <b>feeds</b>. Pick one, or <b>Both</b> to merge the feeds into a single scope, the <b>final director</b>'s view. Click a plane for detail.</p>
+   <div class="sel">
+    <button data-on:click="$sel = 'north'" data-class:active="$sel == 'north'">North</button>
+    <button data-on:click="$sel = 'south'" data-class:active="$sel == 'south'">South</button>
+    <button data-on:click="$sel = 'both'" data-class:active="$sel == 'both'">Both (final director)</button>
+   </div>
+   <div id="count" class="count">connecting&hellip;</div>
+  </div>
+  <div class="radar">
+   <div data-effect="$sel; @get('/scope')">
+    <div id="scope" class="scope"></div>
+   </div>
+  </div>
  </div>
 </body></html>'#
 }
