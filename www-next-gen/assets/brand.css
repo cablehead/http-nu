@@ -21,6 +21,9 @@ body {
   --on-dim: color-mix(in oklch, var(--surface-on) 62%, transparent);
   --line: color-mix(in oklch, var(--surface-on) 22%, transparent);
   --panel: color-mix(in oklch, var(--surface-on) 8%, transparent);
+  /* hard offset "sticker" shadow shared by badges and cards; stellar only
+     models soft elevation, so this playful brand atom is a literal */
+  --sticker-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
   background: var(--surface);
   color: var(--surface-on);
 }
@@ -76,7 +79,7 @@ body .card {
   color: var(--surface-on);
   border-color: var(--line);
   border-radius: var(--border-radius-0);
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
+  box-shadow: var(--sticker-shadow);
 }
 .grid .card {
   transform: rotate(var(--card-tilt, 0deg));
@@ -190,7 +193,7 @@ body a.card:hover {
   font-weight: var(--font-weight-bold);
   font-size: var(--font-size-2);
   line-height: 1.5;
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
+  box-shadow: var(--sticker-shadow);
 }
 
 .badge a {

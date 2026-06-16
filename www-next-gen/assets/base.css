@@ -174,7 +174,7 @@ code {
   background: var(--code-inner-bg);
   color: var(--code-fg);
   padding: 0.1em 0.3em 0.2em;
-  border-radius: var(--border-radius--2);
+  border-radius: var(--border-radius-0);
 }
 
 kbd {
@@ -182,7 +182,7 @@ kbd {
   color: var(--neutral-3-on);
   border: var(--border-width-1) solid var(--neutral-5);
   border-bottom-width: var(--border-width-2);
-  border-radius: var(--border-radius--1);
+  border-radius: var(--border-radius-0);
   padding: 0.1em 0.4em;
 }
 
@@ -453,7 +453,6 @@ pre .meta.string {
 .mx-auto { margin-inline: auto; }
 .upper { text-transform: uppercase; letter-spacing: var(--font-letter-spacing-1); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--size-2); }
-.pill { display: inline-block; border: var(--border-width-1) solid var(--neutral-5); margin: 1px 2px; white-space: nowrap; }
 
 /* ------------------------------------------------------------------ */
 /* Layer 3: components (a small, composable set)                       */
@@ -484,7 +483,9 @@ pre .meta.string {
   padding: var(--size-1);
   box-shadow: var(--shadow-2);
   text-decoration: none;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  transition-property: transform, box-shadow, background;
+  transition-duration: var(--anim-duration-fast);
+  transition-timing-function: var(--anim-ease-standard);
 }
 
 /* sub-text inside a card dims the card's own color, not the page surface */
