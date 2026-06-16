@@ -215,10 +215,10 @@ def give-it-a-try [] {
 
             (section-head "Why http-nu")
             (DIV {class: "grid"}
-              (DIV {class: "card"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
-              (DIV {class: "card"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
-              (DIV {class: "card"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
-              (DIV {class: "card"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
+              (DIV {class: "card panel"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
+              (DIV {class: "card panel"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
+              (DIV {class: "card panel"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
+              (DIV {class: "card panel"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
           )
           (copy-script)
         )
@@ -240,7 +240,7 @@ def give-it-a-try [] {
             (DIV {class: "grid"}
               ($pages | each {|p|
                 let secs = ($page_secs | get $p.slug)
-                (A {class: "card" href: $"/docs/($p.slug)"}
+                (A {class: "card panel" href: $"/docs/($p.slug)"}
                   (H3 $p.title)
                   (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
               })))

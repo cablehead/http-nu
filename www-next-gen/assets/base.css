@@ -474,10 +474,9 @@ pre .meta.string {
 .nav .brand { font-weight: var(--font-weight-bold); }
 .nav .links { display: flex; align-items: center; gap: var(--size-2); }
 
+/* structure only; the surface comes from a `.panel` utility composed in markup */
 .card {
   display: block;
-  background: var(--neutral-2);
-  color: var(--neutral-2-on);
   border: var(--border-width-1) solid var(--neutral-4);
   border-radius: var(--border-radius-2);
   padding: var(--size-1);
