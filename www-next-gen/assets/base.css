@@ -191,12 +191,12 @@ kbd {
 pre {
   font-family: var(--font-mono);
   font-size: var(--font-size--1);
-  line-height: var(--font-line-height--3); /* tightest step; ~1.4 on the code font, terminal-like */
+  line-height: var(--font-line-height--2); /* ~1.5 on the code font; clears the overflow scrollbar */
   background: var(--code-bg);
   color: var(--code-fg);
   border: var(--border-width-1) solid var(--code-border);
   border-radius: var(--border-radius-1);
-  padding: var(--size-0) var(--size-1);
+  padding: var(--size--2) var(--size--1);
   overflow-x: auto;
   margin: var(--size-1) 0;
 }
