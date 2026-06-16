@@ -22,7 +22,7 @@ let readme = (open --raw $readme_path | decode utf-8)
 
 # Section groupings: these heading slugs hold child pages rather than
 # becoming one giant page.
-let groups = [reference embedded-modules templates]
+let groups = []
 let pages = ($readme | pages $groups)
 let anchors = ($readme | anchor-map $groups)
 let titles = ($readme | headings | reduce --fold {} {|h, acc| $acc | upsert $h.slug $h.title })
