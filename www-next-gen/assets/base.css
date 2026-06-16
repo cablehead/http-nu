@@ -463,6 +463,36 @@ pre .meta.string {
   color: var(--code-string);
 }
 
+/* type-like definitions (rust struct/trait/impl) */
+pre .entity.name.struct,
+pre .entity.name.trait,
+pre .entity.name.impl {
+  color: var(--code-name-class);
+}
+
+pre .entity.name.label {
+  color: var(--code-name-label);
+}
+
+/* rust macros invoke like functions */
+pre .support.macro {
+  color: var(--code-name-function);
+}
+
+pre .constant.other {
+  color: var(--code-name-constant);
+}
+
+/* format-string placeholders ({} / {name}) read as special string content */
+pre .constant.other.placeholder {
+  color: var(--code-string-escape);
+}
+
+/* syntax errors (e.g. invalid variable names) */
+pre .invalid {
+  color: var(--code-error);
+}
+
 /* ------------------------------------------------------------------ */
 /* Layer 2: utilities (atomic, single purpose, composed in markup)     */
 /* ------------------------------------------------------------------ */
