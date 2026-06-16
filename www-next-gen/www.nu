@@ -265,11 +265,9 @@ def give-it-a-try [] {
           (BODY
             (nav-bar)
             (MAIN {class: "container with-sidebar"}
-              (DETAILS {class: "docs-menu" open: true}
-                (SUMMARY "Pages")
-                (NAV {class: "toc"} (docs-nav $slug)))
-              # collapse the menu on narrow screens before the article paints
-              (SCRIPT {__html: r#'(function(){var d=document.querySelector('.docs-menu');if(d&&matchMedia('(max-width:768px)').matches)d.open=false;})();'#})
+              (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
+                (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Pages")
+                (NAV {class: "docs-side toc"} (docs-nav $slug)))
               (ARTICLE {class: "prose"}
                 $content
                 (NAV {class: "pager"}

@@ -493,24 +493,25 @@ pre .meta.string {
 .with-sidebar > * { min-width: 0; }
 
 /* docs menu: a sticky sidebar on desktop, a collapsible disclosure on narrow
-   screens. Rendered <details open>; a tiny script collapses it below 769px.
-   Resets the generic `details` chrome (it's a menu, not a content panel). */
-.docs-menu {
-  border: none;
-  margin: 0;
-  padding: 0;
-  background: none;
-}
-.docs-menu > summary {
-  cursor: pointer;
-  list-style: none;
+   screens, the page list collapses behind a toggle driven by a Datastar `nav`
+   signal (the toggle button only shows on mobile; the sidebar itself is the
+   `.docs-side` nav). */
+.docs-toggle {
+  font: inherit;
   font-weight: var(--font-weight-semi-bold);
-  padding: var(--size--1) 0;
+  background: none;
+  border: none;
   border-bottom: var(--border-width-1) solid var(--line, var(--neutral-4));
+  border-radius: 0;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  padding: var(--size--1) 0;
 }
-.docs-menu > summary::-webkit-details-marker { display: none; }
-.docs-menu > summary::after { content: " \25be"; }
-.docs-menu[open] > summary::after { content: " \25b4"; }
+.docs-toggle:hover { background: none; }
+.docs-toggle::after { content: " \25be"; }
+.docs-menu.open .docs-toggle::after { content: " \25b4"; }
 
 @media (min-width: 769px) {
   .docs-menu {
@@ -521,12 +522,14 @@ pre .meta.string {
     max-height: calc(100vh - var(--size-3));
     overflow-y: auto;
   }
-  .docs-menu > summary { display: none; }
+  .docs-toggle { display: none; }
 }
 
 @media (max-width: 768px) {
   .with-sidebar { flex-direction: column; }
   .docs-menu { width: 100%; }
+  .docs-side { display: none; }
+  .docs-menu.open .docs-side { display: block; }
 }
 
 /* toc: nav list with group labels and an active item */
