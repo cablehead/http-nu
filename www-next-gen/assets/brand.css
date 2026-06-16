@@ -64,7 +64,7 @@ body :is(td, th) {
 body pre {
   background: var(--code-inner-bg);
   border-color: var(--line);
-  border-radius: 0;
+  border-radius: var(--border-radius-0);
 }
 
 /* cards are blocky badge-style panels: the brand panel surface, sharp corners,
@@ -78,7 +78,7 @@ body .card {
   background: var(--panel);
   color: var(--surface-on);
   border-color: var(--line);
-  border-radius: 0;
+  border-radius: var(--border-radius-0);
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
 }
 .grid .card {
