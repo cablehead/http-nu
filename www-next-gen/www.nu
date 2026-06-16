@@ -41,7 +41,6 @@ def page-head [title: string] {
     (LINK {rel: "stylesheet" href: "/assets/stellar.css"})
     (LINK {rel: "stylesheet" href: "/assets/base.css"})
     (LINK {rel: "stylesheet" href: "/assets/brand.css"})
-    (LINK {rel: "stylesheet" href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap"})
     (SCRIPT {src: "https://cdn.jsdelivr.net/npm/iconify-icon@2/dist/iconify-icon.min.js"})
     (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
     # theme: restore before paint to avoid a flash

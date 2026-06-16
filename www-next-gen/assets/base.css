@@ -11,6 +11,25 @@
  */
 
 /* ------------------------------------------------------------------ */
+/* Fonts: self-hosted, names must match the stellar --font-* tokens.   */
+/* One variable woff2 per family covers every weight.                  */
+/* ------------------------------------------------------------------ */
+
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/assets/source-sans-3.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("/assets/source-code-pro.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------------ */
 /* Layer 1: elements                                                   */
 /* ------------------------------------------------------------------ */
 

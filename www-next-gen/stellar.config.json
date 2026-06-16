@@ -1296,7 +1296,7 @@
       "namespace": ":root",
       "overwrite": true,
       "includeColorFallback": true,
-      "includeFontImports": true,
+      "includeFontImports": false,
       "includeReducedMotion": true,
       "fontDir": "./fonts",
       "fontFormat": "both",
