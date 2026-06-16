@@ -232,7 +232,7 @@ def give-it-a-try [] {
         (BODY
           (nav-bar)
           (MAIN {class: "container"}
-            (DIV {class: "prose"}
+            (ARTICLE
               (H1 "Documentation")
               (P {class: "muted"} "The project "
                 (A {href: "https://github.com/cablehead/http-nu/blob/main/README.md"} "README")
@@ -268,7 +268,7 @@ def give-it-a-try [] {
               (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
                 (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Pages")
                 (NAV {class: "docs-side toc"} (docs-nav $slug)))
-              (ARTICLE {class: "prose"}
+              (ARTICLE
                 $content
                 (NAV {class: "pager"}
                   (SPAN (if ($idx > 0) { A {href: $"/docs/($prev.slug)"} $"<- ($prev.title)" }))
