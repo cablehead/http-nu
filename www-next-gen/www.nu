@@ -519,7 +519,7 @@ def tutorial-hello-world [] {
     (P "http-nu takes a Nushell closure and serves it over HTTP. The closure "
       "receives the request as its argument, and whatever it returns becomes the "
       "response. Boot the smallest possible server, then curl it:")
-    (DIV {class: "termsim" "data-signals": "{started: false}"}
+    (DIV {class: "termsim"}
       (DIV {class: "termsim-cmd"}
         (SPAN {class: "termsim-prompt"} "$")
         (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'")
@@ -527,7 +527,7 @@ def tutorial-hello-world [] {
       (DIV {class: "termsim-cmd"}
         (SPAN {class: "termsim-prompt"} "$")
         (CODE "curl localhost:3001")
-        (BUTTON {class: "chip" "data-attr:disabled": "!$started" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
+        (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
       (DIV {id: "term-out" class: "term-out"}))
     (P "The string is returned as " (CODE "text/html") " by default. Return a record "
       "and it becomes " (CODE "application/json") " automatically.")
@@ -755,16 +755,19 @@ let tutorials = [
     })
     # hello-world tutorial: boot the server (banner), then curl appends responses
     (route {method: POST path: "/tutorials/hello-world/serve"} {|req ctx|
-      let banner = (open --raw ($script_dir | path join tutorials hello-world-banner.txt) | decode utf-8 | str trim --right)
-      [
-        ((PRE {class: "term-block"} $banner) | to datastar-patch-elements --selector "#term-out" --mode append)
-        ({started: true} | to datastar-patch-signals)
-      ] | to sse
+      # actually boot http-nu in the background (once) on :3001
+      let up = (try { http get http://127.0.0.1:3001 | ignore; true } catch { false })
+      if not $up {
+        ^bash -c "nohup http-nu :3001 -c '{|req| \"Hello, world!\"}' >/dev/null 2>&1 &"
+        sleep 1sec
+      }
+      (DIV {class: "term-line"} "http-nu running in the background on :3001")
+      | to datastar-patch-elements --selector "#term-out" --mode append | to sse
     })
     (route {method: POST path: "/tutorials/hello-world/curl"} {|req ctx|
-      (DIV {class: "term-block"}
-        (DIV {class: "termsim-prompt"} "$ curl localhost:3001")
-        (DIV "Hello, world!"))
+      # really curl it: a response if it is up, a connection error if it is not
+      let out = (try { http get http://127.0.0.1:3001 } catch { "curl: (7) Failed to connect to localhost port 3001: Connection refused" })
+      (DIV {class: "term-line"} $out)
       | to datastar-patch-elements --selector "#term-out" --mode append | to sse
     })
 

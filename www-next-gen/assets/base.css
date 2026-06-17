@@ -887,9 +887,5 @@ pre .invalid {
 .term-out {
   white-space: pre-wrap;
   line-height: var(--code-line-height);
-}
-.term-out .term-block {
   margin-top: var(--size--1);
-  padding-top: var(--size--2);
-  border-top: var(--border-width-1) solid var(--neutral-4);
 }
