@@ -50,6 +50,7 @@ def page-head [title: string] {
     (META {property: "og:site_name" content: "http-nu"})
     (META {property: "og:description" content: "A tiny, Nushell-scriptable HTTP server with streaming, SSE, templates, and an embedded event store."})
     (META {name: "twitter:card" content: "summary"})
+    (LINK {rel: "icon" type: "image/png" href: "/assets/ellie.png"})
     # stellar props -> base (raw tags + generic utils/components) -> brand layer
     (LINK {rel: "stylesheet" href: "/assets/stellar.css"})
     (LINK {rel: "stylesheet" href: "/assets/base.css"})
