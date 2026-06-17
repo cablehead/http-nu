@@ -76,7 +76,7 @@ def nav-bar [] {
     (DIV {class: "links"}
       (A {href: "/themes"} "Themes")
       (A {href: "/reference"} "Reference")
-      (A {href: "/how-to"} "How-to")
+      (A {href: "/how-tos"} "How-tos")
       (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
       (theme-toggle)))
 }
@@ -453,31 +453,31 @@ def templates-overview [] {
                 (UL ($pages | each {|p| (LI (A {href: $"/reference#($p.slug)"} $p.title))}))))
             (ARTICLE
               (P {class: "muted"} "The project README, rendered as a doc site. "
-                (A {href: "/how-to/render-readme-as-doc-site"} "Here is how ->"))
+                (A {href: "/how-tos/render-readme-as-doc-site"} "Here is how ->"))
               ...$sections))
           (copy-script)
         )
       )
     })
 
-    # how-to: collected guides, each a Markdown file in how-to/ rendered by .md
-    (route {method: GET path: "/how-to"} {|req ctx|
-      let guides = (ls ($script_dir | path join how-to) | where name =~ '\.md$' | sort-by name | each {|f|
+    # how-tos: collected guides, each a Markdown file in how-tos/ rendered by .md
+    (route {method: GET path: "/how-tos"} {|req ctx|
+      let guides = (ls ($script_dir | path join how-tos) | where name =~ '\.md$' | sort-by name | each {|f|
         let slug = ($f.name | path basename | str replace --regex '\.md$' "")
         let title = (open --raw $f.name | decode utf-8 | lines | where {|l| ($l | str starts-with "# ")} | get 0? | default $slug | str replace "# " "")
         {slug: $slug, title: $title}
       })
       (HTML
-        (page-head "How-to - http-nu")
+        (page-head "How-tos - http-nu")
         (BODY
           (nav-bar)
           (MAIN {class: "container"}
             (ARTICLE
-              (H1 "How-to")
+              (H1 "How-tos")
               (P {class: "muted"} "Task guides, each a Markdown file rendered the way it describes.")
               (DIV {class: "grid"}
                 ($guides | each {|g|
-                  (A {class: "card panel" href: $"/how-to/($g.slug)"}
+                  (A {class: "card panel" href: $"/how-tos/($g.slug)"}
                     (H3 (icon "lucide:file-text") $" ($g.title)"))
                 }))))
           (copy-script)
@@ -485,17 +485,17 @@ def templates-overview [] {
       )
     })
 
-    (route {path-matches: "/how-to/:slug"} {|req ctx|
-      let path = ($script_dir | path join how-to | path join $"($ctx.slug).md")
+    (route {path-matches: "/how-tos/:slug"} {|req ctx|
+      let path = ($script_dir | path join how-tos | path join $"($ctx.slug).md")
       if ($path | path exists) {
         let content = (open --raw $path | decode utf-8 | .md | inject-copy-btns)
         (HTML
-          (page-head "How-to - http-nu")
+          (page-head "How-tos - http-nu")
           (BODY
             (nav-bar)
             (MAIN {class: "container"}
               (ARTICLE
-                (P {class: "muted"} (A {href: "/how-to"} "How-to"))
+                (P {class: "muted"} (A {href: "/how-tos"} "How-tos"))
                 $content))
             (copy-script)
           )
