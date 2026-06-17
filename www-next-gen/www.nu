@@ -296,6 +296,13 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
     (P "Send chunks as they are produced, and push server-sent events. A streaming "
       "pipeline's values flush to the client immediately; "
       (CODE "to sse") " formats records for the event stream.")
+    (DIV {class: "playground" "data-signals": "{count: 0}"}
+      (P {class: "muted"} "Click a button. The browser POSTs and the server streams an SSE patch back, live:")
+      (DIV {class: "pg-live"}
+        (BUTTON {class: "chip" "data-on:click": "@post('/themes/streaming/increment')"} "Increment")
+        (SPAN "count " (SPAN {class: "pg-val" "data-text": "$count"} "0"))
+        (BUTTON {class: "chip" "data-on:click": "@post('/themes/streaming/time')"} "Get time")
+        (SPAN "time " (SPAN {class: "pg-val" id: "stream-time"} "--:--:--"))))
     (H2 "Streaming responses")
     (toy "Chunks as they are produced" "A streaming pipeline like generate flushes each value to the client as an HTTP chunk, with no buffering." $chunks_src "nu")
     (H2 "Server-sent events")
@@ -513,6 +520,14 @@ def templates-overview [] {
       let page = ($pages | where slug == "streaming--events" | first)
       let content = ($readme | render-page $page $anchors | inject-copy-btns)
       (theme-shell "streaming" "Streaming & events" "reference" (ARTICLE $content))
+    })
+    (route {method: POST path: "/themes/streaming/increment"} {|req ctx|
+      let s = (from datastar-signals $req)
+      let count = (($s.count? | default 0) + 1)
+      {count: $count} | to datastar-patch-signals | to sse
+    })
+    (route {method: POST path: "/themes/streaming/time"} {|req ctx|
+      (DIV {id: "stream-time"} (date now | format date "%H:%M:%S")) | to datastar-patch-elements | to sse
     })
 
     # --- templates theme namespace (overview + facets + live playground) ---

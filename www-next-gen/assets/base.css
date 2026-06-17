@@ -791,3 +791,16 @@ pre .invalid {
   font-size: var(--font-size--1);
   color: var(--code-error);
 }
+
+/* streaming theme: a live SSE row (buttons that patch in place) */
+.pg-live {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--size-0);
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+}
+.pg-val {
+  font-weight: var(--font-weight-bold);
+}
