@@ -334,13 +334,28 @@ def theme-facets [theme: string, current: string] {
     }))
 }
 
+# Breadcrumb trail of ancestor links, separated by " / ". The current page is the
+# H1, not part of the trail. One scheme for every page that has ancestors.
+def crumbs [trail: list] {
+  let parts = ($trail | enumerate | each {|it|
+    let link = (A {href: ($it.item | get 1)} ($it.item | get 0))
+    if $it.index > 0 { [" / " $link] } else { [$link] }
+  } | flatten)
+  (P {class: "muted crumbs"} ...$parts)
+}
+
 def theme-shell [theme: string, title: string, current: string, body] {
+  let trail = (if $current == "overview" {
+    [["Themes" "/themes"]]
+  } else {
+    [["Themes" "/themes"] [$title $"/themes/($theme)"]]
+  })
   (HTML
     (page-head $"($title) - http-nu")
     (BODY
       (nav-bar)
       (MAIN {class: "container"}
-        (P {class: "muted"} (A {href: "/themes"} "Themes") $" / ($title)")
+        (crumbs $trail)
         (H1 $title)
         (theme-facets $theme $current)
         $body)
@@ -530,7 +545,7 @@ let themes = [
             (nav-bar)
             (MAIN {class: "container"}
               (ARTICLE
-                (P {class: "muted"} (A {href: "/how-tos"} "How-tos"))
+                (crumbs [["How-tos" "/how-tos"]])
                 $content))
             (copy-script)
           )
