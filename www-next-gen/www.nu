@@ -220,6 +220,15 @@ def toy [title: string, explain: string, src: string, lang: string] {
     (code-toy $src $lang))
 }
 
+def hub-page [title: string, body] {
+  (HTML
+    (page-head $"($title) - http-nu")
+    (BODY
+      (nav-bar)
+      (MAIN {class: "container"} $body)
+      (copy-script)))
+}
+
 def templates-hub [] {
   let inline_src = r#'
 # index route: inline mode renders a self-contained snippet
@@ -292,6 +301,88 @@ http-nu :3001 --store ./store examples/templates/serve.nu
         (SPAN {class: "pager-page"} "Browse the docs"))))
 }
 
+def streaming-hub [] {
+  let chunks_src = r#'
+# values from a streaming pipeline flush to the client as they are produced,
+# no waiting for the whole response to be ready
+generate {|_|
+  sleep 1sec
+  {out: $"(date now | to text)\n" next: true}
+} true'#
+  let to_sse_src = r#'
+# to sse formats {data? id? event? retry?} records for text/event-stream,
+# and sets content-type: text/event-stream for you
+{data: 'hello'} | to sse
+# data: hello
+
+{id: 1 event: greet data: 'hi'} | to sse
+# id: 1
+# event: greet
+# data: hi'#
+  let page_src = r#'
+# the page: a count signal, and buttons that POST to routes.
+# data-text binds the signal into the DOM; data-on:click posts.
+(BODY {"data-signals": "{count: 0}"}
+  (P "Count: " (SPAN {"data-text": "$count"} "0"))
+  (BUTTON {"data-on:click": "@post('./increment')"} "Increment")
+  (DIV {id: "time"} "--:--:--.---")
+  (BUTTON {"data-on:click": "@post('./time')"} "Get Time"))'#
+  let patch_signals_src = r#'
+# /increment: read signals, bump count, stream a signal patch back as SSE
+(route {method: POST path: "/increment"} {|req ctx|
+  let signals = from datastar-signals $req
+  let count = ($signals.count? | default 0) + 1
+  {count: $count} | to datastar-patch-signals | to sse
+})'#
+  let patch_elements_src = r#'
+# /time: stream an element; Datastar swaps it in by matching id
+(route {method: POST path: "/time"} {|req ctx|
+  let time = date now | format date "%H:%M:%S%.3f"
+  DIV {id: "time"} $time | to datastar-patch-elements | to sse
+})'#
+  let execute_script_src = r#'
+# /hello: stream a script for the client to run
+(route {method: POST path: "/hello"} {|req ctx|
+  "alert('Hello from the server!')" | to datastar-execute-script | to sse
+})'#
+  let run_src = r#'
+# serve the example with the embedded Datastar bundle
+http-nu --datastar :3001 examples/datastar-sdk/serve.nu
+
+# click a button: the browser POSTs, the server streams an SSE patch back'#
+  (ARTICLE
+    (P {class: "muted"} (A {href: "/docs"} "Docs") " / Hubs / Streaming")
+    (H1 "Streaming & events")
+    (P "Send chunks as they are produced, and push server-sent events. A streaming "
+      "pipeline's values flush to the client immediately; "
+      (CODE "to sse") " formats records for the event stream.")
+    (A {class: "card panel" href: "/docs/streaming--events"}
+      (H3 (icon "lucide:book-open") " Reference: Streaming & events")
+      (P {class: "muted"} "Streaming responses, the to sse command, and streaming input."))
+    (H2 "Streaming responses")
+    (toy "Chunks as they are produced" "A streaming pipeline like generate flushes each value to the client as an HTTP chunk, with no buffering." $chunks_src "nu")
+    (H2 "Server-sent events")
+    (toy "to sse" "Formats {data? id? event? retry?} records for text/event-stream, and sets the content-type automatically." $to_sse_src "nu")
+    (H2 "Worked example")
+    (P "The "
+      (A {href: "https://github.com/cablehead/http-nu/tree/main/examples/datastar-sdk"} "datastar-sdk example")
+      ": a button POSTs, the server streams an SSE patch back. Three patch kinds, one per button.")
+    (toy "The page (client)" "A count signal and buttons that POST to routes; data-text binds the signal into the DOM." $page_src "nu")
+    (toy "Patch a signal" "Read signals from the request, change one, stream a signal patch back." $patch_signals_src "nu")
+    (toy "Patch the DOM" "Stream an element and Datastar swaps it in by matching id." $patch_elements_src "nu")
+    (toy "Run a script" "Stream a script for the client to execute." $execute_script_src "nu")
+    (H2 "Run it")
+    (P "Serve the example with the embedded Datastar bundle:")
+    (code-toy $run_src "bash")
+    (NAV {class: "pager"}
+      (A {class: "pager-link panel pager-prev" href: "/docs/streaming--events"}
+        (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Reference")
+        (SPAN {class: "pager-page"} "Streaming & events"))
+      (A {class: "pager-link panel pager-next" href: "/docs"}
+        (SPAN {class: "pager-dir"} "All topics" (icon "lucide:arrow-right"))
+        (SPAN {class: "pager-page"} "Browse the docs"))))
+}
+
 {|req|
   dispatch $req [
 
@@ -309,7 +400,7 @@ http-nu :3001 --store ./store examples/templates/serve.nu
             (section-head "Why http-nu")
             (DIV {class: "grid"}
               (DIV {class: "card panel"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
-              (DIV {class: "card panel"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
+              (A {class: "card panel" href: "/hub/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
               (A {class: "card panel" href: "/hub/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
               (DIV {class: "card panel"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
           )
@@ -342,18 +433,12 @@ http-nu :3001 --store ./store examples/templates/serve.nu
       )
     })
 
-    # topic hub (pilot: templates)
+    # topic hubs (weave a theme: reference doc + worked-example toys + run it)
     (route {path-matches: "/hub/:slug"} {|req ctx|
-      if $ctx.slug == "templates" {
-        (HTML
-          (page-head "Templates - http-nu")
-          (BODY
-            (nav-bar)
-            (MAIN {class: "container"}
-              (templates-hub))
-            (copy-script)))
-      } else {
-        ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
+      match $ctx.slug {
+        "templates" => (hub-page "Templates" (templates-hub))
+        "streaming" => (hub-page "Streaming & events" (streaming-hub))
+        _ => ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
       }
     })
 
