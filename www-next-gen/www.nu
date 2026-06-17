@@ -43,6 +43,13 @@ def page-head [title: string] {
     (META {name: "viewport" content: "width=device-width, initial-scale=1"})
     (META {name: "view-transition" content: "same-origin"})
     (TITLE $title)
+    # social + search metadata (shared by every page via this head)
+    (META {name: "description" content: "A tiny, Nushell-scriptable HTTP server: hand it a closure and you have a server. Streaming, SSE, templates, and an embedded event store, all in one binary."})
+    (META {property: "og:title" content: $title})
+    (META {property: "og:type" content: "website"})
+    (META {property: "og:site_name" content: "http-nu"})
+    (META {property: "og:description" content: "A tiny, Nushell-scriptable HTTP server with streaming, SSE, templates, and an embedded event store."})
+    (META {name: "twitter:card" content: "summary"})
     # stellar props -> base (raw tags + generic utils/components) -> brand layer
     (LINK {rel: "stylesheet" href: "/assets/stellar.css"})
     (LINK {rel: "stylesheet" href: "/assets/base.css"})
