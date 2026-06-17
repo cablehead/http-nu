@@ -2,26 +2,10 @@ Build a guestbook app with http-nu, step by step. By the end you will have
 a server with composable HTML, persistent storage, and real-time updates
 powered by Datastar and server-sent events.
 
-## Step 1: Hello World
+New to http-nu? Start with the [Hello world tutorial](/tutorials/hello-world) to
+boot a server and curl it, then come back here to build something real.
 
-http-nu takes a Nushell closure and serves it over HTTP. The closure receives
-the request as its argument. Whatever it returns becomes the response.
-
-```bash
-http-nu :3001 -c '{|req| "Hello, world!"}'
-```
-
-Test it:
-
-```bash
-$ curl localhost:3001
-Hello, world!
-```
-
-The string is returned as `text/html` by default. Return a record and it
-becomes `application/json` automatically.
-
-## Step 2: The HTML DSL
+## Step 1: The HTML DSL
 
 One-liners are fun, but let's build a real page. Create a file called
 `serve.nu`:
@@ -61,7 +45,7 @@ auto-escaped for XSS protection.
 `HTML` prepends `<!DOCTYPE html>`. `class` accepts a list:
 `{class: [bold italic]}`. Boolean attributes work too: `{disabled: true}`.
 
-## Step 3: Routing
+## Step 2: Routing
 
 Every request currently hits the same handler. Let's add proper routing
 with the built-in router module.
@@ -114,7 +98,7 @@ You can match on method, path, or both. For dynamic segments use
 })
 ```
 
-## Step 4: The Store
+## Step 3: The Store
 
 Time to persist messages. http-nu embeds
 [cross.stream](https://cross.stream), an append-only event store. Enable it
@@ -181,7 +165,7 @@ just Nushell `def` commands. Each returns an `{__html: ...}` record that
 other tags accept as children without re-escaping. Composition is just
 function calls.
 
-## Step 5: Datastar -- Live Updates
+## Step 4: Datastar -- Live Updates
 
 Now for the payoff. [Datastar](https://data-star.dev) is a lightweight
 hypermedia framework that connects your HTML to the server via server-sent
