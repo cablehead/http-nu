@@ -188,6 +188,7 @@ def give-it-a-try [] {
   (DIV {"data-signals:tab": "'brew'"}
     (section-head "Give it a try"
       (IMG {class: "rocket" alt: "" src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"}))
+    (P "http-nu is a single binary. Hand it a Nushell closure and you have a server.")
     (DIV {class: "terminal"}
       (DIV {class: "terminal-bar"}
         (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
@@ -197,10 +198,7 @@ def give-it-a-try [] {
       (DIV {class: "terminal-body"}
         ($methods | each {|m|
           DIV {"data-show": $"$tab === '($m.0)'"} (SPAN {class: "prompt"} "$ ") $m.2
-        })
-        (DIV (SPAN {class: "prompt"} "$ ") "http-nu :3001 -c '{|req| \"Hello world\"}'")
-        (DIV (SPAN {class: "prompt"} "$ ") "curl -s localhost:3001")
-        (DIV {class: "out"} "Hello world"))))
+        }))))
 }
 
 # --- topic hubs ------------------------------------------------------
@@ -622,14 +620,15 @@ let tutorials = [
           (MAIN {class: "container"}
             (give-it-a-try)
 
-            (P {class: "center"} (STRONG (A {href: "/themes"} "Explore the themes ->")))
+            (tutorial-hello-world)
 
             (section-head "Why http-nu")
             (DIV {class: "grid"}
-              (A {class: "card panel" href: "/reference/requests--responses"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
-              (A {class: "card panel" href: "/themes/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
-              (A {class: "card panel" href: "/themes/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
-              (A {class: "card panel" href: "/themes/storage"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
+              ($themes | each {|t|
+                (A {class: "card panel" href: $"/themes/($t.slug)"}
+                  (H3 (icon $t.icon) $" ($t.title)")
+                  (P {class: "muted"} $t.blurb))
+              }))
           )
           (site-footer)
           (copy-script)
