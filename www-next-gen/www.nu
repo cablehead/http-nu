@@ -229,13 +229,7 @@ def hub-page [title: string, body] {
       (copy-script)))
 }
 
-def templates-example [] {
-  let inline_src = r#'
-# index route: inline mode renders a self-contained snippet
-_ => {
-  {} | .mj --inline '<h1>Templates</h1>
-<p>This page is rendered with <code>.mj --inline</code>.</p>'
-}'#
+def templates-files-section [] {
   let file_src = r#'
 # /file: render page.html from disk. {% extends %} and {% include %}
 # resolve from the template dir and subdirs only (no ../, no absolute paths)
@@ -264,24 +258,16 @@ if $HTTP_NU.store != null {
 
 # /topic: same render, but template names resolve as cross.stream topics
 "/topic" => { {name: "World"} | .mj --topic "page.html" }'#
-  let run_src = r#'
-# run with a store so the /topic route can resolve its templates
-http-nu :3001 --store ./store examples/templates/serve.nu
-
-#   /        index   - rendered with .mj --inline
-#   /file    disk    - {% extends %}/{% include %} from the template dir
-#   /topic   store   - templates resolved as cross.stream topics'#
-  (ARTICLE
-    (P "The "
-      (A {href: "https://github.com/cablehead/http-nu/tree/main/examples/templates"} "templates example")
-      ", one part per source of the template. Lift any piece and read it on its own.")
-    (toy "Inline mode" "Self-contained: no file or store lookups, so extends and include are not available." $inline_src "nu")
-    (toy "File mode (disk)" "Renders a template from disk; extends and include resolve from the template's directory." $file_src "nu")
+  (DIV
+    (H2 "Files and the store")
+    (P "The snippet above is self-contained. Point "
+      (CODE ".mj") " at a file and it resolves "
+      (CODE "{% extends %}") " / " (CODE "{% include %}")
+      " from disk; point it at the store and the same names resolve as cross.stream topics.")
+    (toy "From a file" "extends and include resolve from the template's directory and subdirs only." $file_src "nu")
     (toy "The files it resolves" "page.html extends base.html and includes nav.html, all from the same directory." $files_src "html")
-    (toy "Topic mode (store)" "With --store, template names resolve as cross.stream topics, so templates live in the event store, not on disk." $topic_src "nu")
-    (H2 "Run it")
-    (P "Start the server with a store so the topic route can resolve its templates:")
-    (code-toy $run_src "bash"))
+    (toy "From the store" "Seed the templates as topics once, then resolve them by name, with nothing on disk." $topic_src "nu")
+    (P (A {href: "/docs/templates/reference"} "Full reference: modes, compile / render, highlighting, Markdown ->")))
 }
 
 def streaming-hub [] {
@@ -372,7 +358,7 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
 # first; the shell + facet nav generalize to every theme.
 
 def theme-facets [theme: string, current: string] {
-  let facets = [[slug, name]; [overview, Overview] [reference, Reference] [example, Example]]
+  let facets = [[slug, name]; [overview, Overview] [reference, Reference]]
   (NAV {class: "facets"}
     ($facets | each {|f|
       let href = (if $f.slug == "overview" { $"/docs/($theme)" } else { $"/docs/($theme)/($f.slug)" })
@@ -438,19 +424,7 @@ def templates-overview [] {
       (DIV {class: "pg-output"}
         (LABEL "output")
         (tpl-render $def_tpl $def_data)))
-    (H2 "The .mj command")
-    (P "Three modes, one render. Pipe a record as the context:")
-    (UL
-      (LI (CODE "{name} | .mj --inline \"Hello {{ name }}\"") " - a self-contained snippet")
-      (LI (CODE "{name} | .mj \"page.html\"") " - a file on disk (extends / include)")
-      (LI (CODE "{name} | .mj --topic \"page.html\"") " - a template in the store"))
-    (DIV {class: "grid"}
-      (A {class: "card panel" href: "/docs/templates/reference"}
-        (H3 (icon "lucide:book-open") " Reference")
-        (P {class: "muted"} "The full .mj command: modes, compile / render, plus highlighting and Markdown."))
-      (A {class: "card panel" href: "/docs/templates/example"}
-        (H3 (icon "lucide:code") " Worked example")
-        (P {class: "muted"} "The templates example, one liftable part per source: inline, disk, store."))))
+    (templates-files-section))
 }
 
 {|req|
@@ -519,9 +493,6 @@ def templates-overview [] {
       let page = ($pages | where slug == "templates--output" | first)
       let content = ($readme | render-page $page $anchors | inject-copy-btns)
       (theme-shell "templates" "Templates" "reference" (ARTICLE $content))
-    })
-    (route {method: GET path: "/docs/templates/example"} {|req ctx|
-      (theme-shell "templates" "Templates" "example" (templates-example))
     })
     (route {method: POST path: "/docs/templates/render"} {|req ctx|
       let s = (from datastar-signals $req)
