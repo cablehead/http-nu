@@ -199,6 +199,99 @@ def give-it-a-try [] {
         (DIV {class: "out"} "Hello world"))))
 }
 
+# --- topic hubs ------------------------------------------------------
+# A hub weaves one theme together: the reference doc, the worked example
+# broken into liftable parts (source shown for each), and how to run it.
+# Pilot covers Templates; the shape generalizes to every theme.
+
+# A code "toy": a highlighted source fragment you can lift out of an example
+# and read on its own, with a copy button. (Editable/live is a later step;
+# for now the source is shown clearly.) Reuses the docs .code-block chrome.
+def code-toy [src: string, lang: string] {
+  let btn = '<button class="copy-btn" title="Copy"><iconify-icon icon="lucide:copy" width="16" height="16"></iconify-icon></button>'
+  (DIV {class: "code-block"} {__html: $btn} (PRE (CODE ($src | str trim | .highlight $lang))))
+}
+
+# A labelled toy: a heading, a one-line gloss, and the source.
+def toy [title: string, explain: string, src: string, lang: string] {
+  (SECTION {class: "toy"}
+    (H3 $title)
+    (P {class: "muted"} $explain)
+    (code-toy $src $lang))
+}
+
+def templates-hub [] {
+  let inline_src = r#'
+# index route: inline mode renders a self-contained snippet
+_ => {
+  {} | .mj --inline '<h1>Templates</h1>
+<p>This page is rendered with <code>.mj --inline</code>.</p>'
+}'#
+  let file_src = r#'
+# /file: render page.html from disk. {% extends %} and {% include %}
+# resolve from the template dir and subdirs only (no ../, no absolute paths)
+"/file" => { {name: "World"} | .mj ($templates_dir | path join page.html) }'#
+  let files_src = r#'<!-- page.html: extends a base, includes a partial, fills a slot -->
+{% extends "base.html" %}
+{% block title %}My Page{% endblock %}
+{% block content %}
+{% include "nav.html" %}
+<main>Hello {{ name }}</main>
+{% endblock %}
+
+<!-- base.html: the shell -->
+<head><title>{% block title %}Default{% endblock %}</title></head>
+<body>{% block content %}{% endblock %}</body>
+
+<!-- nav.html: the partial -->
+<nav><a href="./">Home</a> | Page</nav>'#
+  let topic_src = r#'
+# seed templates into the store as topics, once at startup
+if $HTTP_NU.store != null {
+  open (topics/page.html) | .append page.html
+  open (topics/base.html) | .append base.html
+  open (topics/nav.html) | .append nav.html
+}
+
+# /topic: same render, but template names resolve as cross.stream topics
+"/topic" => { {name: "World"} | .mj --topic "page.html" }'#
+  let run_src = r#'
+# run with a store so the /topic route can resolve its templates
+http-nu :3001 --store ./store examples/templates/serve.nu
+
+#   /        index   - rendered with .mj --inline
+#   /file    disk    - {% extends %}/{% include %} from the template dir
+#   /topic   store   - templates resolved as cross.stream topics'#
+  (ARTICLE
+    (P {class: "muted"} (A {href: "/docs"} "Docs") " / Hubs / Templates")
+    (H1 "Templates")
+    (P "Render a page from data with "
+      (A {href: "https://github.com/mitsuhiko/minijinja"} "minijinja")
+      " (Jinja2-compatible) templates. The same render runs from three sources: "
+      "an inline snippet, files on disk, or templates kept in the event store.")
+    (A {class: "card panel" href: "/docs/templates--output"}
+      (H3 (icon "lucide:book-open") " Reference: Templates & output")
+      (P {class: "muted"} "The .mj command, compile / render, syntax highlighting, and Markdown."))
+    (H2 "Worked example")
+    (P "The "
+      (A {href: "https://github.com/cablehead/http-nu/tree/main/examples/templates"} "templates example")
+      ", one part per source. Lift any piece and read it on its own.")
+    (toy "Inline mode" "Self-contained: no file or store lookups, so extends and include are not available." $inline_src "nu")
+    (toy "File mode (disk)" "Renders a template from disk; extends and include resolve from the template's directory." $file_src "nu")
+    (toy "The files it resolves" "page.html extends base.html and includes nav.html, all from the same directory." $files_src "html")
+    (toy "Topic mode (store)" "With --store, template names resolve as cross.stream topics, so templates live in the event store, not on disk." $topic_src "nu")
+    (H2 "Run it")
+    (P "Start the server with a store so the topic route can resolve its templates:")
+    (code-toy $run_src "bash")
+    (NAV {class: "pager"}
+      (A {class: "pager-link panel pager-prev" href: "/docs/templates--output"}
+        (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Reference")
+        (SPAN {class: "pager-page"} "Templates & output"))
+      (A {class: "pager-link panel pager-next" href: "/docs"}
+        (SPAN {class: "pager-dir"} "All topics" (icon "lucide:arrow-right"))
+        (SPAN {class: "pager-page"} "Browse the docs"))))
+}
+
 {|req|
   dispatch $req [
 
@@ -217,7 +310,7 @@ def give-it-a-try [] {
             (DIV {class: "grid"}
               (DIV {class: "card panel"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
               (DIV {class: "card panel"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
-              (DIV {class: "card panel"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
+              (A {class: "card panel" href: "/hub/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
               (DIV {class: "card panel"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
           )
           (copy-script)
@@ -247,6 +340,21 @@ def give-it-a-try [] {
           (copy-script)
         )
       )
+    })
+
+    # topic hub (pilot: templates)
+    (route {path-matches: "/hub/:slug"} {|req ctx|
+      if $ctx.slug == "templates" {
+        (HTML
+          (page-head "Templates - http-nu")
+          (BODY
+            (nav-bar)
+            (MAIN {class: "container"}
+              (templates-hub))
+            (copy-script)))
+      } else {
+        ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
+      }
     })
 
     # docs page
