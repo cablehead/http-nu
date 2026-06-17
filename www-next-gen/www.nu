@@ -25,14 +25,6 @@ let readme = (open --raw $readme_path | decode utf-8)
 let groups = []
 let pages = ($readme | pages $groups)
 let anchors = ($readme | anchor-map $groups)
-let titles = ($readme | headings | reduce --fold {} {|h, acc| $acc | upsert $h.slug $h.title })
-
-# Precompute each page's h3 sub-sections at load (parsing the README at request
-# time, deep in the DSL tree, overflows the stack). Map: page slug -> sections.
-let all_headings = ($readme | headings)
-let page_secs = ($pages | reduce --fold {} {|p, acc|
-  $acc | upsert $p.slug ($all_headings | where line > $p.start and line <= $p.end and level == ($p.level + 1) | select slug title)
-})
 
 def icon [name: string] {
   {__html: $"<iconify-icon icon=\"($name)\" noobserver></iconify-icon>"}
