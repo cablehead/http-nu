@@ -309,7 +309,8 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
     (toy "Run a script" "Stream a script for the client to execute." $execute_script_src "nu")
     (H2 "Run it")
     (P "Serve the example with the embedded Datastar bundle:")
-    (code-toy $run_src "bash"))
+    (code-toy $run_src "bash")
+    (P (A {href: "/themes/streaming/reference"} "Full reference: streaming responses, to sse, and streaming input ->")))
 }
 
 # --- theme namespace -------------------------------------------------
