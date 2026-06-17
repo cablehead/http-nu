@@ -26,6 +26,13 @@ let groups = []
 let pages = ($readme | pages $groups)
 let anchors = ($readme | anchor-map $groups)
 
+# each page's h3 sub-sections, precomputed at load (parsing deep in the DSL tree
+# at request time overflows the stack). Map: page slug -> [{slug, title}].
+let all_headings = ($readme | headings)
+let page_secs = ($pages | reduce --fold {} {|p, acc|
+  $acc | upsert $p.slug ($all_headings | where line > $p.start and line <= $p.end and level == ($p.level + 1) | select slug title)
+})
+
 def icon [name: string] {
   {__html: $"<iconify-icon icon=\"($name)\" noobserver></iconify-icon>"}
 }
@@ -327,12 +334,19 @@ def theme-facets [theme: string, current: string] {
     }))
 }
 
-# reference sidebar: every section, the current one highlighted
+# reference sidebar: every section; the current one expands to its sub-sections
 def ref-nav [current: string] {
-  (NAV {class: "docs-side toc"}
-    (UL ($pages | each {|p|
-      (LI (A {href: $"/reference/($p.slug)" class: (if $p.slug == $current { "active" } else { "" })} $p.title))
-    })))
+  let items = ($pages | each {|p|
+    let active = ($p.slug == $current)
+    let sub = (if $active {
+      let secs = ($page_secs | get $p.slug)
+      if ($secs | is-empty) { [] } else {
+        [(UL ($secs | each {|s| LI (A {href: $"/reference/($p.slug)#($s.slug)"} $s.title)}))]
+      }
+    } else { [] })
+    (LI (A {href: $"/reference/($p.slug)" class: (if $active { "active" } else { "" })} $p.title) ...$sub)
+  })
+  (NAV {class: "docs-side toc"} (UL $items))
 }
 
 # Breadcrumb trail of ancestor links, separated by " / ". The current page is the
@@ -537,7 +551,10 @@ let themes = [
                 (A {href: "/how-tos/render-readme-as-doc-site"} "Rendered as a doc site ->"))
               (DIV {class: "grid"}
                 ($pages | each {|p|
-                  (A {class: "card panel" href: $"/reference/($p.slug)"} (H3 $p.title))
+                  let secs = ($page_secs | get $p.slug)
+                  (A {class: "card panel" href: $"/reference/($p.slug)"}
+                    (H3 $p.title)
+                    (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
                 }))))
           (copy-script)
         )
