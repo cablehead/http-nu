@@ -367,3 +367,8 @@ body a.card:hover {
 .splash-hero {
   overflow-x: clip;
 }
+
+/* footer divider uses the brand line color */
+.site-footer {
+  border-color: var(--line);
+}

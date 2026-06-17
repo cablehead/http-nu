@@ -848,3 +848,11 @@ pre .invalid {
 .pg-presets {
   flex-wrap: wrap;
 }
+
+/* shared site footer */
+.site-footer {
+  margin-top: var(--size-5);
+  padding: var(--size-2) 0;
+  border-top: var(--border-width-1) solid var(--neutral-4);
+  font-size: var(--font-size--1);
+}

@@ -111,6 +111,19 @@ document.addEventListener('click', function(e) {
 '#})
 }
 
+# site footer: shared across every page (added beside copy-script in each body)
+def site-footer [] {
+  (FOOTER {class: "site-footer"}
+    (DIV {class: "container"}
+      (P {class: "muted"}
+        (A {href: "https://github.com/cablehead/http-nu"} "GitHub") " \u{b7} "
+        (A {href: "https://discord.com/invite/YNbScHBHrh"} "Discord") " \u{b7} "
+        (A {href: "/reference"} "Reference") " \u{b7} "
+        (A {href: "/how-tos"} "How-tos") " \u{b7} "
+        "Nushell-scriptable, " (A {href: "https://cross.stream"} "cross.stream")
+        "-powered, " (A {href: "https://data-star.dev"} "Datastar") "-ready")))
+}
+
 # --- routes ----------------------------------------------------------
 
 # --- splash hero (branded, www palette via stellar named colors) ---
@@ -381,6 +394,7 @@ def theme-shell [theme: string, title: string, current: string, body] {
         (H1 $title)
         (theme-facets $theme $current)
         $body)
+      (site-footer)
       (copy-script)))
 }
 
@@ -476,6 +490,7 @@ def not-found [] {
           (H1 "Not found")
           (P {class: "muted"} "That page does not exist.")
           (P (A {href: "/"} "Back home ->"))))
+      (site-footer)
       (copy-script)))
   | metadata set { merge {'http.response': {status: 404}} }
 }
@@ -517,6 +532,7 @@ let themes = [
               (A {class: "card panel" href: "/themes/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
               (A {class: "card panel" href: "/themes/storage"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
           )
+          (site-footer)
           (copy-script)
         )
       )
@@ -539,6 +555,7 @@ let themes = [
                     (P {class: "muted"} $t.blurb))
                 }))
               (P (A {href: "/reference"} "Browse the full reference ->"))))
+          (site-footer)
           (copy-script)
         )
       )
@@ -578,6 +595,7 @@ let themes = [
                     (H3 $p.title)
                     (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
                 }))))
+          (site-footer)
           (copy-script)
         )
       )
@@ -615,7 +633,8 @@ let themes = [
                       (SPAN {class: "pager-dir"} "Next" (icon "lucide:arrow-right"))
                       (SPAN {class: "pager-page"} $next.title))
                   } else { "" }))))
-            (copy-script)
+            (site-footer)
+          (copy-script)
           )
         )
       }
@@ -641,6 +660,7 @@ let themes = [
                   (A {class: "card panel" href: $"/how-tos/($g.slug)"}
                     (H3 (icon "lucide:file-text") $" ($g.title)"))
                 }))))
+          (site-footer)
           (copy-script)
         )
       )
@@ -658,7 +678,8 @@ let themes = [
               (ARTICLE
                 (crumbs [["How-tos" "/how-tos"]])
                 $content))
-            (copy-script)
+            (site-footer)
+          (copy-script)
           )
         )
       } else {
