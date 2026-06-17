@@ -573,7 +573,7 @@ let themes = [
       let t = ($themes | where slug == $ctx.slug | get 0?)
       if $t == null { (not-found) } else {
         let page = ($pages | where slug == $t.ref | first)
-        let content = ($readme | render-page $page $anchors | inject-copy-btns)
+        let content = ($readme | render-page $page $anchors --base "/reference" | inject-copy-btns)
         (theme-shell $t.slug $t.title "reference" (ARTICLE $content))
       }
     })
@@ -611,7 +611,7 @@ let themes = [
         let page = ($pages | get $idx)
         let prev = (if $idx > 0 { $pages | get ($idx - 1) } else { null })
         let next = ($pages | get -o ($idx + 1))
-        let content = ($readme | render-page $page $anchors | inject-copy-btns)
+        let content = ($readme | render-page $page $anchors --base "/reference" | inject-copy-btns)
         (HTML
           (page-head $"($page.title) - http-nu")
           (BODY
