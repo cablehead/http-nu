@@ -188,7 +188,7 @@ def give-it-a-try [] {
   (DIV {"data-signals:tab": "'brew'"}
     (section-head "Give it a try"
       (IMG {class: "rocket" alt: "" src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"}))
-    (P "http-nu is a single binary. Hand it a Nushell closure and you have a server.")
+    (P "http-nu is a single binary. Grab it with your preferred package manager:")
     (DIV {class: "terminal"}
       (DIV {class: "terminal-bar"}
         (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
@@ -514,11 +514,12 @@ def tut-gb-list [] {
 # banner), then each curl click appends a response line.
 # reusable terminal window chrome (the splash .terminal component): a titlebar
 # with the mac dots + a label, and a body.
-def terminal [title: string, body] {
+def terminal [title: string, body, --action: any = null] {
   (DIV {class: "terminal"}
     (DIV {class: "terminal-bar"}
       (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
-      (SPAN {class: "terminal-title"} $title))
+      (SPAN {class: "terminal-title"} $title)
+      (if $action != null { (SPAN {class: "terminal-action"} $action) } else { "" }))
     (DIV {class: "terminal-body"} $body))
 }
 
@@ -545,20 +546,18 @@ def hello-reqlog [] {
 def hello-world-demo [] {
   (DIV {"data-signals": "{started: false}"}
     (DIV {class: "terminal-row"}
-      (terminal "server"
+      (terminal "server" --action (BUTTON {class: "chip" "data-show": "!$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Start")
         (DIV
           (DIV {class: "term-cmd"}
             (SPAN {class: "prompt"} "$ ")
-            (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'")
-            (BUTTON {class: "chip" "data-show": "!$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Enter"))
+            (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'"))
           (DIV {id: "server-out" class: "term-out"})))
       (DIV {"data-show": "$started"}
-        (terminal "client"
+        (terminal "client" --action (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run")
           (DIV
             (DIV {class: "term-cmd"}
               (SPAN {class: "prompt"} "$ ")
-              (CODE "curl localhost:3001")
-              (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
+              (CODE "curl localhost:3001"))
             (DIV {id: "curl-out" class: "term-out"})))))
     (P "The string is returned as " (CODE "text/html") " by default. Return a record "
       "and it becomes " (CODE "application/json") " automatically."))
@@ -629,6 +628,7 @@ let tutorials = [
           (MAIN {class: "container"}
             (give-it-a-try)
 
+            (P "Then hand it a Nushell closure, and you have a server:")
             (DIV {class: "demo-wide"} (hello-world-demo))
 
             (section-head "Why http-nu")

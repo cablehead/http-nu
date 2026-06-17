@@ -884,6 +884,9 @@ pre .invalid {
 .terminal-title {
   opacity: 0.85;
 }
+.terminal-action {
+  margin-left: auto;
+}
 .terminal-body code {
   background: transparent;
   padding: 0;
@@ -905,6 +908,6 @@ pre .invalid {
 /* on wide viewports the splash demo runs server + client side by side; the
    tutorial page keeps them stacked in its narrower reading column. */
 @media (min-width: 900px) {
-  .demo-wide .terminal-row { flex-direction: row; align-items: flex-start; }
-  .demo-wide .terminal-row > * { flex: 1 1 0; min-width: 0; }
+  .demo-wide .terminal-row { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+  .demo-wide .terminal-row > * { min-width: 0; }
 }
