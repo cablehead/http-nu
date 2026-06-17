@@ -388,38 +388,6 @@ def templates-overview [] {
     (templates-files-section))
 }
 
-# --- how-to: the meta guide (this site explaining its own construction) ---
-def howto-readme [] {
-  let serve_src = r#'
-# the README is already your project's story; render it to HTML
-const readme = (open --raw README.md | decode utf-8)
-
-{|req| $readme | .md }'#
-  (ARTICLE
-    (P {class: "muted"} (A {href: "/how-to"} "How-to") " / Render a README as a doc site")
-    (H1 "Render a README as a doc site")
-    (P "A " (CODE "README.md") " is already the story of your project. http-nu turns it into a "
-      "site as rich as " (A {href: "https://starlight.astro.build"} "Astro Starlight")
-      ", with much less fuss. " (CODE ".md") " renders Markdown to HTML with syntax-highlighted "
-      "code blocks; a few lines of Nushell route it.")
-    (H2 "The whole thing")
-    (P "One route, the README rendered to HTML:")
-    (code-toy $serve_src "nu")
-    (P "Run " (CODE "http-nu :3001 serve.nu") " and that is already a doc site.")
-    (H2 "From there to this")
-    (P "Split the README into pages by heading, add a nav, and drop in stellar.css for typography. "
-      "The rendering machinery is " (CODE ".md") " and " (CODE ".mj") ", which you can poke at in the "
-      (A {href: "/themes/templates"} "Templates theme") ". The collected result is the "
-      (A {href: "/reference"} "Reference") ", this project's own README.")
-    (DIV {class: "grid"}
-      (A {class: "card panel" href: "/themes/templates"}
-        (H3 (icon "lucide:layout-template") " Templates theme")
-        (P {class: "muted"} "The .md / .mj rendering machinery, with a live playground."))
-      (A {class: "card panel" href: "/reference"}
-        (H3 (icon "lucide:book-open") " Reference")
-        (P {class: "muted"} "This site's own README, collected and anchored."))))
-}
-
 {|req|
   dispatch $req [
 
@@ -492,8 +460,13 @@ const readme = (open --raw README.md | decode utf-8)
       )
     })
 
-    # how-to: collected task guides
+    # how-to: collected guides, each a Markdown file in how-to/ rendered by .md
     (route {method: GET path: "/how-to"} {|req ctx|
+      let guides = (ls ($script_dir | path join how-to) | where name =~ '\.md$' | sort-by name | each {|f|
+        let slug = ($f.name | path basename | str replace --regex '\.md$' "")
+        let title = (open --raw $f.name | decode utf-8 | lines | where {|l| ($l | str starts-with "# ")} | get 0? | default $slug | str replace "# " "")
+        {slug: $slug, title: $title}
+      })
       (HTML
         (page-head "How-to - http-nu")
         (BODY
@@ -501,25 +474,35 @@ const readme = (open --raw README.md | decode utf-8)
           (MAIN {class: "container"}
             (ARTICLE
               (H1 "How-to")
-              (P {class: "muted"} "Task guides that thread across the reference and the themes.")
+              (P {class: "muted"} "Task guides, each a Markdown file rendered the way it describes.")
               (DIV {class: "grid"}
-                (A {class: "card panel" href: "/how-to/render-readme-as-doc-site"}
-                  (H3 (icon "lucide:file-text") " Render a README as a doc site")
-                  (P {class: "muted"} "Turn a README.md into a site as rich as Starlight, with much less fuss. You are looking at one.")))))
+                ($guides | each {|g|
+                  (A {class: "card panel" href: $"/how-to/($g.slug)"}
+                    (H3 (icon "lucide:file-text") $" ($g.title)"))
+                }))))
           (copy-script)
         )
       )
     })
 
-    (route {method: GET path: "/how-to/render-readme-as-doc-site"} {|req ctx|
-      (HTML
-        (page-head "Render a README as a doc site - http-nu")
-        (BODY
-          (nav-bar)
-          (MAIN {class: "container"} (howto-readme))
-          (copy-script)
+    (route {path-matches: "/how-to/:slug"} {|req ctx|
+      let path = ($script_dir | path join how-to | path join $"($ctx.slug).md")
+      if ($path | path exists) {
+        let content = (open --raw $path | decode utf-8 | .md | inject-copy-btns)
+        (HTML
+          (page-head "How-to - http-nu")
+          (BODY
+            (nav-bar)
+            (MAIN {class: "container"}
+              (ARTICLE
+                (P {class: "muted"} (A {href: "/how-to"} "How-to"))
+                $content))
+            (copy-script)
+          )
         )
-      )
+      } else {
+        ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
+      }
     })
 
     # --- streaming theme namespace (overview + reference) ---
