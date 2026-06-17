@@ -539,11 +539,11 @@ def hello-reqlog [] {
   } catch { "" }
 }
 
-def tutorial-hello-world [] {
+# the bare interactive widget: boot a real http-nu :3001, then curl it. The
+# client terminal stays hidden until the server is up. Droppable into any page;
+# framing prose (intro, next link) is supplied by the caller.
+def hello-world-demo [] {
   (DIV {"data-signals": "{started: false}"}
-    (P "http-nu takes a Nushell closure and serves it over HTTP. The closure "
-      "receives the request as its argument, and whatever it returns becomes the "
-      "response. Boot the smallest possible server, then curl it:")
     (DIV {class: "terminal-row"}
       (terminal "server"
         (DIV
@@ -552,15 +552,24 @@ def tutorial-hello-world [] {
             (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'")
             (BUTTON {class: "chip" "data-show": "!$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Enter"))
           (DIV {id: "server-out" class: "term-out"})))
-      (terminal "client"
-        (DIV
-          (DIV {class: "term-cmd"}
-            (SPAN {class: "prompt"} "$ ")
-            (CODE "curl localhost:3001")
-            (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
-          (DIV {id: "curl-out" class: "term-out"}))))
+      (DIV {"data-show": "$started"}
+        (terminal "client"
+          (DIV
+            (DIV {class: "term-cmd"}
+              (SPAN {class: "prompt"} "$ ")
+              (CODE "curl localhost:3001")
+              (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
+            (DIV {id: "curl-out" class: "term-out"})))))
     (P "The string is returned as " (CODE "text/html") " by default. Return a record "
-      "and it becomes " (CODE "application/json") " automatically.")
+      "and it becomes " (CODE "application/json") " automatically."))
+}
+
+def tutorial-hello-world [] {
+  (DIV
+    (P "http-nu takes a Nushell closure and serves it over HTTP. The closure "
+      "receives the request as its argument, and whatever it returns becomes the "
+      "response. Boot the smallest possible server, then curl it:")
+    (hello-world-demo)
     (P (A {href: "/tutorials/build-a-live-guestbook"} "Next: build a live guestbook ->")))
 }
 
@@ -620,7 +629,7 @@ let tutorials = [
           (MAIN {class: "container"}
             (give-it-a-try)
 
-            (tutorial-hello-world)
+            (hello-world-demo)
 
             (section-head "Why http-nu")
             (DIV {class: "grid"}
