@@ -123,7 +123,7 @@ def site-footer [] {
         (A {href: "/tutorials"} "Tutorials") " \u{b7} "
         (A {href: "/how-tos"} "How-tos") " \u{b7} "
         (A {href: "/reference"} "Reference") " \u{b7} "
-        "Nushell-scriptable, " (A {href: "https://cross.stream"} "cross.stream")
+        (A {href: "https://www.nushell.sh"} "Nushell") "-scriptable, " (A {href: "https://cross.stream"} "cross.stream")
         "-powered, " (A {href: "https://data-star.dev"} "Datastar") "-ready")))
 }
 
@@ -629,7 +629,7 @@ let tutorials = [
           (MAIN {class: "container"}
             (give-it-a-try)
 
-            (hello-world-demo)
+            (DIV {class: "demo-wide"} (hello-world-demo))
 
             (section-head "Why http-nu")
             (DIV {class: "grid"}

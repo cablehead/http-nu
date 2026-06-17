@@ -900,4 +900,11 @@ pre .invalid {
 }
 .term-out {
   white-space: pre;
+  overflow-x: auto;
+}
+/* on wide viewports the splash demo runs server + client side by side; the
+   tutorial page keeps them stacked in its narrower reading column. */
+@media (min-width: 900px) {
+  .demo-wide .terminal-row { flex-direction: row; align-items: flex-start; }
+  .demo-wide .terminal-row > * { flex: 1 1 0; min-width: 0; }
 }
