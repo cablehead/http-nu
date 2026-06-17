@@ -82,8 +82,9 @@ def nav-bar [] {
     (DIV {class: "brand"} (A {href: "/"} "http-nu"))
     (DIV {class: "links"}
       (A {href: "/themes"} "Themes")
-      (A {href: "/reference"} "Reference")
+      (A {href: "/tutorials"} "Tutorials")
       (A {href: "/how-tos"} "How-tos")
+      (A {href: "/reference"} "Reference")
       (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
       (theme-toggle)))
 }
@@ -119,8 +120,9 @@ def site-footer [] {
       (P {class: "muted"}
         (A {href: "https://github.com/cablehead/http-nu"} "GitHub") " \u{b7} "
         (A {href: "https://discord.com/invite/YNbScHBHrh"} "Discord") " \u{b7} "
-        (A {href: "/reference"} "Reference") " \u{b7} "
+        (A {href: "/tutorials"} "Tutorials") " \u{b7} "
         (A {href: "/how-tos"} "How-tos") " \u{b7} "
+        (A {href: "/reference"} "Reference") " \u{b7} "
         "Nushell-scriptable, " (A {href: "https://cross.stream"} "cross.stream")
         "-powered, " (A {href: "https://data-star.dev"} "Datastar") "-ready")))
 }
@@ -498,6 +500,35 @@ def not-found [] {
   | metadata set { merge {'http.response': {status: 404}} }
 }
 
+def tut-gb-ensure [] { try { stor create -t signatures -c {name: str, msg: str} } catch {} }
+def tut-gb-list [] {
+  tut-gb-ensure
+  let rows = (stor open | query db "select name, msg from signatures order by rowid desc limit 8")
+  (DIV {id: "tut-guestbook" class: "guestbook"}
+    (if ($rows | is-empty) {
+      (P {class: "muted"} "no signatures yet")
+    } else {
+      (UL ($rows | each {|r| (LI (STRONG $r.name) $" -- ($r.msg)")}))
+    }))
+}
+
+# the getting-started tutorial: lead with the finished guestbook (live), then the
+# step-by-step build rendered from its Markdown.
+def tutorial-getting-started [] {
+  let md = (open --raw ($script_dir | path join tutorials build-a-live-guestbook.md) | decode utf-8 | .md | inject-copy-btns)
+  (DIV
+    (P {class: "muted"} "From hello-world to real-time updates. Here is the finished guestbook, live: sign it, then build it step by step below.")
+    (DIV {class: "playground" "data-signals": "{name: '', message: ''}"}
+      (DIV {class: "pg-live"}
+        (INPUT {class: "pg-input" "data-bind:name": true placeholder: "your name" spellcheck: "false"})
+        (INPUT {class: "pg-input" "data-bind:message": true placeholder: "a message" spellcheck: "false"})
+        (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/guestbook/sign')"} "Sign"))
+      (P {class: "muted"} (SMALL "This demo keeps signatures in memory with stor; the tutorial below builds the persistent, cross-tab version with the event store and SSE."))
+      (tut-gb-list))
+    (H2 "Build it step by step")
+    $md)
+}
+
 # theme registry: metadata + an overview builder per theme. Drives the /themes
 # index and the generic /themes/:slug (+ /reference) routes, so adding a theme is
 # one row here plus its overview def, no per-theme route boilerplate.
@@ -512,6 +543,14 @@ let themes = [
   [storage, "State & storage", "state--storage", "lucide:database",
     "In-memory SQLite, a local bus, and an embedded event store. Sign the live guestbook.",
     {|| storage-overview}]
+]
+
+# tutorials registry: step-by-step builds, each with an interactive lead widget.
+let tutorials = [
+  [slug, title, blurb, builder];
+  ["build-a-live-guestbook", "Build a live guestbook",
+    "From hello-world to real-time updates: the HTML DSL, routing, the store, and Datastar SSE.",
+    {|| tutorial-getting-started}]
 ]
 
 {|req|
@@ -654,6 +693,40 @@ let themes = [
       } else {
         (not-found)
       }
+    })
+
+    # tutorials: step-by-step builds with an interactive lead widget
+    (route {method: GET path: "/tutorials"} {|req ctx|
+      (page "Tutorials - http-nu"
+        (MAIN {class: "container"}
+          (ARTICLE
+            (H1 "Tutorials")
+            (P {class: "muted"} "Step-by-step builds you can poke as you go.")
+            (DIV {class: "grid"}
+              ($tutorials | each {|t|
+                (A {class: "card panel" href: $"/tutorials/($t.slug)"}
+                  (H3 (icon "lucide:graduation-cap") $" ($t.title)")
+                  (P {class: "muted"} $t.blurb))
+              })))))
+    })
+    (route {path-matches: "/tutorials/:slug"} {|req ctx|
+      let t = ($tutorials | where slug == $ctx.slug | get 0?)
+      if $t == null { (not-found) } else {
+        (page $"($t.title) - http-nu"
+          (MAIN {class: "container"}
+            (ARTICLE
+              (crumbs [["Tutorials" "/tutorials"] [$t.title $"/tutorials/($t.slug)"]])
+              (H1 $t.title)
+              (do $t.builder))))
+      }
+    })
+    (route {method: POST path: "/tutorials/guestbook/sign"} {|req ctx|
+      let s = (from datastar-signals $req)
+      let name = ($s.name? | default "" | str trim)
+      let message = ($s.message? | default "" | str trim)
+      tut-gb-ensure
+      if ($name != "" and $message != "") { {name: $name, msg: $message} | stor insert -t signatures }
+      [ ({name: "", message: ""} | to datastar-patch-signals) ((tut-gb-list) | to datastar-patch-elements) ] | to sse
     })
 
     # theme interactions: streaming's live SSE buttons
