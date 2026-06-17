@@ -74,9 +74,10 @@ def nav-bar [] {
   (NAV {class: "nav"}
     (DIV {class: "brand"} (A {href: "/"} "http-nu"))
     (DIV {class: "links"}
-      (A {href: "/docs"} "Docs")
+      (A {href: "/themes"} "Themes")
+      (A {href: "/reference"} "Reference")
+      (A {href: "/how-to"} "How-to")
       (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
-      (A {href: "https://discord.com/invite/YNbScHBHrh"} "Discord")
       (theme-toggle)))
 }
 
@@ -102,25 +103,6 @@ document.addEventListener('click', function(e) {
   if (icon) { icon.setAttribute('icon','lucide:check'); setTimeout(function(){icon.setAttribute('icon','lucide:copy')},800); }
 });
 '#})
-}
-
-# --- docs navigation -------------------------------------------------
-
-# Sidebar nav: pages in order; the active page expands to its sections.
-# Build the list in the body (outer lets are in scope here); pass the finished
-# list to UL - a closure passed to the DSL evaluates in a scope without them.
-def docs-nav [current: string] {
-  let items = ($pages | each {|p|
-    let active = ($p.slug == $current)
-    let sub = (if $active {
-      let secs = ($page_secs | get $p.slug)
-      if ($secs | is-empty) { [] } else {
-        [(UL ($secs | each {|s| LI (A {href: $"/docs/($p.slug)#($s.slug)"} $s.title)}))]
-      }
-    } else { [] })
-    (LI (A {href: $"/docs/($p.slug)" class: (if $active { "active" } else { "" })} $p.title) ...$sub)
-  })
-  (UL $items)
 }
 
 # --- routes ----------------------------------------------------------
@@ -220,15 +202,6 @@ def toy [title: string, explain: string, src: string, lang: string] {
     (code-toy $src $lang))
 }
 
-def hub-page [title: string, body] {
-  (HTML
-    (page-head $"($title) - http-nu")
-    (BODY
-      (nav-bar)
-      (MAIN {class: "container"} $body)
-      (copy-script)))
-}
-
 def templates-files-section [] {
   let file_src = r#'
 # /file: render page.html from disk. {% extends %} and {% include %}
@@ -267,10 +240,10 @@ if $HTTP_NU.store != null {
     (toy "From a file" "extends and include resolve from the template's directory and subdirs only." $file_src "nu")
     (toy "The files it resolves" "page.html extends base.html and includes nav.html, all from the same directory." $files_src "html")
     (toy "From the store" "Seed the templates as topics once, then resolve them by name, with nothing on disk." $topic_src "nu")
-    (P (A {href: "/docs/templates/reference"} "Full reference: modes, compile / render, highlighting, Markdown ->")))
+    (P (A {href: "/themes/templates/reference"} "Full reference: modes, compile / render, highlighting, Markdown ->")))
 }
 
-def streaming-hub [] {
+def streaming-overview [] {
   let chunks_src = r#'
 # values from a streaming pipeline flush to the client as they are produced,
 # no waiting for the whole response to be ready
@@ -320,14 +293,9 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
 
 # click a button: the browser POSTs, the server streams an SSE patch back'#
   (ARTICLE
-    (P {class: "muted"} (A {href: "/docs"} "Docs") " / Hubs / Streaming")
-    (H1 "Streaming & events")
     (P "Send chunks as they are produced, and push server-sent events. A streaming "
       "pipeline's values flush to the client immediately; "
       (CODE "to sse") " formats records for the event stream.")
-    (A {class: "card panel" href: "/docs/streaming--events"}
-      (H3 (icon "lucide:book-open") " Reference: Streaming & events")
-      (P {class: "muted"} "Streaming responses, the to sse command, and streaming input."))
     (H2 "Streaming responses")
     (toy "Chunks as they are produced" "A streaming pipeline like generate flushes each value to the client as an HTTP chunk, with no buffering." $chunks_src "nu")
     (H2 "Server-sent events")
@@ -342,26 +310,19 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
     (toy "Run a script" "Stream a script for the client to execute." $execute_script_src "nu")
     (H2 "Run it")
     (P "Serve the example with the embedded Datastar bundle:")
-    (code-toy $run_src "bash")
-    (NAV {class: "pager"}
-      (A {class: "pager-link panel pager-prev" href: "/docs/streaming--events"}
-        (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Reference")
-        (SPAN {class: "pager-page"} "Streaming & events"))
-      (A {class: "pager-link panel pager-next" href: "/docs"}
-        (SPAN {class: "pager-dir"} "All topics" (icon "lucide:arrow-right"))
-        (SPAN {class: "pager-page"} "Browse the docs"))))
+    (code-toy $run_src "bash"))
 }
 
 # --- theme namespace -------------------------------------------------
-# /docs/<theme> is a theme: an overview that leads with an interactive toy,
-# with reference and worked-example facets one click away. Templates is the
-# first; the shell + facet nav generalize to every theme.
+# /themes/<theme> is a theme: an overview that leads with something to poke,
+# with a reference facet (a slice of the canonical /reference) one click away.
+# The shell + facet nav generalize to every theme.
 
 def theme-facets [theme: string, current: string] {
   let facets = [[slug, name]; [overview, Overview] [reference, Reference]]
   (NAV {class: "facets"}
     ($facets | each {|f|
-      let href = (if $f.slug == "overview" { $"/docs/($theme)" } else { $"/docs/($theme)/($f.slug)" })
+      let href = (if $f.slug == "overview" { $"/themes/($theme)" } else { $"/themes/($theme)/($f.slug)" })
       (A {href: $href class: (if $f.slug == $current { "active" } else { "" })} $f.name)
     }))
 }
@@ -372,7 +333,7 @@ def theme-shell [theme: string, title: string, current: string, body] {
     (BODY
       (nav-bar)
       (MAIN {class: "container"}
-        (P {class: "muted"} (A {href: "/docs"} "Docs") $" / ($title)")
+        (P {class: "muted"} (A {href: "/themes"} "Themes") $" / ($title)")
         (H1 $title)
         (theme-facets $theme $current)
         $body)
@@ -411,20 +372,52 @@ def templates-overview [] {
       (DIV {class: "pg-inputs"}
         (DIV {class: "pg-field"}
           (LABEL "template")
-          (TEXTAREA {"data-bind:tpl": true "data-on:input__debounce.300ms": "@post('/docs/templates/render')" rows: "3" spellcheck: "false"} $def_tpl))
+          (TEXTAREA {"data-bind:tpl": true "data-on:input__debounce.300ms": "@post('/themes/templates/render')" rows: "3" spellcheck: "false"} $def_tpl))
         (DIV {class: "pg-field"}
           (LABEL "data (JSON)")
-          (TEXTAREA {"data-bind:data": true "data-on:input__debounce.300ms": "@post('/docs/templates/render')" rows: "3" spellcheck: "false"} $def_data)))
+          (TEXTAREA {"data-bind:data": true "data-on:input__debounce.300ms": "@post('/themes/templates/render')" rows: "3" spellcheck: "false"} $def_data)))
       (DIV {class: "pg-presets"}
         (SPAN {class: "muted"} "try:")
-        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/greet')"} "greeting")
-        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/loop')"} "loop")
-        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/cond')"} "conditional")
-        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/filter')"} "filter"))
+        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/greet')"} "greeting")
+        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/loop')"} "loop")
+        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/cond')"} "conditional")
+        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/filter')"} "filter"))
       (DIV {class: "pg-output"}
         (LABEL "output")
         (tpl-render $def_tpl $def_data)))
     (templates-files-section))
+}
+
+# --- how-to: the meta guide (this site explaining its own construction) ---
+def howto-readme [] {
+  let serve_src = r#'
+# the README is already your project's story; render it to HTML
+const readme = (open --raw README.md | decode utf-8)
+
+{|req| $readme | .md }'#
+  (ARTICLE
+    (P {class: "muted"} (A {href: "/how-to"} "How-to") " / Render a README as a doc site")
+    (H1 "Render a README as a doc site")
+    (P "A " (CODE "README.md") " is already the story of your project. http-nu turns it into a "
+      "site as rich as " (A {href: "https://starlight.astro.build"} "Astro Starlight")
+      ", with much less fuss. " (CODE ".md") " renders Markdown to HTML with syntax-highlighted "
+      "code blocks; a few lines of Nushell route it.")
+    (H2 "The whole thing")
+    (P "One route, the README rendered to HTML:")
+    (code-toy $serve_src "nu")
+    (P "Run " (CODE "http-nu :3001 serve.nu") " and that is already a doc site.")
+    (H2 "From there to this")
+    (P "Split the README into pages by heading, add a nav, and drop in stellar.css for typography. "
+      "The rendering machinery is " (CODE ".md") " and " (CODE ".mj") ", which you can poke at in the "
+      (A {href: "/themes/templates"} "Templates theme") ". The collected result is the "
+      (A {href: "/reference"} "Reference") ", this project's own README.")
+    (DIV {class: "grid"}
+      (A {class: "card panel" href: "/themes/templates"}
+        (H3 (icon "lucide:layout-template") " Templates theme")
+        (P {class: "muted"} "The .md / .mj rendering machinery, with a live playground."))
+      (A {class: "card panel" href: "/reference"}
+        (H3 (icon "lucide:book-open") " Reference")
+        (P {class: "muted"} "This site's own README, collected and anchored."))))
 }
 
 {|req|
@@ -439,13 +432,13 @@ def templates-overview [] {
           (MAIN {class: "container"}
             (give-it-a-try)
 
-            (P {class: "center"} (STRONG (A {href: "/docs"} "Read the docs ->")))
+            (P {class: "center"} (STRONG (A {href: "/themes"} "Explore the themes ->")))
 
             (section-head "Why http-nu")
             (DIV {class: "grid"}
               (DIV {class: "card panel"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
-              (A {class: "card panel" href: "/hub/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
-              (A {class: "card panel" href: "/docs/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
+              (A {class: "card panel" href: "/themes/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
+              (A {class: "card panel" href: "/themes/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
               (DIV {class: "card panel"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
           )
           (copy-script)
@@ -453,95 +446,111 @@ def templates-overview [] {
       )
     })
 
-    # docs index
-    (route {method: GET path: "/docs"} {|req ctx|
+    # themes index: each theme leads with something to poke, then its reference
+    (route {method: GET path: "/themes"} {|req ctx|
       (HTML
-        (page-head "Docs - http-nu")
+        (page-head "Themes - http-nu")
         (BODY
           (nav-bar)
           (MAIN {class: "container"}
             (ARTICLE
-              (H1 "Documentation")
-              (P {class: "muted"} "The project "
-                (A {href: "https://github.com/cablehead/http-nu/blob/main/README.md"} "README")
-                ", split into pages. Pick a topic:"))
-            (DIV {class: "grid"}
-              ($pages | each {|p|
-                let secs = ($page_secs | get $p.slug)
-                (A {class: "card panel" href: $"/docs/($p.slug)"}
-                  (H3 $p.title)
-                  (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
-              })))
+              (H1 "Themes")
+              (P {class: "muted"} "Each theme leads with something to poke, then the reference behind it.")
+              (DIV {class: "grid"}
+                (A {class: "card panel" href: "/themes/templates"}
+                  (H3 (icon "lucide:layout-template") " Templates")
+                  (P {class: "muted"} "Render a page from data: an editable .mj playground, then files and the store."))
+                (A {class: "card panel" href: "/themes/streaming"}
+                  (H3 (icon "lucide:zap") " Streaming & events")
+                  (P {class: "muted"} "Stream chunks and push server-sent events, the datastar-sdk patch trio.")))
+              (P (A {href: "/reference"} "Browse the full reference ->"))))
           (copy-script)
         )
       )
     })
 
-    # topic hubs (weave a theme: reference doc + worked-example toys + run it)
-    (route {path-matches: "/hub/:slug"} {|req ctx|
-      match $ctx.slug {
-        "streaming" => (hub-page "Streaming & events" (streaming-hub))
-        _ => ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
-      }
+    # reference: the whole README, collected and anchored (single source of truth)
+    (route {method: GET path: "/reference"} {|req ctx|
+      let sections = ($pages | each {|p|
+        (SECTION {id: $p.slug} ($readme | render-page $p $anchors | inject-copy-btns))
+      })
+      (HTML
+        (page-head "Reference - http-nu")
+        (BODY
+          (nav-bar)
+          (MAIN {class: "container with-sidebar"}
+            (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
+              (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Sections")
+              (NAV {class: "docs-side toc"}
+                (UL ($pages | each {|p| (LI (A {href: $"/reference#($p.slug)"} $p.title))}))))
+            (ARTICLE
+              (P {class: "muted"} "The project README, rendered as a doc site. "
+                (A {href: "/how-to/render-readme-as-doc-site"} "Here is how ->"))
+              ...$sections))
+          (copy-script)
+        )
+      )
+    })
+
+    # how-to: collected task guides
+    (route {method: GET path: "/how-to"} {|req ctx|
+      (HTML
+        (page-head "How-to - http-nu")
+        (BODY
+          (nav-bar)
+          (MAIN {class: "container"}
+            (ARTICLE
+              (H1 "How-to")
+              (P {class: "muted"} "Task guides that thread across the reference and the themes.")
+              (DIV {class: "grid"}
+                (A {class: "card panel" href: "/how-to/render-readme-as-doc-site"}
+                  (H3 (icon "lucide:file-text") " Render a README as a doc site")
+                  (P {class: "muted"} "Turn a README.md into a site as rich as Starlight, with much less fuss. You are looking at one.")))))
+          (copy-script)
+        )
+      )
+    })
+
+    (route {method: GET path: "/how-to/render-readme-as-doc-site"} {|req ctx|
+      (HTML
+        (page-head "Render a README as a doc site - http-nu")
+        (BODY
+          (nav-bar)
+          (MAIN {class: "container"} (howto-readme))
+          (copy-script)
+        )
+      )
+    })
+
+    # --- streaming theme namespace (overview + reference) ---
+    (route {method: GET path: "/themes/streaming"} {|req ctx|
+      (theme-shell "streaming" "Streaming & events" "overview" (streaming-overview))
+    })
+    (route {method: GET path: "/themes/streaming/reference"} {|req ctx|
+      let page = ($pages | where slug == "streaming--events" | first)
+      let content = ($readme | render-page $page $anchors | inject-copy-btns)
+      (theme-shell "streaming" "Streaming & events" "reference" (ARTICLE $content))
     })
 
     # --- templates theme namespace (overview + facets + live playground) ---
-    (route {method: GET path: "/docs/templates"} {|req ctx|
+    (route {method: GET path: "/themes/templates"} {|req ctx|
       (theme-shell "templates" "Templates" "overview" (templates-overview))
     })
-    (route {method: GET path: "/docs/templates/reference"} {|req ctx|
+    (route {method: GET path: "/themes/templates/reference"} {|req ctx|
       let page = ($pages | where slug == "templates--output" | first)
       let content = ($readme | render-page $page $anchors | inject-copy-btns)
       (theme-shell "templates" "Templates" "reference" (ARTICLE $content))
     })
-    (route {method: POST path: "/docs/templates/render"} {|req ctx|
+    (route {method: POST path: "/themes/templates/render"} {|req ctx|
       let s = (from datastar-signals $req)
       (tpl-render ($s.tpl? | default "") ($s.data? | default "{}")) | to datastar-patch-elements | to sse
     })
-    (route {path-matches: "/docs/templates/preset/:name"} {|req ctx|
+    (route {path-matches: "/themes/templates/preset/:name"} {|req ctx|
       let p = (tpl-preset $ctx.name)
       [
         ({tpl: $p.tpl, data: $p.data} | to datastar-patch-signals)
         ((tpl-render $p.tpl $p.data) | to datastar-patch-elements)
       ] | to sse
-    })
-
-    # docs page
-    (route {path-matches: "/docs/:slug"} {|req ctx|
-      let slug = $ctx.slug
-      let idx = ($pages | enumerate | where item.slug == $slug | get index.0? | default null)
-      if $idx == null {
-        ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
-      } else {
-        let page = ($pages | get $idx)
-        let prev = (if $idx > 0 { $pages | get ($idx - 1) } else { null })
-        let next = ($pages | get -o ($idx + 1))
-        let content = ($readme | render-page $page $anchors | inject-copy-btns)
-        (HTML
-          (page-head $"($page.title) - http-nu")
-          (BODY
-            (nav-bar)
-            (MAIN {class: "container with-sidebar"}
-              (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
-                (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Pages")
-                (NAV {class: "docs-side toc"} (docs-nav $slug)))
-              (ARTICLE
-                $content
-                (NAV {class: "pager"}
-                  (if ($idx > 0) {
-                    (A {class: "pager-link panel pager-prev" href: $"/docs/($prev.slug)"}
-                      (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Previous")
-                      (SPAN {class: "pager-page"} $prev.title))
-                  } else { "" })
-                  (if ($next != null) {
-                    (A {class: "pager-link panel pager-next" href: $"/docs/($next.slug)"}
-                      (SPAN {class: "pager-dir"} "Next" (icon "lucide:arrow-right"))
-                      (SPAN {class: "pager-page"} $next.title))
-                  } else { "" }))))
-            (copy-script)
-          )
-        )
-      }
     })
 
     # static assets (stellar.css, base.css, images)
