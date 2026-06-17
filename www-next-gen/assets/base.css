@@ -704,3 +704,90 @@ pre .invalid {
   background: var(--primary-6);
   color: var(--primary-6-on);
 }
+
+/* --- theme namespace: facet nav, playground, chips ------------------ */
+
+/* facet switcher (Overview | Reference | Example) under the theme title */
+.facets {
+  display: flex;
+  gap: var(--size-1);
+  margin: var(--size--1) 0 var(--size-2);
+  border-bottom: var(--border-width-1) solid var(--neutral-4);
+}
+.facets a {
+  text-decoration: none;
+  padding: var(--size--2) 0;
+  font-weight: var(--font-weight-medium);
+  border-bottom: var(--border-width-2) solid transparent;
+  margin-bottom: calc(-1 * var(--border-width-1));
+}
+.facets a.active {
+  border-bottom-color: currentColor;
+}
+
+/* the .mj playground: two source panes, preset chips, a live output */
+.playground {
+  margin: var(--size-1) 0 var(--size-3);
+}
+.pg-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--size-0);
+}
+.pg-field,
+.pg-output {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size--2);
+}
+.pg-field label,
+.pg-output label,
+.pg-presets {
+  font-size: var(--font-size--1);
+  text-transform: uppercase;
+  letter-spacing: var(--font-letter-spacing-1);
+}
+.playground textarea {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  line-height: var(--code-line-height);
+  padding: var(--size--1);
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-0);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  resize: vertical;
+  outline: none;
+}
+.pg-presets {
+  display: flex;
+  align-items: center;
+  gap: var(--size--2);
+  margin: var(--size-0) 0;
+}
+.chip {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 0.1em 0.6em;
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-2);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.pg-output {
+  margin-top: var(--size-1);
+}
+.tpl-out {
+  padding: var(--size--1) var(--size-0);
+  border: var(--border-width-1) dashed var(--neutral-4);
+  border-radius: var(--border-radius-0);
+  min-height: 2.5em;
+}
+.tpl-out.is-err {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  color: var(--code-error);
+}

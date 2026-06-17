@@ -343,3 +343,21 @@ body a.card:hover {
     border-radius: 0;
   }
 }
+
+/* theme facet nav: dim inactive, cream active (matches .toc a.active) */
+.facets a {
+  color: var(--on-dim);
+}
+.facets a:hover {
+  color: var(--surface-on);
+}
+.facets a.active {
+  color: var(--named-sand-0);
+}
+/* playground preset chips brighten one ramp step on hover, like the cards */
+.chip:hover {
+  background: var(--named-ocean-2);
+}
+.dark .chip:hover {
+  background: var(--named-navy-2);
+}

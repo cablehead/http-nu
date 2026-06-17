@@ -229,7 +229,7 @@ def hub-page [title: string, body] {
       (copy-script)))
 }
 
-def templates-hub [] {
+def templates-example [] {
   let inline_src = r#'
 # index route: inline mode renders a self-contained snippet
 _ => {
@@ -272,33 +272,16 @@ http-nu :3001 --store ./store examples/templates/serve.nu
 #   /file    disk    - {% extends %}/{% include %} from the template dir
 #   /topic   store   - templates resolved as cross.stream topics'#
   (ARTICLE
-    (P {class: "muted"} (A {href: "/docs"} "Docs") " / Hubs / Templates")
-    (H1 "Templates")
-    (P "Render a page from data with "
-      (A {href: "https://github.com/mitsuhiko/minijinja"} "minijinja")
-      " (Jinja2-compatible) templates. The same render runs from three sources: "
-      "an inline snippet, files on disk, or templates kept in the event store.")
-    (A {class: "card panel" href: "/docs/templates--output"}
-      (H3 (icon "lucide:book-open") " Reference: Templates & output")
-      (P {class: "muted"} "The .mj command, compile / render, syntax highlighting, and Markdown."))
-    (H2 "Worked example")
     (P "The "
       (A {href: "https://github.com/cablehead/http-nu/tree/main/examples/templates"} "templates example")
-      ", one part per source. Lift any piece and read it on its own.")
+      ", one part per source of the template. Lift any piece and read it on its own.")
     (toy "Inline mode" "Self-contained: no file or store lookups, so extends and include are not available." $inline_src "nu")
     (toy "File mode (disk)" "Renders a template from disk; extends and include resolve from the template's directory." $file_src "nu")
     (toy "The files it resolves" "page.html extends base.html and includes nav.html, all from the same directory." $files_src "html")
     (toy "Topic mode (store)" "With --store, template names resolve as cross.stream topics, so templates live in the event store, not on disk." $topic_src "nu")
     (H2 "Run it")
     (P "Start the server with a store so the topic route can resolve its templates:")
-    (code-toy $run_src "bash")
-    (NAV {class: "pager"}
-      (A {class: "pager-link panel pager-prev" href: "/docs/templates--output"}
-        (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Reference")
-        (SPAN {class: "pager-page"} "Templates & output"))
-      (A {class: "pager-link panel pager-next" href: "/docs"}
-        (SPAN {class: "pager-dir"} "All topics" (icon "lucide:arrow-right"))
-        (SPAN {class: "pager-page"} "Browse the docs"))))
+    (code-toy $run_src "bash"))
 }
 
 def streaming-hub [] {
@@ -383,6 +366,93 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
         (SPAN {class: "pager-page"} "Browse the docs"))))
 }
 
+# --- theme namespace -------------------------------------------------
+# /docs/<theme> is a theme: an overview that leads with an interactive toy,
+# with reference and worked-example facets one click away. Templates is the
+# first; the shell + facet nav generalize to every theme.
+
+def theme-facets [theme: string, current: string] {
+  let facets = [[slug, name]; [overview, Overview] [reference, Reference] [example, Example]]
+  (NAV {class: "facets"}
+    ($facets | each {|f|
+      let href = (if $f.slug == "overview" { $"/docs/($theme)" } else { $"/docs/($theme)/($f.slug)" })
+      (A {href: $href class: (if $f.slug == $current { "active" } else { "" })} $f.name)
+    }))
+}
+
+def theme-shell [theme: string, title: string, current: string, body] {
+  (HTML
+    (page-head $"($title) - http-nu")
+    (BODY
+      (nav-bar)
+      (MAIN {class: "container"}
+        (P {class: "muted"} (A {href: "/docs"} "Docs") $" / ($title)")
+        (H1 $title)
+        (theme-facets $theme $current)
+        $body)
+      (copy-script)))
+}
+
+# The playground render: a JSON context record through an inline template.
+# Valid output is injected as HTML (the point); errors show as plain text.
+def tpl-render [tpl: string, data: string] {
+  let ctx = (try { $data | from json } catch { {} })
+  let res = (try { {ok: ($ctx | .mj --inline $tpl)} } catch {|e| {err: $e.msg} })
+  if ($res.err? != null) {
+    (DIV {id: "tpl-out" class: "tpl-out is-err"} $res.err)
+  } else {
+    (DIV {id: "tpl-out" class: "tpl-out"} {__html: $res.ok})
+  }
+}
+
+# Preset snippets the chips load into the playground.
+def tpl-preset [name: string] {
+  match $name {
+    "loop" => {tpl: "<ul>{% for i in items %}<li>{{ i }}</li>{% endfor %}</ul>", data: '{"items": ["a", "b", "c"]}'}
+    "cond" => {tpl: "{% if vip %}VIP {{ name }}{% else %}hi {{ name }}{% endif %}", data: '{"name": "Sam", "vip": true}'}
+    "filter" => {tpl: "{{ name | upper }} has {{ name | length }} letters", data: '{"name": "ada"}'}
+    _ => {tpl: "Hello {{ name }}!", data: '{"name": "world"}'}
+  }
+}
+
+def templates-overview [] {
+  let def_tpl = "Hello {{ name }}!"
+  let def_data = '{"name": "world"}'
+  (ARTICLE
+    (P "Render a page from data. The same render runs from three sources: an inline "
+      "snippet, files on disk, or templates kept in the event store. Poke at it:")
+    (DIV {class: "playground"}
+      (DIV {class: "pg-inputs"}
+        (DIV {class: "pg-field"}
+          (LABEL "template")
+          (TEXTAREA {"data-bind:tpl": true "data-on:input__debounce.300ms": "@post('/docs/templates/render')" rows: "3" spellcheck: "false"} $def_tpl))
+        (DIV {class: "pg-field"}
+          (LABEL "data (JSON)")
+          (TEXTAREA {"data-bind:data": true "data-on:input__debounce.300ms": "@post('/docs/templates/render')" rows: "3" spellcheck: "false"} $def_data)))
+      (DIV {class: "pg-presets"}
+        (SPAN {class: "muted"} "try:")
+        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/greet')"} "greeting")
+        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/loop')"} "loop")
+        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/cond')"} "conditional")
+        (BUTTON {class: "chip" "data-on:click": "@post('/docs/templates/preset/filter')"} "filter"))
+      (DIV {class: "pg-output"}
+        (LABEL "output")
+        (tpl-render $def_tpl $def_data)))
+    (H2 "The .mj command")
+    (P "Three modes, one render. Pipe a record as the context:")
+    (UL
+      (LI (CODE "{name} | .mj --inline \"Hello {{ name }}\"") " - a self-contained snippet")
+      (LI (CODE "{name} | .mj \"page.html\"") " - a file on disk (extends / include)")
+      (LI (CODE "{name} | .mj --topic \"page.html\"") " - a template in the store"))
+    (DIV {class: "grid"}
+      (A {class: "card panel" href: "/docs/templates/reference"}
+        (H3 (icon "lucide:book-open") " Reference")
+        (P {class: "muted"} "The full .mj command: modes, compile / render, plus highlighting and Markdown."))
+      (A {class: "card panel" href: "/docs/templates/example"}
+        (H3 (icon "lucide:code") " Worked example")
+        (P {class: "muted"} "The templates example, one liftable part per source: inline, disk, store."))))
+}
+
 {|req|
   dispatch $req [
 
@@ -401,7 +471,7 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
             (DIV {class: "grid"}
               (DIV {class: "card panel"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
               (A {class: "card panel" href: "/hub/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
-              (A {class: "card panel" href: "/hub/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
+              (A {class: "card panel" href: "/docs/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
               (DIV {class: "card panel"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
           )
           (copy-script)
@@ -436,10 +506,33 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
     # topic hubs (weave a theme: reference doc + worked-example toys + run it)
     (route {path-matches: "/hub/:slug"} {|req ctx|
       match $ctx.slug {
-        "templates" => (hub-page "Templates" (templates-hub))
         "streaming" => (hub-page "Streaming & events" (streaming-hub))
         _ => ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
       }
+    })
+
+    # --- templates theme namespace (overview + facets + live playground) ---
+    (route {method: GET path: "/docs/templates"} {|req ctx|
+      (theme-shell "templates" "Templates" "overview" (templates-overview))
+    })
+    (route {method: GET path: "/docs/templates/reference"} {|req ctx|
+      let page = ($pages | where slug == "templates--output" | first)
+      let content = ($readme | render-page $page $anchors | inject-copy-btns)
+      (theme-shell "templates" "Templates" "reference" (ARTICLE $content))
+    })
+    (route {method: GET path: "/docs/templates/example"} {|req ctx|
+      (theme-shell "templates" "Templates" "example" (templates-example))
+    })
+    (route {method: POST path: "/docs/templates/render"} {|req ctx|
+      let s = (from datastar-signals $req)
+      (tpl-render ($s.tpl? | default "") ($s.data? | default "{}")) | to datastar-patch-elements | to sse
+    })
+    (route {path-matches: "/docs/templates/preset/:name"} {|req ctx|
+      let p = (tpl-preset $ctx.name)
+      [
+        ({tpl: $p.tpl, data: $p.data} | to datastar-patch-signals)
+        ((tpl-render $p.tpl $p.data) | to datastar-patch-elements)
+      ] | to sse
     })
 
     # docs page
