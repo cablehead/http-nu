@@ -467,7 +467,7 @@ let themes = [
 
             (section-head "Why http-nu")
             (DIV {class: "grid"}
-              (DIV {class: "card panel"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
+              (A {class: "card panel" href: "/reference#requests--responses"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
               (A {class: "card panel" href: "/themes/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
               (A {class: "card panel" href: "/themes/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
               (A {class: "card panel" href: "/themes/storage"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
