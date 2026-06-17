@@ -370,8 +370,13 @@ def ref-nav [current: string] {
   (NAV {class: "docs-side toc"} (UL $items))
 }
 
-# Breadcrumb trail of ancestor links, separated by " / ". The current page is the
-# H1, not part of the trail. One scheme for every page that has ancestors.
+# the first H1 of a Markdown doc, or a fallback
+def md-title [fallback: string]: string -> string {
+  lines | where {|l| ($l | str starts-with "# ")} | get 0? | default $fallback | str replace "# " ""
+}
+
+# Breadcrumb trail: Section / Page, every crumb a link (the last to itself).
+# One universal scheme; callers pass [[section href] [page self-href]].
 def crumbs [trail: list] {
   let parts = ($trail | enumerate | each {|it|
     let link = (A {href: ($it.item | get 1)} ($it.item | get 0))
@@ -392,11 +397,7 @@ def page [title: string, main] {
 }
 
 def theme-shell [theme: string, title: string, current: string, body] {
-  let trail = (if $current == "overview" {
-    [["Themes" "/themes"]]
-  } else {
-    [["Themes" "/themes"] [$title $"/themes/($theme)"]]
-  })
+  let trail = [["Themes" "/themes"] [$title $"/themes/($theme)"]]
   (page $"($title) - http-nu"
     (MAIN {class: "container"}
       (crumbs $trail)
@@ -605,7 +606,7 @@ let themes = [
               (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Sections")
               (ref-nav $page.slug))
             (ARTICLE
-              (crumbs [["Reference" "/reference"]])
+              (crumbs [["Reference" "/reference"] [$page.title $"/reference/($page.slug)"]])
               $content
               (NAV {class: "pager"}
                 (if ($idx > 0) {
@@ -625,7 +626,7 @@ let themes = [
     (route {method: GET path: "/how-tos"} {|req ctx|
       let guides = (ls ($script_dir | path join how-tos) | where name =~ '\.md$' | sort-by name | each {|f|
         let slug = ($f.name | path basename | str replace --regex '\.md$' "")
-        let title = (open --raw $f.name | decode utf-8 | lines | where {|l| ($l | str starts-with "# ")} | get 0? | default $slug | str replace "# " "")
+        let title = (open --raw $f.name | decode utf-8 | md-title $slug)
         {slug: $slug, title: $title}
       })
       (page "How-tos - http-nu"
@@ -643,12 +644,13 @@ let themes = [
     (route {path-matches: "/how-tos/:slug"} {|req ctx|
       let path = ($script_dir | path join how-tos | path join $"($ctx.slug).md")
       if ($path | path exists) {
-        let content = (open --raw $path | decode utf-8 | .md | inject-copy-btns)
-        (page "How-tos - http-nu"
+        let raw = (open --raw $path | decode utf-8)
+        let title = ($raw | md-title $ctx.slug)
+        (page $"($title) - http-nu"
           (MAIN {class: "container"}
             (ARTICLE
-              (crumbs [["How-tos" "/how-tos"]])
-              $content)))
+              (crumbs [["How-tos" "/how-tos"] [$title $"/how-tos/($ctx.slug)"]])
+              ($raw | .md | inject-copy-btns))))
       } else {
         (not-found)
       }
