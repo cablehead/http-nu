@@ -395,6 +395,19 @@ def templates-overview [] {
     (templates-files-section))
 }
 
+# theme registry: metadata + an overview builder per theme. Drives the /themes
+# index and the generic /themes/:slug (+ /reference) routes, so adding a theme is
+# one row here plus its overview def, no per-theme route boilerplate.
+let themes = [
+  [slug, title, ref, icon, blurb, overview];
+  [templates, "Templates", "templates--output", "lucide:layout-template",
+    "Render a page from data: an editable .mj playground, then files and the store.",
+    {|| templates-overview}]
+  [streaming, "Streaming & events", "streaming--events", "lucide:zap",
+    "Stream chunks and push server-sent events, with a live SSE toy.",
+    {|| streaming-overview}]
+]
+
 {|req|
   dispatch $req [
 
@@ -421,7 +434,7 @@ def templates-overview [] {
       )
     })
 
-    # themes index: each theme leads with something to poke, then its reference
+    # themes index (registry-driven)
     (route {method: GET path: "/themes"} {|req ctx|
       (HTML
         (page-head "Themes - http-nu")
@@ -432,16 +445,31 @@ def templates-overview [] {
               (H1 "Themes")
               (P {class: "muted"} "Each theme leads with something to poke, then the reference behind it.")
               (DIV {class: "grid"}
-                (A {class: "card panel" href: "/themes/templates"}
-                  (H3 (icon "lucide:layout-template") " Templates")
-                  (P {class: "muted"} "Render a page from data: an editable .mj playground, then files and the store."))
-                (A {class: "card panel" href: "/themes/streaming"}
-                  (H3 (icon "lucide:zap") " Streaming & events")
-                  (P {class: "muted"} "Stream chunks and push server-sent events, the datastar-sdk patch trio.")))
+                ($themes | each {|t|
+                  (A {class: "card panel" href: $"/themes/($t.slug)"}
+                    (H3 (icon $t.icon) $" ($t.title)")
+                    (P {class: "muted"} $t.blurb))
+                }))
               (P (A {href: "/reference"} "Browse the full reference ->"))))
           (copy-script)
         )
       )
+    })
+
+    # generic theme overview + reference (registry-driven)
+    (route {path-matches: "/themes/:slug"} {|req ctx|
+      let t = ($themes | where slug == $ctx.slug | get 0?)
+      if $t == null { ("Not Found" | metadata set { merge {'http.response': {status: 404}} }) } else {
+        (theme-shell $t.slug $t.title "overview" (do $t.overview))
+      }
+    })
+    (route {path-matches: "/themes/:slug/reference"} {|req ctx|
+      let t = ($themes | where slug == $ctx.slug | get 0?)
+      if $t == null { ("Not Found" | metadata set { merge {'http.response': {status: 404}} }) } else {
+        let page = ($pages | where slug == $t.ref | first)
+        let content = ($readme | render-page $page $anchors | inject-copy-btns)
+        (theme-shell $t.slug $t.title "reference" (ARTICLE $content))
+      }
     })
 
     # reference: the whole README, collected and anchored (single source of truth)
@@ -512,15 +540,7 @@ def templates-overview [] {
       }
     })
 
-    # --- streaming theme namespace (overview + reference) ---
-    (route {method: GET path: "/themes/streaming"} {|req ctx|
-      (theme-shell "streaming" "Streaming & events" "overview" (streaming-overview))
-    })
-    (route {method: GET path: "/themes/streaming/reference"} {|req ctx|
-      let page = ($pages | where slug == "streaming--events" | first)
-      let content = ($readme | render-page $page $anchors | inject-copy-btns)
-      (theme-shell "streaming" "Streaming & events" "reference" (ARTICLE $content))
-    })
+    # theme interactions: streaming's live SSE buttons
     (route {method: POST path: "/themes/streaming/increment"} {|req ctx|
       let s = (from datastar-signals $req)
       let count = (($s.count? | default 0) + 1)
@@ -530,15 +550,7 @@ def templates-overview [] {
       (DIV {id: "stream-time"} (date now | format date "%H:%M:%S")) | to datastar-patch-elements | to sse
     })
 
-    # --- templates theme namespace (overview + facets + live playground) ---
-    (route {method: GET path: "/themes/templates"} {|req ctx|
-      (theme-shell "templates" "Templates" "overview" (templates-overview))
-    })
-    (route {method: GET path: "/themes/templates/reference"} {|req ctx|
-      let page = ($pages | where slug == "templates--output" | first)
-      let content = ($readme | render-page $page $anchors | inject-copy-btns)
-      (theme-shell "templates" "Templates" "reference" (ARTICLE $content))
-    })
+    # theme interactions: templates' live .mj playground
     (route {method: POST path: "/themes/templates/render"} {|req ctx|
       let s = (from datastar-signals $req)
       (tpl-render ($s.tpl? | default "") ($s.data? | default "{}")) | to datastar-patch-elements | to sse
