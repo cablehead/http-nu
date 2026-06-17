@@ -458,6 +458,21 @@ stor open | query db "select * from guestbook"'#
     (P (A {href: "/themes/storage/reference"} "Full reference: stor, the bus, and the event store ->")))
 }
 
+# styled 404 page, with the 404 status set on the response
+def not-found [] {
+  (HTML
+    (page-head "Not found - http-nu")
+    (BODY
+      (nav-bar)
+      (MAIN {class: "container"}
+        (ARTICLE
+          (H1 "Not found")
+          (P {class: "muted"} "That page does not exist.")
+          (P (A {href: "/"} "Back home ->"))))
+      (copy-script)))
+  | metadata set { merge {'http.response': {status: 404}} }
+}
+
 # theme registry: metadata + an overview builder per theme. Drives the /themes
 # index and the generic /themes/:slug (+ /reference) routes, so adding a theme is
 # one row here plus its overview def, no per-theme route boilerplate.
@@ -525,13 +540,13 @@ let themes = [
     # generic theme overview + reference (registry-driven)
     (route {path-matches: "/themes/:slug"} {|req ctx|
       let t = ($themes | where slug == $ctx.slug | get 0?)
-      if $t == null { ("Not Found" | metadata set { merge {'http.response': {status: 404}} }) } else {
+      if $t == null { (not-found) } else {
         (theme-shell $t.slug $t.title "overview" (do $t.overview))
       }
     })
     (route {path-matches: "/themes/:slug/reference"} {|req ctx|
       let t = ($themes | where slug == $ctx.slug | get 0?)
-      if $t == null { ("Not Found" | metadata set { merge {'http.response': {status: 404}} }) } else {
+      if $t == null { (not-found) } else {
         let page = ($pages | where slug == $t.ref | first)
         let content = ($readme | render-page $page $anchors | inject-copy-btns)
         (theme-shell $t.slug $t.title "reference" (ARTICLE $content))
@@ -565,7 +580,7 @@ let themes = [
     (route {path-matches: "/reference/:slug"} {|req ctx|
       let idx = ($pages | enumerate | where item.slug == $ctx.slug | get index.0? | default null)
       if $idx == null {
-        ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
+        (not-found)
       } else {
         let page = ($pages | get $idx)
         let prev = (if $idx > 0 { $pages | get ($idx - 1) } else { null })
@@ -640,7 +655,7 @@ let themes = [
           )
         )
       } else {
-        ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
+        (not-found)
       }
     })
 
