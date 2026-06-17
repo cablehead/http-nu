@@ -402,6 +402,39 @@ def templates-overview [] {
     (templates-files-section))
 }
 
+def gb-ensure [] { try { stor create -t guestbook -c {msg: str} } catch {} }
+def guestbook-list [] {
+  gb-ensure
+  let rows = (stor open | query db "select msg from guestbook order by rowid desc limit 8")
+  (DIV {id: "guestbook" class: "guestbook"}
+    (if ($rows | is-empty) {
+      (P {class: "muted"} "no messages yet")
+    } else {
+      (UL ($rows | each {|r| (LI $r.msg)}))
+    }))
+}
+
+def storage-overview [] {
+  let stor_src = r#'
+# stor is an in-memory SQLite table: no server, no file
+stor create -t guestbook -c {msg: str}
+"hello" | wrap msg | stor insert -t guestbook
+stor open | query db "select * from guestbook"'#
+  (ARTICLE
+    (P "Keep state without a database server: an in-memory SQLite via " (CODE "stor")
+      ", a local pub/sub " (CODE "bus") ", and an embedded cross.stream event store. "
+      "Here is " (CODE "stor") ", live:")
+    (DIV {class: "playground" "data-signals": "{msg: ''}"}
+      (P {class: "muted"} "A shared in-memory table. Sign it; rows last until the server restarts.")
+      (DIV {class: "pg-live"}
+        (INPUT {class: "pg-input" "data-bind:msg": true placeholder: "leave a message" spellcheck: "false"})
+        (BUTTON {class: "chip" "data-on:click": "@post('/themes/storage/sign')"} "Sign"))
+      (guestbook-list))
+    (H2 "How it works")
+    (toy "Insert and query" "stor is an in-memory SQLite table you can insert into and query with SQL, no setup." $stor_src "nu")
+    (P (A {href: "/themes/storage/reference"} "Full reference: stor, the bus, and the event store ->")))
+}
+
 # theme registry: metadata + an overview builder per theme. Drives the /themes
 # index and the generic /themes/:slug (+ /reference) routes, so adding a theme is
 # one row here plus its overview def, no per-theme route boilerplate.
@@ -413,6 +446,9 @@ let themes = [
   [streaming, "Streaming & events", "streaming--events", "lucide:zap",
     "Stream chunks and push server-sent events, with a live SSE toy.",
     {|| streaming-overview}]
+  [storage, "State & storage", "state--storage", "lucide:database",
+    "In-memory SQLite, a local bus, and an embedded event store. Sign the live guestbook.",
+    {|| storage-overview}]
 ]
 
 {|req|
@@ -434,7 +470,7 @@ let themes = [
               (DIV {class: "card panel"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
               (A {class: "card panel" href: "/themes/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
               (A {class: "card panel" href: "/themes/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
-              (DIV {class: "card panel"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
+              (A {class: "card panel" href: "/themes/storage"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
           )
           (copy-script)
         )
@@ -555,6 +591,14 @@ let themes = [
     })
     (route {method: POST path: "/themes/streaming/time"} {|req ctx|
       (DIV {id: "stream-time"} (date now | format date "%H:%M:%S")) | to datastar-patch-elements | to sse
+    })
+    # theme interactions: storage's live stor guestbook
+    (route {method: POST path: "/themes/storage/sign"} {|req ctx|
+      let s = (from datastar-signals $req)
+      let msg = ($s.msg? | default "" | str trim)
+      gb-ensure
+      if ($msg != "") { $msg | wrap msg | stor insert -t guestbook }
+      [ ({msg: ""} | to datastar-patch-signals) ((guestbook-list) | to datastar-patch-elements) ] | to sse
     })
 
     # theme interactions: templates' live .mj playground

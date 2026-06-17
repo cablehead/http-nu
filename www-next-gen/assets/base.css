@@ -804,3 +804,18 @@ pre .invalid {
 .pg-val {
   font-weight: var(--font-weight-bold);
 }
+
+/* storage theme: the guestbook input + list */
+.pg-input {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  padding: 0.2em 0.6em;
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-0);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  outline: none;
+}
+.guestbook ul {
+  margin: var(--size--1) 0 0;
+}
