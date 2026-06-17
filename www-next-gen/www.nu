@@ -512,6 +512,28 @@ def tut-gb-list [] {
     }))
 }
 
+# the hello-world tutorial: a simulated terminal. Enter boots the server (its
+# banner), then each curl click appends a response line.
+def tutorial-hello-world [] {
+  (DIV
+    (P "http-nu takes a Nushell closure and serves it over HTTP. The closure "
+      "receives the request as its argument, and whatever it returns becomes the "
+      "response. Boot the smallest possible server, then curl it:")
+    (DIV {class: "termsim" "data-signals": "{started: false}"}
+      (DIV {class: "termsim-cmd"}
+        (SPAN {class: "termsim-prompt"} "$")
+        (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'")
+        (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Enter"))
+      (DIV {class: "termsim-cmd"}
+        (SPAN {class: "termsim-prompt"} "$")
+        (CODE "curl localhost:3001")
+        (BUTTON {class: "chip" "data-attr:disabled": "!$started" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
+      (DIV {id: "term-out" class: "term-out"}))
+    (P "The string is returned as " (CODE "text/html") " by default. Return a record "
+      "and it becomes " (CODE "application/json") " automatically.")
+    (P (A {href: "/tutorials/build-a-live-guestbook"} "Next: build a live guestbook ->")))
+}
+
 # the getting-started tutorial: lead with the finished guestbook (live), then the
 # step-by-step build rendered from its Markdown.
 def tutorial-getting-started [] {
@@ -548,6 +570,9 @@ let themes = [
 # tutorials registry: step-by-step builds, each with an interactive lead widget.
 let tutorials = [
   [slug, title, blurb, builder];
+  ["hello-world", "Hello world",
+    "The smallest http-nu server: a closure that returns a string. Boot it and curl it, right here.",
+    {|| tutorial-hello-world}]
   ["build-a-live-guestbook", "Build a live guestbook",
     "From hello-world to real-time updates: the HTML DSL, routing, the store, and Datastar SSE.",
     {|| tutorial-getting-started}]
@@ -727,6 +752,20 @@ let tutorials = [
       tut-gb-ensure
       if ($name != "" and $message != "") { {name: $name, msg: $message} | stor insert -t signatures }
       [ ({name: "", message: ""} | to datastar-patch-signals) ((tut-gb-list) | to datastar-patch-elements) ] | to sse
+    })
+    # hello-world tutorial: boot the server (banner), then curl appends responses
+    (route {method: POST path: "/tutorials/hello-world/serve"} {|req ctx|
+      let banner = (open --raw ($script_dir | path join tutorials hello-world-banner.txt) | decode utf-8 | str trim --right)
+      [
+        ((PRE {class: "term-block"} $banner) | to datastar-patch-elements --selector "#term-out" --mode append)
+        ({started: true} | to datastar-patch-signals)
+      ] | to sse
+    })
+    (route {method: POST path: "/tutorials/hello-world/curl"} {|req ctx|
+      (DIV {class: "term-block"}
+        (DIV {class: "termsim-prompt"} "$ curl localhost:3001")
+        (DIV "Hello, world!"))
+      | to datastar-patch-elements --selector "#term-out" --mode append | to sse
     })
 
     # theme interactions: streaming's live SSE buttons
