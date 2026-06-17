@@ -514,13 +514,8 @@ def tut-gb-list [] {
 # banner), then each curl click appends a response line.
 # reusable terminal window chrome (the splash .terminal component): a titlebar
 # with the mac dots + a label, and a body.
-def terminal [title: string, body, --action: any = null, --state: string = ""] {
-  let attrs = (if ($state | is-empty) {
-    {class: "terminal"}
-  } else {
-    {class: "terminal terminal-toggle" "data-class:is-running": $state}
-  })
-  (DIV $attrs
+def terminal [title: string, body, --action: any = null] {
+  (DIV {class: "terminal"}
     (DIV {class: "terminal-bar"}
       (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
       (SPAN {class: "terminal-title"} $title)
@@ -553,13 +548,13 @@ def srv-reqlog [port: int] {
 def hello-world-demo [] {
   (DIV {"data-signals": "{started: false, started2: false}"}
     (DIV {class: "terminal-row"}
-      (terminal "server" --state "$started" --action (BUTTON {class: "chip chip-go" "data-show": "!$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Start Server")
+      (terminal "server" --action (BUTTON {class: "chip-go" "data-class:is-lit": "$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Start Server")
         (DIV
           (DIV {class: "term-cmd"}
             (SPAN {class: "prompt"} "$ ")
             (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'"))
           (DIV {id: "server-out" class: "term-out"})))
-      (DIV {"data-show": "$started"}
+      (DIV {class: "client-pane" "data-show": "$started"}
         (terminal "client" --action (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run")
           (DIV
             (DIV {class: "term-cmd"}
@@ -569,13 +564,13 @@ def hello-world-demo [] {
     (P "The string is returned as " (CODE "text/html") " by default. Return a record "
       "and it becomes " (CODE "application/json") " automatically.")
     (DIV {class: "terminal-row"}
-      (terminal "server" --state "$started2" --action (BUTTON {class: "chip chip-go" "data-show": "!$started2" "data-on:click": "@post('/demo/serve-json')"} "Start Server")
+      (terminal "server" --action (BUTTON {class: "chip-go" "data-class:is-lit": "$started2" "data-on:click": "@post('/demo/serve-json')"} "Start Server")
         (DIV
           (DIV {class: "term-cmd"}
             (SPAN {class: "prompt"} "$ ")
             (CODE "http-nu :3003 -c '{|req| {msg: \"Hello, world!\"} }'"))
           (DIV {id: "server2-out" class: "term-out"})))
-      (DIV {"data-show": "$started2"}
+      (DIV {class: "client-pane" "data-show": "$started2"}
         (terminal "client" --action (BUTTON {class: "chip" "data-on:click": "@post('/demo/curl-json')"} "Run")
           (DIV
             (DIV {class: "term-cmd"}
