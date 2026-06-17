@@ -519,16 +519,23 @@ def tutorial-hello-world [] {
     (P "http-nu takes a Nushell closure and serves it over HTTP. The closure "
       "receives the request as its argument, and whatever it returns becomes the "
       "response. Boot the smallest possible server, then curl it:")
-    (DIV {class: "termsim"}
-      (DIV {class: "termsim-cmd"}
-        (SPAN {class: "termsim-prompt"} "$")
-        (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'")
-        (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Enter"))
-      (DIV {class: "termsim-cmd"}
-        (SPAN {class: "termsim-prompt"} "$")
-        (CODE "curl localhost:3001")
-        (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
-      (DIV {id: "term-out" class: "term-out"}))
+    (DIV {class: "termsim-grid" "data-signals": "{started: false}"}
+      (DIV {class: "termwin"}
+        (DIV {class: "termwin-bar"} "server")
+        (DIV {class: "termwin-body"}
+          (DIV {class: "termsim-cmd"}
+            (SPAN {class: "termsim-prompt"} "$")
+            (CODE "http-nu :3001 -c '{|req| \"Hello, world!\"}'")
+            (BUTTON {class: "chip" "data-attr:disabled": "$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Enter"))
+          (DIV {id: "server-out" class: "term-out"})))
+      (DIV {class: "termwin"}
+        (DIV {class: "termwin-bar"} "client")
+        (DIV {class: "termwin-body"}
+          (DIV {class: "termsim-cmd"}
+            (SPAN {class: "termsim-prompt"} "$")
+            (CODE "curl localhost:3001")
+            (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/hello-world/curl')"} "Run"))
+          (DIV {id: "curl-out" class: "term-out"}))))
     (P "The string is returned as " (CODE "text/html") " by default. Return a record "
       "and it becomes " (CODE "application/json") " automatically.")
     (P (A {href: "/tutorials/build-a-live-guestbook"} "Next: build a live guestbook ->")))
@@ -755,20 +762,31 @@ let tutorials = [
     })
     # hello-world tutorial: boot the server (banner), then curl appends responses
     (route {method: POST path: "/tutorials/hello-world/serve"} {|req ctx|
-      # actually boot http-nu in the background (once) on :3001
+      # actually boot http-nu in the background (once), capturing its banner
       let up = (try { http get http://127.0.0.1:3001 | ignore; true } catch { false })
       if not $up {
-        ^bash -c "nohup http-nu :3001 -c '{|req| \"Hello, world!\"}' >/dev/null 2>&1 &"
+        ^bash -c "nohup http-nu :3001 -c '{|req| \"Hello, world!\"}' > /tmp/hello-nu-3001.log 2>&1 &"
         sleep 1sec
       }
-      (DIV {class: "term-line"} "http-nu running in the background on :3001")
-      | to datastar-patch-elements --selector "#term-out" --mode append | to sse
+      let banner = (try { open /tmp/hello-nu-3001.log | lines | first 6 | str join "\n" | ansi strip } catch { "http-nu running on :3001" })
+      [
+        ((PRE $banner) | to datastar-patch-elements --selector "#server-out" --mode inner)
+        ({started: true} | to datastar-patch-signals)
+      ] | to sse
     })
     (route {method: POST path: "/tutorials/hello-world/curl"} {|req ctx|
-      # really curl it: a response if it is up, a connection error if it is not
-      let out = (try { http get http://127.0.0.1:3001 } catch { "curl: (7) Failed to connect to localhost port 3001: Connection refused" })
-      (DIV {class: "term-line"} $out)
-      | to datastar-patch-elements --selector "#term-out" --mode append | to sse
+      # really curl it; on success also surface the server's own request log line
+      let res = (try { {ok: (http get http://127.0.0.1:3001)} } catch { {err: "curl: (7) Failed to connect to localhost port 3001: Connection refused"} })
+      if ($res.err? != null) {
+        (DIV {class: "term-line"} $res.err)
+        | to datastar-patch-elements --selector "#curl-out" --mode append | to sse
+      } else {
+        let logline = (try { open /tmp/hello-nu-3001.log | lines | last | ansi strip | str trim } catch { "" })
+        [
+          ((DIV {class: "term-line"} $res.ok) | to datastar-patch-elements --selector "#curl-out" --mode append)
+          ((DIV {class: "term-line term-log"} $logline) | to datastar-patch-elements --selector "#server-out" --mode append)
+        ] | to sse
+      }
     })
 
     # theme interactions: streaming's live SSE buttons

@@ -857,17 +857,47 @@ pre .invalid {
   font-size: var(--font-size--1);
 }
 
-/* simulated terminal (hello-world tutorial): commands with run buttons + a
-   console that accumulates output */
-.termsim {
-  font-family: var(--font-mono);
-  font-size: var(--font-size--1);
+/* simulated terminal (hello-world tutorial): two windows (server + client),
+   each a command row with a run button and a console that accumulates output */
+.termsim-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--size-0);
+  margin: var(--size-1) 0 var(--size-3);
+}
+.termwin {
   background: var(--code-bg);
   color: var(--code-fg);
   border: var(--border-width-1) solid var(--neutral-4);
   border-radius: var(--border-radius-0);
-  padding: var(--size--1) var(--size-0);
-  margin: var(--size-1) 0 var(--size-3);
+  overflow: hidden;
+  min-width: 0;
+}
+.termwin-bar {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  padding: var(--size--2) var(--size--1);
+  background: var(--neutral-3);
+  border-bottom: var(--border-width-1) solid var(--neutral-4);
+  opacity: 0.75;
+}
+.termwin-body {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  padding: var(--size--1);
+}
+.termwin code {
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+  overflow-x: auto;
+}
+.termwin pre {
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
 }
 .termsim-cmd {
   display: flex;
@@ -876,16 +906,20 @@ pre .invalid {
   flex-wrap: wrap;
   margin-bottom: var(--size--2);
 }
-.termsim code {
-  background: transparent;
-  padding: 0;
-  white-space: pre;
-}
 .termsim-prompt {
   opacity: 0.6;
 }
 .term-out {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: var(--code-line-height);
   margin-top: var(--size--1);
+}
+.term-log {
+  opacity: 0.7;
+}
+@media (max-width: 640px) {
+  .termsim-grid {
+    grid-template-columns: 1fr;
+  }
 }
