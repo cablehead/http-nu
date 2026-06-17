@@ -382,7 +382,7 @@ def crumbs [trail: list] {
 
 # page shell shared by every routed page: head, nav, the given main, then footer.
 def page [title: string, main] {
-  (HTML
+  (HTML {lang: "en"}
     (page-head $title)
     (BODY
       (nav-bar)
@@ -518,7 +518,7 @@ let themes = [
 
     # landing page
     (route {method: GET path: "/"} {|req ctx|
-      (HTML
+      (HTML {lang: "en"}
         (page-head "http-nu")
         (BODY
           (splash-hero)
