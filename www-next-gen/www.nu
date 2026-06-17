@@ -514,8 +514,13 @@ def tut-gb-list [] {
 # banner), then each curl click appends a response line.
 # reusable terminal window chrome (the splash .terminal component): a titlebar
 # with the mac dots + a label, and a body.
-def terminal [title: string, body, --action: any = null] {
-  (DIV {class: "terminal"}
+def terminal [title: string, body, --action: any = null, --state: string = ""] {
+  let attrs = (if ($state | is-empty) {
+    {class: "terminal"}
+  } else {
+    {class: "terminal terminal-toggle" "data-class:is-running": $state}
+  })
+  (DIV $attrs
     (DIV {class: "terminal-bar"}
       (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
       (SPAN {class: "terminal-title"} $title)
@@ -525,16 +530,18 @@ def terminal [title: string, body, --action: any = null] {
 
 # the real http-nu :3001 log, cleaned of its live-redraw noise: the banner is
 # the lines before the first request; reqlog is the last completed request line.
-def hello-banner [] {
+def srv-banner [port: int] {
+  let log = $"/tmp/hello-nu-($port).log"
   try {
-    open /tmp/hello-nu-3001.log | lines | each {|l| $l | ansi strip }
+    open $log | lines | each {|l| $l | ansi strip }
     | take until {|l| ($l | str contains "in flight") or ($l =~ " GET ") }
     | str join (char newline) | str trim --right
-  } catch { "http-nu running on :3001" }
+  } catch { $"http-nu running on :($port)" }
 }
-def hello-reqlog [] {
+def srv-reqlog [port: int] {
+  let log = $"/tmp/hello-nu-($port).log"
   try {
-    open /tmp/hello-nu-3001.log | lines | each {|l| $l | ansi strip | str trim }
+    open $log | lines | each {|l| $l | ansi strip | str trim }
     | where {|l| ($l | str ends-with "b") and ($l =~ " (GET|POST|HEAD|PUT|DELETE|PATCH) ") }
     | last
   } catch { "" }
@@ -544,9 +551,9 @@ def hello-reqlog [] {
 # client terminal stays hidden until the server is up. Droppable into any page;
 # framing prose (intro, next link) is supplied by the caller.
 def hello-world-demo [] {
-  (DIV {"data-signals": "{started: false}"}
+  (DIV {"data-signals": "{started: false, started2: false}"}
     (DIV {class: "terminal-row"}
-      (terminal "server" --action (BUTTON {class: "chip" "data-show": "!$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Start")
+      (terminal "server" --state "$started" --action (BUTTON {class: "chip chip-go" "data-show": "!$started" "data-on:click": "@post('/tutorials/hello-world/serve')"} "Start Server")
         (DIV
           (DIV {class: "term-cmd"}
             (SPAN {class: "prompt"} "$ ")
@@ -560,7 +567,21 @@ def hello-world-demo [] {
               (CODE "curl localhost:3001"))
             (DIV {id: "curl-out" class: "term-out"})))))
     (P "The string is returned as " (CODE "text/html") " by default. Return a record "
-      "and it becomes " (CODE "application/json") " automatically."))
+      "and it becomes " (CODE "application/json") " automatically.")
+    (DIV {class: "terminal-row"}
+      (terminal "server" --state "$started2" --action (BUTTON {class: "chip chip-go" "data-show": "!$started2" "data-on:click": "@post('/demo/serve-json')"} "Start Server")
+        (DIV
+          (DIV {class: "term-cmd"}
+            (SPAN {class: "prompt"} "$ ")
+            (CODE "http-nu :3003 -c '{|req| {msg: \"Hello, world!\"} }'"))
+          (DIV {id: "server2-out" class: "term-out"})))
+      (DIV {"data-show": "$started2"}
+        (terminal "client" --action (BUTTON {class: "chip" "data-on:click": "@post('/demo/curl-json')"} "Run")
+          (DIV
+            (DIV {class: "term-cmd"}
+              (SPAN {class: "prompt"} "$ ")
+              (CODE "curl -v localhost:3003"))
+            (DIV {id: "curl2-out" class: "term-out"}))))))
 }
 
 def tutorial-hello-world [] {
@@ -802,7 +823,7 @@ let tutorials = [
         sleep 1sec
       }
       [
-        ((PRE (hello-banner)) | to datastar-patch-elements --selector "#server-out" --mode inner)
+        ((PRE (srv-banner 3001)) | to datastar-patch-elements --selector "#server-out" --mode inner)
         ({started: true} | to datastar-patch-signals)
       ] | to sse
     })
@@ -816,9 +837,36 @@ let tutorials = [
         sleep 150ms
         [
           ((DIV {class: "term-out"} $res.ok) | to datastar-patch-elements --selector "#curl-out" --mode append)
-          ((DIV {class: "term-out"} (hello-reqlog)) | to datastar-patch-elements --selector "#server-out" --mode append)
+          ((DIV {class: "term-out"} (srv-reqlog 3001)) | to datastar-patch-elements --selector "#server-out" --mode append)
         ] | to sse
       }
+    })
+    # json demo: a second server that returns a record (application/json), curled
+    # with -v so the response headers are visible.
+    (route {method: POST path: "/demo/serve-json"} {|req ctx|
+      let up = (try { http get http://127.0.0.1:3003 | ignore; true } catch { false })
+      if not $up {
+        ^bash -c "nohup http-nu :3003 -c '{|req| {msg: \"Hello, world!\"} }' > /tmp/hello-nu-3003.log 2>&1 &"
+        sleep 1sec
+      }
+      [
+        ((PRE (srv-banner 3003)) | to datastar-patch-elements --selector "#server2-out" --mode inner)
+        ({started2: true} | to datastar-patch-signals)
+      ] | to sse
+    })
+    (route {method: POST path: "/demo/curl-json"} {|req ctx|
+      # curl -v, keeping only the interesting response lines (status + content-type)
+      let r = (^curl -sv http://localhost:3003 | complete)
+      let head = ($r.stderr | lines
+        | where {|l| ($l | str starts-with "< HTTP") or (($l | str downcase) | str starts-with "< content-type")}
+        | each {|l| $l | str trim }
+        | str join (char newline))
+      let body = ($r.stdout | str trim)
+      let out = ([$head $body] | where {|x| $x != "" } | str join (char newline))
+      [
+        ((DIV {class: "term-out"} $out) | to datastar-patch-elements --selector "#curl2-out" --mode append)
+        ((DIV {class: "term-out"} (srv-reqlog 3003)) | to datastar-patch-elements --selector "#server2-out" --mode append)
+      ] | to sse
     })
 
     # theme interactions: streaming's live SSE buttons

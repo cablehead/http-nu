@@ -329,6 +329,49 @@ body a.card:hover {
   opacity: 0.6;
 }
 
+/* a server terminal that boots on click: its chrome is greyed while the server
+   is off, then lights up with a green glow once it is running. */
+.terminal-toggle,
+.terminal-toggle .terminal-dots,
+.terminal-toggle .terminal-title,
+.terminal-toggle .terminal-dots span {
+  transition: box-shadow var(--anim-duration-base) var(--anim-ease-emphasized),
+    filter var(--anim-duration-base) var(--anim-ease-standard),
+    opacity var(--anim-duration-base) var(--anim-ease-standard);
+}
+.terminal-toggle:not(.is-running) .terminal-dots {
+  filter: grayscale(1) brightness(1.3);
+  opacity: 0.55;
+}
+.terminal-toggle:not(.is-running) .terminal-title {
+  opacity: 0.5;
+}
+.terminal-toggle.is-running {
+  box-shadow: var(--shadow-2), 0 0 1.4rem -0.3rem var(--named-green--1);
+}
+.terminal-toggle.is-running .terminal-dots span:nth-child(3) {
+  box-shadow: 0 0 0.5rem 0.08rem var(--named-green--1);
+}
+
+/* the "Start Server" go button: green, with a glow on hover and a press on
+   click. */
+.chip-go {
+  border-color: var(--named-green--1);
+  color: var(--named-green--2-dim);
+  transition: box-shadow var(--anim-duration-fast) var(--anim-ease-standard),
+    transform var(--anim-duration-fast) var(--anim-ease-standard),
+    background var(--anim-duration-fast) var(--anim-ease-standard),
+    color var(--anim-duration-fast) var(--anim-ease-standard);
+}
+.chip-go:hover {
+  background: var(--named-green--1);
+  color: var(--named-green--1-on);
+  box-shadow: 0 0 0.7rem -0.1rem var(--named-green--1);
+}
+.chip-go:active {
+  transform: scale(0.93);
+}
+
 /* animated rocket gif by the section heading */
 .rocket {
   height: 1em;

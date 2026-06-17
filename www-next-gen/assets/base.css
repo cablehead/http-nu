@@ -870,7 +870,7 @@ pre .invalid {
   margin-block: 0;
 }
 .terminal-row .terminal-bar {
-  padding: var(--size--2) var(--size--1);
+  padding: 0.2rem var(--size--1);
 }
 .terminal-row .terminal-body {
   padding: var(--size--2);
