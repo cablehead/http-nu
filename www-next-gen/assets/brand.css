@@ -361,3 +361,9 @@ body a.card:hover {
 .dark .chip:hover {
   background: var(--named-navy-2);
 }
+
+/* the tagline card is tilted for effect; clip the tilt so it never causes
+   horizontal overflow on narrow screens */
+.splash-hero {
+  overflow-x: clip;
+}

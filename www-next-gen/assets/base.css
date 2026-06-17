@@ -819,3 +819,32 @@ pre .invalid {
 .guestbook ul {
   margin: var(--size--1) 0 0;
 }
+
+/* playground stays within narrow viewports: let grid cells shrink, stack inputs */
+.pg-field,
+.pg-output {
+  min-width: 0;
+}
+.playground textarea {
+  width: 100%;
+}
+@media (max-width: 540px) {
+  .pg-inputs {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* narrow screens: let the top nav wrap instead of overflowing */
+@media (max-width: 540px) {
+  .nav {
+    flex-wrap: wrap;
+  }
+  .nav .links {
+    gap: var(--size-0);
+  }
+}
+
+/* let the preset chips wrap rather than overflow on narrow screens */
+.pg-presets {
+  flex-wrap: wrap;
+}
