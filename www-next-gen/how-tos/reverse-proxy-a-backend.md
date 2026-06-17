@@ -54,4 +54,4 @@ http-nu is a full server, so proxy the API and answer everything else yourself:
 }
 ```
 
-See the [Reference](/reference#reverse-proxy) for every option.
+See the [Reference](/reference/reverse-proxy) for every option.

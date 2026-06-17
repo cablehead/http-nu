@@ -327,6 +327,14 @@ def theme-facets [theme: string, current: string] {
     }))
 }
 
+# reference sidebar: every section, the current one highlighted
+def ref-nav [current: string] {
+  (NAV {class: "docs-side toc"}
+    (UL ($pages | each {|p|
+      (LI (A {href: $"/reference/($p.slug)" class: (if $p.slug == $current { "active" } else { "" })} $p.title))
+    })))
+}
+
 # Breadcrumb trail of ancestor links, separated by " / ". The current page is the
 # H1, not part of the trail. One scheme for every page that has ancestors.
 def crumbs [trail: list] {
@@ -468,7 +476,7 @@ let themes = [
 
             (section-head "Why http-nu")
             (DIV {class: "grid"}
-              (A {class: "card panel" href: "/reference#requests--responses"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
+              (A {class: "card panel" href: "/reference/requests--responses"} (H3 (icon "lucide:feather") " Tiny") (P "A single binary. Hand it a Nushell closure and you have a server."))
               (A {class: "card panel" href: "/themes/streaming"} (H3 (icon "lucide:zap") " Fast") (P "Streaming responses, SSE, and HTTP/2 over TLS out of the box."))
               (A {class: "card panel" href: "/themes/templates"} (H3 (icon "lucide:boxes") " Batteries") (P "Routing, an HTML DSL, templates, cookies, and a Datastar SDK, all embedded."))
               (A {class: "card panel" href: "/themes/storage"} (H3 (icon "lucide:database") " Stateful") (P "In-memory SQLite, a local bus, and an embedded cross.stream event store.")))
@@ -516,27 +524,62 @@ let themes = [
       }
     })
 
-    # reference: the whole README, collected and anchored (single source of truth)
+    # reference index: section cards (the README, section by section)
     (route {method: GET path: "/reference"} {|req ctx|
-      let sections = ($pages | each {|p|
-        (SECTION {id: $p.slug} ($readme | render-page $p $anchors | inject-copy-btns))
-      })
       (HTML
         (page-head "Reference - http-nu")
         (BODY
           (nav-bar)
-          (MAIN {class: "container with-sidebar"}
-            (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
-              (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Sections")
-              (NAV {class: "docs-side toc"}
-                (UL ($pages | each {|p| (LI (A {href: $"/reference#($p.slug)"} $p.title))}))))
+          (MAIN {class: "container"}
             (ARTICLE
-              (P {class: "muted"} "The project README, rendered as a doc site. "
-                (A {href: "/how-tos/render-readme-as-doc-site"} "Here is how ->"))
-              ...$sections))
+              (H1 "Reference")
+              (P {class: "muted"} "The project README, section by section. "
+                (A {href: "/how-tos/render-readme-as-doc-site"} "Rendered as a doc site ->"))
+              (DIV {class: "grid"}
+                ($pages | each {|p|
+                  (A {class: "card panel" href: $"/reference/($p.slug)"} (H3 $p.title))
+                }))))
           (copy-script)
         )
       )
+    })
+
+    # reference section: one README section with sidebar + pager
+    (route {path-matches: "/reference/:slug"} {|req ctx|
+      let idx = ($pages | enumerate | where item.slug == $ctx.slug | get index.0? | default null)
+      if $idx == null {
+        ("Not Found" | metadata set { merge {'http.response': {status: 404}} })
+      } else {
+        let page = ($pages | get $idx)
+        let prev = (if $idx > 0 { $pages | get ($idx - 1) } else { null })
+        let next = ($pages | get -o ($idx + 1))
+        let content = ($readme | render-page $page $anchors | inject-copy-btns)
+        (HTML
+          (page-head $"($page.title) - http-nu")
+          (BODY
+            (nav-bar)
+            (MAIN {class: "container with-sidebar"}
+              (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
+                (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Sections")
+                (ref-nav $page.slug))
+              (ARTICLE
+                (crumbs [["Reference" "/reference"]])
+                $content
+                (NAV {class: "pager"}
+                  (if ($idx > 0) {
+                    (A {class: "pager-link panel pager-prev" href: $"/reference/($prev.slug)"}
+                      (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Previous")
+                      (SPAN {class: "pager-page"} $prev.title))
+                  } else { "" })
+                  (if ($next != null) {
+                    (A {class: "pager-link panel pager-next" href: $"/reference/($next.slug)"}
+                      (SPAN {class: "pager-dir"} "Next" (icon "lucide:arrow-right"))
+                      (SPAN {class: "pager-page"} $next.title))
+                  } else { "" }))))
+            (copy-script)
+          )
+        )
+      }
     })
 
     # how-tos: collected guides, each a Markdown file in how-tos/ rendered by .md

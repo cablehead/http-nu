@@ -45,4 +45,4 @@ use http-nu/router *
 ```
 
 API routes win; everything else falls through to the app shell. See the
-[Reference](/reference#serving--operations) for the rest of `.static`.
+[Reference](/reference/serving--operations) for the rest of `.static`.
