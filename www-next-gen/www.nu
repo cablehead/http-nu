@@ -380,23 +380,29 @@ def crumbs [trail: list] {
   (P {class: "muted crumbs"} ...$parts)
 }
 
+# page shell shared by every routed page: head, nav, the given main, then footer.
+def page [title: string, main] {
+  (HTML
+    (page-head $title)
+    (BODY
+      (nav-bar)
+      $main
+      (site-footer)
+      (copy-script)))
+}
+
 def theme-shell [theme: string, title: string, current: string, body] {
   let trail = (if $current == "overview" {
     [["Themes" "/themes"]]
   } else {
     [["Themes" "/themes"] [$title $"/themes/($theme)"]]
   })
-  (HTML
-    (page-head $"($title) - http-nu")
-    (BODY
-      (nav-bar)
-      (MAIN {class: "container"}
-        (crumbs $trail)
-        (H1 $title)
-        (theme-facets $theme $current)
-        $body)
-      (site-footer)
-      (copy-script)))
+  (page $"($title) - http-nu"
+    (MAIN {class: "container"}
+      (crumbs $trail)
+      (H1 $title)
+      (theme-facets $theme $current)
+      $body))
 }
 
 # The playground render: a JSON context record through an inline template.
@@ -482,17 +488,12 @@ stor open | query db "select * from guestbook"'#
 
 # styled 404 page, with the 404 status set on the response
 def not-found [] {
-  (HTML
-    (page-head "Not found - http-nu")
-    (BODY
-      (nav-bar)
-      (MAIN {class: "container"}
-        (ARTICLE
-          (H1 "Not found")
-          (P {class: "muted"} "That page does not exist.")
-          (P (A {href: "/"} "Back home ->"))))
-      (site-footer)
-      (copy-script)))
+  (page "Not found - http-nu"
+    (MAIN {class: "container"}
+      (ARTICLE
+        (H1 "Not found")
+        (P {class: "muted"} "That page does not exist.")
+        (P (A {href: "/"} "Back home ->")))))
   | metadata set { merge {'http.response': {status: 404}} }
 }
 
@@ -541,25 +542,18 @@ let themes = [
 
     # themes index (registry-driven)
     (route {method: GET path: "/themes"} {|req ctx|
-      (HTML
-        (page-head "Themes - http-nu")
-        (BODY
-          (nav-bar)
-          (MAIN {class: "container"}
-            (ARTICLE
-              (H1 "Themes")
-              (P {class: "muted"} "Each theme leads with something to poke, then the reference behind it.")
-              (DIV {class: "grid"}
-                ($themes | each {|t|
-                  (A {class: "card panel" href: $"/themes/($t.slug)"}
-                    (H3 (icon $t.icon) $" ($t.title)")
-                    (P {class: "muted"} $t.blurb))
-                }))
-              (P (A {href: "/reference"} "Browse the full reference ->"))))
-          (site-footer)
-          (copy-script)
-        )
-      )
+      (page "Themes - http-nu"
+        (MAIN {class: "container"}
+          (ARTICLE
+            (H1 "Themes")
+            (P {class: "muted"} "Each theme leads with something to poke, then the reference behind it.")
+            (DIV {class: "grid"}
+              ($themes | each {|t|
+                (A {class: "card panel" href: $"/themes/($t.slug)"}
+                  (H3 (icon $t.icon) $" ($t.title)")
+                  (P {class: "muted"} $t.blurb))
+              }))
+            (P (A {href: "/reference"} "Browse the full reference ->")))))
     })
 
     # generic theme overview + reference (registry-driven)
@@ -580,26 +574,19 @@ let themes = [
 
     # reference index: section cards (the README, section by section)
     (route {method: GET path: "/reference"} {|req ctx|
-      (HTML
-        (page-head "Reference - http-nu")
-        (BODY
-          (nav-bar)
-          (MAIN {class: "container"}
-            (ARTICLE
-              (H1 "Reference")
-              (P {class: "muted"} "The project README, section by section. "
-                (A {href: "/how-tos/render-readme-as-doc-site"} "Rendered as a doc site ->"))
-              (DIV {class: "grid"}
-                ($pages | each {|p|
-                  let secs = ($page_secs | get $p.slug)
-                  (A {class: "card panel" href: $"/reference/($p.slug)"}
-                    (H3 $p.title)
-                    (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
-                }))))
-          (site-footer)
-          (copy-script)
-        )
-      )
+      (page "Reference - http-nu"
+        (MAIN {class: "container"}
+          (ARTICLE
+            (H1 "Reference")
+            (P {class: "muted"} "The project README, section by section. "
+              (A {href: "/how-tos/render-readme-as-doc-site"} "Rendered as a doc site ->"))
+            (DIV {class: "grid"}
+              ($pages | each {|p|
+                let secs = ($page_secs | get $p.slug)
+                (A {class: "card panel" href: $"/reference/($p.slug)"}
+                  (H3 $p.title)
+                  (if ($secs | is-empty) { "" } else { (SMALL ($secs | get title | str join " \u{b7} ")) }))
+              })))))
     })
 
     # reference section: one README section with sidebar + pager
@@ -612,32 +599,25 @@ let themes = [
         let prev = (if $idx > 0 { $pages | get ($idx - 1) } else { null })
         let next = ($pages | get -o ($idx + 1))
         let content = ($readme | render-page $page $anchors --base "/reference" | inject-copy-btns)
-        (HTML
-          (page-head $"($page.title) - http-nu")
-          (BODY
-            (nav-bar)
-            (MAIN {class: "container with-sidebar"}
-              (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
-                (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Sections")
-                (ref-nav $page.slug))
-              (ARTICLE
-                (crumbs [["Reference" "/reference"]])
-                $content
-                (NAV {class: "pager"}
-                  (if ($idx > 0) {
-                    (A {class: "pager-link panel pager-prev" href: $"/reference/($prev.slug)"}
-                      (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Previous")
-                      (SPAN {class: "pager-page"} $prev.title))
-                  } else { "" })
-                  (if ($next != null) {
-                    (A {class: "pager-link panel pager-next" href: $"/reference/($next.slug)"}
-                      (SPAN {class: "pager-dir"} "Next" (icon "lucide:arrow-right"))
-                      (SPAN {class: "pager-page"} $next.title))
-                  } else { "" }))))
-            (site-footer)
-          (copy-script)
-          )
-        )
+        (page $"($page.title) - http-nu"
+          (MAIN {class: "container with-sidebar"}
+            (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
+              (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Sections")
+              (ref-nav $page.slug))
+            (ARTICLE
+              (crumbs [["Reference" "/reference"]])
+              $content
+              (NAV {class: "pager"}
+                (if ($idx > 0) {
+                  (A {class: "pager-link panel pager-prev" href: $"/reference/($prev.slug)"}
+                    (SPAN {class: "pager-dir"} (icon "lucide:arrow-left") "Previous")
+                    (SPAN {class: "pager-page"} $prev.title))
+                } else { "" })
+                (if ($next != null) {
+                  (A {class: "pager-link panel pager-next" href: $"/reference/($next.slug)"}
+                    (SPAN {class: "pager-dir"} "Next" (icon "lucide:arrow-right"))
+                    (SPAN {class: "pager-page"} $next.title))
+                } else { "" })))))
       }
     })
 
@@ -648,41 +628,27 @@ let themes = [
         let title = (open --raw $f.name | decode utf-8 | lines | where {|l| ($l | str starts-with "# ")} | get 0? | default $slug | str replace "# " "")
         {slug: $slug, title: $title}
       })
-      (HTML
-        (page-head "How-tos - http-nu")
-        (BODY
-          (nav-bar)
-          (MAIN {class: "container"}
-            (ARTICLE
-              (H1 "How-tos")
-              (P {class: "muted"} "Task guides, each a Markdown file rendered the way it describes.")
-              (DIV {class: "grid"}
-                ($guides | each {|g|
-                  (A {class: "card panel" href: $"/how-tos/($g.slug)"}
-                    (H3 (icon "lucide:file-text") $" ($g.title)"))
-                }))))
-          (site-footer)
-          (copy-script)
-        )
-      )
+      (page "How-tos - http-nu"
+        (MAIN {class: "container"}
+          (ARTICLE
+            (H1 "How-tos")
+            (P {class: "muted"} "Task guides, each a Markdown file rendered the way it describes.")
+            (DIV {class: "grid"}
+              ($guides | each {|g|
+                (A {class: "card panel" href: $"/how-tos/($g.slug)"}
+                  (H3 (icon "lucide:file-text") $" ($g.title)"))
+              })))))
     })
 
     (route {path-matches: "/how-tos/:slug"} {|req ctx|
       let path = ($script_dir | path join how-tos | path join $"($ctx.slug).md")
       if ($path | path exists) {
         let content = (open --raw $path | decode utf-8 | .md | inject-copy-btns)
-        (HTML
-          (page-head "How-tos - http-nu")
-          (BODY
-            (nav-bar)
-            (MAIN {class: "container"}
-              (ARTICLE
-                (crumbs [["How-tos" "/how-tos"]])
-                $content))
-            (site-footer)
-          (copy-script)
-          )
-        )
+        (page "How-tos - http-nu"
+          (MAIN {class: "container"}
+            (ARTICLE
+              (crumbs [["How-tos" "/how-tos"]])
+              $content)))
       } else {
         (not-found)
       }
