@@ -729,13 +729,14 @@ def design-palette [] {
     (TABLE {class: "pal-table"}
       (THEAD (TR (TH "") (TH "name") (TH "token") (TH "where we use it")))
       (TBODY
-        (pal-row "red" "--named-red-0" "alert, terminal dot")
-        (pal-row "orange" "--named-orange-0" "primary action")
-        (pal-row "green" "--named-green-0" "go, terminal dot")
-        (pal-row "grape" "--named-grape-0" "terminal chrome, badge")
-        (pal-row "ocean" "--named-ocean-0" "surface (light)")
-        (pal-row "navy" "--named-navy-0" "surface (dark)")
-        (pal-row "sand" "--named-sand-0" "headers, brand text")))
+        (pal-row "red" "--named-red-0" "Datastar badge, terminal dot")
+        (pal-row "orange" "--named-orange-0" "Nushell badge")
+        (pal-row "green" "--named-green-0" "HTTP Server badge, Start Server, terminal dot")
+        (pal-row "grape" "--named-grape-0" "cross.stream badge, terminal bar")
+        (pal-row "electric blue" "--named-stream-0" "links, the cross.stream wordmark")
+        (pal-row "ocean" "--named-ocean-0" "page surface (light)")
+        (pal-row "navy" "--named-navy-0" "page surface (dark)")
+        (pal-row "sand" "--named-sand-0" "the http-nu wordmark, headers")))
     (H2 "Stellar palette")
     (P {class: "muted"} "Each seed expands to a 5-step ramp, plus an -on and -dim per shade, generated from the config.")
     (TABLE {class: "pal-table"}
@@ -747,7 +748,7 @@ def design-palette [] {
         (ramp "ocean" "named-ocean")
         (ramp "navy" "named-navy")
         (ramp "sand" "named-sand")
-        (ramp "stream" "named-stream"))))
+        (ramp "electric blue" "named-stream"))))
 }
 
 let design_catalog = [
