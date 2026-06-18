@@ -92,7 +92,16 @@
 .vt-row select,
 .vt-row input,
 #vt-tuner button { font: inherit; }
-.vt-tryto { margin-top: var(--size-1); display: flex; gap: var(--size-1); flex-wrap: wrap; }
+.vt-hint { margin: var(--size-1) 0 var(--size-0); opacity: 0.7; }
+.vt-tryto { display: flex; gap: var(--size-1); flex-wrap: wrap; }
+.vt-tryto a {
+  text-decoration: none;
+  border: var(--border-width-1) solid var(--neutral-5);
+  border-radius: var(--border-radius-1);
+  padding: 0.1em 0.7em;
+  color: inherit;
+}
+.vt-tryto a:hover { background: var(--named-ocean-1); }
 .vt-actions { display: flex; gap: var(--size-1); justify-content: flex-end; margin-top: var(--size-1); }
 
 /* ------------------------------------------------------------------ */

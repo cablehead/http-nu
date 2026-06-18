@@ -63,7 +63,8 @@
       '<div class="vt-row"><label>Easing</label><select data-k="ease">' + opts(Object.keys(EASES)) + "</select></div>",
       '<div class="vt-row"><label>Style</label><select data-k="style">' + opts(STYLES) + "</select></div>",
       '<div class="vt-row"><label><input type="checkbox" data-k="scope"> Hold nav + chrome still</label></div>',
-      '<div class="vt-tryto">Feel it: <a href="/themes">Themes</a><a href="/reference">Reference</a><a href="/">Home</a></div>',
+      '<p class="vt-hint">Dials apply to real page navigations. Open one to see it:</p>',
+      '<div class="vt-tryto"><a href="/themes">Themes</a><a href="/reference">Reference</a><a href="/">Home</a></div>',
       '<div class="vt-actions"><button type="button" data-act="reset">Reset</button><button type="button" data-act="close">Close</button></div>',
     ].join("");
 
