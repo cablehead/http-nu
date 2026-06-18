@@ -18,17 +18,82 @@
 @view-transition {
   navigation: auto;
 }
+/* the root cross-fade, tuned live by the dialog in vt-tuner.js via these custom
+   properties and classes on <html> (persisted to localStorage). */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: var(--anim-duration-fast);
-  animation-timing-function: var(--anim-ease-standard);
+  animation-duration: var(--vt-duration, var(--anim-duration-fast));
+  animation-timing-function: var(--vt-ease, var(--anim-ease-standard));
 }
+/* off: swap with no fade */
+:root.vt-off::view-transition-old(root),
+:root.vt-off::view-transition-new(root) {
+  animation: none;
+}
+/* fade-in only: hold the outgoing page, fade the new one in over it */
+:root.vt-fadein::view-transition-old(root) {
+  animation: none;
+}
+/* slide: the new page rises as it fades in */
+:root.vt-slide::view-transition-new(root) {
+  animation-name: vt-slide-in;
+}
+@keyframes vt-slide-in {
+  from { opacity: 0; transform: translateY(0.8rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* scope: name the nav and main so they are their own groups; the page chrome
+   stays put while only the content cross-fades. */
+:root.vt-scope .nav { view-transition-name: vt-nav; }
+:root.vt-scope main { view-transition-name: vt-main; }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 0s;
   }
 }
+
+/* the tuner: a small floating button + dialog to play with the dials above. */
+#vt-tuner-btn {
+  position: fixed;
+  right: var(--size-1);
+  bottom: var(--size-1);
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  border: var(--border-width-1) solid var(--neutral-5);
+  background: var(--surface);
+  color: var(--surface-on);
+  cursor: pointer;
+  box-shadow: var(--shadow-2);
+}
+#vt-tuner {
+  border: var(--border-width-1) solid var(--neutral-5);
+  border-radius: var(--border-radius-2);
+  background: var(--surface);
+  color: var(--surface-on);
+  padding: var(--size-1) var(--size-2);
+  max-width: min(92vw, 24rem);
+  font-size: var(--font-size--1);
+}
+#vt-tuner::backdrop { background: rgba(0, 0, 0, 0.35); }
+#vt-tuner h2 { margin-top: 0; font-size: var(--font-size-1); }
+.vt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-1);
+  margin-block: var(--size-0);
+}
+.vt-row input[type="range"] { flex: 1; }
+.vt-row select,
+.vt-row input,
+#vt-tuner button { font: inherit; }
+.vt-tryto { margin-top: var(--size-1); display: flex; gap: var(--size-1); flex-wrap: wrap; }
+.vt-actions { display: flex; gap: var(--size-1); justify-content: flex-end; margin-top: var(--size-1); }
 
 /* ------------------------------------------------------------------ */
 /* Fonts: self-hosted, names must match the stellar --font-* tokens.    */

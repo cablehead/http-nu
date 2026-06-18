@@ -65,6 +65,7 @@ def page-head [title: string] {
   if (dark) document.documentElement.classList.add('dark');
 })();
 '#})
+    (SCRIPT {src: "/assets/vt-tuner.js"})
   )
 }
 
