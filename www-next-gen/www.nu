@@ -96,6 +96,7 @@ def nav-bar [] {
       (A {href: "/tutorials"} "Tutorials")
       (A {href: "/how-tos"} "How-tos")
       (A {href: "/reference"} "Reference")
+      (A {href: "/design"} "Design")
       (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
       (vt-toggle)
       (theme-toggle)))
@@ -702,8 +703,34 @@ def design-window [] {
     ]))
 }
 
+def palette-swatch [name: string, token: string, role: string] {
+  (DIV {class: "pal-sw"}
+    (DIV {class: "pal-chip" style: $"background: var\(($token)\)"})
+    (DIV {class: "pal-meta"}
+      (SPAN {class: "pal-name"} $name)
+      (CODE {class: "tok-name"} $token)
+      (SMALL {class: "muted"} $role)))
+}
+
+def design-palette [] {
+  (DIV
+    (P {class: "muted"} "2048 reads the same stellar.css, so a config change moves both sites.")
+    (DIV {class: "pal-grid"}
+      (palette-swatch "ocean" "--named-ocean-0" "page surface")
+      (palette-swatch "navy" "--named-navy-0" "dark surface")
+      (palette-swatch "stream" "--named-stream-0" "accent / links")
+      (palette-swatch "sand" "--named-sand-0" "brand / headers")
+      (palette-swatch "orange" "--named-orange-0" "primary action")
+      (palette-swatch "red" "--named-red-0" "alert / dot")
+      (palette-swatch "green" "--named-green-0" "go / dot")
+      (palette-swatch "grape" "--named-grape-0" "terminal chrome")))
+}
+
 let design_catalog = [
   [slug, title, blurb, builder];
+  ["palette", "Palette",
+    "The brand colors, one per hue, as shared Stellar named tokens.",
+    {|| design-palette}]
   ["window", "Window",
     "A chrome panel for code and output: a title bar over a dark body. The install tabs and the run demos are all this one component.",
     {|| design-window}]

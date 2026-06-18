@@ -293,7 +293,7 @@ code {
      padding. em keeps it proportional to the text; the vertical stays small so
      the chip doesn't blow out the prose line-height. */
   padding: 0.2em 0.45em;
-  border-radius: var(--border-radius--2);
+  border-radius: var(--border-radius-1);
   /* keep short code spans whole - don't break a token like --topic at its hyphen */
   white-space: nowrap;
 }
@@ -303,7 +303,7 @@ kbd {
   color: var(--neutral-3-on);
   border: var(--border-width-1) solid var(--neutral-5);
   border-bottom-width: var(--border-width-2);
-  border-radius: var(--border-radius--1);
+  border-radius: var(--border-radius-1);
   padding: var(--size--2) var(--size--1);
 }
 
@@ -743,7 +743,7 @@ pre .invalid {
   /* compact; the stellar size floor is too padded for a small nav card */
   padding: 0.5rem 0.85rem;
   border: var(--border-width-1) solid var(--neutral-4);
-  border-radius: var(--border-radius-0);
+  border-radius: var(--border-radius-1);
   text-decoration: none;
   transition-property: transform, box-shadow, background;
   transition-duration: var(--anim-duration-fast);
@@ -786,7 +786,7 @@ pre .invalid {
   cursor: pointer;
   opacity: 0;
   padding: 0.35rem;
-  border-radius: var(--border-radius-0);
+  border-radius: var(--border-radius-1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -854,7 +854,7 @@ pre .invalid {
   line-height: var(--code-line-height);
   padding: var(--size--1);
   border: var(--border-width-1) solid var(--neutral-4);
-  border-radius: var(--border-radius-0);
+  border-radius: var(--border-radius-1);
   background: var(--code-bg);
   color: var(--code-fg);
   resize: vertical;
@@ -873,7 +873,7 @@ pre .invalid {
   letter-spacing: normal;
   padding: 0.1em 0.6em;
   border: var(--border-width-1) solid var(--neutral-4);
-  border-radius: var(--border-radius-2);
+  border-radius: var(--border-radius-1);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -884,7 +884,7 @@ pre .invalid {
 .tpl-out {
   padding: var(--size--1) var(--size-0);
   border: var(--border-width-1) dashed var(--neutral-4);
-  border-radius: var(--border-radius-0);
+  border-radius: var(--border-radius-1);
   min-height: 2.5em;
 }
 .tpl-out.is-err {
@@ -912,7 +912,7 @@ pre .invalid {
   font-size: var(--font-size--1);
   padding: 0.2em 0.6em;
   border: var(--border-width-1) solid var(--neutral-4);
-  border-radius: var(--border-radius-0);
+  border-radius: var(--border-radius-1);
   background: var(--code-bg);
   color: var(--code-fg);
   outline: none;
@@ -977,6 +977,13 @@ pre .invalid {
   flex-wrap: wrap;
 }
 
+/* design section: brand palette grid */
+.pal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--size-1); margin-block: var(--size-2); }
+.pal-sw { display: flex; gap: var(--size-0); align-items: center; }
+.pal-chip { flex: none; width: 3rem; height: 3rem; border-radius: var(--border-radius-1); border: var(--border-width-1) solid var(--neutral-4); }
+.pal-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pal-name { font-weight: var(--font-weight-bold); }
+
 /* design section: component breakdown with per-part tokens */
 .dz-example { margin: var(--size-1) 0 var(--size-3); }
 .dz-part { margin-block: var(--size-2); }
@@ -989,7 +996,7 @@ pre .invalid {
   flex: none;
   width: 1.1em;
   height: 1.1em;
-  border-radius: var(--border-radius-0);
+  border-radius: var(--border-radius-1);
   border: var(--border-width-1) solid var(--neutral-4);
 }
 .tok-sw-none { border: 0; visibility: hidden; }

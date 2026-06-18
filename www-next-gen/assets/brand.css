@@ -89,7 +89,6 @@ body th {
    border and gentle corners; inline <code> keeps the secondary --code-inner-bg. */
 body pre {
   border-color: var(--line);
-  border-radius: var(--border-radius-0);
 }
 
 /* cards are blocky badge-style panels: the `.panel` surface step, gentle corners,
@@ -101,7 +100,6 @@ body pre {
    degrees and offset shadow are brand literals, like the badges.) */
 body .card {
   border-color: var(--line);
-  border-radius: var(--border-radius-0);
   box-shadow: var(--sticker-shadow);
 }
 .grid .card {
