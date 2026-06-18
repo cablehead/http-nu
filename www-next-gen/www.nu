@@ -676,9 +676,9 @@ def design-window [] {
       (tok "font" "--font-mono")
       (tok "size" "--font-size--1")
     ])
-    (design-part "Title bar" "Purple chrome strip: dots, title slot, action slot." null [
-      (tok "background" "--named-purple-0" --color)
-      (tok "text" "--named-purple-0-on" --color)
+    (design-part "Title bar" "Grape chrome strip: dots, title slot, action slot." null [
+      (tok "background" "--named-grape-0" --color)
+      (tok "text" "--named-grape-0-on" --color)
       (tok "padding" "0.2rem / --size--1")
       (tok "gap" "--size--1")
     ])
@@ -686,7 +686,7 @@ def design-window [] {
       (tok "size" "0.7rem")
       (tok "red" "--named-red-0" --color)
       (tok "amber" "#ffbd2e" --color)
-      (tok "green" "#27c93f" --color)
+      (tok "green" "--named-green-0" --color)
     ])
     (design-part "Title slot" "Flex slot holding a label (server) or a tab strip (install methods)." null [
       (tok "gap" "--size--1")

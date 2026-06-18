@@ -282,8 +282,8 @@ body a.card:hover {
   align-items: center;
   gap: var(--size--1);
   padding: 0.2rem var(--size--1);
-  background: var(--named-purple-0);
-  color: var(--named-purple-0-on);
+  background: var(--named-grape-0);
+  color: var(--named-grape-0-on);
 }
 .terminal-dots {
   display: flex;
@@ -302,7 +302,7 @@ body a.card:hover {
   background: #ffbd2e;
 }
 .terminal-dots span:nth-child(3) {
-  background: #27c93f;
+  background: var(--named-green-0);
 }
 .terminal-tab {
   font: inherit;
@@ -340,7 +340,7 @@ body a.card:hover {
 .chip-go {
   font-family: var(--font-mono);
   font-size: var(--font-size--1);
-  color: var(--named-purple-0-on);
+  color: var(--named-grape-0-on);
   background: rgba(0, 0, 0, 0.22);
   border: 0;
   border-radius: var(--border-radius-1);
