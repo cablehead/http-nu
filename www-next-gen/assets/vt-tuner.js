@@ -57,14 +57,9 @@
   }
 
   function build() {
-    if (document.getElementById("vt-tuner-btn")) return;
-
-    var btn = document.createElement("button");
-    btn.id = "vt-tuner-btn";
-    btn.type = "button";
-    btn.title = "View transition tuner";
-    btn.innerHTML =
-      '<iconify-icon icon="lucide:sliders-horizontal" width="20" height="20"></iconify-icon>';
+    if (document.getElementById("vt-tuner")) return;
+    var btn = document.getElementById("vt-tuner-btn");
+    if (!btn) return; // the nav launcher is server-rendered
 
     var dlg = document.createElement("dialog");
     dlg.id = "vt-tuner";
@@ -80,7 +75,6 @@
       '<div class="vt-actions"><button type="button" data-act="reset">Reset</button><button type="button" data-act="close">Close</button></div>',
     ].join("");
 
-    document.body.appendChild(btn);
     document.body.appendChild(dlg);
 
     function sync() {
@@ -115,17 +109,20 @@
     function openPanel() {
       sync();
       setOpen(true);
-      btn.hidden = true;
+      btn.setAttribute("aria-pressed", "true");
       if (!dlg.open) dlg.show(); // non-modal: no backdrop, so the page transition behind stays visible
     }
     dlg.addEventListener("close", function () {
       setOpen(false);
-      btn.hidden = false;
+      btn.setAttribute("aria-pressed", "false");
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && dlg.open) dlg.close();
     });
-    btn.addEventListener("click", openPanel);
+    btn.addEventListener("click", function () {
+      if (dlg.open) dlg.close();
+      else openPanel();
+    });
     sync();
     if (isOpen()) openPanel();
   }

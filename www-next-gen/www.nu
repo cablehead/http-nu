@@ -77,6 +77,16 @@ def theme-toggle [] {
   } (icon "lucide:sun-moon"))
 }
 
+# launcher for the page-transition tuner (wired up by vt-tuner.js)
+def vt-toggle [] {
+  (BUTTON {
+    id: "vt-tuner-btn"
+    class: "vt-toggle"
+    type: "button"
+    title: "Page transition tuner"
+  } (icon "ph:toolbox"))
+}
+
 # Shared nav: brand + links + theme toggle, on every page.
 def nav-bar [] {
   (NAV {class: "nav"}
@@ -87,6 +97,7 @@ def nav-bar [] {
       (A {href: "/how-tos"} "How-tos")
       (A {href: "/reference"} "Reference")
       (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
+      (vt-toggle)
       (theme-toggle)))
 }
 

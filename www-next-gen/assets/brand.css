@@ -172,6 +172,10 @@ body a.card:hover {
 .nav button:hover {
   background: color-mix(in oklch, currentColor 16%, transparent);
 }
+.nav .vt-toggle[aria-pressed="true"] {
+  color: var(--named-sand-0);
+  border-color: var(--named-sand-0);
+}
 
 /* --- tone utilities: a surface and its readable foreground (badges) ----- */
 .tone-orange {

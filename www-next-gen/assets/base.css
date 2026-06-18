@@ -53,24 +53,13 @@
   }
 }
 
-/* the tuner: a small floating button + dialog to play with the dials above. */
-#vt-tuner-btn {
-  position: fixed;
-  right: var(--size-1);
-  bottom: var(--size-1);
-  z-index: 50;
-  display: grid;
-  place-items: center;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 50%;
-  border: var(--border-width-1) solid var(--neutral-5);
-  background: var(--surface);
-  color: var(--surface-on);
-  cursor: pointer;
-  box-shadow: var(--shadow-2);
+/* the tuner: launched from a toolbox button in the nav, opens this dialog. */
+.vt-toggle iconify-icon {
+  display: block;
+  transition: transform var(--anim-duration-base) var(--anim-ease-bounce);
 }
-#vt-tuner-btn[hidden] { display: none; }
+.vt-toggle:hover iconify-icon { transform: rotate(-9deg) scale(1.14); }
+.vt-toggle[aria-pressed="true"] iconify-icon { transform: rotate(-6deg); }
 #vt-tuner {
   border: var(--border-width-1) solid var(--neutral-5);
   border-radius: var(--border-radius-2);
