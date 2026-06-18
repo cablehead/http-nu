@@ -11,6 +11,21 @@
  */
 
 /* ------------------------------------------------------------------ */
+/* MPA view transitions: opt into the browser's default cross-fade on   */
+/* same-origin navigations (Themes -> Reference, etc). Progressive      */
+/* enhancement - unsupported browsers just navigate instantly.          */
+/* ------------------------------------------------------------------ */
+@view-transition {
+  navigation: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0s;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Fonts: self-hosted, names must match the stellar --font-* tokens.    */
 /* Source Sans 3 for prose (--font-sans); Iosevka X for code            */
 /* (--font-mono) - a custom no-ligature build with box-drawing glyphs,  */
