@@ -23,6 +23,18 @@
   function save() {
     localStorage.setItem(KEY, JSON.stringify(state));
   }
+  // the panel's open/closed state persists too, so it stays open as you navigate
+  // between pages to compare transitions.
+  var OPEN_KEY = "vt-tuner-open";
+  function setOpen(v) {
+    try {
+      if (v) localStorage.setItem(OPEN_KEY, "1");
+      else localStorage.removeItem(OPEN_KEY);
+    } catch (e) {}
+  }
+  function isOpen() {
+    return localStorage.getItem(OPEN_KEY) === "1";
+  }
   function apply() {
     var r = document.documentElement;
     r.style.setProperty("--vt-duration", state.duration + "ms");
@@ -100,11 +112,22 @@
         sync();
       }
     });
-    btn.addEventListener("click", function () {
+    function openPanel() {
       sync();
-      dlg.showModal();
+      setOpen(true);
+      btn.hidden = true;
+      if (!dlg.open) dlg.show(); // non-modal: no backdrop, so the page transition behind stays visible
+    }
+    dlg.addEventListener("close", function () {
+      setOpen(false);
+      btn.hidden = false;
     });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && dlg.open) dlg.close();
+    });
+    btn.addEventListener("click", openPanel);
     sync();
+    if (isOpen()) openPanel();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build);

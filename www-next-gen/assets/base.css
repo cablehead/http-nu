@@ -70,6 +70,7 @@
   cursor: pointer;
   box-shadow: var(--shadow-2);
 }
+#vt-tuner-btn[hidden] { display: none; }
 #vt-tuner {
   border: var(--border-width-1) solid var(--neutral-5);
   border-radius: var(--border-radius-2);
@@ -79,7 +80,18 @@
   max-width: min(92vw, 24rem);
   font-size: var(--font-size--1);
 }
-#vt-tuner::backdrop { background: rgba(0, 0, 0, 0.35); }
+/* open as a non-modal panel docked to the right edge, so the page transition
+   stays visible behind it; named so it holds steady through the transition. */
+#vt-tuner[open] {
+  position: fixed;
+  inset: auto var(--size-1) auto auto;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  max-height: 92vh;
+  overflow: auto;
+  view-transition-name: vt-panel;
+}
 #vt-tuner h2 { margin-top: 0; font-size: var(--font-size-1); }
 .vt-row {
   display: flex;
