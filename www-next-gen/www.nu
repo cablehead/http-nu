@@ -135,6 +135,7 @@ def site-footer [] {
         (A {href: "/tutorials"} "Tutorials") " \u{b7} "
         (A {href: "/how-tos"} "How-tos") " \u{b7} "
         (A {href: "/reference"} "Reference") " \u{b7} "
+        (A {href: "/design"} "Design") " \u{b7} "
         (A {href: "https://www.nushell.sh"} "Nushell") "-scriptable, " (A {href: "https://cross.stream"} "cross.stream")
         "-powered, " (A {href: "https://data-star.dev"} "Datastar") "-ready")))
 }
@@ -633,6 +634,102 @@ let tutorials = [
     {|| tutorial-getting-started}]
 ]
 
+# --- design system viewer --------------------------------------------
+# /design catalogs the site's vocabulary. Each component page shows a live
+# example, then breaks the component into its parts; each part lists the
+# design tokens behind it (a swatch for colors).
+
+# one token row: a role label, an optional color swatch, the token name.
+def tok [label: string, token: string, --color] {
+  let bg = (if ($token | str starts-with "--") { $"var\(($token)\)" } else { $token })
+  let sw = (if $color {
+    (SPAN {class: "tok-sw" style: $"background: ($bg)"})
+  } else {
+    (SPAN {class: "tok-sw tok-sw-none"})
+  })
+  (DIV {class: "tok"}
+    (SPAN {class: "tok-label"} $label)
+    $sw
+    (CODE {class: "tok-name"} $token))
+}
+
+# one part of a component: name, gloss, an optional focused demo, its tokens.
+def design-part [name: string, note: string, demo, tokens: list] {
+  (SECTION {class: "dz-part"}
+    (H3 $name)
+    (P {class: "muted"} $note)
+    (if $demo != null { (DIV {class: "dz-demo"} $demo) } else { "" })
+    (DIV {class: "dz-tokens"} ...$tokens))
+}
+
+def design-window [] {
+  let example = (terminal "server"
+    --action (BUTTON {class: "chip"} "Run")
+    (DIV
+      (DIV {class: "term-cmd"} (SPAN {class: "prompt"} "$ ") (CODE "http-nu :3001 -c '{|req| \"hi\"}'"))
+      (DIV {class: "term-out"} "hi")))
+  (DIV
+    (DIV {class: "dz-example"} $example)
+    (design-part "Frame" "The window itself: rounded, shadowed, monospace." null [
+      (tok "radius" "--border-radius-2")
+      (tok "shadow" "--shadow-2")
+      (tok "font" "--font-mono")
+      (tok "size" "--font-size--1")
+    ])
+    (design-part "Title bar" "Purple chrome strip: dots, title slot, action slot." null [
+      (tok "background" "--named-purple-0" --color)
+      (tok "text" "--named-purple-0-on" --color)
+      (tok "padding" "0.2rem / --size--1")
+      (tok "gap" "--size--1")
+    ])
+    (design-part "Traffic lights" "Three mac-style dots, decorative." (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN)) [
+      (tok "size" "0.7rem")
+      (tok "red" "#ff5f56" --color)
+      (tok "amber" "#ffbd2e" --color)
+      (tok "green" "#27c93f" --color)
+    ])
+    (design-part "Title slot" "Flex slot holding a label (server) or a tab strip (install methods)." null [
+      (tok "gap" "--size--1")
+    ])
+    (design-part "Action" "Optional control, pushed to the far edge." null [
+      (tok "align" "margin-left: auto")
+    ])
+    (design-part "Body" "The dark content area: code, output, anything." null [
+      (tok "background" "rgba(0,0,0,0.25)" --color)
+      (tok "text" "--surface-on" --color)
+      (tok "padding" "--size--2")
+      (tok "line-height" "--code-line-height")
+    ]))
+}
+
+let design_catalog = [
+  [slug, title, blurb, builder];
+  ["window", "Window",
+    "A chrome panel for code and output: a title bar over a dark body. The install tabs and the run demos are all this one component.",
+    {|| design-window}]
+]
+
+def design-nav [current: string] {
+  (NAV {class: "docs-side toc"}
+    (UL ($design_catalog | each {|c|
+      (LI (A {href: $"/design/($c.slug)" class: (if $c.slug == $current { "active" } else { "" })} $c.title))
+    })))
+}
+
+def design-page [slug: string] {
+  let entry = ($design_catalog | where slug == $slug | first)
+  (page $"($entry.title) - Design - http-nu"
+    (MAIN {class: "container with-sidebar"}
+      (DIV {class: "docs-menu" "data-signals:nav": "false" "data-class:open": "$nav"}
+        (BUTTON {class: "docs-toggle" "data-on:click": "$nav = !$nav"} "Components")
+        (design-nav $slug))
+      (ARTICLE
+        (crumbs [["Design" "/design"] [$entry.title $"/design/($slug)"]])
+        (H1 $entry.title)
+        (P {class: "muted"} $entry.blurb)
+        (do $entry.builder))))
+}
+
 {|req|
   dispatch $req [
 
@@ -810,6 +907,16 @@ let tutorials = [
       if ($name != "" and $message != "") { {name: $name, msg: $message} | stor insert -t signatures }
       [ ({name: "", message: ""} | to datastar-patch-signals) ((tut-gb-list) | to datastar-patch-elements) ] | to sse
     })
+    # design system viewer: /design redirects to the first component
+    (route {method: GET path: "/design"} {|req ctx|
+      let first = ($design_catalog | first | get slug)
+      "" | metadata set { merge {'http.response': {status: 302 headers: {Location: $"/design/($first)"}}} }
+    })
+    (route {path-matches: "/design/:slug"} {|req ctx|
+      let entry = ($design_catalog | where slug == $ctx.slug | get 0?)
+      if $entry == null { (not-found) } else { (design-page $ctx.slug) }
+    })
+
     # theme interactions: streaming's live SSE buttons
     (route {method: POST path: "/themes/streaming/increment"} {|req ctx|
       let s = (from datastar-signals $req)

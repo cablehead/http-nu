@@ -976,6 +976,23 @@ pre .invalid {
   gap: var(--size--2);
   flex-wrap: wrap;
 }
+
+/* design section: component breakdown with per-part tokens */
+.dz-example { margin: var(--size-1) 0 var(--size-3); }
+.dz-part { margin-block: var(--size-2); }
+.dz-part h3 { margin-bottom: var(--size--2); }
+.dz-demo { margin: var(--size-0) 0; }
+.dz-tokens { display: flex; flex-direction: column; gap: var(--size--2); font-size: var(--font-size--1); }
+.tok { display: flex; align-items: center; gap: var(--size-0); }
+.tok-label { min-width: 7em; color: var(--neutral-1-dim); }
+.tok-sw {
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  border-radius: var(--border-radius-0);
+  border: var(--border-width-1) solid var(--neutral-4);
+}
+.tok-sw-none { border: 0; visibility: hidden; }
 .terminal-title {
   display: flex;
   align-items: center;
