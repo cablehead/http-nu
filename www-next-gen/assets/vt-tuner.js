@@ -137,6 +137,10 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && dlg.open) dlg.close();
     });
+    // light dismiss: click anywhere outside the panel (but not the launcher) closes it
+    document.addEventListener("click", function (e) {
+      if (dlg.open && !dlg.contains(e.target) && !btn.contains(e.target)) dlg.close();
+    });
     btn.addEventListener("click", function () {
       if (dlg.open) dlg.close();
       else openPanel();
