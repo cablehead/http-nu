@@ -281,7 +281,7 @@ body a.card:hover {
   display: flex;
   align-items: center;
   gap: var(--size--1);
-  padding: var(--size--1) var(--size-0);
+  padding: 0.2rem var(--size--1);
   background: var(--named-purple-0);
   color: var(--named-purple-0-on);
 }
@@ -324,7 +324,7 @@ body a.card:hover {
 .terminal-body {
   background: rgba(0, 0, 0, 0.25);
   color: var(--surface-on);
-  padding: var(--size-1);
+  padding: var(--size--2);
   overflow-x: auto;
   line-height: var(--code-line-height);
 }

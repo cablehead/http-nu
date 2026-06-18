@@ -970,12 +970,6 @@ pre .invalid {
 .terminal-row .terminal {
   margin-block: 0;
 }
-.terminal-row .terminal-bar {
-  padding: 0.2rem var(--size--1);
-}
-.terminal-row .terminal-body {
-  padding: var(--size--2);
-}
 .term-cmd {
   display: flex;
   align-items: center;
@@ -983,7 +977,9 @@ pre .invalid {
   flex-wrap: wrap;
 }
 .terminal-title {
-  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: var(--size--1);
 }
 .terminal-action {
   margin-left: auto;

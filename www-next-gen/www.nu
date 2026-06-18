@@ -201,16 +201,13 @@ def give-it-a-try [] {
     (section-head "Give it a try"
       (IMG {class: "rocket" alt: "" src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"}))
     (P "http-nu is a single binary. Grab it with your preferred package manager:")
-    (DIV {class: "terminal"}
-      (DIV {class: "terminal-bar"}
-        (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
-        ($methods | each {|m|
-          BUTTON {class: "terminal-tab" "data-class:is-active": $"$tab === '($m.0)'" "data-on:click": $"$tab = '($m.0)'"} $m.1
-        }))
-      (DIV {class: "terminal-body"}
-        ($methods | each {|m|
-          DIV {"data-show": $"$tab === '($m.0)'"} (SPAN {class: "prompt"} "$ ") $m.2
-        }))))
+    (terminal
+      ($methods | each {|m|
+        BUTTON {class: "terminal-tab" "data-class:is-active": $"$tab === '($m.0)'" "data-on:click": $"$tab = '($m.0)'"} $m.1
+      })
+      ($methods | each {|m|
+        DIV {"data-show": $"$tab === '($m.0)'"} (SPAN {class: "prompt"} "$ ") $m.2
+      })))
 }
 
 # --- topic hubs ------------------------------------------------------
@@ -526,7 +523,7 @@ def tut-gb-list [] {
 # banner), then each curl click appends a response line.
 # reusable terminal window chrome (the splash .terminal component): a titlebar
 # with the mac dots + a label, and a body.
-def terminal [title: string, body, --action: any = null] {
+def terminal [title, body, --action: any = null] {
   (DIV {class: "terminal"}
     (DIV {class: "terminal-bar"}
       (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN))
