@@ -296,7 +296,7 @@ body a.card:hover {
   border-radius: 50%;
 }
 .terminal-dots span:nth-child(1) {
-  background: #ff5f56;
+  background: var(--named-red-0);
 }
 .terminal-dots span:nth-child(2) {
   background: #ffbd2e;

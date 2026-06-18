@@ -684,7 +684,7 @@ def design-window [] {
     ])
     (design-part "Traffic lights" "Three mac-style dots, decorative." (SPAN {class: "terminal-dots"} (SPAN) (SPAN) (SPAN)) [
       (tok "size" "0.7rem")
-      (tok "red" "#ff5f56" --color)
+      (tok "red" "--named-red-0" --color)
       (tok "amber" "#ffbd2e" --color)
       (tok "green" "#27c93f" --color)
     ])
