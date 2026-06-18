@@ -977,12 +977,37 @@ pre .invalid {
   flex-wrap: wrap;
 }
 
-/* design section: brand palette grid */
-.pal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--size-1); margin-block: var(--size-2); }
-.pal-sw { display: flex; gap: var(--size-0); align-items: center; }
-.pal-chip { flex: none; width: 3rem; height: 3rem; border-radius: var(--border-radius-1); border: var(--border-width-1) solid var(--neutral-4); }
-.pal-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* design section: brand palette table */
+.pal-table { border-collapse: collapse; width: 100%; max-width: 46rem; margin-block: var(--size-2); }
+.pal-table th {
+  text-align: left;
+  font-size: var(--font-size--1);
+  font-weight: var(--font-weight-semi-bold);
+  color: var(--neutral-1-dim);
+  padding: var(--size--2) var(--size-0);
+  border-bottom: var(--border-width-2) solid var(--neutral-4);
+}
+.pal-table td {
+  padding: var(--size--2) var(--size-0);
+  border-bottom: var(--border-width-1) solid var(--neutral-3);
+  vertical-align: middle;
+}
+.pal-cell {
+  width: 2.6rem;
+  height: 1.4rem;
+  border-radius: var(--border-radius-1);
+  border: var(--border-width-1) solid var(--neutral-4);
+}
 .pal-name { font-weight: var(--font-weight-bold); }
+.pal-head td {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--font-size--2);
+  font-weight: var(--font-weight-bold);
+  color: var(--neutral-1-dim);
+  padding-top: var(--size-0);
+  border-bottom: 0;
+}
 
 /* design section: component breakdown with per-part tokens */
 .dz-example { margin: var(--size-1) 0 var(--size-3); }

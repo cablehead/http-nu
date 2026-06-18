@@ -703,27 +703,48 @@ def design-window [] {
     ]))
 }
 
-def palette-swatch [name: string, token: string, role: string] {
-  (DIV {class: "pal-sw"}
-    (DIV {class: "pal-chip" style: $"background: var\(($token)\)"})
-    (DIV {class: "pal-meta"}
-      (SPAN {class: "pal-name"} $name)
-      (CODE {class: "tok-name"} $token)
-      (SMALL {class: "muted"} $role)))
+def pal-head [label: string] {
+  (TR {class: "pal-head"} (TD {colspan: "4"} $label))
+}
+
+# one palette row: a live swatch (var() for tokens, raw hex for literals), the
+# name, the token-or-value to use, and where it shows up.
+def pal-row [name: string, value: string, where: string] {
+  let is_tok = ($value | str starts-with "--")
+  let bg = (if $is_tok { $"var\(($value)\)" } else { $value })
+  (TR
+    (TD (DIV {class: "pal-cell" style: $"background: ($bg)"}))
+    (TD {class: "pal-name"} $name)
+    (TD (CODE {class: "tok-name"} $value))
+    (TD {class: "muted"} $where))
 }
 
 def design-palette [] {
   (DIV
-    (P {class: "muted"} "2048 reads the same stellar.css, so a config change moves both sites.")
-    (DIV {class: "pal-grid"}
-      (palette-swatch "ocean" "--named-ocean-0" "page surface")
-      (palette-swatch "navy" "--named-navy-0" "dark surface")
-      (palette-swatch "stream" "--named-stream-0" "accent / links")
-      (palette-swatch "sand" "--named-sand-0" "brand / headers")
-      (palette-swatch "orange" "--named-orange-0" "primary action")
-      (palette-swatch "red" "--named-red-0" "alert / dot")
-      (palette-swatch "green" "--named-green-0" "go / dot")
-      (palette-swatch "grape" "--named-grape-0" "terminal chrome")))
+    (P {class: "muted"} "Every brand color by hue. The token is what to use; rows still on a raw hex are literals left to fold in. 2048 reads the same stellar.css, so a config change moves both sites.")
+    (TABLE {class: "pal-table"}
+      (THEAD (TR (TH "") (TH "name") (TH "token / value") (TH "where we use it")))
+      (TBODY
+        (pal-head "red")
+        (pal-row "red" "--named-red-0" "alert, terminal dot")
+        (pal-head "orange")
+        (pal-row "orange" "--named-orange-0" "primary action (shared with 2048)")
+        (pal-head "amber")
+        (pal-row "amber" "#ffbd2e" "terminal dot")
+        (pal-head "green")
+        (pal-row "green" "--named-green-0" "go, terminal dot")
+        (pal-head "blue")
+        (pal-row "ocean" "--named-ocean-0" "page surface (shared)")
+        (pal-row "navy" "--named-navy-0" "dark-mode surface")
+        (pal-row "stream" "--named-stream-0" "accent, links (shared)")
+        (pal-row "stream-lt" "--named-stream-1" "link hover")
+        (pal-head "purple")
+        (pal-row "grape" "--named-grape-0" "terminal chrome, badge")
+        (pal-head "neutral")
+        (pal-row "sand" "--named-sand-0" "brand, headers (shared)")
+        (pal-row "tile" "#eee4da" "board tiles")
+        (pal-row "light" "#f9f6f2" "light text")
+        (pal-row "tile-text" "#776e65" "tile text"))))
 }
 
 let design_catalog = [
