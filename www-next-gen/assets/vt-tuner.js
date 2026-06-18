@@ -11,7 +11,7 @@
     linear: "linear",
   };
   var STYLES = ["crossfade", "fadein", "slide"];
-  var DEFAULTS = { enabled: true, duration: 120, ease: "standard", style: "crossfade", scope: false };
+  var DEFAULTS = { enabled: true, duration: 120, ease: "standard", style: "crossfade", scope: false, help: false };
 
   function load() {
     try {
@@ -64,12 +64,18 @@
     var dlg = document.createElement("dialog");
     dlg.id = "vt-tuner";
     dlg.innerHTML = [
-      "<h2>Page transition</h2>",
+      '<div class="vt-head"><h2>Page transition</h2>',
+      '<button type="button" class="vt-help-toggle" data-act="help" title="What do these do?"><iconify-icon icon="lucide:help-circle" width="18" height="18"></iconify-icon></button></div>',
       '<div class="vt-row"><label><input type="checkbox" data-k="enabled"> Enabled</label></div>',
+      '<p class="vt-help">Turns the page-to-page animation on or off.</p>',
       '<div class="vt-row"><label>Duration</label><input type="range" min="0" max="600" step="10" data-k="duration"><output data-out="duration"></output></div>',
+      '<p class="vt-help">How long the transition lasts. Shorter feels snappier.</p>',
       '<div class="vt-row"><label>Easing</label><select data-k="ease">' + opts(Object.keys(EASES)) + "</select></div>",
+      '<p class="vt-help">The speed curve. Standard is even; bounce overshoots playfully.</p>',
       '<div class="vt-row"><label>Style</label><select data-k="style">' + opts(STYLES) + "</select></div>",
+      '<p class="vt-help">Cross-fade blends the pages; fade-in holds the old page and fades the new one in; slide adds a small upward rise.</p>',
       '<div class="vt-row"><label><input type="checkbox" data-k="scope"> Hold nav + chrome still</label></div>',
+      '<p class="vt-help">Keeps the nav anchored so only the content transitions, instead of the whole page fading at once.</p>',
       '<p class="vt-hint">Dials apply to real page navigations. Open one to see it:</p>',
       '<div class="vt-tryto"><a href="/themes">Themes</a><a href="/reference">Reference</a><a href="/">Home</a></div>',
       '<div class="vt-actions"><button type="button" data-act="reset">Reset</button><button type="button" data-act="close">Close</button></div>',
@@ -86,6 +92,11 @@
       var out = dlg.querySelector('[data-out="duration"]');
       if (out) out.textContent = state.duration + "ms";
     }
+    function applyHelp() {
+      dlg.classList.toggle("show-help", !!state.help);
+      var t = dlg.querySelector(".vt-help-toggle");
+      if (t) t.setAttribute("aria-pressed", state.help ? "true" : "false");
+    }
 
     dlg.addEventListener("input", function (e) {
       var el = e.target;
@@ -97,13 +108,20 @@
       sync();
     });
     dlg.addEventListener("click", function (e) {
-      var act = e.target.dataset ? e.target.dataset.act : null;
+      var actEl = e.target.closest ? e.target.closest("[data-act]") : null;
+      var act = actEl ? actEl.dataset.act : null;
       if (act === "close") dlg.close();
+      if (act === "help") {
+        state.help = !state.help;
+        save();
+        applyHelp();
+      }
       if (act === "reset") {
         state = Object.assign({}, DEFAULTS);
         apply();
         save();
         sync();
+        applyHelp();
       }
     });
     function openPanel() {
@@ -124,6 +142,7 @@
       else openPanel();
     });
     sync();
+    applyHelp();
     if (isOpen()) openPanel();
   }
 

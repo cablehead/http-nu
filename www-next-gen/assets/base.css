@@ -81,7 +81,27 @@
   overflow: auto;
   view-transition-name: vt-panel;
 }
-#vt-tuner h2 { margin-top: 0; font-size: var(--font-size-1); }
+#vt-tuner h2 { margin: 0; font-size: var(--font-size-1); }
+.vt-head { display: flex; align-items: center; justify-content: space-between; gap: var(--size-1); }
+.vt-help-toggle {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  line-height: 0;
+  opacity: 0.65;
+}
+.vt-help-toggle:hover,
+.vt-help-toggle[aria-pressed="true"] { opacity: 1; color: var(--named-sand-0); }
+.vt-help {
+  display: none;
+  margin: calc(-1 * var(--size--2)) 0 var(--size-0);
+  max-width: 34ch;
+  font-size: var(--font-size--2);
+  opacity: 0.72;
+}
+#vt-tuner.show-help .vt-help { display: block; }
 .vt-row {
   display: flex;
   align-items: center;
