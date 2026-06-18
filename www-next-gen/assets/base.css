@@ -999,15 +999,8 @@ pre .invalid {
   border: var(--border-width-1) solid var(--neutral-4);
 }
 .pal-name { font-weight: var(--font-weight-bold); }
-.pal-head td {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: var(--font-size--2);
-  font-weight: var(--font-weight-bold);
-  color: var(--neutral-1-dim);
-  padding-top: var(--size-0);
-  border-bottom: 0;
-}
+.pal-ramp { display: flex; gap: var(--size--2); }
+.pal-ramp .pal-cell { width: 3.2rem; }
 
 /* design section: component breakdown with per-part tokens */
 .dz-example { margin: var(--size-1) 0 var(--size-3); }

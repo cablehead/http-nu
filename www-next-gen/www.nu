@@ -703,54 +703,57 @@ def design-window [] {
     ]))
 }
 
-def pal-head [label: string] {
-  (TR {class: "pal-head"} (TD {colspan: "4"} $label))
-}
-
-# one palette row: a live swatch (var() for tokens, raw hex for literals), the
-# name, the token-or-value to use, and where it shows up.
+# one brand row: a live swatch, name, the token to use, and where it shows up.
 def pal-row [name: string, value: string, where: string] {
-  let is_tok = ($value | str starts-with "--")
-  let bg = (if $is_tok { $"var\(($value)\)" } else { $value })
   (TR
-    (TD (DIV {class: "pal-cell" style: $"background: ($bg)"}))
+    (TD (DIV {class: "pal-cell" style: $"background: var\(($value)\)"}))
     (TD {class: "pal-name"} $name)
     (TD (CODE {class: "tok-name"} $value))
     (TD {class: "muted"} $where))
 }
 
+# one ramp: the 5 shades Stellar generates for a named seed (-2 .. +2).
+def ramp [name: string, base: string] {
+  (TR
+    (TD {class: "pal-name"} $name)
+    (TD (DIV {class: "pal-ramp"}
+      ...([-2 -1 0 1 2] | each {|n|
+        (DIV {class: "pal-cell" title: $"--($base)-($n)" style: $"background: var\(--($base)-($n)\)"})
+      }))))
+}
+
 def design-palette [] {
   (DIV
-    (P {class: "muted"} "Every brand color by hue. The token is what to use; rows still on a raw hex are literals left to fold in. 2048 reads the same stellar.css, so a config change moves both sites.")
+    (P {class: "muted"} "Our brand colors, then the full ramp Stellar generates for each from the config. 2048 reads the same stellar.css, so a config change moves both sites.")
+    (H2 "Brand")
     (TABLE {class: "pal-table"}
-      (THEAD (TR (TH "") (TH "name") (TH "token / value") (TH "where we use it")))
+      (THEAD (TR (TH "") (TH "name") (TH "token") (TH "where we use it")))
       (TBODY
-        (pal-head "red")
         (pal-row "red" "--named-red-0" "alert, terminal dot")
-        (pal-head "orange")
-        (pal-row "orange" "--named-orange-0" "primary action (shared with 2048)")
-        (pal-head "amber")
-        (pal-row "amber" "#ffbd2e" "terminal dot")
-        (pal-head "green")
+        (pal-row "orange" "--named-orange-0" "primary action")
         (pal-row "green" "--named-green-0" "go, terminal dot")
-        (pal-head "blue")
-        (pal-row "ocean" "--named-ocean-0" "page surface (shared)")
-        (pal-row "navy" "--named-navy-0" "dark-mode surface")
-        (pal-row "stream" "--named-stream-0" "accent, links (shared)")
-        (pal-row "stream-lt" "--named-stream-1" "link hover")
-        (pal-head "purple")
         (pal-row "grape" "--named-grape-0" "terminal chrome, badge")
-        (pal-head "neutral")
-        (pal-row "sand" "--named-sand-0" "brand, headers (shared)")
-        (pal-row "tile" "#eee4da" "board tiles")
-        (pal-row "light" "#f9f6f2" "light text")
-        (pal-row "tile-text" "#776e65" "tile text"))))
+        (pal-row "ocean" "--named-ocean-0" "surface (light)")
+        (pal-row "navy" "--named-navy-0" "surface (dark)")
+        (pal-row "sand" "--named-sand-0" "headers, brand text")))
+    (H2 "Stellar palette")
+    (P {class: "muted"} "Each seed expands to a 5-step ramp, plus an -on and -dim per shade, generated from the config.")
+    (TABLE {class: "pal-table"}
+      (TBODY
+        (ramp "red" "named-red")
+        (ramp "orange" "named-orange")
+        (ramp "green" "named-green")
+        (ramp "grape" "named-grape")
+        (ramp "ocean" "named-ocean")
+        (ramp "navy" "named-navy")
+        (ramp "sand" "named-sand")
+        (ramp "stream" "named-stream"))))
 }
 
 let design_catalog = [
   [slug, title, blurb, builder];
   ["palette", "Palette",
-    "The brand colors, one per hue, as shared Stellar named tokens.",
+    "Our brand colors and the full Stellar ramp they generate.",
     {|| design-palette}]
   ["window", "Window",
     "A chrome panel for code and output: a title bar over a dark body. The install tabs and the run demos are all this one component.",
