@@ -18,6 +18,11 @@
 @view-transition {
   navigation: auto;
 }
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--anim-duration-fast);
+  animation-timing-function: var(--anim-ease-standard);
+}
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(root),
   ::view-transition-new(root) {
