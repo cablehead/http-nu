@@ -51,12 +51,11 @@ let pages = ($readme | split row "\n## " | skip 1 | each {|s|
 Add a sidebar that lists the sections and you have navigation. The README stays
 the single source of truth; you just slice it.
 
-> **A living example.** The [Reference](/reference) section of this site is the
-> code above, running: the
-> [http-nu README](https://github.com/cablehead/http-nu/blob/main/README.md),
-> sliced one page per `## ` heading,
-> with a sidebar of slugs and a prev/next pager. Click through it, then come
-> back here, the code reads like a description of what you just used.
+> The [Reference](/reference) section of this site is the code above, running:
+> the [http-nu README](https://github.com/cablehead/http-nu/blob/main/README.md),
+> sliced one page per heading, with a sidebar of slugs and a prev/next pager.
+> Click through it, then come back here, the code reads like a description of
+> what you just used.
 
 ## Typography
 
