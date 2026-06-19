@@ -454,6 +454,8 @@ summary {
 /* one button: a mono, currentColor-outlined action that reads on any surface.
    variants .btn-go (lit primary) and .btn-tab (segmented) live in brand.css. */
 button {
+  -webkit-appearance: none;
+  appearance: none;
   font-family: var(--font-mono);
   font-size: var(--font-size--1);
   color: inherit;
@@ -470,10 +472,6 @@ button:hover {
   border-color: currentColor;
 }
 button:active { transform: translateY(1px); }
-
-button:hover {
-  background: var(--neutral-3);
-}
 
 input,
 select,
