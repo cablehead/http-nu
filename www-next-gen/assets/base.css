@@ -451,15 +451,25 @@ summary {
   font-weight: var(--font-weight-semi-bold);
 }
 
+/* one button: a mono, currentColor-outlined action that reads on any surface.
+   variants .btn-go (lit primary) and .btn-tab (segmented) live in brand.css. */
 button {
-  font: inherit;
-  color: var(--neutral-2-on);
-  background: var(--neutral-2);
-  border: var(--border-width-1) solid var(--neutral-5);
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  color: inherit;
+  background: transparent;
+  border: var(--border-width-1) solid color-mix(in oklch, currentColor 35%, transparent);
   border-radius: var(--border-radius-1);
-  padding: var(--size--2) var(--size-0);
+  padding: 0.1em 0.6em;
   cursor: pointer;
+  transition: background var(--anim-duration-fast) var(--anim-ease-standard),
+    border-color var(--anim-duration-fast) var(--anim-ease-standard);
 }
+button:hover {
+  background: color-mix(in oklch, currentColor 12%, transparent);
+  border-color: currentColor;
+}
+button:active { transform: translateY(1px); }
 
 button:hover {
   background: var(--neutral-3);
@@ -866,18 +876,6 @@ pre .invalid {
   gap: var(--size--2);
   margin: var(--size-0) 0;
 }
-.chip {
-  font-family: var(--font-mono);
-  font-size: var(--font-size--1);
-  text-transform: none;
-  letter-spacing: normal;
-  padding: 0.1em 0.6em;
-  border: var(--border-width-1) solid var(--neutral-4);
-  border-radius: var(--border-radius-1);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
 .pg-output {
   margin-top: var(--size-1);
 }
@@ -1004,6 +1002,7 @@ pre .invalid {
 
 /* design section: component breakdown with per-part tokens */
 .dz-example { margin: var(--size-1) 0 var(--size-3); }
+.dz-btns { display: flex; gap: var(--size-0); align-items: center; flex-wrap: wrap; }
 .dz-part { margin-block: var(--size-2); }
 .dz-part h3 { margin-bottom: var(--size--2); }
 .dz-demo { margin: var(--size-0) 0; }

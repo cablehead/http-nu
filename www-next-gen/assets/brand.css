@@ -162,14 +162,6 @@ body a.card:hover {
 .nav .links a:hover {
   color: var(--named-sand-0);
 }
-.nav button {
-  background: transparent;
-  color: inherit;
-  border-color: currentColor;
-}
-.nav button:hover {
-  background: color-mix(in oklch, currentColor 16%, transparent);
-}
 .nav .vt-toggle[aria-pressed="true"] {
   color: var(--named-sand-0);
   border-color: var(--named-sand-0);
@@ -302,7 +294,7 @@ body a.card:hover {
 .terminal-dots span:nth-child(3) {
   background: var(--named-green-0);
 }
-.terminal-tab {
+.btn-tab {
   font: inherit;
   background: none;
   border: none;
@@ -311,11 +303,11 @@ body a.card:hover {
   cursor: pointer;
   padding: 0.15rem 0.5rem;
 }
-.terminal-tab:hover {
+.btn-tab:hover {
   background: none;
   opacity: 0.8;
 }
-.terminal-tab.is-active {
+.btn-tab.is-active {
   opacity: 1;
   font-weight: var(--font-weight-bold);
 }
@@ -335,7 +327,7 @@ body a.card:hover {
    is running (same lit-while-active idea as the splash badges and the 2048
    audio button). It stays put -- the bar's look is permanent, the key just
    lights up. */
-.chip-go {
+.btn-go {
   font-family: var(--font-mono);
   font-size: var(--font-size--1);
   color: var(--named-grape-0-on);
@@ -350,14 +342,14 @@ body a.card:hover {
     background var(--anim-duration-base) var(--anim-ease-standard),
     color var(--anim-duration-base) var(--anim-ease-standard);
 }
-.chip-go:hover {
+.btn-go:hover {
   background: rgba(0, 0, 0, 0.32);
 }
-.chip-go:active {
+.btn-go:active {
   transform: translateY(2px);
   box-shadow: none;
 }
-.chip-go.is-lit {
+.btn-go.is-lit {
   background: var(--named-green--1);
   color: var(--named-green--1-on);
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2), 0 0 0.7rem -0.1rem var(--named-green--1);
@@ -403,14 +395,6 @@ body a.card:hover {
 .facets a.active {
   color: var(--named-sand-0);
 }
-/* playground preset chips brighten one ramp step on hover, like the cards */
-.chip:hover {
-  background: var(--named-ocean-2);
-}
-.dark .chip:hover {
-  background: var(--named-navy-2);
-}
-
 /* the tagline card is tilted for effect; clip the tilt so it never causes
    horizontal overflow on narrow screens */
 .splash-hero {

@@ -205,7 +205,7 @@ def give-it-a-try [] {
     (P "http-nu is a single binary. Grab it with your preferred package manager:")
     (terminal
       ($methods | each {|m|
-        BUTTON {class: "terminal-tab" "data-class:is-active": $"$tab === '($m.0)'" "data-on:click": $"$tab = '($m.0)'"} $m.1
+        BUTTON {class: "btn-tab" "data-class:is-active": $"$tab === '($m.0)'" "data-on:click": $"$tab = '($m.0)'"} $m.1
       })
       ($methods | each {|m|
         DIV {"data-show": $"$tab === '($m.0)'"} (SPAN {class: "prompt"} "$ ") $m.2
@@ -330,9 +330,9 @@ http-nu --datastar :3001 examples/datastar-sdk/serve.nu
     (DIV {class: "playground" "data-signals": "{count: 0}"}
       (P {class: "muted"} "Click a button. The browser POSTs and the server streams an SSE patch back, live:")
       (DIV {class: "pg-live"}
-        (BUTTON {class: "chip" "data-on:click": "@post('/themes/streaming/increment')"} "Increment")
+        (BUTTON {"data-on:click": "@post('/themes/streaming/increment')"} "Increment")
         (SPAN "count " (SPAN {class: "pg-val" "data-text": "$count"} "0"))
-        (BUTTON {class: "chip" "data-on:click": "@post('/themes/streaming/time')"} "Get time")
+        (BUTTON {"data-on:click": "@post('/themes/streaming/time')"} "Get time")
         (SPAN "time " (SPAN {class: "pg-val" id: "stream-time"} "--:--:--"))))
     (H2 "Streaming responses")
     (toy "Chunks as they are produced" "A streaming pipeline like generate flushes each value to the client as an HTTP chunk, with no buffering." $chunks_src "nu")
@@ -455,10 +455,10 @@ def templates-overview [] {
           (TEXTAREA {"data-bind:data": true "data-on:input__debounce.300ms": "@post('/themes/templates/render')" rows: "3" spellcheck: "false"} $def_data)))
       (DIV {class: "pg-presets"}
         (SPAN {class: "muted"} "try:")
-        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/greet')"} "greeting")
-        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/loop')"} "loop")
-        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/cond')"} "conditional")
-        (BUTTON {class: "chip" "data-on:click": "@post('/themes/templates/preset/filter')"} "filter"))
+        (BUTTON {"data-on:click": "@post('/themes/templates/preset/greet')"} "greeting")
+        (BUTTON {"data-on:click": "@post('/themes/templates/preset/loop')"} "loop")
+        (BUTTON {"data-on:click": "@post('/themes/templates/preset/cond')"} "conditional")
+        (BUTTON {"data-on:click": "@post('/themes/templates/preset/filter')"} "filter"))
       (DIV {class: "pg-output"}
         (LABEL "output")
         (tpl-render $def_tpl $def_data)))
@@ -491,7 +491,7 @@ stor open | query db "select * from guestbook"'#
       (P {class: "muted"} "A shared in-memory table. Sign it; rows last until the server restarts.")
       (DIV {class: "pg-live"}
         (INPUT {class: "pg-input" "data-bind:msg": true placeholder: "leave a message" spellcheck: "false"})
-        (BUTTON {class: "chip" "data-on:click": "@post('/themes/storage/sign')"} "Sign"))
+        (BUTTON {"data-on:click": "@post('/themes/storage/sign')"} "Sign"))
       (guestbook-list))
     (H2 "How it works")
     (toy "Insert and query" "stor is an in-memory SQLite table you can insert into and query with SQL, no setup." $stor_src "nu")
@@ -550,14 +550,14 @@ def demo-pair [
   let s_show = ("$" + $s_sig)
   let c_show = ("$" + $c_sig)
   [
-    (terminal "server" --action (BUTTON {class: "chip-go" "data-class:is-lit": $s_show "data-on:click": ($s_show + " = true")} "Start Server")
+    (terminal "server" --action (BUTTON {class: "btn-go" "data-class:is-lit": $s_show "data-on:click": ($s_show + " = true")} "Start Server")
       (DIV
         (DIV {class: "term-cmd"} (SPAN {class: "prompt"} "$ ") (CODE $server_cmd))
         (DIV {class: "term-out"}
           (PRE {"data-show": $s_show} $banner)
           (DIV {"data-show": $c_show} $reqlog))))
     (DIV {class: "client-pane" "data-show": $s_show}
-      (terminal "client" --action (BUTTON {class: "chip" "data-on:click": ($c_show + " = true")} "Run")
+      (terminal "client" --action (BUTTON {"data-on:click": ($c_show + " = true")} "Run")
         (DIV
           (DIV {class: "term-cmd"} (SPAN {class: "prompt"} "$ ") (CODE $client_cmd))
           (DIV {class: "term-out" "data-show": $c_show} $response))))
@@ -601,7 +601,7 @@ def tutorial-getting-started [] {
       (DIV {class: "pg-live"}
         (INPUT {class: "pg-input" "data-bind:name": true placeholder: "your name" spellcheck: "false"})
         (INPUT {class: "pg-input" "data-bind:message": true placeholder: "a message" spellcheck: "false"})
-        (BUTTON {class: "chip" "data-on:click": "@post('/tutorials/guestbook/sign')"} "Sign"))
+        (BUTTON {"data-on:click": "@post('/tutorials/guestbook/sign')"} "Sign"))
       (P {class: "muted"} (SMALL "This demo keeps signatures in memory with stor; the tutorial below builds the persistent, cross-tab version with the event store and SSE."))
       (tut-gb-list))
     (H2 "Build it step by step")
@@ -665,7 +665,7 @@ def design-part [name: string, note: string, demo, tokens: list] {
 
 def design-window [] {
   let example = (terminal "server"
-    --action (BUTTON {class: "chip"} "Run")
+    --action (BUTTON {} "Run")
     (DIV
       (DIV {class: "term-cmd"} (SPAN {class: "prompt"} "$ ") (CODE "http-nu :3001 -c '{|req| \"hi\"}'"))
       (DIV {class: "term-out"} "hi")))
@@ -751,6 +751,33 @@ def design-palette [] {
         (ramp "electric blue" "named-stream"))))
 }
 
+def design-button [] {
+  (DIV
+    (DIV {class: "dz-example dz-btns"}
+      (BUTTON "Default")
+      (BUTTON {class: "btn-go is-lit"} "Go")
+      (DIV {class: "terminal-bar"}
+        (BUTTON {class: "btn-tab is-active"} "Active")
+        (BUTTON {class: "btn-tab"} "Tab")
+        (BUTTON {class: "btn-tab"} "Tab")))
+    (design-part "Base" "Mono, with a currentColor outline that reads on any surface." (BUTTON "Button") [
+      (tok "font" "--font-mono")
+      (tok "size" "--font-size--1")
+      (tok "radius" "--border-radius-1")
+      (tok "border" "currentColor 35%")
+      (tok "padding" "0.1em / 0.6em")
+    ])
+    (design-part "Go variant (.btn-go)" "The lit primary key for a boot action; turns green when .is-lit." (BUTTON {class: "btn-go is-lit"} "Start Server") [
+      (tok "lit bg" "--named-green--1" --color)
+      (tok "lit text" "--named-green--1-on" --color)
+      (tok "key shadow" "0 2px 0 rgba(0,0,0,.3)")
+    ])
+    (design-part "Tab variant (.btn-tab)" "A segmented selector for a window titlebar; quiet until .is-active." (DIV {class: "terminal-bar"} (BUTTON {class: "btn-tab is-active"} "Active") (BUTTON {class: "btn-tab"} "Tab")) [
+      (tok "inactive" "opacity 0.5")
+      (tok "active" "opacity 1 + bold")
+    ]))
+}
+
 let design_catalog = [
   [slug, title, blurb, builder];
   ["palette", "Palette",
@@ -759,6 +786,9 @@ let design_catalog = [
   ["window", "Window",
     "A chrome panel for code and output: a title bar over a dark body. The install tabs and the run demos are all this one component.",
     {|| design-window}]
+  ["button", "Button",
+    "One mono outline button, with go (lit) and tab (segmented) variants.",
+    {|| design-button}]
 ]
 
 def design-nav [current: string] {
