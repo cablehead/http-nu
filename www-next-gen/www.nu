@@ -95,6 +95,7 @@ def nav-bar [] {
       (A {href: "/themes"} "Themes")
       (A {href: "/tutorials"} "Tutorials")
       (A {href: "/how-tos"} "How-tos")
+      (A {href: "/examples/"} "Examples")
       (A {href: "/reference"} "Reference")
       (A {href: "/design"} "Design")
       (A {href: "https://github.com/cablehead/http-nu"} "GitHub")
@@ -135,6 +136,7 @@ def site-footer [] {
         (A {href: "https://discord.com/invite/YNbScHBHrh"} "Discord") " \u{b7} "
         (A {href: "/tutorials"} "Tutorials") " \u{b7} "
         (A {href: "/how-tos"} "How-tos") " \u{b7} "
+        (A {href: "/examples/"} "Examples") " \u{b7} "
         (A {href: "/reference"} "Reference") " \u{b7} "
         (A {href: "/design"} "Design") " \u{b7} "
         (A {href: "https://www.nushell.sh"} "Nushell") "-scriptable, " (A {href: "https://cross.stream"} "cross.stream")
@@ -798,7 +800,7 @@ def design-nav [current: string] {
     })))
 }
 
-def design-page [slug: string] {
+def dz-page [slug: string] {
   let entry = ($design_catalog | where slug == $slug | first)
   (page $"($entry.title) - Design - http-nu"
     (MAIN {class: "container with-sidebar"}
@@ -812,8 +814,15 @@ def design-page [slug: string] {
         (do $entry.builder))))
 }
 
+# the existing examples hub, mounted as-is at /examples (not yet folded into the
+# design system). Same source + mount the old ./www used.
+let examples = source ../examples/serve.nu
+
 {|req|
   dispatch $req [
+
+    # examples hub, served as-is until folded into the design system
+    (mount "/examples" $examples)
 
     # landing page
     (route {method: GET path: "/"} {|req ctx|
@@ -996,7 +1005,7 @@ def design-page [slug: string] {
     })
     (route {path-matches: "/design/:slug"} {|req ctx|
       let entry = ($design_catalog | where slug == $ctx.slug | get 0?)
-      if $entry == null { (not-found) } else { (design-page $ctx.slug) }
+      if $entry == null { (not-found) } else { (dz-page $ctx.slug) }
     })
 
     # theme interactions: streaming's live SSE buttons
