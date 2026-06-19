@@ -51,6 +51,14 @@ let pages = ($readme | split row "\n## " | skip 1 | each {|s|
 Add a sidebar that lists the sections and you have navigation. The README stays
 the single source of truth; you just slice it.
 
+> **A living example.** You do not have to imagine the result, you are reading
+> inside it. The [Reference](/reference) section of this site is the http-nu
+> README run through exactly the code above: one page per `## ` heading, a
+> sidebar built from the slugs, a prev/next pager. Go open it and click between
+> sections, watch the URL become each slug, then come back here, the code will
+> read like a description of what you just used. That is the whole lesson: the
+> doc site and the README are the same thing.
+
 ## Typography
 
 `.md` gives you semantic HTML, so style raw tags once and every page looks good
