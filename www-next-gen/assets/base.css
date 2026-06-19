@@ -1037,6 +1037,7 @@ pre .invalid {
   margin: 0;
   padding: 0;
   font: inherit;
+  color: inherit;
   white-space: pre;
 }
 .term-out {
