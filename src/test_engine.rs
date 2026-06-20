@@ -18,7 +18,7 @@ fn test_processor_base_command_surface() {
     let mut engine = Engine::new().unwrap();
     engine.add_processor_commands(&store).unwrap();
 
-    // The context-free commands a processor needs are present...
+    // .mj and .md are present...
     let ws = StateWorkingSet::new(&engine.state);
     assert!(
         ws.find_decl(b".mj").is_some(),
@@ -28,10 +28,10 @@ fn test_processor_base_command_surface() {
         ws.find_decl(b".md").is_some(),
         ".md must be on the processor base"
     );
-    // ...and request-scoped commands are not.
+    // ...and .static, an HTTP-handler command, is not.
     assert!(
         ws.find_decl(b".static").is_none(),
-        ".static is request-scoped and must not be on the processor base"
+        ".static must not be on the processor base"
     );
 }
 
