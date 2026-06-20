@@ -387,6 +387,22 @@ impl Engine {
             Box::new(MjCompileCommand::with_store(store.clone())),
         ])
     }
+
+    /// Add http-nu's `.mj` (store-backed), `.md`, and highlight commands to this
+    /// engine, to use as an xs processor base via `Store::with_base_engine` so
+    /// actors, services, and actions can use them. See xs ADR 0007.
+    #[cfg(feature = "cross-stream")]
+    pub fn add_processor_commands(&mut self, store: &xs::store::Store) -> Result<(), Error> {
+        self.add_commands(vec![
+            Box::new(MjCommand::with_store(store.clone())),
+            Box::new(MjCompileCommand::with_store(store.clone())),
+            Box::new(MjRenderCommand::new()),
+            Box::new(MdCommand::new()),
+            Box::new(HighlightCommand::new()),
+            Box::new(HighlightThemeCommand::new()),
+            Box::new(HighlightLangCommand::new()),
+        ])
+    }
 }
 
 /// Creates an engine from a script by cloning a base engine and parsing the closure.

@@ -8,6 +8,33 @@ fn eval_engine() -> Engine {
     engine
 }
 
+#[cfg(feature = "cross-stream")]
+#[test]
+fn test_processor_base_command_surface() {
+    use nu_protocol::engine::StateWorkingSet;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+    let store = xs::store::Store::new(tmp.path().to_path_buf()).unwrap();
+    let mut engine = Engine::new().unwrap();
+    engine.add_processor_commands(&store).unwrap();
+
+    // The context-free commands a processor needs are present...
+    let ws = StateWorkingSet::new(&engine.state);
+    assert!(
+        ws.find_decl(b".mj").is_some(),
+        ".mj must be on the processor base"
+    );
+    assert!(
+        ws.find_decl(b".md").is_some(),
+        ".md must be on the processor base"
+    );
+    // ...and request-scoped commands are not.
+    assert!(
+        ws.find_decl(b".static").is_none(),
+        ".static is request-scoped and must not be on the processor base"
+    );
+}
+
 #[test]
 fn test_engine_eval() {
     let mut engine = Engine::new().unwrap();

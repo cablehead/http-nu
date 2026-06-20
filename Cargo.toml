@@ -71,8 +71,11 @@ syntect-assets = "0.23.6"
 pulldown-cmark = "0.12.2"
 notify = "8"
 
+# TEMPORARY: track the xs feat/engine-base branch for `Store::with_base_engine`
+# (xs PR #144). Return to a published version once that lands and is released.
 [dependencies.cross-stream]
-version = "0.13.3"
+git = "https://github.com/cablehead/xs"
+branch = "feat/engine-base"
 optional = true
 
 [features]
