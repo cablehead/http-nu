@@ -158,6 +158,8 @@ pub enum Listener {
     Unix(UnixListener),
     #[cfg(windows)]
     Unix(WinUnixListener),
+    #[cfg(all(target_os = "linux", feature = "vsock"))]
+    Vsock(tokio_vsock::VsockListener),
 }
 
 impl Listener {
@@ -199,10 +201,39 @@ impl Listener {
                 let (stream, _) = listener.accept().await?;
                 Ok((Box::new(stream), None))
             }
+            #[cfg(all(target_os = "linux", feature = "vsock"))]
+            Listener::Vsock(listener) => {
+                // A vsock peer has no IP, just like a Unix domain socket peer,
+                // so report the address as None (see resolve_trusted_ip).
+                let (stream, _peer) = listener.accept().await?;
+                Ok((Box::new(stream), None))
+            }
         }
     }
 
     pub async fn bind(addr: &str, tls_config: Option<TlsConfig>) -> io::Result<Self> {
+        // vsock://<port> or vsock://<cid>:<port> selects an AF_VSOCK listener.
+        if let Some(rest) = addr.strip_prefix("vsock://") {
+            #[cfg(all(target_os = "linux", feature = "vsock"))]
+            {
+                if tls_config.is_some() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "TLS is not supported with vsock sockets",
+                    ));
+                }
+                return Self::bind_vsock(rest);
+            }
+            #[cfg(not(all(target_os = "linux", feature = "vsock")))]
+            {
+                let _ = rest;
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "vsock support is not compiled in (Linux only, requires the \"vsock\" feature)",
+                ));
+            }
+        }
+
         // Check if address looks like a Unix socket path
         fn is_unix_path(addr: &str) -> bool {
             addr.starts_with('/') || addr.starts_with('.')
@@ -267,6 +298,27 @@ impl Listener {
             }
         }
     }
+
+    #[cfg(all(target_os = "linux", feature = "vsock"))]
+    fn bind_vsock(rest: &str) -> io::Result<Self> {
+        use tokio_vsock::{VsockAddr, VsockListener, VMADDR_CID_ANY};
+
+        // Accept both "<port>" and "<cid>:<port>". Always bind to CID_ANY so the
+        // listener works regardless of the guest's assigned CID; any CID given
+        // on the listen side is accepted but ignored.
+        let port_str = match rest.rsplit_once(':') {
+            Some((_cid, port)) => port,
+            None => rest,
+        };
+        let port: u32 = port_str.parse().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid vsock port: {rest:?} (expected vsock://<port> or vsock://<cid>:<port>)"),
+            )
+        })?;
+        let listener = VsockListener::bind(VsockAddr::new(VMADDR_CID_ANY, port))?;
+        Ok(Listener::Vsock(listener))
+    }
 }
 
 impl Clone for Listener {
@@ -286,6 +338,10 @@ impl Clone for Listener {
             #[cfg(windows)]
             Listener::Unix(_) => {
                 panic!("Cannot clone a Unix listener")
+            }
+            #[cfg(all(target_os = "linux", feature = "vsock"))]
+            Listener::Vsock(_) => {
+                panic!("Cannot clone a vsock listener")
             }
         }
     }
@@ -322,6 +378,11 @@ impl std::fmt::Display for Listener {
                 let path = listener.local_addr().unwrap();
                 write!(f, "{}", path.display())
             }
+            #[cfg(all(target_os = "linux", feature = "vsock"))]
+            Listener::Vsock(listener) => {
+                let addr = listener.local_addr().unwrap();
+                write!(f, "vsock://:{}", addr.port())
+            }
         }
     }
 }
@@ -354,6 +415,11 @@ mod tests {
                 let path = listener.local_addr().unwrap();
                 path.to_string_lossy().to_string()
             }
+            #[cfg(all(target_os = "linux", feature = "vsock"))]
+            Listener::Vsock(listener) => {
+                let addr = listener.local_addr().unwrap();
+                format!("vsock://:{}", addr.port())
+            }
         };
 
         let client_task: tokio::task::JoinHandle<
@@ -368,6 +434,15 @@ mod tests {
             #[cfg(windows)]
             if listener_addr.starts_with('/') || listener_addr.chars().nth(1) == Some(':') {
                 let stream = WinUnixStream::connect(&listener_addr).await?;
+                return Ok(Box::new(stream) as AsyncReadWriteBox);
+            }
+            #[cfg(all(target_os = "linux", feature = "vsock"))]
+            if let Some(port) = listener_addr.strip_prefix("vsock://:") {
+                use tokio_vsock::{VsockAddr, VsockStream, VMADDR_CID_LOCAL};
+                let port: u32 = port.parse().unwrap();
+                // Connect over the host-local CID (1) so the round-trip loops
+                // back on this machine without a hypervisor.
+                let stream = VsockStream::connect(VsockAddr::new(VMADDR_CID_LOCAL, port)).await?;
                 return Ok(Box::new(stream) as AsyncReadWriteBox);
             }
             let stream = TcpStream::connect(&listener_addr).await?;
@@ -397,5 +472,20 @@ mod tests {
         let path = temp_dir.path().join("test.sock");
         let path = path.to_str().unwrap();
         exercise_listener(path).await;
+    }
+
+    #[cfg(all(target_os = "linux", feature = "vsock"))]
+    #[tokio::test]
+    async fn test_bind_vsock() {
+        // Skip when the host has no vsock support (no /dev/vsock or no
+        // vsock_loopback module) so CI without a hypervisor still passes.
+        match Listener::bind("vsock://0", None).await {
+            Ok(_probe) => {}
+            Err(e) => {
+                eprintln!("skipping test_bind_vsock: vsock unavailable: {e}");
+                return;
+            }
+        }
+        exercise_listener("vsock://0").await;
     }
 }

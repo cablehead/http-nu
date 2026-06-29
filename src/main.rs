@@ -33,7 +33,8 @@ struct Args {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Address to listen on [HOST]:PORT or <PATH> for Unix domain socket
+    /// Address to listen on: [HOST]:PORT, <PATH> for a Unix domain socket, or
+    /// vsock://<port> (vsock://<cid>:<port>) for an AF_VSOCK socket (Linux only)
     #[clap(value_parser)]
     addr: Option<String>,
 
@@ -368,8 +369,9 @@ async fn serve(
     let startup_ms = start_time.elapsed().as_millis();
     let addr_display = {
         let raw = format!("{listener}");
-        // Format TCP addresses as clickable URLs, leave Unix sockets as-is
-        if raw.starts_with('/') {
+        // Format TCP addresses as clickable URLs, leave Unix sockets and the
+        // already-prefixed vsock:// form as-is
+        if raw.starts_with('/') || raw.starts_with("vsock://") {
             raw
         } else {
             // Strip " (TLS)" suffix from Listener's Display
