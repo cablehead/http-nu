@@ -8,24 +8,20 @@ experimental = true
 # (gh, jq, fnox, nu) propagate from the lib; consumers don't pin them
 # globally. Tag bumps -> see https://github.com/joeblew999/.github/blob/main/CHANGELOG.md
 includes = [
-  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.33.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.33.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/rust.toml?ref=v0.33.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/cf.toml?ref=v0.33.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/wrangler.toml?ref=v0.33.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.56.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.56.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/tool-rust.toml?ref=v0.56.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/tool-cf.toml?ref=v0.56.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/tool-wrangler.toml?ref=v0.56.0",
 ]
 
 [tools]
-# Rust + nu pinned here (used by local tasks below).
-rust                     = "stable"
-"github:nushell/nushell" = "0.112"   # match joeblew999/.github lib pin
-"github:jdx/fnox"        = "1.24"    # match joeblew999/.github lib pin
-# push-demo tooling (from push-native): cloudflared quick tunnel + resvg icon
-# rendering. cargo-binstall lets mise resolve `cargo:<crate>` tools without a
-# full `cargo install` build. qrencode is optional (brew/apt); push-demo:dev
-# falls back gracefully if it isn't on PATH.
+# Repo-specific tools only -- global tools (fnox/gh/jq/usage/git-cliff) come from
+# `mise run mise:global:bootstrap`, and Rust is owned by rust-toolchain.toml
+# (rustup), NEVER here -- `ci:check-global` enforces both.
+"github:nushell/nushell" = "0.113"   # per-repo override: MUST match the embedded engine (nu-* crates 0.113.1)
+# push-demo tooling (from push-native): cloudflared quick tunnel + resvg icon rendering.
 "aqua:cloudflare/cloudflared" = "latest"
-"cargo:cargo-binstall"   = "latest"
 "cargo:resvg"            = "latest"
 # email-native: wrangler from npm. The email:worker:* tasks call `wrangler`
 # directly and rely on this global pin (the cedar cf:* tasks pin their own
@@ -33,6 +29,9 @@ rust                     = "stable"
 "npm:wrangler"           = "4.71.0"
 
 [env]
+# CI_OS_MATRIX is read by mise:repo:bootstrap and projected into the generated
+# workflow stub; setting it here keeps re-bootstrap from clobbering the override.
+CI_OS_MATRIX     = '["ubuntu-latest", "macos-latest", "windows-latest"]'
 CARGO_TERM_COLOR = "always"
 PORT = "3001"
 STORE = "./.store"
@@ -109,9 +108,12 @@ description = "Run the Tao eval test"
 depends = ["build"]
 run = "$HTTP_NU eval examples/tao/test.nu"
 
+# Local extension of the shared `ci` umbrella (ci:check-global + ci:check-nu
+# from joeblew999/.github tasks/ci.toml). mise MERGES the depends, so the shared
+# guards still run -- this only adds the repo's native build + test set. CF/wasm
+# and wrangler tasks are intentionally excluded (they need extra targets/daemons).
 [tasks.ci]
-description = "CI aggregator — what the .github/workflows/mise.yaml workflow runs"
-alias = "check"
+description = "CI -- shared guards (merged) + this repo's native build/test"
 depends = ["test:nu", "fmt:check", "clippy", "test", "test:tao"]
 
 
@@ -207,32 +209,32 @@ description = "Build the http-nu Workers cdylib via worker-build. CF_HANDLER_PAT
 dir = "{{config_root}}"
 tools = { "cargo:worker-build" = "^0.8" }
 run = '''
-set -euo pipefail
-export CF_HANDLER_PATH="${CF_HANDLER_PATH:-../../examples/blog/serve.nu}"
-MODE="${CF_BUILD_MODE:-dev}"
-echo "embedding handler: $CF_HANDLER_PATH  (mode: $MODE)"
+#!/usr/bin/env nu
+$env.CF_HANDLER_PATH = ($env.CF_HANDLER_PATH? | default "../../examples/blog/serve.nu")
+let mode = ($env.CF_BUILD_MODE? | default "dev")
+print $"embedding handler: ($env.CF_HANDLER_PATH)  (mode: ($mode))"
 # Builds only http-nu: the workspace has no default-members, so worker-build
 # at the root resolves to the root package alone (no plugin feature unification
 # that would pull os-only crates into the wasm build). See Cargo.toml note.
-case "$MODE" in
-  dev)
+match $mode {
+  "dev" => {
     # --dev skips wasm-opt and uses cargo debug profile -> ~5-10s incremental
     # rebuilds vs ~30-45s for release.
-    worker-build --dev -- --no-default-features --features cloudflare
-    ;;
-  release)
-    worker-build --release -- --no-default-features --features cloudflare
-    ;;
-  *)
-    echo "✗ CF_BUILD_MODE=$MODE invalid (use 'dev' or 'release')" >&2
-    exit 1
-    ;;
-esac
-WASM=$(find build -maxdepth 4 -name '*.wasm' -type f | head -1)
-if [ -n "$WASM" ]; then
-  echo ""
-  echo "✓ built  $WASM ($(du -h "$WASM" | cut -f1))"
-fi
+    ^worker-build --dev -- --no-default-features --features cloudflare
+  }
+  "release" => {
+    ^worker-build --release -- --no-default-features --features cloudflare
+  }
+  _ => {
+    error make {msg: $"CF_BUILD_MODE=($mode) invalid -- use dev or release"}
+  }
+}
+let wasm = (glob build/**/*.wasm | first)
+if ($wasm | is-not-empty) {
+  print ""
+  let size = (^du -h $wasm | str trim | split row "\t" | first)
+  print $"built  ($wasm) (($size))"
+}
 '''
 
 [tasks."cf:dev"]
@@ -246,23 +248,24 @@ run = "wrangler dev"
 description = "Deploy the http-nu Worker to Cloudflare (requires CLOUDFLARE_API_TOKEN). Forces release-mode build via cf:build's CF_BUILD_MODE env."
 depends = ["cf:token-check"]
 dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22" }
 run = '''
-set -euo pipefail
-export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
-CF_BUILD_MODE=release mise run cf:build
-wrangler deploy
+#!/usr/bin/env nu
+$env.CLOUDFLARE_API_TOKEN = ($env.CLOUDFLARE_API_TOKEN? | default (^fnox get CLOUDFLARE_API_TOKEN | str trim))
+$env.CF_BUILD_MODE = "release"
+^mise run cf:build
+^wrangler deploy
 '''
 
 [tasks."cf:tail"]
 description = "Live-tail logs from the deployed http-nu Worker (wrangler tail; requires CLOUDFLARE_API_TOKEN)"
 depends = ["cf:token-check"]
 dir = "{{config_root}}/src/cf"
-tools = { "npm:wrangler" = "4.90", node = "22", "github:jdx/fnox" = "1.24" }
+tools = { "npm:wrangler" = "4.90", node = "22" }
 run = '''
-set -euo pipefail
-export CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-$(fnox get CLOUDFLARE_API_TOKEN)}"
-wrangler tail
+#!/usr/bin/env nu
+$env.CLOUDFLARE_API_TOKEN = ($env.CLOUDFLARE_API_TOKEN? | default (^fnox get CLOUDFLARE_API_TOKEN | str trim))
+^wrangler tail
 '''
 
 [tasks."ex:cf:blog"]
@@ -351,8 +354,9 @@ dir = "{{config_root}}"
 sources = ["examples/**/*.nu", "scripts/bundle-cf-handler.nu"]
 outputs = ["target/cf-hub.nu"]
 run = '''
-mkdir -p target
-nu scripts/bundle-cf-handler.nu examples/serve-cf.nu > target/cf-hub.nu
+#!/usr/bin/env nu
+mkdir target
+^nu scripts/bundle-cf-handler.nu examples/serve-cf.nu | save --force target/cf-hub.nu
 '''
 
 [tasks."cf:dev:hub"]
@@ -368,17 +372,11 @@ description = "Benchmark the local wrangler dev (must be running) with oha. Defa
 dir = "{{config_root}}"
 tools = { "cargo:oha" = "1.10" }
 run = '''
-set -euo pipefail
-PATH_ARG="${PATH_ARG:-/}"
-DURATION="${DURATION:-10s}"
-CONNECTIONS="${CONNECTIONS:-50}"
-nu benchmarks/bench-cf/run.nu \
-  --url "http://127.0.0.1:8787" \
-  --path "$PATH_ARG" \
-  --duration "$DURATION" \
-  --connections "$CONNECTIONS" \
-  --label "local: $PATH_ARG" \
-  --save
+#!/usr/bin/env nu
+let path_arg = ($env.PATH_ARG? | default "/")
+let duration = ($env.DURATION? | default "10s")
+let connections = ($env.CONNECTIONS? | default "50")
+^nu benchmarks/bench-cf/run.nu --url "http://127.0.0.1:8787" --path $path_arg --duration $duration --connections $connections --label $"local: ($path_arg)" --save
 '''
 
 [tasks."cf:bench:report"]
@@ -391,18 +389,12 @@ description = "Benchmark the live worker with oha. Hits https://http-nu-cf.gedw9
 dir = "{{config_root}}"
 tools = { "cargo:oha" = "1.10" }
 run = '''
-set -euo pipefail
-LIVE_BASE="${LIVE_BASE:-https://http-nu-cf.gedw99.workers.dev}"
-PATH_ARG="${PATH_ARG:-/}"
-DURATION="${DURATION:-10s}"
-CONNECTIONS="${CONNECTIONS:-50}"
-nu benchmarks/bench-cf/run.nu \
-  --url "$LIVE_BASE" \
-  --path "$PATH_ARG" \
-  --duration "$DURATION" \
-  --connections "$CONNECTIONS" \
-  --label "remote: $PATH_ARG" \
-  --save
+#!/usr/bin/env nu
+let live_base = ($env.LIVE_BASE? | default "https://http-nu-cf.gedw99.workers.dev")
+let path_arg = ($env.PATH_ARG? | default "/")
+let duration = ($env.DURATION? | default "10s")
+let connections = ($env.CONNECTIONS? | default "50")
+^nu benchmarks/bench-cf/run.nu --url $live_base --path $path_arg --duration $duration --connections $connections --label $"remote: ($path_arg)" --save
 '''
 
 [tasks."cf:rebuild:hub"]
@@ -415,133 +407,133 @@ run = "CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:build"
 description = "Deploy the CF hub to the live worker AND seed asset-dependent demos. Wraps `cf:deploy` with hub-specific bundling + post-deploy seeding. Live URL: https://http-nu-cf.gedw99.workers.dev/"
 dir = "{{config_root}}"
 depends = ["cf:bundle:hub"]
-shell = "bash -c"
 run = '''
-set -euo pipefail
-CF_HANDLER_PATH=../../target/cf-hub.nu mise run cf:deploy
+#!/usr/bin/env nu
+$env.CF_HANDLER_PATH = "../../target/cf-hub.nu"
+^mise run cf:deploy
 
 # Seed asset-dependent demos against the live worker so first-time
 # visitors get a working page without manual seeding.
-LIVE_BASE="${LIVE_BASE:-https://http-nu-cf.gedw99.workers.dev}"
-for d in mermaid-editor; do
-  echo "→ seeding $d into $LIVE_BASE"
-  BASE="$LIVE_BASE" DEMO="$d" mise run cf:seed:demo
-done
+let live_base = ($env.LIVE_BASE? | default "https://http-nu-cf.gedw99.workers.dev")
+for d in ["mermaid-editor"] {
+  print $"seeding ($d) into ($live_base)"
+  with-env {BASE: $live_base, DEMO: $d} { ^mise run cf:seed:demo }
+}
 '''
 
 [tasks."cf:wipe"]
 description = "Wipe the local wrangler dev's Workspace (the default DO unless WS_USER=<user> selects a per-user DO via /u/<user>/). Useful when re-seeding or recovering."
 dir = "{{config_root}}"
-shell = "bash -c"
 run = '''
-set -euo pipefail
-BASE="${BASE:-http://127.0.0.1:8787}"
-WS_USER="${WS_USER:-}"
-PREFIX=""
-[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
+#!/usr/bin/env nu
+let base = ($env.BASE? | default "http://127.0.0.1:8787")
+let ws_user = ($env.WS_USER? | default "")
+let prefix = (if ($ws_user | is-not-empty) { $"/u/($ws_user)" } else { "" })
 
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
-  echo "✗ $BASE not reachable -- start mise run cf:dev:hub first" >&2
-  exit 1
-fi
+let reachable = (do -i { ^curl -s -o /dev/null --connect-timeout 1 $"($base)($prefix)/_workspace/ls?path=/" } | complete | get exit_code) == 0
+if not $reachable {
+  error make {msg: $"($base) not reachable -- start mise run cf:dev:hub first"}
+}
 # `_workspace/rm` is recursive + force. Wipe top-level entries (not / itself).
-ls=$(curl -fs "$BASE$PREFIX/_workspace/ls?path=/" || echo "[]")
-echo "$ls" | python3 -c "import json,sys; [print(p) for p in json.load(sys.stdin)]" | while read -r entry; do
-  echo "rm /$entry"
-  curl -fs -o /dev/null -X POST "$BASE$PREFIX/_workspace/rm?path=/$entry"
-done
-echo "✓ wiped $BASE$PREFIX/*"
+let entries = (do -i { ^curl -fs $"($base)($prefix)/_workspace/ls?path=/" } | complete | get stdout | str trim)
+let parsed = (if ($entries | is-empty) { [] } else { $entries | from json })
+for entry in $parsed {
+  print $"rm /($entry)"
+  do -i { ^curl -fs -o /dev/null -X POST $"($base)($prefix)/_workspace/rm?path=/($entry)" }
+}
+print $"wiped ($base)($prefix)/*"
 '''
 
 [tasks."cf:seed:demo"]
 description = "Upload one demo's assets into the local wrangler dev's default Workspace. Usage: DEMO=tao mise run cf:seed:demo (default DO). Set WS_USER=bob to seed a per-user DO via /u/bob/. Use this AFTER mise run ex:cf:<demo> is listening on :8787. Skips *.nu (already in wasm). BASE=http://127.0.0.1:8787 by default."
 dir = "{{config_root}}"
-shell = "bash -c"
 run = '''
-set -euo pipefail
-DEMO="${DEMO:?usage: DEMO=<demo-name> mise run cf:seed:demo}"
-BASE="${BASE:-http://127.0.0.1:8787}"
-WS_USER="${WS_USER:-}"
-PREFIX=""
-[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
-SRC="examples/$DEMO"
+#!/usr/bin/env nu
+let demo = ($env.DEMO? | default "")
+if ($demo | is-empty) { error make {msg: "usage: DEMO=<demo-name> mise run cf:seed:demo"} }
+let base = ($env.BASE? | default "http://127.0.0.1:8787")
+let ws_user = ($env.WS_USER? | default "")
+let prefix = (if ($ws_user | is-not-empty) { $"/u/($ws_user)" } else { "" })
+let src = $"examples/($demo)"
 
-if [ ! -d "$SRC" ]; then
-  echo "✗ $SRC not found" >&2; exit 1
-fi
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
-  echo "✗ $BASE not reachable -- start mise run ex:cf:$DEMO first" >&2
-  exit 1
-fi
+if not ($src | path exists) { error make {msg: $"($src) not found"} }
+let reachable = (do -i { ^curl -s -o /dev/null --connect-timeout 1 $"($base)($prefix)/_workspace/ls?path=/" } | complete | get exit_code) == 0
+if not $reachable {
+  error make {msg: $"($base) not reachable -- start mise run ex:cf:($demo) first"}
+}
 
-count=0
-fail=0
-while IFS= read -r -d "" file; do
+let files = (glob $"($src)/**/*" | where {|p| ($p | path type) == "file" })
+mut count = 0
+mut fail = 0
+for file in $files {
   # Skip nu sources -- the handler is already in the wasm.
-  case "$file" in *.nu) continue ;; esac
-  rel="${file#$SRC/}"
-  mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
-  url="$BASE$PREFIX/_workspace/put?path=/$rel"
-  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST -H "Content-Type: $mime" --data-binary "@$file" "$url")
-  if [ "$http_code" = "200" ]; then
-    count=$((count + 1))
-  else
-    echo "✗ $rel ($http_code)" >&2; fail=$((fail + 1))
-  fi
-done < <(find "$SRC" -type f -print0)
+  if ($file | str ends-with ".nu") { continue }
+  let rel = ($file | str replace $"($src)/" "")
+  let mime = (do -i { ^file --brief --mime-type $file } | complete | get stdout | str trim | default "application/octet-stream")
+  let mime = (if ($mime | is-empty) { "application/octet-stream" } else { $mime })
+  let url = $"($base)($prefix)/_workspace/put?path=/($rel)"
+  let http_code = (^curl -s -o /dev/null -w "%{http_code}" -X POST -H $"Content-Type: ($mime)" --data-binary $"@($file)" $url | str trim)
+  if $http_code == "200" {
+    $count = $count + 1
+  } else {
+    print --stderr $"($rel) (($http_code))"
+    $fail = $fail + 1
+  }
+}
 
-echo "✓ seeded $count files from $SRC into $BASE$PREFIX/"
-[ "$fail" -eq 0 ]
+print $"seeded ($count) files from ($src) into ($base)($prefix)/"
+if $fail != 0 { error make {msg: $"($fail) uploads failed"} }
 '''
 
 [tasks."cf:upload"]
 description = "Generic: upload SRC (a directory) into the local wrangler dev's Workspace under DEST. Usage: SRC=target/doc DEST=/target/doc mise run cf:upload. Defaults: BASE=http://127.0.0.1:8787, default DO (set WS_USER=name for per-user via /u/<name>)."
 dir = "{{config_root}}"
-shell = "bash -c"
 run = '''
-set -euo pipefail
-SRC="${SRC:?usage: SRC=<local-dir> DEST=<workspace-path> mise run cf:upload}"
-DEST="${DEST:?usage: SRC=<local-dir> DEST=<workspace-path> mise run cf:upload}"
-BASE="${BASE:-http://127.0.0.1:8787}"
-WS_USER="${WS_USER:-}"
-PREFIX=""
-[ -n "$WS_USER" ] && PREFIX="/u/$WS_USER"
+#!/usr/bin/env nu
+let src = ($env.SRC? | default "")
+let dest_in = ($env.DEST? | default "")
+if ($src | is-empty) or ($dest_in | is-empty) { error make {msg: "usage: SRC=<local-dir> DEST=<workspace-path> mise run cf:upload"} }
+let base = ($env.BASE? | default "http://127.0.0.1:8787")
+let ws_user = ($env.WS_USER? | default "")
+let prefix = (if ($ws_user | is-not-empty) { $"/u/($ws_user)" } else { "" })
 
-if [ ! -d "$SRC" ]; then echo "✗ $SRC not found" >&2; exit 1; fi
-if ! curl -s -o /dev/null --connect-timeout 1 "$BASE$PREFIX/_workspace/ls?path=/"; then
-  echo "✗ $BASE not reachable -- start a wrangler dev first" >&2; exit 1
-fi
+if not ($src | path exists) { error make {msg: $"($src) not found"} }
+let reachable = (do -i { ^curl -s -o /dev/null --connect-timeout 1 $"($base)($prefix)/_workspace/ls?path=/" } | complete | get exit_code) == 0
+if not $reachable {
+  error make {msg: $"($base) not reachable -- start a wrangler dev first"}
+}
 # Normalise DEST: leading /, no trailing /.
-DEST="/${DEST#/}"; DEST="${DEST%/}"
+let dest = ("/" + ($dest_in | str trim --left --char "/") | str trim --right --char "/")
 
-count=0; fail=0
-while IFS= read -r -d "" file; do
-  rel="${file#$SRC/}"
-  mime=$(file --brief --mime-type "$file" 2>/dev/null || echo "application/octet-stream")
-  url="$BASE$PREFIX/_workspace/put?path=$DEST/$rel"
-  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST -H "Content-Type: $mime" --data-binary "@$file" "$url")
-  if [ "$http_code" = "200" ]; then
-    count=$((count + 1))
-  else
-    echo "✗ $rel ($http_code)" >&2; fail=$((fail + 1))
-  fi
-done < <(find "$SRC" -type f -print0)
+let files = (glob $"($src)/**/*" | where {|p| ($p | path type) == "file" })
+mut count = 0
+mut fail = 0
+for file in $files {
+  let rel = ($file | str replace $"($src)/" "")
+  let mime = (do -i { ^file --brief --mime-type $file } | complete | get stdout | str trim)
+  let mime = (if ($mime | is-empty) { "application/octet-stream" } else { $mime })
+  let url = $"($base)($prefix)/_workspace/put?path=($dest)/($rel)"
+  let http_code = (^curl -s -o /dev/null -w "%{http_code}" -X POST -H $"Content-Type: ($mime)" --data-binary $"@($file)" $url | str trim)
+  if $http_code == "200" {
+    $count = $count + 1
+  } else {
+    print --stderr $"($rel) (($http_code))"
+    $fail = $fail + 1
+  }
+}
 
-echo "✓ uploaded $count files from $SRC -> $BASE$PREFIX$DEST/"
-[ "$fail" -eq 0 ]
+print $"uploaded ($count) files from ($src) -> ($base)($prefix)($dest)/"
+if $fail != 0 { error make {msg: $"($fail) uploads failed"} }
 '''
 
 [tasks."cf:seed:cargo-docs"]
 description = "Build cargo doc for this workspace + upload target/doc/ to /target/doc/ in the local wrangler dev's Workspace. Pair with `mise run ex:cf:cargo-docs`."
 dir = "{{config_root}}"
-shell = "bash -c"
 run = '''
-set -euo pipefail
-echo "→ cargo doc --workspace --no-deps"
-cargo doc --workspace --no-deps --quiet
-SRC=target/doc DEST=/target/doc mise run cf:upload
+#!/usr/bin/env nu
+print "cargo doc --workspace --no-deps"
+^cargo doc --workspace --no-deps --quiet
+with-env {SRC: "target/doc", DEST: "/target/doc"} { ^mise run cf:upload }
 '''
 
 
@@ -556,13 +548,13 @@ SRC=target/doc DEST=/target/doc mise run cf:upload
 description = "Clone nu-on-web/nu-on-web into .src/ (idempotent)"
 dir = "{{config_root}}"
 run = '''
-set -euo pipefail
-mkdir -p .src
-if [ -d ".src/nu-on-web/.git" ]; then
-  echo "✓ .src/nu-on-web already present"
-else
-  git clone --depth 1 https://github.com/nu-on-web/nu-on-web.git .src/nu-on-web
-fi
+#!/usr/bin/env nu
+mkdir .src
+if (".src/nu-on-web/.git" | path exists) {
+  print ".src/nu-on-web already present"
+} else {
+  ^git clone --depth 1 https://github.com/nu-on-web/nu-on-web.git .src/nu-on-web
+}
 '''
 
 [tasks."nu-on-web:build"]
@@ -607,17 +599,20 @@ run = "cargo clean"
 description = "Delete the local store dir at $STORE (DESTRUCTIVE, prompts to confirm)"
 confirm = "Delete $STORE and everything in it? This is NOT recoverable."
 run = '''
-set -euo pipefail
-: "${STORE:?STORE not set}"
-case "$STORE" in
-  ""|"/"|"."|"./"|".."|"../"|"$HOME"|"$HOME/")
-    echo "refusing to delete suspicious STORE='$STORE'" >&2
-    exit 1
-    ;;
-esac
-[ -d "$STORE" ] || { echo "no $STORE to remove"; exit 0; }
-rm -rf -- "$STORE"
-echo "removed $STORE"
+#!/usr/bin/env nu
+let store = ($env.STORE? | default "")
+if ($store | is-empty) { error make {msg: "STORE not set"} }
+let home = $nu.home-dir
+let suspicious = ["" "/" "." "./" ".." "../" $home $"($home)/"]
+if ($store in $suspicious) {
+  error make {msg: $"refusing to delete suspicious STORE='($store)'"}
+}
+if not ($store | path exists) {
+  print $"no ($store) to remove"
+  return
+}
+rm -rf $store
+print $"removed ($store)"
 '''
 
 # ============================================================================
