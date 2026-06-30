@@ -407,7 +407,7 @@ impl UserSpace {
 ///
 /// The CF target supports an optional `/u/<user>/` URL prefix for
 /// per-user DurableObject isolation. Everything else goes to the
-/// "default" DO, so root-relative URLs in demos (`/datastar@1.0.1.js`,
+/// "default" DO, so root-relative URLs in demos (`/datastar@1.0.2.js`,
 /// `/static/...`, `/2048/move`) work like desktop -- no path mangling.
 ///
 /// "/u/alice/foo"        -> "/foo"
@@ -434,7 +434,7 @@ pub(super) fn strip_user_prefix(path: &str) -> String {
 /// `/u/alice`           -> "alice"
 /// `/foo`               -> "default"
 /// `/`                  -> "default"
-/// `/datastar@1.0.1.js` -> "default"  (no longer mis-parsed as a user)
+/// `/datastar@1.0.2.js` -> "default"  (no longer mis-parsed as a user)
 fn user_id_from_path(path: &str) -> &str {
     if let Some(after) = path.strip_prefix("/u/") {
         let id = after.split('/').next().unwrap_or("");

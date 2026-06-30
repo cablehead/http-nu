@@ -174,7 +174,13 @@ fn create_base_engine(
 
 /// Read script from file, convert to engine, send through `tx`. If `watch` is true,
 /// spawn a watcher that re-reads, converts, and sends on changes.
-async fn file_source(path: &str, watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>) {
+async fn file_source(
+    path: &str,
+    watch: bool,
+    ignore: Option<PathBuf>,
+    base_engine: Engine,
+    tx: mpsc::Sender<Engine>,
+) {
     let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
         eprintln!("Error reading {path}: {e}");
         std::process::exit(1);
@@ -219,7 +225,14 @@ async fn file_source(path: &str, watch: bool, base_engine: Engine, tx: mpsc::Sen
                             event.kind,
                             EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
                         );
-                        if dominated_by {
+                        // Skip events whose paths all fall under an ignored
+                        // directory (e.g. --store). An event that also touches
+                        // the script or any other file still reloads.
+                        let all_ignored = ignore.as_ref().is_some_and(|dir| {
+                            !event.paths.is_empty()
+                                && event.paths.iter().all(|p| p.starts_with(dir))
+                        });
+                        if dominated_by && !all_ignored {
                             pending_reload = true;
                         }
                     }
@@ -686,6 +699,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         services: false,
     };
 
+    // Cold-start timer: spans engine build + handler evaluation (including
+    // serve.nu's SPLASH_STATES slurp and any module/template compilation) +
+    // listener bind. Created here, before the synchronous source eval below,
+    // so startup_ms reflects real startup rather than just the bind.
+    let start_time = std::time::Instant::now();
+
     // Create base engine with commands, signals, and plugins
     let base_engine = create_base_engine(
         interrupt.clone(),
@@ -726,7 +745,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 stdin_source(args.watch, base_engine.clone(), tx).await;
             }
             (Some(path), None) => {
-                file_source(path, args.watch, base_engine.clone(), tx).await;
+                // Don't reload on writes under --store: the store mutates on
+                // its own (and re-registers actors/services under --services,
+                // which would loop). Canonicalized to match notify's paths.
+                #[cfg(feature = "cross-stream")]
+                let ignore = args.store.as_ref().and_then(|p| p.canonicalize().ok());
+                #[cfg(not(feature = "cross-stream"))]
+                let ignore: Option<PathBuf> = None;
+                file_source(path, args.watch, ignore, base_engine.clone(), tx).await;
             }
         }
     }
@@ -763,7 +789,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             datastar: args.datastar,
             dev: args.dev,
         },
-        std::time::Instant::now(),
+        start_time,
         startup_options,
     )
     .await?;

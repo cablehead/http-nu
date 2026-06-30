@@ -355,9 +355,11 @@ def render-stories [slug: string]: nothing -> list {
     ]
     "palettes" => (palette-catalog | each {|p| palette-story $p })
     "markdown" => [
-      (story "rendered via .md, wrapped in .prose (same path as /notes pages)" [
-        (DIV {class: "prose"} {__html: ($MD_SAMPLE | .md | get __html)})
-      ])
+      # Page content, not a component, so it skips the .render preview
+      # frame and renders straight into <main>, exactly as /notes does.
+      (SECTION {class: "story"}
+        (P {class: "label"} "rendered via .md, in <main> exactly as the /notes pages render it")
+        (MAIN {__html: ($MD_SAMPLE | .md | get __html)}))
     ]
     _ => []
   }
@@ -416,7 +418,7 @@ def design-page [req: record current: string]: nothing -> string {
           (A {href: $current} $entry.title)
         ]
         --right [])
-      (MAIN {class: "design-main"}
+      (DIV {class: "design-main"}
         (NAV {class: "design-nav"}
           ($CATALOG | each {|c|
             (A {href: $c.slug class: (if $c.slug == $current { "current" } else { "" })}

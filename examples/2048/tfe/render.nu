@@ -45,7 +45,15 @@ export def render-score [score: int]: nothing -> record {
   # Bound to the $score signal: Datastar's text plugin overwrites
   # textContent on mount and on every signal patch, so post-init
   # score updates flow as signals patches rather than element morphs.
-  (SPAN {id: "score" "data-text": "$score"} ($score | into string))
+  # The undo tally sits on the same baseline, to the LEFT of the score:
+  # board-controls is right-anchored, so keeping the score the rightmost
+  # item means it doesn't shift when the tally first appears. data-show
+  # hides the tally until the game has actually used an undo.
+  (DIV {class: "score-block"}
+    (SPAN {id: "undos" class: "undo-tally"
+           "data-show": "$undos > 0"
+           "data-text": "$undos + ($undos === 1 ? ' undo' : ' undos')"} "")
+    (SPAN {id: "score" "data-text": "$score"} ($score | into string)))
 }
 
 # Breadcrumb header: a one-row nav element shared by / and /play. Left
@@ -150,7 +158,7 @@ export def control-pad []: nothing -> record {
 }
 
 # Render a card from already-known state. Callers pass state straight
-# out of a snapshot frame's meta, avoiding a redundant resume-game lookup.
+# out of a snapshot frame's meta, avoiding a redundant game-head lookup.
 # Render a SCRU128 id's embedded timestamp as a short, human-readable
 # string. Under a minute reads as "in play" (the game is still warm);
 # beyond that it's "Xm ago" / "Xh ago" / "Xd ago" / "Xw ago".

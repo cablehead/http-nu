@@ -1,6 +1,6 @@
 # xs actor: 2048 game-state singleton.
 #
-# Stateless per-game. For each impulse, reads `.last game.<id>.snapshot`
+# Stateless per-game. For each impulse, reads `.last game.snapshot.<id>`
 # (current HEAD), computes the new state, and appends a new snapshot
 # carrying `meta.prev = <previous HEAD's frame id>`. ttl: forever, so the
 # tree is preserved.
@@ -39,6 +39,7 @@
         score: 0
         max_tile: $max_tile
         moves: $moves
+        undos: 0
         game_over: false
       }
       return {next: $state}
@@ -128,6 +129,7 @@
         score: ($head.meta | get score? | default 0)
         max_tile: ($head.meta | get max_tile? | default 0)
         moves: ($head.meta | get moves? | default 0)
+        undos: ($head.meta | get undos? | default 0)
         game_over: ($head.meta | get game_over? | default false)
       }
       return {next: $state}
@@ -135,6 +137,10 @@
 
     let max_tile = if ($result.state.tiles | is-empty) { 0 } else { $result.state.tiles | get value | math max }
     let moves = [0 ($result.state.next_id - 3)] | math max
+    # Monotonic count of undos that actually reverted state. Carry the
+    # head's count forward; +1 only on a successful undo (no-op / dead-end
+    # undos take the ephemeral branch above and don't count).
+    let undos = ($head.meta | get undos? | default 0) + (if $result.intent == "undo" { 1 } else { 0 })
     null | .append $"game.snapshot.($game_id)" --meta {
       state: $result.state
       last_move_id: $frame.id
@@ -145,6 +151,7 @@
       score: $result.state.score
       max_tile: $max_tile
       moves: $moves
+      undos: $undos
       game_over: $result.state.game_over
     }
     {next: $state}
@@ -161,7 +168,13 @@
   # "game.snapshot.*"` is an indexed prefix lookup (reverse iter on the
   # topic index), O(1)-ish, not a scan. Reprocessing the trailing no-op /
   # unauth / dead-undo moves after that point is safe -- they append
-  # nothing. Empty store -> default {} -> null -> framework default (new),
-  # which is fine: no moves to miss yet.
-  start: (.last "game.snapshot.*" | default {} | get meta?.last_move_id?)
+  # nothing.
+  #
+  # No snapshot at all (fresh, stripped, or migrated store) -> `default
+  # "first"` replays the whole stream once, rebuilding every game's
+  # snapshot chain (root + prev links) from the move log. The next boot
+  # then finds a snapshot and resumes from it, so the full replay is a
+  # one-time cost. This makes the actor the sole snapshot writer: read
+  # paths never backfill (see store.nu `game-head`).
+  start: (.last "game.snapshot.*" | default {} | get meta?.last_move_id? | default "first")
 }

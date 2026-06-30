@@ -28,20 +28,21 @@ use ./render.nu *
 # carrying the move's `req_id`. So `frames-to-states` no longer needs to
 # echo `.move` frames; the SSE handler doesn't follow them in the first place.
 export def frames-to-states [] {
-  generate {|f, acc = {state: null}|
+  generate {|f, acc: record = {state: null}|
     if ('event' in $f) {
       return {out: $f, next: $acc}
     }
     let t = $f.topic
     if $t == "xs.threshold" {
-      {out: {state: $acc.state, threshold: true}, next: $acc}
+      {out: {state: $acc.state, undos: ($acc.undos? | default 0), threshold: true}, next: $acc}
     } else if ($t | str starts-with "game.snapshot.") {
       let state = $f.meta.state
       let intent = $f.meta | get intent? | default ""
       let req_id = $f.meta | get req_id? | default ""
+      let undos = $f.meta | get undos? | default 0
       {
-        out: {state: $state, direction: $intent, changed: true, threshold: false, req_id: $req_id, move_id: ($f.meta | get last_move_id? | default "")}
-        next: ($acc | upsert state $state)
+        out: {state: $state, direction: $intent, changed: true, threshold: false, req_id: $req_id, undos: $undos, move_id: ($f.meta | get last_move_id? | default "")}
+        next: ($acc | upsert state $state | upsert undos $undos)
       }
     } else {
       {next: $acc}
@@ -100,7 +101,7 @@ export def states-to-wc-signals [] {
         # badge from boardState.gameOver + tile values.
         let won = $state.tiles | any {|t| $t.value >= 2048 }
         let status = if $won { "won" } else if $state.game_over { "over" } else { "" }
-        [{signals: {boardState: $board, score: $state.score, gameStatus: $status, lastReqId: $req_id}}]
+        [{signals: {boardState: $board, score: $state.score, gameStatus: $status, lastReqId: $req_id, undos: ($s.undos? | default 0)}}]
       } else {
         [{signals: {lastReqId: $req_id}}]
       }

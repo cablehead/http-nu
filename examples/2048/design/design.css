@@ -1,12 +1,9 @@
 /* /design viewer layout. 2-col: sidebar list + focused preview. */
 
-/* The component viewer caps at the site's 900px content width by default;
-   the palette rows (16 tiles, up to 64K) want more room to read like real
-   tiles. Widen the whole /design chrome so the header/breadcrumb stay
-   aligned with the preview. */
-body.design .page,
-body.design .site-header,
-body.design .site-footer { max-width: 1200px; }
+/* The page column caps at the site's 900px (set on body) by default; the
+   palette rows (16 tiles, up to 64K) want more room to read like real
+   tiles, so widen the whole /design page. */
+body.design { max-width: 1200px; }
 
 .design-main {
   display: grid;

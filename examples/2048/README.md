@@ -43,7 +43,7 @@ random seed is stored in frames. Replay reconstructs the same board.
 serve.nu                routes
 tfe/
   game.nu               pure logic (slide, spawn, roll, apply-move)
-  store.nu              .cat/.last wrappers (resume-game, list-games)
+  store.nu              .cat/.last wrappers (game-head, list-games)
   render.nu             HTML output (board, card, layout)
   sse.nu                SSE pipeline (frames-to-states -> patches)
   snapshot-actor.nu     xs actor source (registered at startup)
@@ -69,11 +69,11 @@ list-players                            # players seen, with game counts
 list-games | first 5                    # games by move count
 leaderboard                             # top games by score, last 7 days
 leaderboard --since 1day --limit 10     # window + size are tunable
-resume-game "03g54..." | reject state.tiles
+game-head "03g54..." | reject state.tiles
 follow-game "03g54..." | each { reject state.tiles }
 
 # Replay from raw move frames (no snapshots needed):
-.cat -T "game.03g54.move" | project-game "03g54" | reject tiles
+.cat -T "game.move.03g54" | project-game "03g54" | reject tiles
 ```
 
 ### Frame topics

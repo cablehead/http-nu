@@ -22,8 +22,8 @@ use crate::vfs::with_vfs;
 // Workers gzip/brotli is applied transparently by the runtime so we serve
 // the uncompressed bundle here -- no Accept-Encoding negotiation in the
 // worker code.
-const DATASTAR_JS_SUFFIX: &str = "/datastar@1.0.1.js";
-const DATASTAR_JS: &[u8] = include_bytes!("../stdlib/datastar/datastar@1.0.1.js");
+const DATASTAR_JS_SUFFIX: &str = "/datastar@1.0.2.js";
+const DATASTAR_JS: &[u8] = include_bytes!("../stdlib/datastar/datastar@1.0.2.js");
 
 // PUT <user>/admin/handler -- accepts a Nu closure as request body and
 // hot-swaps it into the cached engine for THIS user's isolate. Each
@@ -57,7 +57,7 @@ pub(super) async fn handle(req: &mut WorkerRequest) -> Result<Response> {
     let path = req.url().map(|u| u.path().to_string()).unwrap_or_default();
     let suffix = route_suffix(&path);
 
-    // Short-circuit the Datastar JS bundle (matches /<user>/datastar@1.0.1.js).
+    // Short-circuit the Datastar JS bundle (matches /<user>/datastar@1.0.2.js).
     if suffix == DATASTAR_JS_SUFFIX {
         return datastar_js_response();
     }

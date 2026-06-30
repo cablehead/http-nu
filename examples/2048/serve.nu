@@ -42,30 +42,30 @@ let SPLASH_DATE = "2026-05-17"
 const SPLASH_PLAYER_ID = "542221d8-be77-4fac-91cb-1bfa49ae3b2a"
 
 # Register the xs snapshot-actor (singleton): it watches every
-# `player.*.games` + `game.*.move` frame and writes the canonical
-# `game.<id>.snapshot` (ttl: last:1). Requires `--store` + `--services`;
+# `player.*.games` + `game.move.*` frame and writes the canonical
+# `game.snapshot.<id>` (ttl: last:1). Requires `--store` + `--services`;
 # guarded so that test.nu, which sources serve.nu without a store, stays
 # happy. Re-registering on each startup replaces the running actor (per
-# xs's `<name>.register` semantics), so this is restart-safe.
+# xs's `xs.actor.<name>.create` semantics), so this is restart-safe.
 if ($HTTP_NU.store? | default null) != null and ($HTTP_NU.services? | default false) {
   # `--ttl last:1` caps each registration topic to a single frame:
   # --watch reloads of serve.nu still re-append, but xs evicts the
   # previous frame as the new one lands so the topic never grows.
-  # The active actor still receives the new register live and
-  # self-terminates (actor.rs:252-264); the spawn that replaces it
-  # uses the surviving frame. Same shape for `game.nu` -- it's a
-  # module topic the snapshot-actor consumes via `use game *`.
-  open ($SCRIPT_DIR | path join "tfe" "game.nu")               | .append game.nu                    --ttl last:1
-  open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu")     | .append snapshot-actor.register    --ttl last:1
-  open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu")  | .append leaderboard-actor.register --ttl last:1
-  open ($SCRIPT_DIR | path join "tfe" "presence-actor.nu")     | .append presence-actor.register    --ttl last:1
+  # The active actor still receives the new create live and
+  # self-terminates; the spawn that replaces it uses the surviving
+  # frame. Same shape for `game.nu` -- it's a module topic
+  # (`xs.module.game`) the snapshot-actor consumes via `use game *`.
+  open ($SCRIPT_DIR | path join "tfe" "game.nu")               | .append xs.module.game                    --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "snapshot-actor.nu")     | .append xs.actor.snapshot-actor.create    --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "leaderboard-actor.nu")  | .append xs.actor.leaderboard-actor.create --ttl last:1
+  open ($SCRIPT_DIR | path join "tfe" "presence-actor.nu")     | .append xs.actor.presence-actor.create    --ttl last:1
 }
 
-# Render a card from a games_topic frame (the initial page render). Resumes
-# the game to get state, then defers to render-card-from-state.
+# Render a card from a games_topic frame (the initial page render). Reads
+# the game's head snapshot for state, then defers to render-card-from-state.
 # Caller chooses the destination via `--href`; defaults to /play.
 def render-game-card [req: record game_frame: record --href: string]: nothing -> record {
-  let resumed = resume-game $game_frame.id
+  let resumed = game-head $game_frame.id
   let h = if ($href | is-empty) { ($req | href $"/play/($game_frame.id)") } else { $href }
   render-card-from-state $req $game_frame.id $resumed.state $resumed.moves $resumed.follow_from_id --href $h
 }
@@ -317,16 +317,18 @@ let design = source design/serve.nu
       # indexed): every move ack now flows through a snapshot --
       # state-changing as a durable one, no-op as an ephemeral one
       # carrying just the req_id -- so the SSE has no reason to follow
-      # `game.move.<id>`. --from $game_id includes the games_topic
-      # frame at that id and everything after; threshold-gate buffers
-      # it down to just the latest snapshot for the initial render.
+      # `game.move.<id>`. `--last 1` reads only the current head
+      # snapshot via the topic index (O(1)), then follows live deltas;
+      # threshold-gate emits the head for the initial render. Reading
+      # `--from $game_id` instead would replay the game's entire
+      # snapshot chain on every connect (74k frames for a long game).
       # Interleaved with the site-wide presence stream so a /watch or
       # /play tab sees live "N people on this game" counts on the same
       # connection.
       # No `let board_stream = ...` -- Nushell `let` would COLLECT
       # the infinite `.cat --follow` before binding, hanging the
       # handler. See examples/2048/CLAUDE.md.
-      .cat --follow -T $"game.snapshot.($game_id)" --from $game_id
+      .cat --last 1 --follow -T $"game.snapshot.($game_id)"
       | frames-to-states
       | threshold-gate-states
       | states-to-wc-signals
@@ -416,7 +418,12 @@ let design = source design/serve.nu
             tabId: $tab_id
           } | to json --raw)
         }
-          (H2 "2048, in Nushell!")
+          (H2 "2048, in Nushell + Datastar "
+            (IMG {
+              src: "https://data-star.dev/cdn-cgi/image/format=auto,width=96/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"
+              alt: "Datastar rocket"
+              style: "height: 1em; vertical-align: -0.1em;"
+            }))
           (DIV {class: "splits"}
             (DIV {class: "lede"}
               (P {class: "desc"} "The sliding-tile puzzle, served from a few hundred lines of shell script.")
@@ -426,6 +433,8 @@ let design = source design/serve.nu
                     (SPAN {class: "callout-desc"} "the basic rules"))
                 (LI (A {href: ($req | href "/notes/backstory")} "2048 is a broken game")
                     (SPAN {class: "callout-desc"} "how a clone of a clone ate Threes!"))
+                (LI (A {href: ($req | href "/notes/why-is-this-so-addictive")} "why is this so addictive?!")
+                    (SPAN {class: "callout-desc"} "the hooks, and the rabbit hole"))
                 (LI (A {href: ($req | href "/notes/in-nushell")} "in Nushell?")
                     (SPAN {class: "callout-desc"} "how this is built"))))
             (DIV {class: "preview"}
@@ -496,7 +505,7 @@ let design = source design/serve.nu
       # Per-player top-5 by score. The leaderboard-actor maintains
       # `leaderboard.top` (ttl last:5) -- meta.entries is the canonical
       # table. `.last` is O(1); no scan-on-request. State for each
-      # entry's board comes from `.last game.<id>.snapshot`, one cheap
+      # entry's board comes from `.last game.snapshot.<id>`, one cheap
       # head-lookup per row. Static page; v2 will SSE-follow
       # `leaderboard.top` for live re-renders.
       let head = .last leaderboard.top
@@ -546,7 +555,7 @@ let design = source design/serve.nu
               (kbd-btn "n" --suffix "ew game" --href ($req | href "/new"))
             ])
           (H1 {class: "leaderboard-title"} "leaderboard")
-          (P {class: "leaderboard-lede"} "top 5 -- per-player best, in-flight or finished.")
+          (P {class: "leaderboard-lede"} "top 5 -- per-player best, clean runs only (no undos).")
           (if $empty {
             (P {class: "hint empty-state"} "no scored games tracked yet -- play one and check back.")
           } else {
@@ -579,7 +588,7 @@ let design = source design/serve.nu
       # Live SSE patches merge per-game updates into the same shape;
       # no HTML re-render needed for snapshot changes.
       let games_signal = $games | reduce -f {} {|f acc|
-        let resumed = resume-game $f.id
+        let resumed = game-head $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
         let state = $resumed.state | state-for-wc | upsert playedMs $played_ms
@@ -662,7 +671,7 @@ let design = source design/serve.nu
               # inner data-signals declaration takes effect.
               --body-attrs {
                 "data-game-id": $game_id
-                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, gameStatus: ''}"
+                "data-signals": "{boardState: {tiles: [], gameOver: false}, score: 0, undos: 0, gameStatus: ''}"
               }
               --sse true)
       }
@@ -680,7 +689,7 @@ let design = source design/serve.nu
       let games_topic = $"player.($player_id).games"
       let games = try { .cat -T $games_topic | reverse } catch { [] }
       let games_signal = $games | reduce -f {} {|f acc|
-        let resumed = resume-game $f.id
+        let resumed = game-head $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
         let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
         let state = $resumed.state | state-for-wc | upsert playedMs $played_ms
@@ -808,7 +817,7 @@ let design = source design/serve.nu
               "data-player-id": $player_id
               "data-game-id": $game_id
               "data-move-url": ($req | href "/move")
-              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}}"
+              "data-signals": $"{playerId: '($player_id)', gameId: '($game_id)', score: 0, undos: 0, lastReqId: '', gameStatus: '', boardState: {tiles: [], gameOver: false}}"
             }
         | session-cookies set $session)
       }

@@ -15,7 +15,7 @@ use ./game.nu *
 
 # Snapshot writing lives in the xs snapshot-actor (snapshot-actor.nu),
 # registered at serve.nu startup. The actor is the single writer to
-# `game.<id>.snapshot`; readers (SSE + helpers below) treat it as
+# `game.snapshot.<id>`; readers (SSE + helpers below) treat it as
 # authoritative HEAD.
 
 # Replay a game's move log into its final state. Used by serve.nu's /games
@@ -25,21 +25,23 @@ export def replay-game-state [game_id: string]: nothing -> record {
   (.cat -T $"game.move.($game_id)") | project-game $game_id
 }
 
-# Resume helper: returns the cheapest known starting point for `game_id`.
+# Read-only HEAD lookup: returns the snapshot-actor's current head for
+# `game_id` as
 #
 #   {
 #     state          : the current game state (record)
 #     follow_from_id : frame id to pass to `.cat --after` to receive only
 #                      moves not yet incorporated into `state`
-#     moves          : best-effort move count (from snapshot meta if any,
-#                      else derived from the resulting state)
+#     moves          : best-effort move count (snapshot meta, else 0)
 #   }
 #
-# Snapshot path is O(1). Fallback (no snapshot, full replay) is O(N moves)
-# but writes the snapshot back to the store so subsequent calls are O(1) --
-# self-healing for games that predate the snapshot machinery or were never
-# touched by an SSE connection.
-export def resume-game [game_id: string]: nothing -> record {
+# The snapshot-actor is the sole writer of `game.snapshot.<id>`; it
+# rebuilds every game's chain from the move log on boot (`start: "first"`
+# when the store has no snapshots -- see snapshot-actor.nu), so readers
+# never backfill. A game with no snapshot yet (actor still catching up,
+# or just created) reads as its deterministic initial board; the actor
+# fills in the real head shortly and /sse-wc patches it live.
+export def game-head [game_id: string]: nothing -> record {
   let snapshot = .last $"game.snapshot.($game_id)"
   if $snapshot != null {
     return {
@@ -48,29 +50,7 @@ export def resume-game [game_id: string]: nothing -> record {
       moves: $snapshot.meta.moves
     }
   }
-  # No snapshot -- full replay, then backfill so we don't pay this twice.
-  let state = replay-game-state $game_id
-  let moves = [0 ($state.next_id - 3)] | math max
-  let last_move = .last $"game.move.($game_id)"
-  let follow_from_id = if $last_move != null { $last_move.id } else { $game_id }
-  let max_tile = if ($state.tiles | is-empty) { 0 } else { $state.tiles | get value | math max }
-  # game_id is the id of the player.<uuid>.games frame that started this
-  # game; fetch it to recover the owning player_id for the snapshot meta.
-  let owner_frame = try { .get $game_id } catch { null }
-  let player_id = if $owner_frame != null {
-    $owner_frame.topic | str replace "player." "" | str replace ".games" ""
-  } else { "" }
-  null | .append $"game.snapshot.($game_id)" --meta {
-    state: $state
-    last_move_id: $follow_from_id
-    intent: "backfill"
-    player_id: $player_id
-    score: $state.score
-    max_tile: $max_tile
-    moves: $moves
-    game_over: $state.game_over
-  }
-  {state: $state, follow_from_id: $follow_from_id, moves: $moves}
+  {state: (initial-state $game_id), follow_from_id: $game_id, moves: 0}
 }
 
 # Live-follow a game: replays the existing move log, then yields one record
@@ -95,8 +75,7 @@ export def follow-game [game_id: string] {
 
 # List every game in the store with its move count, biggest first.
 export def list-games [] {
-  .cat
-  | where ($it.topic | str starts-with "game.move.")
+  .cat -T "game.move.*"
   | group-by topic
   | items {|topic frames|
       {
@@ -116,7 +95,7 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
   # HEAD snapshot (indexed by topic). The snapshot's id timestamp is the
   # last activity -- gate on that before keeping the row, so games that
   # went quiet earlier than `--since` cost only one `.last` each.
-  # Move counts (for the undo column) are scanned only for the top N.
+  # Undo counts come straight from the snapshot meta (O(1)), no move scan.
   list-players | each {|p|
     .cat -T $"player.($p.player).games" | each {|f|
       let snap = .last $"game.snapshot.($f.id)"
@@ -131,16 +110,13 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
         score: ($snap.meta.score? | default 0)
         max: ($snap.meta.max_tile? | default 0)
         moves: ($snap.meta.moves? | default 0)
+        undos: ($snap.meta.undos? | default 0)
       }
     }
   }
   | flatten | compact
   | sort-by score -r
   | first $limit
-  | insert undos {|row|
-      .cat -T $"game.move.($row.game_id)"
-      | where ($it.meta?.kind? | default "") == "undo" | length
-    }
   | reject game_id
 }
 
@@ -150,12 +126,12 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
 # `leaderboard` stays for ad-hoc poking.
 #
 # Strategy: one `.cat` for the `player.*.games` ledger gives us every
-# game-id in the store; one `.last game.<id>.snapshot` per game gives
+# game-id in the store; one `.last game.snapshot.<id>` per game gives
 # us the head row. Group by player, pick best per player, sort, head N.
 # See test/bench-leaderboard.nu for the scaling profile.
 export def top-players [--limit: int = 10] {
-  .cat
-  | where ($it.topic | str starts-with "player.") and ($it.topic | str ends-with ".games")
+  .cat -T "player.*"
+  | where ($it.topic | str ends-with ".games")
   | each {|f|
       let snap = .last $"game.snapshot.($f.id)"
       if $snap == null { return null }
@@ -181,8 +157,8 @@ export def top-players [--limit: int = 10] {
 
 # List every player seen in the store with their game count and latest game id.
 export def list-players [] {
-  .cat
-  | where ($it.topic | str starts-with "player.") and ($it.topic | str ends-with ".games")
+  .cat -T "player.*"
+  | where ($it.topic | str ends-with ".games")
   | group-by topic
   | items {|topic frames|
       {

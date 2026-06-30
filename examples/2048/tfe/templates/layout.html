@@ -26,7 +26,7 @@
   <div class="site-header-right">
     <a class="site-nav-link" href="{{ leaderboard_href }}">leaderboard</a>
     {% if sse %}<span class="site-presence" data-text="$presence.totalTabs + ' here'" title="people currently on the site"></span>{% endif %}
-    {% if player_id %}<a class="you-are" href="{{ my_games_href }}" title="your games (profile soon)">you are: <code>{{ player_id }}</code></a>{% endif %}
+    {% if player_id %}<a class="you-are" href="{{ my_games_href }}" title="your games (profile soon)">you are: {{ player_id }}</a>{% endif %}
     <div class="status">
       <span id="conn" class="stat"></span>
       {% if show_rtt %}<span id="rtt" class="stat"></span>{% endif %}
@@ -36,7 +36,9 @@
     </span>
   </div>
 </header>
+<main>
 {{ body_html | safe }}
+</main>
 <footer class="site-footer">
   <a href="{{ design_href }}">design</a>
 </footer>

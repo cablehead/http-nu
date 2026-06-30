@@ -18,9 +18,9 @@ const SCRIPT_DIR = path self | path dirname
 
 # Register what serve.nu registers at startup: the game.nu module the
 # actor `use`s, and the snapshot-actor itself. The dispatcher picks up
-# the .register frame and spawns the actor.
-open ($SCRIPT_DIR | path join ".." "tfe" "game.nu")           | .append game.nu                 --ttl last:1
-open ($SCRIPT_DIR | path join ".." "tfe" "snapshot-actor.nu") | .append snapshot-actor.register --ttl last:1
+# the .create frame and spawns the actor.
+open ($SCRIPT_DIR | path join ".." "tfe" "game.nu")           | .append xs.module.game                 --ttl last:1
+open ($SCRIPT_DIR | path join ".." "tfe" "snapshot-actor.nu") | .append xs.actor.snapshot-actor.create --ttl last:1
 sleep 500ms
 
 # /new appends a `player.<uid>.games` frame. The actor responds with the

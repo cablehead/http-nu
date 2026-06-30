@@ -95,6 +95,10 @@ eget cablehead/http-nu
 ### Homebrew (macOS)
 
 ```bash
+# Homebrew now asks you to trust a third-party tap before installing from it
+brew trust --formula cablehead/tap/http-nu
+# or if you use a few of cablehead's projects, and trust me 😆, the whole tap
+# brew trust cablehead/tap
 brew install cablehead/tap/http-nu
 ```
 
@@ -165,6 +169,11 @@ $ http-nu :3001 -w ./serve.nu
 This watches the script's directory for any changes (including included files)
 and hot-reloads the handler. Active [SSE connections](#server-sent-events) are
 aborted on reload to trigger client reconnection.
+
+> [!WARNING]
+> The watch is recursive: keep only files that should trigger a reload in the
+> script's directory (`serve.nu`, `templates/`, `static/`, ...). Anything else
+> that churns there reloads the handler too.
 
 ### Reading from stdin
 
@@ -572,7 +581,7 @@ Enable with `--store <path>`. Add `--services` to enable xs
 [services](https://cablehead.github.io/xs/reference/services/), and
 [actions](https://cablehead.github.io/xs/reference/actions/) - external clients
 can register automation via the store's API (e.g.,
-`xs append ./store echo.register ...`).
+`xs append ./store xs.actor.echo.create ...`).
 
 ```bash
 $ http-nu :3001 --store ./store ./serve.nu
@@ -1088,7 +1097,7 @@ interactions. Follows the
 [SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md).
 
 Use `--datastar` to serve the embedded JS bundle at `$DATASTAR_JS_PATH`
-(`/datastar@1.0.1.js`) with immutable cache headers:
+(`/datastar@1.0.2.js`) with immutable cache headers:
 
 ```bash
 $ http-nu --datastar :3001 ./serve.nu

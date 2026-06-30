@@ -27,6 +27,11 @@ fn main() {
     // Cloudflare build picks the embedded handler script via this env var.
     // mise tasks (ex:cf:*) set it; src/cf/mod.rs reads it via env!().
     println!("cargo:rerun-if-env-changed=CF_HANDLER_PATH");
+    // Declaring any rerun-if disables Cargo's "re-run on any change" default,
+    // so the dep-version capture below would otherwise go stale on a lockfile
+    // bump (e.g. cross-stream 0.13.0 -> 0.13.2 showed the old `xs` version in
+    // the banner). Re-run when the resolved dependency set changes.
+    println!("cargo:rerun-if-changed=Cargo.lock");
 
     // Extract dependency versions for runtime display
     if let Ok(metadata) = cargo_metadata::MetadataCommand::new().exec() {
