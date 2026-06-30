@@ -4,6 +4,6 @@
 #
 # 1.93.1 is the MSRV of the embedded Nushell engine (nu-* crates 0.113.1).
 [toolchain]
-channel = "1.93.1"
+channel = "stable"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
