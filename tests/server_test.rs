@@ -132,17 +132,28 @@ impl TestServer {
         cmd.output().await.expect("Failed to execute curl")
     }
 
-    async fn curl_tls(&self, path: &str) -> process::Output {
-        // Extract port from address format "https://127.0.0.1:8080"
+    /// GET over TLS via reqwest (trusts the test CA, resolves localhost -> 127.0.0.1).
+    /// Cross-platform, unlike shelling to the OS `curl` (whose TLS/HTTP2 support varies).
+    async fn reqwest_tls(&self, path: &str) -> String {
         let port = self.address.split(':').next_back().unwrap();
-        let mut cmd = tokio::process::Command::new("curl");
-        cmd.arg("--cacert")
-            .arg("tests/cert.pem")
-            .arg("--resolve")
-            .arg(format!("localhost:{port}:127.0.0.1"))
-            .arg(format!("https://localhost:{port}{path}"));
-
-        cmd.output().await.expect("Failed to execute curl")
+        let cert =
+            reqwest::Certificate::from_pem(&std::fs::read("tests/cert.pem").expect("read cert"))
+                .expect("parse cert");
+        reqwest::Client::builder()
+            .add_root_certificate(cert)
+            .resolve(
+                "localhost",
+                format!("127.0.0.1:{port}").parse().expect("addr"),
+            )
+            .build()
+            .expect("build client")
+            .get(format!("https://localhost:{port}{path}"))
+            .send()
+            .await
+            .expect("request failed")
+            .text()
+            .await
+            .expect("read body")
     }
 
     #[allow(dead_code)] // body is unix-only; Windows clippy sees this as unused
@@ -343,12 +354,8 @@ async fn test_server_tcp_socket() {
 #[tokio::test]
 async fn test_server_tls_socket() {
     let server = TestServer::new("127.0.0.1:0", "{|req| $req.method}", true).await;
-    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-
-    let output = server.curl_tls("").await;
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert_eq!(stdout.trim(), "GET");
+    let body = server.reqwest_tls("").await;
+    assert_eq!(body.trim(), "GET");
 }
 
 #[tokio::test]
