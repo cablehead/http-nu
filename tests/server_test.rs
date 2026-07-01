@@ -1422,7 +1422,6 @@ async fn test_watch_flag_incompatible_with_commands() {
 
 /// Tests that file watch mode reloads script when file changes
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // notify file-watch reload hangs on windows runners
 async fn test_watch_file_reload_on_change() {
     let tmp = tempfile::tempdir().unwrap();
     let script_path = tmp.path().join("handler.nu");
@@ -1512,7 +1511,6 @@ async fn test_watch_file_reload_on_change() {
 
 /// Tests that file watch mode reloads when a file in the script's directory changes
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // notify file-watch reload hangs on windows runners
 async fn test_watch_directory_change_triggers_reload() {
     let tmp = tempfile::tempdir().unwrap();
     let script_path = tmp.path().join("handler.nu");
@@ -1612,7 +1610,6 @@ async fn test_watch_directory_change_triggers_reload() {
 /// (the reload re-registered the service, which wrote again, which reloaded).
 #[cfg(feature = "cross-stream")]
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // notify file-watch reload hangs on windows runners
 async fn test_watch_ignores_store_writes() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -1818,7 +1815,6 @@ async fn test_stdin_one_shot() {
 
 /// Tests dynamic script reload via stdin (null-terminated protocol)
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // notify file-watch reload hangs on windows runners
 async fn test_watch_stdin_dynamic_reload() {
     // Spawn server process - it will wait for a valid script
     let (child, mut stdin, addr_rx) = TestServerWithStdin::spawn("127.0.0.1:0", false);
