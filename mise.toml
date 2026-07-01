@@ -8,11 +8,11 @@ experimental = true
 # (gh, jq, fnox, nu) propagate from the lib; consumers don't pin them
 # globally. Tag bumps -> see https://github.com/joeblew999/.github/blob/main/CHANGELOG.md
 includes = [
-  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.58.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.58.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/tool-rust.toml?ref=v0.58.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/tool-cf.toml?ref=v0.58.0",
-  "git::https://github.com/joeblew999/.github.git//tasks/tool-wrangler.toml?ref=v0.58.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/ci.toml?ref=v0.60.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/mise.toml?ref=v0.60.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/tool-rust.toml?ref=v0.60.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/tool-cf.toml?ref=v0.60.0",
+  "git::https://github.com/joeblew999/.github.git//tasks/tool-wrangler.toml?ref=v0.60.0",
 ]
 
 [tools]
@@ -106,7 +106,14 @@ run = [
 [tasks."test:tao"]
 description = "Run the Tao eval test"
 depends = ["build"]
-run = "$HTTP_NU eval examples/tao/test.nu"
+run = '''
+#!/usr/bin/env nu
+# Resolve the built binary cross-platform ($HTTP_NU is a unix-style path without
+# the .exe suffix, so it doesn't resolve on windows). nu path join + os check.
+let name = (if $nu.os-info.name == "windows" { "http-nu.exe" } else { "http-nu" })
+let bin = ("target" | path join "debug" $name)
+^$bin eval examples/tao/test.nu
+'''
 
 # Local extension of the shared `ci` umbrella (ci:check-global + ci:check-nu
 # from joeblew999/.github tasks/ci.toml). mise MERGES the depends, so the shared
