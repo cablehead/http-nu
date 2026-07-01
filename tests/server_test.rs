@@ -738,6 +738,7 @@ async fn test_graceful_shutdown_waits_for_inflight_requests() {
 
 /// Tests that the server supports HTTP/1.1 connections
 #[tokio::test]
+#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_http1_support() {
     let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, false).await;
 
@@ -760,6 +761,7 @@ async fn test_http1_support() {
 
 /// Tests that the server supports HTTP/2 connections (h2c - cleartext)
 #[tokio::test]
+#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_http2_support() {
     let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, false).await;
 
@@ -783,6 +785,7 @@ async fn test_http2_support() {
 
 /// Tests that HTTP/2 works over TLS (h2 via ALPN)
 #[tokio::test]
+#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_http2_tls_support() {
     let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, true).await;
 
@@ -1086,6 +1089,7 @@ async fn test_to_sse_data_list() {
 
 /// Tests that missing Host header returns 500 error
 #[tokio::test]
+#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_server_missing_host_header() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
