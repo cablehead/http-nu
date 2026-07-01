@@ -178,9 +178,7 @@ impl TestServer {
             // CREATE_NEW_PROCESS_GROUP, so group id == pid). The server's
             // ctrl_break handler shuts down gracefully -> exit 0, matching the
             // unix SIGTERM path. Fall back to a hard kill if delivery fails.
-            use windows_sys::Win32::System::Console::{
-                GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT,
-            };
+            use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
             let pid = self.child.id().expect("child id");
             let delivered = unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) };
             if delivered == 0 {
