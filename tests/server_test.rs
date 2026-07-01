@@ -1518,12 +1518,14 @@ async fn test_watch_directory_change_triggers_reload() {
 
     // Write initial files
     std::fs::write(&include_path, r#"def get-version [] { "v1" }"#).unwrap();
+    // nu treats backslashes in a double-quoted string as escape sequences, so a
+    // Windows path breaks `source "..."`. Forward slashes work on every platform.
+    let include_src = include_path.to_string_lossy().replace('\\', "/");
     std::fs::write(
         &script_path,
         format!(
-            r#"source "{}"
-{{|req| get-version}}"#,
-            include_path.display()
+            r#"source "{include_src}"
+{{|req| get-version}}"#
         ),
     )
     .unwrap();
