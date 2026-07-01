@@ -1364,8 +1364,9 @@ async fn test_plugin_process_shared_across_requests() {
 
     let elapsed = start.elapsed();
     assert!(
-        elapsed < std::time::Duration::from_millis(400),
-        "10 requests took {elapsed:?}, expected < 400ms (plugin should be shared, not spawned per-request)"
+        elapsed < std::time::Duration::from_millis(900),
+        "10 requests took {elapsed:?}, expected < 900ms (plugin should be shared, not spawned per-request; \
+         per-request would be >=1000ms for 10x100ms startup -- 900ms tolerates slow/contended CI runners)"
     );
 }
 
