@@ -2,6 +2,12 @@
 # extends task-inheritance is mise experimental — required by the
 # joeblew999/.github shared task lib (ci:_base, rust:_base, etc.).
 experimental = true
+# Run mise tasks serially. `ci` fans out several cargo invocations (build /
+# clippy / test); on a COLD cache (e.g. a fresh windows runner) parallel cargo
+# processes fight the package-cache + build-directory locks and effectively
+# deadlock (hours). One at a time = cargo's own internal parallelism only, no
+# cross-invocation lock contention. Warm runs hit rust-cache so this costs ~0.
+jobs = 1
 
 [task_config]
 # Shared TOML task library from joeblew999/.github. Per-task tool pins
