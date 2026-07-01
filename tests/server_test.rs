@@ -72,6 +72,11 @@ impl TestServer {
             cmd.arg("--tls").arg("tests/combined.pem");
         }
 
+        // Windows: give the child its own process group so `send_sigterm` can send
+        // a Ctrl-Break to just this process (GenerateConsoleCtrlEvent targets a group).
+        #[cfg(windows)]
+        cmd.creation_flags(0x0000_0200); // CREATE_NEW_PROCESS_GROUP
+
         let mut child = cmd
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -169,7 +174,18 @@ impl TestServer {
         }
         #[cfg(not(unix))]
         {
-            let _ = self.child.start_kill();
+            // Ctrl-Break the child's process group (spawned with
+            // CREATE_NEW_PROCESS_GROUP, so group id == pid). The server's
+            // ctrl_break handler shuts down gracefully -> exit 0, matching the
+            // unix SIGTERM path. Fall back to a hard kill if delivery fails.
+            use windows_sys::Win32::System::Console::{
+                GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT,
+            };
+            let pid = self.child.id().expect("child id");
+            let delivered = unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) };
+            if delivered == 0 {
+                let _ = self.child.start_kill();
+            }
         }
     }
 
@@ -738,20 +754,17 @@ async fn test_graceful_shutdown_waits_for_inflight_requests() {
 
 /// Tests that the server supports HTTP/1.1 connections
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_http1_support() {
     let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, false).await;
 
-    let output = tokio::process::Command::new("curl")
-        .arg("-s")
-        .arg("--http1.1")
-        .arg(format!("{}/", server.address))
-        .output()
+    let body = reqwest::Client::new()
+        .get(format!("{}/", server.address))
+        .send()
         .await
-        .expect("curl failed");
-
-    assert!(output.status.success(), "curl failed: {output:?}");
-    let body = String::from_utf8_lossy(&output.stdout);
+        .expect("request failed")
+        .text()
+        .await
+        .expect("read body");
     assert_eq!(body, "HTTP/1.1");
 
     server.send_sigterm();
@@ -761,21 +774,22 @@ async fn test_http1_support() {
 
 /// Tests that the server supports HTTP/2 connections (h2c - cleartext)
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_http2_support() {
     let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, false).await;
 
-    // Use --http2-prior-knowledge for h2c (HTTP/2 without TLS)
-    let output = tokio::process::Command::new("curl")
-        .arg("-s")
-        .arg("--http2-prior-knowledge")
-        .arg(format!("{}/", server.address))
-        .output()
+    // h2c (HTTP/2 cleartext) via prior knowledge -- no TLS.
+    let client = reqwest::Client::builder()
+        .http2_prior_knowledge()
+        .build()
+        .expect("build client");
+    let body = client
+        .get(format!("{}/", server.address))
+        .send()
         .await
-        .expect("curl failed");
-
-    assert!(output.status.success(), "curl failed: {output:?}");
-    let body = String::from_utf8_lossy(&output.stdout);
+        .expect("request failed")
+        .text()
+        .await
+        .expect("read body");
     assert_eq!(body, "HTTP/2.0");
 
     server.send_sigterm();
@@ -785,28 +799,32 @@ async fn test_http2_support() {
 
 /// Tests that HTTP/2 works over TLS (h2 via ALPN)
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_http2_tls_support() {
     let mut server = TestServer::new("127.0.0.1:0", r#"{|req| $req.proto}"#, true).await;
 
     // Extract port from address format "https://127.0.0.1:8080"
     let port = server.address.split(':').next_back().unwrap();
 
-    // Use --http2 to prefer HTTP/2 via ALPN negotiation
-    let output = tokio::process::Command::new("curl")
-        .arg("-s")
-        .arg("--http2")
-        .arg("--cacert")
-        .arg("tests/cert.pem")
-        .arg("--resolve")
-        .arg(format!("localhost:{port}:127.0.0.1"))
-        .arg(format!("https://localhost:{port}/"))
-        .output()
+    // Trust the test CA + resolve localhost -> 127.0.0.1. reqwest offers h2 in
+    // ALPN by default, so a server that supports it negotiates HTTP/2.
+    let cert = reqwest::Certificate::from_pem(&std::fs::read("tests/cert.pem").expect("read cert"))
+        .expect("parse cert");
+    let client = reqwest::Client::builder()
+        .add_root_certificate(cert)
+        .resolve(
+            "localhost",
+            format!("127.0.0.1:{port}").parse().expect("addr"),
+        )
+        .build()
+        .expect("build client");
+    let body = client
+        .get(format!("https://localhost:{port}/"))
+        .send()
         .await
-        .expect("curl failed");
-
-    assert!(output.status.success(), "curl failed: {output:?}");
-    let body = String::from_utf8_lossy(&output.stdout);
+        .expect("request failed")
+        .text()
+        .await
+        .expect("read body");
     assert_eq!(body, "HTTP/2.0");
 
     server.send_sigterm();
@@ -1089,7 +1107,6 @@ async fn test_to_sse_data_list() {
 
 /// Tests that missing Host header returns 500 error
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // windows runner curl lacks HTTP/2 + differs on missing Host header
 async fn test_server_missing_host_header() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;

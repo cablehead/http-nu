@@ -237,6 +237,15 @@ nix = { version = "0.30", features = ["signal", "process"] }
 sysinfo = "0.30.12"
 brotli = "8"
 minijinja = "2"
+# HTTP client for integration tests — speaks HTTP/1.1 + HTTP/2 (incl. h2c
+# prior-knowledge) identically on every OS, so tests don't depend on whatever
+# `curl` the runner ships (Windows' has no HTTP/2). rustls to avoid a system TLS lib.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
+
+# Windows: send a targeted Ctrl-Break to the server child (its own process group)
+# so it shuts down gracefully in tests — the Windows analogue of SIGTERM.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
 
 
 

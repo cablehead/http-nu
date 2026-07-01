@@ -2806,6 +2806,7 @@ dependencies = [
  "nu-utils",
  "predicates",
  "pulldown-cmark",
+ "reqwest",
  "rustls",
  "rustls-pemfile",
  "scru128",
@@ -2826,6 +2827,7 @@ dependencies = [
  "uuid",
  "v_htmlescape",
  "win_uds",
+ "windows-sys 0.59.0",
  "worker",
  "xxhash-rust",
 ]
@@ -6405,6 +6407,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
+ "h2",
  "http",
  "http-body",
  "http-body-util",

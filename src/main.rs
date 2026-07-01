@@ -483,8 +483,17 @@ async fn shutdown_signal(interrupt: Arc<AtomicBool>) {
             .await;
     };
 
+    // On Windows there's no SIGTERM. Ctrl-Break is the signal you can target at a
+    // specific child process group (via CREATE_NEW_PROCESS_GROUP + Ctrl-Break),
+    // which is how a supervisor/test stops us gracefully. `ctrl_c` above covers
+    // interactive Ctrl-C; this covers a targeted stop.
     #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+    let terminate = async {
+        signal::windows::ctrl_break()
+            .expect("failed to install Ctrl-Break handler")
+            .recv()
+            .await;
+    };
 
     let interrupt_check = async {
         let mut interval = interval(Duration::from_millis(100));
