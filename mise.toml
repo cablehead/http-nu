@@ -20,12 +20,11 @@ includes = [
 # `mise run mise:global:bootstrap`, and Rust is owned by rust-toolchain.toml
 # (rustup), NEVER here -- `ci:check-global` enforces both.
 "github:nushell/nushell" = "0.113"   # per-repo override: MUST match the embedded engine (nu-* crates 0.113.1)
-# cloudflared: push-demo quick-tunnel tooling (from push-native). Prebuilt aqua download.
-# resvg (push-demo icon rendering) was removed from main: nothing on main invokes it --
-# the push-demo:icons task that used it only ever lived on the push-native branch. When
-# that work lands, declare resvg there as prebuilt `github:linebender/resvg` (NOT
-# `cargo:resvg`, which compiled the usvg/tiny-skia tree from source, ~8min cold on windows).
-"aqua:cloudflare/cloudflared" = "latest"
+# NOTE: resvg + cloudflared were removed here -- they were orphaned push-demo tool decls.
+# The 728210a refactor extracted nu_plugin_push to workers-rs-util and deleted the
+# push-demo example + tasks, but left these tool lines behind. Nothing on main used them
+# (cargo:resvg even compiled from source, ~8min cold on windows CI). If push-demo is
+# revived, declare its tools (prebuilt github:/aqua:) on the branch that owns it.
 # email-native: wrangler from npm. The email:worker:* tasks call `wrangler`
 # directly and rely on this global pin (the cedar cf:* tasks pin their own
 # wrangler per-task, which overrides this).
