@@ -2899,7 +2899,6 @@ async fn test_mj_topic_missing_returns_error() {
 /// When the initial script fails (e.g. .mj compile with a missing file) in watch mode,
 /// the server should still respond to Ctrl+C (SIGINT) and exit.
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // notify file-watch reload hangs on windows runners
 async fn test_watch_script_error_ctrl_c_exits() {
     let tmp = tempfile::tempdir().unwrap();
     let script_path = tmp.path().join("handler.nu");
@@ -2912,16 +2911,21 @@ async fn test_watch_script_error_ctrl_c_exits() {
     )
     .unwrap();
 
-    let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
-        .arg("--log-format")
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
+    cmd.arg("--log-format")
         .arg("jsonl")
         .arg("127.0.0.1:0")
         .arg(&script_path)
         .arg("-w")
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("Failed to start http-nu server");
+        .stderr(std::process::Stdio::piped());
+
+    // Windows: give the child its own process group so we can Ctrl-Break just
+    // this process below (GenerateConsoleCtrlEvent targets a group).
+    #[cfg(windows)]
+    cmd.creation_flags(0x0000_0200); // CREATE_NEW_PROCESS_GROUP
+
+    let mut child = cmd.spawn().expect("Failed to start http-nu server");
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -2964,7 +2968,16 @@ async fn test_watch_script_error_ctrl_c_exits() {
     }
     #[cfg(not(unix))]
     {
-        let _ = child.start_kill();
+        // Ctrl-Break the child's own process group (spawned with
+        // CREATE_NEW_PROCESS_GROUP, so group id == pid). This exercises the
+        // server's real ctrl_break shutdown handler rather than a hard kill.
+        // Fall back to a hard kill if delivery fails.
+        use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+        let pid = child.id().expect("child id");
+        let delivered = unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) };
+        if delivered == 0 {
+            let _ = child.start_kill();
+        }
     }
 
     // The server should exit within a reasonable time
