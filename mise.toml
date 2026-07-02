@@ -20,11 +20,10 @@ includes = [
 # `mise run mise:global:bootstrap`, and Rust is owned by rust-toolchain.toml
 # (rustup), NEVER here -- `ci:check-global` enforces both.
 "github:nushell/nushell" = "0.113"   # per-repo override: MUST match the embedded engine (nu-* crates 0.113.1)
-# NOTE: resvg + cloudflared were removed here -- they were orphaned push-demo tool decls.
-# The 728210a refactor extracted nu_plugin_push to workers-rs-util and deleted the
-# push-demo example + tasks, but left these tool lines behind. Nothing on main used them
-# (cargo:resvg even compiled from source, ~8min cold on windows CI). If push-demo is
-# revived, declare its tools (prebuilt github:/aqua:) on the branch that owns it.
+# NOTE: push-demo's tools (resvg, cloudflared) are declared PER-TASK in the
+# push-demo section below, NOT here -- so `mise install` in CI never pulls them.
+# They used to sit here as orphans (cargo:resvg even compiled from source, ~8min
+# cold on windows CI); keep demo-only tools scoped to their tasks.
 # email-native: wrangler from npm. The email:worker:* tasks call `wrangler`
 # directly and rely on this global pin (the cedar cf:* tasks pin their own
 # wrangler per-task, which overrides this).
@@ -629,4 +628,110 @@ print $"removed ($store)"
 # ============================================================================
 # push-demo runs on its own PORT/STORE (set per-task below) so it doesn't
 # collide with the desktop ex:* examples that use the global PORT=3001.
+#
+# nu_plugin_push lives in this workspace (crates/nu_plugin_push) -- it powers this
+# demo and nothing else uses it. Built via `-p` so it stays out of the wasm build
+# (see the Cargo.toml [workspace] note). resvg/cloudflared are declared per-task
+# (below), NOT in the global [tools] block, so `mise install` in CI never pulls
+# them (that was the old orphan trap).
+
+[tasks."push:plugin:build"]
+description = "Build the nu_plugin_push binary"
+sources = ["crates/nu_plugin_push/src/**/*.rs", "crates/nu_plugin_push/Cargo.toml"]
+outputs = ["target/debug/nu_plugin_push"]
+run = "cargo build -p nu_plugin_push"
+
+[tasks."push:vapid:generate"]
+description = "Generate VAPID keypair + admin token, store in fnox keychain. Requires PUSH_VAPID_SUBJECT (mailto: or https: URL)."
+depends = ["push:plugin:build"]
+run = '''
+set -e
+if [ -z "$PUSH_VAPID_SUBJECT" ]; then
+  echo "PUSH_VAPID_SUBJECT must be set (e.g. PUSH_VAPID_SUBJECT=mailto:you@example.com)" >&2
+  exit 1
+fi
+# gen_vapid emits `export VAPID_PUBLIC_KEY=... \n export VAPID_PRIVATE_KEY=...`
+eval "$(cargo run --quiet --example gen_vapid -p nu_plugin_push 2>/dev/null)"
+# `-p keychain` routes the value to the macOS keychain provider instead of
+# writing plaintext back to fnox.toml.
+fnox set -p keychain VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY"
+fnox set -p keychain VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY"
+fnox set -p keychain VAPID_SUBJECT "$PUSH_VAPID_SUBJECT"
+fnox set -p keychain PUSH_ADMIN_TOKEN "$(openssl rand -hex 32)"
+echo ""
+echo "Stored in fnox keychain. Public key (for browser applicationServerKey):"
+echo "$VAPID_PUBLIC_KEY"
+'''
+
+[tasks."push:vapid:public"]
+description = "Print VAPID public key (safe to share -- browser embeds this)"
+run = "fnox get VAPID_PUBLIC_KEY"
+
+[tasks."push:vapid:admin-token"]
+description = "Print admin token for /send-self endpoint (keep secret)"
+run = "fnox get PUSH_ADMIN_TOKEN"
+
+[tasks."push-demo:icons"]
+description = "Generate PWA icons from SVG sources (192, 512, 512-maskable, apple-touch-180)"
+tools = { "github:linebender/resvg" = "0.47.0" }
+sources = ["examples/push-demo/icons.svg", "examples/push-demo/icons-maskable.svg"]
+outputs = [
+  "examples/push-demo/www/icons/192.png",
+  "examples/push-demo/www/icons/512.png",
+  "examples/push-demo/www/icons/512-maskable.png",
+  "examples/push-demo/www/icons/apple-touch-180.png",
+]
+run = '''
+set -e
+mkdir -p examples/push-demo/www/icons
+resvg -w 192 examples/push-demo/icons.svg          examples/push-demo/www/icons/192.png
+resvg -w 512 examples/push-demo/icons.svg          examples/push-demo/www/icons/512.png
+resvg -w 512 examples/push-demo/icons-maskable.svg examples/push-demo/www/icons/512-maskable.png
+resvg -w 180 examples/push-demo/icons.svg          examples/push-demo/www/icons/apple-touch-180.png
+echo "Icons regenerated."
+'''
+
+[tasks."push-demo:serve"]
+description = "Run push-demo server (HTTP on $PORT). VAPID env injected from fnox via `fnox exec`."
+depends = ["build", "push:plugin:build", "push-demo:icons"]
+env = { PORT = "8080", STORE = "./.store/push-demo", PLUGIN = "./target/debug/nu_plugin_push" }
+run = "./scripts/push-demo-serve.sh"
+
+[tasks."push-demo:dev"]
+description = "Run push-demo + cloudflared quick tunnel + QR (open the *.trycloudflare.com URL on your phone)"
+depends = ["build", "push:plugin:build", "push-demo:icons"]
+tools = { "aqua:cloudflare/cloudflared" = "latest" }
+env = { PORT = "8080", STORE = "./.store/push-demo", PLUGIN = "./target/debug/nu_plugin_push" }
+run = '''
+set -e
+./scripts/push-demo-serve.sh &
+SERVE_PID=$!
+trap "kill $SERVE_PID 2>/dev/null || true" EXIT INT TERM
+
+# Wait until the server is responding.
+for i in $(seq 1 50); do
+  if curl -sf "http://127.0.0.1:$PORT/health" > /dev/null 2>&1; then break; fi
+  sleep 0.2
+done
+
+# Open quick tunnel and watch its output for the URL.
+cloudflared tunnel --no-autoupdate --url "http://localhost:$PORT" 2>&1 | while IFS= read -r line; do
+  echo "$line"
+  url=$(echo "$line" | grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" | head -1)
+  if [ -n "$url" ]; then
+    echo ""
+    echo "  ============================================"
+    echo "  Open this on your phone:"
+    echo "  $url"
+    echo "  ============================================"
+    echo ""
+    if command -v qrencode > /dev/null 2>&1; then
+      qrencode -t ANSIUTF8 "$url"
+    else
+      echo "(install qrencode for a QR code: brew install qrencode)"
+    fi
+    echo ""
+  fi
+done
+'''
 

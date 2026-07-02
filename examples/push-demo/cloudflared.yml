@@ -1,0 +1,32 @@
+# Cloudflare Tunnel config -- production (named tunnel).
+#
+# For DEV testing on a phone, use `mise run push-demo:dev` which starts a quick
+# tunnel (cloudflared tunnel --url ...) -- no account or DNS needed. The URL
+# changes every run, which is fine because installs to home screen are tied to
+# the origin and you'll re-install per session.
+#
+# This file is for the production path: stable URL, your own domain, named
+# tunnel persisted in your Cloudflare account.
+#
+# Setup (one-time):
+#   cloudflared tunnel login
+#   cloudflared tunnel create push-demo
+#   cloudflared tunnel route dns push-demo push.example.com
+#   cp ~/.cloudflared/<TUNNEL-UUID>.json examples/push-demo/.cloudflared/
+#   # edit credentials-file below to point at that JSON
+#
+# Run:
+#   cloudflared tunnel --config examples/push-demo/cloudflared.yml run push-demo
+
+tunnel: push-demo
+credentials-file: ./.cloudflared/credentials.json
+
+ingress:
+  # Match your DNS hostname here.
+  - hostname: push.example.com
+    service: http://localhost:8080
+    originRequest:
+      # Disable Cloudflare's keep-alive cache for /sw.js. Without this,
+      # service worker updates can be pinned for hours at the edge.
+      noTLSVerify: true
+  - service: http_status:404

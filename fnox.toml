@@ -2,9 +2,10 @@
 # The LEFT of each [secrets] entry is the env var the code reads; `value` is the
 # keychain item name. mise tasks run wrangler under `fnox exec`.
 #
-# The FS-RPC (SHELL_FS_TOKEN), push (VAPID_*), and email (CF_EMAIL_*) secrets
-# moved to https://github.com/joeblew999/workers-rs-util along with their crates.
-# http-nu only needs the Cloudflare API token for deploying its own CF Worker.
+# The FS-RPC (SHELL_FS_TOKEN) and email (CF_EMAIL_*) secrets moved to
+# https://github.com/joeblew999/workers-rs-util along with their crates. The
+# push-demo lives here (it consumes nu_plugin_push from workers-rs-util as a git
+# dep), so its VAPID_* + PUSH_ADMIN_TOKEN secrets stay in this repo's config.
 
 [providers.keychain]
 type = "keychain"
@@ -14,3 +15,13 @@ service = "fnox"
 # Cloudflare API token for `cf:deploy` (the http-nu Worker). Shared global token
 # on this machine; for a scoped token, point `value` at a repo-prefixed item.
 CLOUDFLARE_API_TOKEN = { provider = "keychain", value = "CLOUDFLARE_API_TOKEN" }
+
+# push-demo secrets. `mise run push:vapid:generate` populates all four via
+# `fnox set -p keychain`; push-demo:serve / push-demo:dev inject them with
+# `fnox exec`. Fresh clones must run push:vapid:generate first. Regenerating
+# VAPID keys invalidates every existing browser subscription (silent -- servers
+# still 201, browsers drop the sub client-side), so treat it as a reset.
+VAPID_PUBLIC_KEY  = { provider = "keychain", value = "VAPID_PUBLIC_KEY" }
+VAPID_PRIVATE_KEY = { provider = "keychain", value = "VAPID_PRIVATE_KEY" }
+VAPID_SUBJECT     = { provider = "keychain", value = "VAPID_SUBJECT" }
+PUSH_ADMIN_TOKEN  = { provider = "keychain", value = "PUSH_ADMIN_TOKEN" }

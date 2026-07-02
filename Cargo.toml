@@ -2,10 +2,13 @@
 members = [
     ".",
     "tests/test_plugin",
+    "crates/nu_plugin_push",
 ]
-# The cloudflare-shell family + nushell plugins moved to
-# https://github.com/joeblew999/workers-rs-util. http-nu's CF port consumes
-# cloudflare-shell{,-workspace} from there as a git dependency (below).
+# The cloudflare-shell family moved to https://github.com/joeblew999/workers-rs-util;
+# http-nu's CF port consumes cloudflare-shell{,-workspace} from there as a git
+# dependency (below). nu_plugin_push lives HERE, though: it powers examples/push-demo
+# and nothing else consumes it, so splitting it out was premature. It is a workspace
+# member but (per the note below) deliberately NOT in default-members.
 # NOTE: intentionally NO `default-members`. http-nu is the workspace ROOT
 # package, so a bare `cargo build`/`worker-build` at the root builds only
 # http-nu -- exactly what cf:build needs for the wasm `cloudflare` target.
