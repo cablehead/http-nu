@@ -2410,7 +2410,6 @@ async fn test_sse_cancelled_on_hot_reload_with_brotli() {
 /// when the topic is updated.
 #[cfg(feature = "cross-stream")]
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // notify file-watch reload hangs on windows runners
 async fn test_watch_topic_reload_on_append() {
     let tmp = tempfile::tempdir().unwrap();
     let store_path = tmp.path().join("store");
@@ -2470,7 +2469,9 @@ async fn test_watch_topic_reload_on_append() {
     let output = tokio::process::Command::new("curl")
         .arg("-s")
         .arg("-o")
-        .arg("/dev/null")
+        // Discard the body so only %{http_code} lands on stdout. /dev/null is
+        // unix-only; NUL is the windows null device.
+        .arg(if cfg!(windows) { "NUL" } else { "/dev/null" })
         .arg("-w")
         .arg("%{http_code}")
         .arg(format!("{address}/"))
@@ -2560,7 +2561,6 @@ async fn test_watch_topic_reload_on_append() {
 /// updated module.
 #[cfg(feature = "cross-stream")]
 #[tokio::test]
-#[cfg_attr(windows, ignore)] // notify file-watch reload hangs on windows runners
 async fn test_watch_topic_reload_picks_up_module_changes() {
     let tmp = tempfile::tempdir().unwrap();
     let store_path = tmp.path().join("store");
