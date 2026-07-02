@@ -22,7 +22,9 @@ includes = [
 "github:nushell/nushell" = "0.113"   # per-repo override: MUST match the embedded engine (nu-* crates 0.113.1)
 # push-demo tooling (from push-native): cloudflared quick tunnel + resvg icon rendering.
 "aqua:cloudflare/cloudflared" = "latest"
-"cargo:resvg"            = "latest"
+# resvg via prebuilt github release, NOT `cargo:resvg` -- the latter compiled it
+# (usvg/tiny-skia/rustybuzz/fontdb...) from source, ~8min cold on windows CI.
+"github:linebender/resvg" = "0.47.0"
 # email-native: wrangler from npm. The email:worker:* tasks call `wrangler`
 # directly and rely on this global pin (the cedar cf:* tasks pin their own
 # wrangler per-task, which overrides this).
