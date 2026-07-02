@@ -644,24 +644,7 @@ run = "cargo build -p nu_plugin_push"
 [tasks."push:vapid:generate"]
 description = "Generate VAPID keypair + admin token, store in fnox keychain. Requires PUSH_VAPID_SUBJECT (mailto: or https: URL)."
 depends = ["push:plugin:build"]
-run = '''
-set -e
-if [ -z "$PUSH_VAPID_SUBJECT" ]; then
-  echo "PUSH_VAPID_SUBJECT must be set (e.g. PUSH_VAPID_SUBJECT=mailto:you@example.com)" >&2
-  exit 1
-fi
-# gen_vapid emits `export VAPID_PUBLIC_KEY=... \n export VAPID_PRIVATE_KEY=...`
-eval "$(cargo run --quiet --example gen_vapid -p nu_plugin_push 2>/dev/null)"
-# `-p keychain` routes the value to the macOS keychain provider instead of
-# writing plaintext back to fnox.toml.
-fnox set -p keychain VAPID_PUBLIC_KEY "$VAPID_PUBLIC_KEY"
-fnox set -p keychain VAPID_PRIVATE_KEY "$VAPID_PRIVATE_KEY"
-fnox set -p keychain VAPID_SUBJECT "$PUSH_VAPID_SUBJECT"
-fnox set -p keychain PUSH_ADMIN_TOKEN "$(openssl rand -hex 32)"
-echo ""
-echo "Stored in fnox keychain. Public key (for browser applicationServerKey):"
-echo "$VAPID_PUBLIC_KEY"
-'''
+run = "./scripts/push-demo-vapid-generate.sh"
 
 [tasks."push:vapid:public"]
 description = "Print VAPID public key (safe to share -- browser embeds this)"
@@ -681,15 +664,7 @@ outputs = [
   "examples/push-demo/www/icons/512-maskable.png",
   "examples/push-demo/www/icons/apple-touch-180.png",
 ]
-run = '''
-set -e
-mkdir -p examples/push-demo/www/icons
-resvg -w 192 examples/push-demo/icons.svg          examples/push-demo/www/icons/192.png
-resvg -w 512 examples/push-demo/icons.svg          examples/push-demo/www/icons/512.png
-resvg -w 512 examples/push-demo/icons-maskable.svg examples/push-demo/www/icons/512-maskable.png
-resvg -w 180 examples/push-demo/icons.svg          examples/push-demo/www/icons/apple-touch-180.png
-echo "Icons regenerated."
-'''
+run = "./scripts/push-demo-icons.sh"
 
 [tasks."push-demo:serve"]
 description = "Run push-demo server (HTTP on $PORT). VAPID env injected from fnox via `fnox exec`."
@@ -702,36 +677,5 @@ description = "Run push-demo + cloudflared quick tunnel + QR (open the *.tryclou
 depends = ["build", "push:plugin:build", "push-demo:icons"]
 tools = { "aqua:cloudflare/cloudflared" = "latest" }
 env = { PORT = "8080", STORE = "./.store/push-demo", PLUGIN = "./target/debug/nu_plugin_push" }
-run = '''
-set -e
-./scripts/push-demo-serve.sh &
-SERVE_PID=$!
-trap "kill $SERVE_PID 2>/dev/null || true" EXIT INT TERM
-
-# Wait until the server is responding.
-for i in $(seq 1 50); do
-  if curl -sf "http://127.0.0.1:$PORT/health" > /dev/null 2>&1; then break; fi
-  sleep 0.2
-done
-
-# Open quick tunnel and watch its output for the URL.
-cloudflared tunnel --no-autoupdate --url "http://localhost:$PORT" 2>&1 | while IFS= read -r line; do
-  echo "$line"
-  url=$(echo "$line" | grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" | head -1)
-  if [ -n "$url" ]; then
-    echo ""
-    echo "  ============================================"
-    echo "  Open this on your phone:"
-    echo "  $url"
-    echo "  ============================================"
-    echo ""
-    if command -v qrencode > /dev/null 2>&1; then
-      qrencode -t ANSIUTF8 "$url"
-    else
-      echo "(install qrencode for a QR code: brew install qrencode)"
-    fi
-    echo ""
-  fi
-done
-'''
+run = "./scripts/push-demo-dev.sh"
 
