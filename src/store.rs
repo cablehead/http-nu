@@ -51,8 +51,7 @@ impl Store {
     ) -> Result<Self, xs::store::StoreError> {
         let inner = xs::store::Store::new(path.clone())?;
 
-        // API server. `xs::api::serve` binds the unix socket INSIDE this spawned
-        // task, so `init` would otherwise return before the socket is accepting.
+        // API server
         let store_for_api = inner.clone();
         tokio::spawn(async move {
             let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
@@ -85,47 +84,7 @@ impl Store {
             });
         }
 
-        // Block until the API socket actually accepts a connection, so a caller
-        // that connects the instant `init` returns can't race the bind above.
-        // This matters on windows: the store control socket is a win_uds AF_UNIX
-        // socket, and a client (e.g. `curl --unix-socket`) that connects before
-        // the bind blocks instead of failing fast, hanging the whole request.
-        Self::wait_for_api_ready(&path.join("sock")).await;
-
         Ok(Self { inner, path })
-    }
-
-    /// Poll-connect the store API socket until it accepts, so `init` only
-    /// returns once the API is genuinely reachable. Bounded; on timeout it warns
-    /// and proceeds rather than failing startup (the socket may still come up).
-    async fn wait_for_api_ready(sock_path: &std::path::Path) {
-        use tokio::time::{sleep, Duration, Instant};
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let connected = {
-                #[cfg(unix)]
-                {
-                    tokio::net::UnixStream::connect(sock_path).await.is_ok()
-                }
-                #[cfg(windows)]
-                {
-                    xs::listener::WinUnixStream::connect(sock_path)
-                        .await
-                        .is_ok()
-                }
-            };
-            if connected {
-                return;
-            }
-            if Instant::now() >= deadline {
-                eprintln!(
-                    "warning: store API socket at {} not accepting after 5s; proceeding",
-                    sock_path.display()
-                );
-                return;
-            }
-            sleep(Duration::from_millis(20)).await;
-        }
     }
 
     /// Add store commands (.cat, .append, .cas, .last, etc.) to the engine.
