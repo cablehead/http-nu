@@ -2491,17 +2491,35 @@ async fn test_watch_topic_reload_on_append() {
         "Empty topic should serve placeholder with 503"
     );
 
-    // DIAG(win-hang): append over the unix socket, bounded + verbose so the
-    // Windows log shows whether curl connects, sends, and where it stalls.
+    // DIAG(win-hang): stream diagnostics LIVE via inherited subprocess stdio,
+    // which cargo's per-test output capture does NOT intercept (unlike eprintln!,
+    // which is buffered and lost when a test hangs).
     let sock_path = store_path.join("sock");
-    eprintln!(
-        "[DIAG] append starting -> unix-socket {}",
-        sock_path.display()
-    );
-    let output = tokio::process::Command::new("curl")
+
+    // (1) Does the store `sock` exist at all in --topic mode? List the dir.
+    #[cfg(windows)]
+    let _ = tokio::process::Command::new("cmd")
+        .args(["/c", "dir", "/b"])
+        .arg(&store_path)
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .await;
+    #[cfg(unix)]
+    let _ = tokio::process::Command::new("ls")
+        .arg("-la")
+        .arg(&store_path)
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .await;
+
+    // (2) Append with curl -v, stdio INHERITED so the verbose trace streams live
+    // to the runner console (bypasses cargo capture). --max-time bounds it.
+    let status = tokio::process::Command::new("curl")
         .arg("-v")
         .arg("--max-time")
-        .arg("15")
+        .arg("20")
         .arg("--unix-socket")
         .arg(&sock_path)
         .arg("-X")
@@ -2509,15 +2527,16 @@ async fn test_watch_topic_reload_on_append() {
         .arg("-d")
         .arg(r#"{|req| "version1"}"#)
         .arg("http://localhost/append/serve.nu")
-        .output()
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
         .await
         .expect("curl append failed");
-    eprintln!(
-        "[DIAG] append done status={:?} stdout={} stderr=\n{}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let output = std::process::Output {
+        status,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
     assert!(
         output.status.success(),
         "append should succeed: {}",
