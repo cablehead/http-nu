@@ -11,3 +11,9 @@ jobs:
     uses: joeblew999/.github/.github/workflows/reusable-mise-ci.yml@v0.60.0
     with:
       os-matrix: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+      # http-nu embeds the whole nu engine AND builds nu_plugin_push in the same
+      # workspace, so a COLD windows compile runs ~58min -- over the default 60min
+      # cap, which killed the job before rust-cache could save, leaving it cold
+      # forever (warm ubuntu/macos are ~3min). 90 lets a cold windows run finish
+      # once and save a warm cache; subsequent runs restore warm and are fast.
+      timeout-minutes: 90
