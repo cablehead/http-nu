@@ -2410,6 +2410,10 @@ async fn test_sse_cancelled_on_hot_reload_with_brotli() {
 /// when the topic is updated.
 #[cfg(feature = "cross-stream")]
 #[tokio::test]
+// The store control plane is an xs unix-domain socket (win_uds AF_UNIX on windows).
+// windows `curl --unix-socket` cannot reach it, so the append curl blocks forever
+// (no --max-time) and the test hangs. Needs a windows-reachable store client, not curl.
+#[cfg_attr(windows, ignore)]
 async fn test_watch_topic_reload_on_append() {
     let tmp = tempfile::tempdir().unwrap();
     let store_path = tmp.path().join("store");
@@ -2561,6 +2565,9 @@ async fn test_watch_topic_reload_on_append() {
 /// updated module.
 #[cfg(feature = "cross-stream")]
 #[tokio::test]
+// See test_watch_topic_reload_on_append: windows `curl --unix-socket` cannot reach
+// the xs win_uds store socket, so the append curl hangs. Needs a real store client.
+#[cfg_attr(windows, ignore)]
 async fn test_watch_topic_reload_picks_up_module_changes() {
     let tmp = tempfile::tempdir().unwrap();
     let store_path = tmp.path().join("store");
