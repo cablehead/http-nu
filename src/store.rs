@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 pub struct Store {
     inner: xs::store::Store,
     path: std::path::PathBuf,
+    service_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[cfg(not(feature = "cross-stream"))]
@@ -21,7 +22,11 @@ pub struct Store {
 impl Store {
     /// Wrap an existing xs::store::Store (no API server or services).
     pub fn from_inner(inner: xs::store::Store, path: std::path::PathBuf) -> Self {
-        Self { inner, path }
+        Self {
+            inner,
+            path,
+            service_handle: None,
+        }
     }
 
     /// Create the store and spawn the API server and optional services.
@@ -42,6 +47,7 @@ impl Store {
         });
 
         // Processors (actor, service, action) -- each gets its own subscription
+        let mut service_handle = None;
         if services {
             let s = inner.clone();
             tokio::spawn(async move {
@@ -51,11 +57,11 @@ impl Store {
             });
 
             let s = inner.clone();
-            tokio::spawn(async move {
+            service_handle = Some(tokio::spawn(async move {
                 if let Err(e) = xs::processor::service::run(s).await {
                     eprintln!("Service processor error: {e}");
                 }
-            });
+            }));
 
             let s = inner.clone();
             tokio::spawn(async move {
@@ -65,7 +71,37 @@ impl Store {
             });
         }
 
-        Ok(Self { inner, path })
+        Ok(Self {
+            inner,
+            path,
+            service_handle,
+        })
+    }
+
+    /// Runs the xs.stopping shutdown protocol: appends the xs.stopping frame so
+    /// the service processor gracefully terminates any child processes it
+    /// spawned, then waits for it to finish. Bounded by a timeout so a stuck
+    /// processor can't hang server exit.
+    pub async fn shutdown(&mut self) {
+        let Some(handle) = self.service_handle.take() else {
+            return;
+        };
+
+        if let Err(e) = self
+            .inner
+            .append(xs::store::Frame::builder("xs.stopping").build())
+        {
+            eprintln!("Error appending xs.stopping frame: {e}");
+            handle.abort();
+            return;
+        }
+
+        if tokio::time::timeout(std::time::Duration::from_secs(3), handle)
+            .await
+            .is_err()
+        {
+            eprintln!("Service processor did not stop within timeout");
+        }
     }
 
     /// Add store commands (.cat, .append, .cas, .last, etc.) to the engine.
@@ -202,6 +238,10 @@ fn spawn_topic_watcher(
 #[cfg(not(feature = "cross-stream"))]
 impl Store {
     pub fn configure_engine(&self, _engine: &mut crate::Engine) -> Result<(), crate::Error> {
+        unreachable!("Store is never constructed without cross-stream feature")
+    }
+
+    pub async fn shutdown(&mut self) {
         unreachable!("Store is never constructed without cross-stream feature")
     }
 

@@ -660,7 +660,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create cross.stream store if --store is specified
     #[cfg(feature = "cross-stream")]
-    let store = match args.store {
+    let mut store = match args.store {
         Some(ref path) => {
             match Store::init(path.clone(), args.services, args.expose.clone()).await {
                 Ok(store) => Some(store),
@@ -673,7 +673,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         None => None,
     };
     #[cfg(not(feature = "cross-stream"))]
-    let store: Option<Store> = None;
+    let mut store: Option<Store> = None;
 
     // Build $HTTP_NU options from CLI args
     let http_nu_options = HttpNuOptions {
@@ -793,6 +793,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         startup_options,
     )
     .await?;
+
+    if let Some(store) = &mut store {
+        store.shutdown().await;
+    }
 
     shutdown();
     log_handle.join().ok();
