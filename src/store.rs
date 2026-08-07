@@ -37,6 +37,17 @@ impl Store {
     ) -> Result<Self, xs::store::StoreError> {
         let inner = xs::store::Store::new(path.clone())?;
 
+        // Hand the processors a base engine with http-nu's `.mj`, `.md`, and
+        // highlight commands so actors, services, and actions can use them, not
+        // just HTTP handlers. prepared_base clones this base per spawn. See xs
+        // ADR 0007. Set before any clone so all share it.
+        let inner = {
+            let mut base = crate::Engine::new().expect("Failed to build processor base engine");
+            base.add_processor_commands(&inner)
+                .expect("Failed to register processor base commands");
+            inner.with_base_engine(base.state)
+        };
+
         // API server
         let store_for_api = inner.clone();
         tokio::spawn(async move {
