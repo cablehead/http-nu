@@ -9,7 +9,7 @@ use nu_command::add_shell_command_context;
 use nu_engine::eval_block_with_early_return;
 use nu_parser::parse;
 use nu_plugin_engine::{GetPlugin, PluginDeclaration};
-use nu_protocol::engine::Command;
+use nu_protocol::engine::{Command, Job, ThreadJob};
 use nu_protocol::format_cli_error;
 use nu_protocol::{
     debugger::WithoutDebug,
@@ -65,6 +65,22 @@ impl Engine {
 
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
+
+        // One long-lived background job shared by every request eval. Request
+        // threads need a current job so externals they spawn are tracked and
+        // signalled; sharing one (the pid list is mutex'd) means the hot path
+        // never clones the engine state or touches the jobs table per request.
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let job = ThreadJob::new(
+            engine_state.signals().clone(),
+            Some("HTTP".to_string()),
+            sender,
+        );
+        {
+            let mut jobs = engine_state.jobs.lock().expect("jobs mutex poisoned");
+            jobs.add_job(Job::Thread(job.clone()));
+        }
+        engine_state.current_job.background_thread_job = Some(job);
 
         Ok(Self {
             state: engine_state,

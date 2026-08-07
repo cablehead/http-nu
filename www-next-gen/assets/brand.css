@@ -1,0 +1,407 @@
+/*
+ * brand.css - the http-nu brand layer, loaded site-wide on top of base.css.
+ *
+ * Two brand colors, one per mode: ocean for light, a deeper navy for dark -
+ * hand-picked stellar named seeds (stellar.config.json, with the sand / orange
+ * grape / red / green / stream accents). Whichever mode is active, that one
+ * color IS the page surface; `--surface` / `--surface-on` / `--on-dim` /
+ * `--line` name its parts, and the `.dark body` block swaps the whole set
+ * ocean->navy. We choose the two colors by hand because they're exact brand
+ * blues stellar's tonal math wouldn't land on, and because the ocean->navy pair
+ * is a deliberate design choice, not two ends of one ramp.
+ *
+ * Within a mode, everything is built from the active color's ramp the way the
+ * reference builds from neutral: the page is step 0, raised panels and borders
+ * are higher steps (the `.panel` utility, `--line`), `-on` is the text, `-dim`
+ * is secondary text. No hand-mixed tints.
+ *
+ * A few hero geometry values (sticker shadow, tilt angles, tight badge padding)
+ * are literal on purpose - no stellar token matches them - and keep the landing
+ * pixel-faithful to the original ./www splash. Fonts also match the original.
+ */
+
+/* --- the brand surface: ocean (light mode) ------------------------------ */
+/* the active brand color and its parts: the step is the page, -on is text,
+   -dim is secondary text, and a higher step is the border (raised panels use
+   the .panel utility). `.dark body` below swaps all of this to the navy color. */
+body {
+  --surface: var(--named-ocean-0);
+  --surface-on: var(--named-ocean-0-on);
+  --on-dim: var(--named-ocean-0-dim);
+  --line: var(--named-ocean-2);
+  /* hard offset "sticker" shadow shared by badges and cards; stellar only
+     models soft elevation, so this playful brand atom is a literal */
+  --sticker-shadow: 2px 2px 0 rgba(0, 0, 0, 0.2);
+  background: var(--surface);
+  color: var(--surface-on);
+}
+
+/* --- the brand surface: navy (dark mode) -------------------------------- */
+/* the second brand color; swapping these four tokens re-points the whole
+   surface system (panels, borders, dim text) at navy in one place. */
+.dark body {
+  --surface: var(--named-navy-0);
+  --surface-on: var(--named-navy-0-on);
+  --on-dim: var(--named-navy-0-dim);
+  --line: var(--named-navy-2);
+}
+
+/* in the docs article, headings take the cream brand accent; their self-anchor
+   links inherit it (core `a` is `inherit`), so one rule covers both. Elsewhere
+   - card titles, nav - headings ride the local surface color from base's
+   `h1..h6: inherit`. */
+article :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--named-sand-0);
+}
+body small,
+body .muted,
+body figcaption,
+body blockquote {
+  color: var(--on-dim);
+}
+body hr,
+body blockquote {
+  border-color: var(--line);
+}
+body :is(td, th) {
+  border-color: var(--line);
+}
+
+/* raised surface utility: the +1 ramp step of the surface (a lighter ocean,
+   navy in dark) with its own -on for text - the reference's "surface step for
+   the background, its -on for text". Cards compose `card panel`; table headers
+   ride it too (they can't take a class). */
+.panel,
+body th {
+  background: var(--named-ocean-1);
+  color: var(--named-ocean-1-on);
+}
+.dark .panel,
+.dark body th {
+  background: var(--named-navy-1);
+  color: var(--named-navy-1-on);
+}
+
+/* code blocks use base's --code-bg: stellar's primary code surface, the one its
+   syntax palette is tuned for; the hue is set by colors.code.index (a warm cream
+   index that echoes the sand brand accent - it reads as a light cream panel on the
+   blue and drops to a near-black on navy in dark). The brand only adds the line
+   border and gentle corners; inline <code> keeps the secondary --code-inner-bg. */
+body pre {
+  border-color: var(--line);
+}
+
+/* cards are blocky badge-style panels: the `.panel` surface step, gentle corners,
+   and the same hard sticker shadow as the splash badges. Each card sits at a
+   slight fixed tilt that varies card to card (a 5-step cycle, so it scatters
+   across the 3-column grid rather than lining up); hover does not change the
+   tilt - it lifts the card straight up and grows the shadow. The tilt is held
+   in --card-tilt so hover can keep the angle and add the lift. (The tilt
+   degrees and offset shadow are brand literals, like the badges.) */
+body .card {
+  border-color: var(--line);
+  box-shadow: var(--sticker-shadow);
+}
+.grid .card {
+  transform: rotate(var(--card-tilt, 0deg));
+}
+.grid .card:nth-child(5n + 1) { --card-tilt: -1deg; }
+.grid .card:nth-child(5n + 2) { --card-tilt: 0.7deg; }
+.grid .card:nth-child(5n + 3) { --card-tilt: -0.5deg; }
+.grid .card:nth-child(5n + 4) { --card-tilt: 1deg; }
+.grid .card:nth-child(5n + 5) { --card-tilt: -0.8deg; }
+body a.card:hover {
+  background: var(--named-ocean-2);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.2);
+  transform: rotate(var(--card-tilt, 0deg)) translateY(-4px);
+}
+.dark body a.card:hover {
+  background: var(--named-navy-2);
+}
+
+/* pager: prev/next ride the .panel surface; cream page title, dim direction
+   label, brightening one ramp step on hover */
+.pager-link {
+  border-color: var(--line);
+}
+.pager-link:hover {
+  background: var(--named-ocean-2);
+}
+.dark .pager-link:hover {
+  background: var(--named-navy-2);
+}
+.pager-dir {
+  color: var(--on-dim);
+}
+.pager-page {
+  color: var(--named-sand-0);
+}
+
+/* sidebar */
+.toc a {
+  color: var(--on-dim);
+}
+.toc a:hover {
+  color: var(--surface-on);
+}
+.toc a.active {
+  color: var(--named-sand-0);
+}
+.toc-group {
+  color: var(--on-dim);
+}
+
+/* --- nav: cream mono brand, ghost toggle (text inherits the body font) -- */
+.nav .brand a {
+  color: var(--named-sand-0);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-3);
+  text-decoration: underline;
+}
+.nav .brand a:hover,
+.nav .links a:hover {
+  color: var(--named-sand-0);
+}
+.nav .vt-toggle[aria-pressed="true"] {
+  color: var(--named-sand-0);
+  border-color: var(--named-sand-0);
+}
+
+/* --- tone utilities: a surface and its readable foreground (badges) ----- */
+.tone-orange {
+  background: var(--named-orange-0);
+  color: var(--named-orange-0-on);
+}
+.tone-grape {
+  background: var(--named-grape-0);
+  color: var(--named-grape-0-on);
+}
+.tone-red {
+  background: var(--named-red-0);
+  color: var(--named-red-0-on);
+}
+.tone-green {
+  background: var(--named-green-0);
+  color: var(--named-green-0-on);
+}
+
+/* --- landing hero (these selectors only match on the landing markup) ---- */
+
+/* tagline card: just tilted, on the surface, like the original */
+.taglines {
+  max-width: 48rem;
+  margin: 0 auto;
+  text-align: center;
+  transform: rotate(-1deg);
+  padding: 3rem 1.5rem 0.5rem;
+}
+
+.taglines img {
+  display: block;
+  margin: 0 auto;
+  max-width: 90%;
+}
+
+.curve {
+  display: block;
+  width: 100%;
+}
+
+.taglines .curve:last-child {
+  margin-top: var(--size-2);
+}
+
+.stream {
+  color: var(--named-stream-0);
+}
+
+/* badges */
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+}
+
+.badge {
+  display: block;
+  width: fit-content;
+  margin-block: 0.5rem;
+  padding: 0.4rem 1.1rem;
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-2);
+  line-height: 1.5;
+  box-shadow: var(--sticker-shadow);
+}
+
+.badge a {
+  text-decoration: none;
+}
+
+/* the playful tilt, by position rather than a class per badge */
+.badges .badge:nth-child(1) {
+  transform: rotate(-5deg);
+}
+.badges .badge:nth-child(2) {
+  transform: rotate(2deg);
+}
+.badges .badge:nth-child(3) {
+  transform: rotate(-3deg);
+}
+
+.wave {
+  display: block;
+  width: 100%;
+  height: 100px;
+}
+
+/* --- terminal: a window-chrome code panel (install tabs + hello world) -- *
+ * Playful, like the original: a purple titlebar and a body that's just the
+ * page surface darkened with a black overlay (so it stays a dark terminal on
+ * either blue, no fixed color). On narrow screens it bleeds to both edges. */
+.terminal {
+  margin-block: var(--size-2);
+  border-radius: var(--border-radius-2);
+  overflow: hidden;
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+}
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--size--1);
+  padding: 0.2rem var(--size--1);
+  background: var(--named-grape-0);
+  color: var(--named-grape-0-on);
+}
+.terminal-dots {
+  display: flex;
+  gap: 0.35rem;
+  margin-right: var(--size--1);
+}
+.terminal-dots span {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+}
+.terminal-dots span:nth-child(1) {
+  background: var(--named-red-0);
+}
+.terminal-dots span:nth-child(2) {
+  background: #ffbd2e;
+}
+.terminal-dots span:nth-child(3) {
+  background: var(--named-green-0);
+}
+.btn-tab {
+  font: inherit;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+}
+.btn-tab:hover {
+  background: none;
+  opacity: 0.8;
+}
+.btn-tab.is-active {
+  opacity: 1;
+  font-weight: var(--font-weight-bold);
+}
+.terminal-body {
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--surface-on);
+  padding: var(--size--2);
+  overflow-x: auto;
+  line-height: var(--code-line-height);
+}
+.terminal-body .prompt,
+.terminal-body .out {
+  opacity: 0.6;
+}
+
+/* "Start Server": a key in the title bar that lights up green once the server
+   is running (same lit-while-active idea as the splash badges and the 2048
+   audio button). It stays put -- the bar's look is permanent, the key just
+   lights up. */
+.btn-go {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  color: var(--named-grape-0-on);
+  background: rgba(0, 0, 0, 0.22);
+  border: 0;
+  border-radius: var(--border-radius-1);
+  padding: 0.15em 0.7em;
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+  transition: transform var(--anim-duration-fast) var(--anim-ease-standard),
+    box-shadow var(--anim-duration-base) var(--anim-ease-standard),
+    background var(--anim-duration-base) var(--anim-ease-standard),
+    color var(--anim-duration-base) var(--anim-ease-standard);
+}
+.btn-go:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+.btn-go:active {
+  transform: translateY(2px);
+  box-shadow: none;
+}
+.btn-go.is-lit {
+  background: var(--named-green--1);
+  color: var(--named-green--1-on);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2), 0 0 0.7rem -0.1rem var(--named-green--1);
+}
+
+/* the client terminal fades in once its server is up. */
+.client-pane {
+  animation: term-fade-in var(--anim-duration-base) var(--anim-ease-standard);
+}
+@keyframes term-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.3rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* animated rocket gif by the section heading */
+.rocket {
+  height: 1em;
+  margin-left: 0.25em;
+  vertical-align: -0.15em;
+  border-radius: 0;
+}
+
+@media (max-width: 640px) {
+  .terminal {
+    margin-inline: calc(-1 * var(--size-2));
+    border-radius: 0;
+  }
+}
+
+/* theme facet nav: dim inactive, cream active (matches .toc a.active) */
+.facets a {
+  color: var(--on-dim);
+}
+.facets a:hover {
+  color: var(--surface-on);
+}
+.facets a.active {
+  color: var(--named-sand-0);
+}
+/* the tagline card is tilted for effect; clip the tilt so it never causes
+   horizontal overflow on narrow screens */
+.splash-hero {
+  overflow-x: clip;
+}
+
+/* footer divider uses the brand line color */
+.site-footer {
+  border-color: var(--line);
+}

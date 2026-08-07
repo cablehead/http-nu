@@ -1,0 +1,8 @@
+# Stellar license key - never commit
+stellar.key
+
+# transient stellar gen output
+/css/
+
+# local cross.stream store, if used
+/store/

@@ -1,3 +1,7 @@
+/* Shared Stellar design tokens (symlinked from http-nu/www-next-gen). Must
+   precede the @font-face rules below per the CSS @import ordering rule. */
+@import "stellar.css";
+
 /* Self-hosted Source Sans 3 + Source Code Pro. One variable-axis woff2
    per family; both 400 and 700 declarations point at the same file and
    the browser picks the weight off the wght axis. Latin + smart-quote
@@ -37,18 +41,17 @@
 }
 
 :root {
-  /* Palette aligned with http-nu/www: deep blue body, warm-cream headers,
-     off-white primary text. Tile colors live in render.nu (untouched --
-     the wood-grain palette reads fine against blue). */
-  --bg: #0077b6;
+  /* Brand colors via the shared Stellar named tokens (stellar.css above).
+     Tile colors still live in render.nu (untouched). */
+  --bg: var(--named-ocean-0);
   --fg: rgba(255, 255, 255, 0.85);
-  --fg-header: #f4d9a0;
+  --fg-header: var(--named-sand-0);
   --tile: #eee4da;
-  --accent: #f59563;
-  --accent-hover: #f67c5f;
-  --accent-press: #d97a45;
-  --brand: #00d4ff;          /* cyan from http-nu/www -- the link/underline accent that pops on blue */
-  --brand-hover: #5ae5ff;
+  --accent: var(--named-orange-0);
+  --accent-hover: var(--named-orange-1);
+  --accent-press: var(--named-orange--1);
+  --brand: var(--named-stream-0);
+  --brand-hover: var(--named-stream-1);
   --light: #f9f6f2;
   --gap: 8px;
   --radius: 4px;

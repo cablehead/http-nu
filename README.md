@@ -36,49 +36,52 @@
 
 - [Install](#install)
   - [eget](#eget)
-  - [Homebrew](#homebrew-macos)
+  - [Homebrew (macOS)](#homebrew-macos)
   - [cargo](#cargo)
   - [Nix](#nix)
-- [Reference](#reference)
   - [GET: Hello world](#get-hello-world)
   - [UNIX domain sockets](#unix-domain-sockets)
-  - [Watch Mode](#watch-mode)
-  - [Reading from stdin](#reading-from-stdin)
+- [Requests & responses](#requests--responses)
   - [POST: echo](#post-echo)
+  - [Reading from stdin](#reading-from-stdin)
   - [Request metadata](#request-metadata)
   - [Response metadata](#response-metadata)
   - [Content-Type Inference](#content-type-inference)
-  - [TLS & HTTP/2 Support](#tls-support)
-  - [Logging](#logging)
-  - [Trusted Proxies](#trusted-proxies)
-  - [Serving Static Files](#serving-static-files)
+- [Streaming & events](#streaming--events)
   - [Streaming responses](#streaming-responses)
   - [server-sent events](#server-sent-events)
+  - [Streaming Input](#streaming-input)
+- [Serving & operations](#serving--operations)
+  - [Watch Mode](#watch-mode)
+  - [Serving Static Files](#serving-static-files)
+  - [Logging](#logging)
+  - [Trusted Proxies](#trusted-proxies)
+  - [TLS Support](#tls-support)
+- [State & storage](#state--storage)
   - [In-memory SQLite](#in-memory-sqlite)
   - [Local Bus](#local-bus)
   - [Embedded cross.stream (full featured Persistent Event Stream)](#embedded-crossstream-full-featured-persistent-event-stream)
-  - [Reverse Proxy](#reverse-proxy)
+- [Reverse Proxy](#reverse-proxy)
+  - [Basic Usage](#basic-usage)
+  - [Configuration Options](#configuration-options)
+  - [Examples](#examples)
+- [Templates & output](#templates--output)
   - [Templates](#templates)
-    - [`.mj` - Render templates](#mj---render-templates)
-    - [`.mj compile` / `.mj render` - Precompiled templates](#mj-compile--mj-render---precompiled-templates)
   - [Syntax Highlighting](#syntax-highlighting)
   - [Markdown](#markdown)
-  - [Evaluating User-Submitted Scripts](#evaluating-user-submitted-scripts)
-  - [Streaming Input](#streaming-input)
+- [Embedded Modules](#embedded-modules)
+  - [Routing](#routing)
+  - [HTML DSL](#html-dsl)
+  - [Datastar SDK](#datastar-sdk)
+  - [Cookies](#cookies)
+- [Extending & eval](#extending--eval)
+  - [Eval Subcommand](#eval-subcommand)
   - [Plugins](#plugins)
   - [Module Paths](#module-paths)
-  - [Embedded Modules](#embedded-modules)
-    - [Routing](#routing)
-    - [HTML DSL](#html-dsl)
-    - [Datastar SDK](#datastar-sdk)
-    - [Cookies](#cookies)
-- [Eval Subcommand](#eval-subcommand)
-  - [Unit Testing Endpoints](#unit-testing-endpoints)
-- [Building and Releases](#building-and-releases)
-  - [Available Build Targets](#available-build-targets)
-  - [Examples](#examples)
-  - [GitHub Releases](#github-releases)
-- [History](#history)
+  - [Runtime Constants](#runtime-constants)
+  - [Evaluating User-Submitted Scripts](#evaluating-user-submitted-scripts)
+  - [Building and Releases](#building-and-releases)
+  - [History](#history)
 
 <!-- END mktoc -->
 
@@ -124,8 +127,6 @@ http-nu is available in [nixpkgs](https://github.com/NixOS/nixpkgs). For
 packaging and maintenance documentation, see
 [NIXOS_PACKAGING_GUIDE.md](NIXOS_PACKAGING_GUIDE.md).
 
-## Reference
-
 ### GET: Hello world
 
 ```bash
@@ -148,6 +149,16 @@ $ http-nu --datastar :3001 examples/serve.nu
 $ http-nu --datastar --store ./store :3001 examples/serve.nu  # enables store-dependent examples
 ```
 
+You can also run a command or pipeline without starting a server, handy for
+trying the examples throughout these docs:
+
+```bash
+$ http-nu eval -c '1 + 2'
+3
+```
+
+See [Eval Subcommand](#eval-subcommand) for details.
+
 ### UNIX domain sockets
 
 ```bash
@@ -156,22 +167,17 @@ $ curl -s --unix-socket ./sock localhost
 Hello world
 ```
 
-### Watch Mode
+## Requests & responses
 
-Use `-w` / `--watch` to automatically reload when files change:
+Read the request, shape the response, and infer content types.
+
+### POST: echo
 
 ```bash
-$ http-nu :3001 -w ./serve.nu
+$ http-nu :3001 -c '{|req| $in}'
+$ curl -s -d Hai localhost:3001
+Hai
 ```
-
-This watches the script's directory for any changes (including included files)
-and hot-reloads the handler. Active [SSE connections](#server-sent-events) are
-aborted on reload to trigger client reconnection.
-
-> [!WARNING]
-> The watch is recursive: keep only files that should trigger a reload in the
-> script's directory (`serve.nu`, `templates/`, `static/`, ...). Anything else
-> that churns there reloads the handler too.
 
 ### Reading from stdin
 
@@ -188,14 +194,6 @@ $ (printf '{|req| "v1"}\0'; sleep 5; printf '{|req| "v2"}') | http-nu :3001 - -w
 ```
 
 Each `\0`-terminated script replaces the handler.
-
-### POST: echo
-
-```bash
-$ http-nu :3001 -c '{|req| $in}'
-$ curl -s -d Hai localhost:3001
-Hai
-```
 
 ### Request metadata
 
@@ -315,100 +313,9 @@ To consume a JSONL endpoint from Nushell:
 http get http://localhost:3001 | from json --objects | each {|row| ... }
 ```
 
-### TLS Support
+## Streaming & events
 
-Enable TLS by providing a PEM file containing both certificate and private key:
-
-```bash
-$ http-nu :3001 --tls combined.pem -c '{|req| "Secure Hello"}'
-$ curl -k https://localhost:3001
-Secure Hello
-```
-
-Generate a self-signed certificate for testing:
-
-```bash
-$ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
-$ cat cert.pem key.pem > combined.pem
-```
-
-HTTP/2 is automatically enabled for TLS connections:
-
-```bash
-$ curl -k --http2 -si https://localhost:3001 | head -1
-HTTP/2 200
-```
-
-### Logging
-
-Control log output with `--log-format`:
-
-- `human` (default): Live-updating terminal output with startup banner,
-  per-request progress lines showing timestamp, IP, method, path, status,
-  timing, and bytes
-- `jsonl`: Structured JSON lines with `scru128` stamps for log aggregation
-
-Each request emits 3 phases: **request** (received), **response** (headers
-sent), **complete** (body finished).
-
-**Human format**
-
-<img width="1835" alt="human format logging output" src="https://github.com/user-attachments/assets/af4f3022-f362-4c93-82c0-5d18ffb3d9ac" />
-
-**JSONL format**
-
-Events share a `request_id` for correlation:
-
-```bash
-$ http-nu --log-format jsonl :3001 '{|req| "hello"}'
-{"stamp":"...","message":"started","address":"http://127.0.0.1:3001","startup_ms":42}
-{"stamp":"...","message":"request","request_id":"...","method":"GET","path":"/","request":{...}}
-{"stamp":"...","message":"response","request_id":"...","status":200,"headers":{...},"latency_ms":1}
-{"stamp":"...","message":"complete","request_id":"...","bytes":5,"duration_ms":2}
-```
-
-Lifecycle events: `started`, `reloaded`, `stopping`, `stopped`, `stop_timed_out`
-
-The `print` command outputs to the logging system (appears as `message: "print"`
-in JSONL).
-
-### Trusted Proxies
-
-When behind a reverse proxy, use `--trust-proxy` to extract client IP from
-`X-Forwarded-For`. Accepts CIDR notation, repeatable:
-
-```bash
-$ http-nu --trust-proxy 10.0.0.0/8 --trust-proxy 192.168.0.0/16 :3001 '{|req| $req.trusted_ip}'
-```
-
-The `trusted_ip` field is resolved by parsing `X-Forwarded-For` right-to-left,
-stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
-
-- No `--trust-proxy` flags provided
-- Remote IP is not in trusted ranges
-- No `X-Forwarded-For` header present
-
-### Serving Static Files
-
-You can serve static files from a directory using the `.static` command. This
-command takes two arguments: the root directory path and the request path.
-
-When you call `.static`, it sets the response to serve the specified file, and
-any subsequent output in the closure will be ignored. The content type is
-automatically inferred based on the file extension (e.g., `text/css` for `.css`
-files).
-
-Here's an example:
-
-```bash
-$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
-```
-
-For single page applications you can provide a fallback file:
-
-```bash
-$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
-```
+Stream chunks as they are produced, and push server-sent events.
 
 ### Streaming responses
 
@@ -500,6 +407,139 @@ data: {"date":"2025-01-31 04:01:27.387723 -05:00"}
 data: {"date":"2025-01-31 04:01:28.390407 -05:00"}
 ...
 ```
+
+### Streaming Input
+
+In Nushell, input only streams when received implicitly. Referencing `$in`
+collects the entire input into memory.
+
+```nushell
+# Streams: command receives input implicitly
+{|req| from json }
+
+# Buffers: $in collects before piping
+{|req| $in | from json }
+```
+
+## Serving & operations
+
+Serve files, watch for changes, log requests, trust proxies, and enable TLS.
+
+### Watch Mode
+
+Use `-w` / `--watch` to automatically reload when files change:
+
+```bash
+$ http-nu :3001 -w ./serve.nu
+```
+
+This watches the script's directory for any changes (including included files)
+and hot-reloads the handler. Active [SSE connections](#server-sent-events) are
+aborted on reload to trigger client reconnection.
+
+> [!WARNING]
+> The watch is recursive: keep only files that should trigger a reload in the
+> script's directory (`serve.nu`, `templates/`, `static/`, ...). Anything else
+> that churns there reloads the handler too.
+
+### Serving Static Files
+
+You can serve static files from a directory using the `.static` command. This
+command takes two arguments: the root directory path and the request path.
+
+When you call `.static`, it sets the response to serve the specified file, and
+any subsequent output in the closure will be ignored. The content type is
+automatically inferred based on the file extension (e.g., `text/css` for `.css`
+files).
+
+Here's an example:
+
+```bash
+$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
+```
+
+For single page applications you can provide a fallback file:
+
+```bash
+$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
+```
+
+### Logging
+
+Control log output with `--log-format`:
+
+- `human` (default): Live-updating terminal output with startup banner,
+  per-request progress lines showing timestamp, IP, method, path, status,
+  timing, and bytes
+- `jsonl`: Structured JSON lines with `scru128` stamps for log aggregation
+
+Each request emits 3 phases: **request** (received), **response** (headers
+sent), **complete** (body finished).
+
+**Human format**
+
+<img width="1835" alt="human format logging output" src="https://github.com/user-attachments/assets/af4f3022-f362-4c93-82c0-5d18ffb3d9ac" />
+
+**JSONL format**
+
+Events share a `request_id` for correlation:
+
+```bash
+$ http-nu --log-format jsonl :3001 '{|req| "hello"}'
+{"stamp":"...","message":"started","address":"http://127.0.0.1:3001","startup_ms":42}
+{"stamp":"...","message":"request","request_id":"...","method":"GET","path":"/","request":{...}}
+{"stamp":"...","message":"response","request_id":"...","status":200,"headers":{...},"latency_ms":1}
+{"stamp":"...","message":"complete","request_id":"...","bytes":5,"duration_ms":2}
+```
+
+Lifecycle events: `started`, `reloaded`, `stopping`, `stopped`, `stop_timed_out`
+
+The `print` command outputs to the logging system (appears as `message: "print"`
+in JSONL).
+
+### Trusted Proxies
+
+When behind a reverse proxy, use `--trust-proxy` to extract client IP from
+`X-Forwarded-For`. Accepts CIDR notation, repeatable:
+
+```bash
+$ http-nu --trust-proxy 10.0.0.0/8 --trust-proxy 192.168.0.0/16 :3001 '{|req| $req.trusted_ip}'
+```
+
+The `trusted_ip` field is resolved by parsing `X-Forwarded-For` right-to-left,
+stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
+
+- No `--trust-proxy` flags provided
+- Remote IP is not in trusted ranges
+- No `X-Forwarded-For` header present
+
+### TLS Support
+
+Enable TLS by providing a PEM file containing both certificate and private key:
+
+```bash
+$ http-nu :3001 --tls combined.pem -c '{|req| "Secure Hello"}'
+$ curl -k https://localhost:3001
+Secure Hello
+```
+
+Generate a self-signed certificate for testing:
+
+```bash
+$ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+$ cat cert.pem key.pem > combined.pem
+```
+
+HTTP/2 is automatically enabled for TLS connections:
+
+```bash
+$ curl -k --http2 -si https://localhost:3001 | head -1
+HTTP/2 200
+```
+
+## State & storage
+
+Keep state across requests: in-memory SQLite, an ephemeral bus, and a durable event store.
 
 ### In-memory SQLite
 
@@ -617,10 +657,13 @@ Templates can also load from the store using `.mj --topic` and
 ```nushell
 {|req|
   .last quotes --follow
-  | each {|frame| $frame.meta | to datastar-patch-elements }
+  | each {|frame| {data: $frame.meta} }
   | to sse
 }
 ```
+
+`to sse` pairs naturally with the [Datastar SDK](#datastar-sdk) when you want
+this stream to drive live DOM updates.
 
 **Combining with the [Local Bus](#local-bus):**
 
@@ -652,7 +695,7 @@ The bus differs from `.append` / `.cat`:
 
 See the [xs documentation](https://www.cross.stream) to learn more.
 
-### Reverse Proxy
+## Reverse Proxy
 
 You can proxy HTTP requests to backend servers using the `.reverse-proxy`
 command. This command takes a target URL and an optional configuration record.
@@ -675,14 +718,14 @@ closure will be ignored.
 - With `preserve_host: false`: Sets Host header to match the target backend
   hostname
 
-#### Basic Usage
+### Basic Usage
 
 ```bash
 # Simple proxy to backend server
 $ http-nu :3001 -c '{|req| .reverse-proxy "http://localhost:8080"}'
 ```
 
-#### Configuration Options
+### Configuration Options
 
 The optional second parameter allows you to customize the proxy behavior:
 
@@ -695,7 +738,7 @@ The optional second parameter allows you to customize the proxy behavior:
 }
 ```
 
-#### Examples
+### Examples
 
 **Add custom headers:**
 
@@ -745,6 +788,10 @@ $ http-nu :3001 -c '{|req|
 }'
 # Force context-id=smidgeons, remove debug param, preserve others
 ```
+
+## Templates & output
+
+Render templates, and turn code and Markdown into HTML.
 
 ### Templates
 
@@ -851,100 +898,9 @@ fn main() {}
 <pre><code class="language-rust"><span class="source rust">...
 ````
 
-### Evaluating User-Submitted Scripts
+## Embedded Modules
 
-The `.run` command parses, compiles, and evaluates a nushell script string. Use
-it to build web UIs that let users submit and run arbitrary commands -- an
-in-browser REPL, for example. Pipeline input is forwarded to the script.
-
-```nushell
-"hello" | .run 'str upcase'              # => HELLO
-[1 2 3] | .run 'math sum'                # => 6
-```
-
-Parse, compile, and runtime errors surface as distinct error types with source
-excerpts pointing at the offending span. Each call runs against a clone of the
-engine state, so any `def`, `let`, or `use` lives only for the call's duration;
-the caller's bindings and environment are also hidden from the script.
-
-> [!WARNING]
-> The submitted script has full access to whatever the http-nu process can do --
-> files, network, the embedded store. Only expose `.run` on localhost or in
-> trusted environments.
-
-### Streaming Input
-
-In Nushell, input only streams when received implicitly. Referencing `$in`
-collects the entire input into memory.
-
-```nushell
-# Streams: command receives input implicitly
-{|req| from json }
-
-# Buffers: $in collects before piping
-{|req| $in | from json }
-```
-
-For routing, `dispatch` must be first in the closure to receive the body. In
-handlers, put body-consuming commands first:
-
-```nushell
-{|req|
-  dispatch $req [
-    (route {method: "POST"} {|req ctx|
-      from json  # receives body implicitly
-    })
-  ]
-}
-```
-
-### Plugins
-
-Load Nushell plugins to extend available commands.
-
-```bash
-$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc :3001 '{|req| 5 | inc}'
-$ curl -s localhost:3001
-6
-```
-
-Multiple plugins:
-
-```bash
-$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc --plugin ~/.cargo/bin/nu_plugin_query :3001 '{|req| ...}'
-```
-
-Works with eval:
-
-```bash
-$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c '1 | inc'
-2
-```
-
-### Module Paths
-
-Make module paths available with `-I` / `--include-path`:
-
-```bash
-$ http-nu -I ./lib -I ./vendor :3001 '{|req| use mymod.nu; ...}'
-```
-
-### Runtime Constants
-
-The `$HTTP_NU` const is available in all scripts and reflects the CLI options
-the server was started with:
-
-```nushell
-$HTTP_NU
-# => {dev: false, datastar: true, watch: false, store: "./store", topic: null, expose: null, tls: null, services: false}
-
-$HTTP_NU.store != null  # check if store is available
-$HTTP_NU.dev            # true when --dev was passed
-```
-
-### Embedded Modules
-
-#### Routing
+### Routing
 
 http-nu includes an embedded routing module for declarative request handling.
 The request body is available to handlers as `$in`.
@@ -984,6 +940,21 @@ Routes match in order. First match wins. Closure tests return a record (match,
 context passed to handler) or null (no match). If no routes match, returns
 `501 Not Implemented`.
 
+`dispatch` must come first in the closure to receive the request body, and
+inside a handler put body-consuming commands (`from json`, etc.) first, since
+input only streams when received implicitly (see
+[Streaming Input](#streaming-input)):
+
+```nushell
+{|req|
+  dispatch $req [
+    (route {method: "POST"} {|req ctx|
+      from json  # receives body implicitly
+    })
+  ]
+}
+```
+
 **Mounting sub-handlers:**
 
 `mount` serves a handler under a path prefix. Requests to `/prefix` redirect to
@@ -1014,7 +985,7 @@ $req | href "/about"
 # "/blog/about" when mounted under /blog, "/about" otherwise
 ```
 
-#### HTML DSL
+### HTML DSL
 
 Build HTML with Nushell. Lisp-style nesting with uppercase tags.
 
@@ -1088,7 +1059,7 @@ let tpl = .mj compile --inline (UL (_for {item: items} (LI (_var "item"))))
 # <ul><li>a</li><li>b</li><li>c</li></ul>
 ```
 
-#### Datastar SDK
+### Datastar SDK
 
 Generate [Datastar](https://data-star.dev) SSE events for hypermedia
 interactions. Follows the
@@ -1183,7 +1154,7 @@ to datastar-redirect []: string -> record  # "/url" | to datastar-redirect
 from datastar-signals [req: record]: string -> record  # $in | from datastar-signals $req
 ```
 
-#### Cookies
+### Cookies
 
 Set and parse HTTP cookies with secure defaults.
 
@@ -1242,7 +1213,11 @@ cookie delete [
 ]: any -> any
 ```
 
-## Eval Subcommand
+## Extending & eval
+
+The eval subcommand, plugins, module paths, evaluating user scripts, and releases.
+
+### Eval Subcommand
 
 Test http-nu commands without running a server.
 
@@ -1263,7 +1238,7 @@ $ http-nu eval -c '.mj compile --inline "Hello, {{ name }}" | describe'
 CompiledTemplate
 ```
 
-### Unit Testing Endpoints
+#### Unit Testing Endpoints
 
 `source` loads a handler script and returns the closure. `do` invokes it with a
 request record. `assert` checks the response.
@@ -1285,20 +1260,85 @@ $ http-nu eval test.nu
 
 See [`examples/tao/test.nu`](examples/tao/test.nu).
 
-## Building and Releases
+### Plugins
+
+Load Nushell plugins to extend available commands.
+
+```bash
+$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc :3001 '{|req| 5 | inc}'
+$ curl -s localhost:3001
+6
+```
+
+Multiple plugins:
+
+```bash
+$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc --plugin ~/.cargo/bin/nu_plugin_query :3001 '{|req| ...}'
+```
+
+Works with eval:
+
+```bash
+$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c '1 | inc'
+2
+```
+
+### Module Paths
+
+Make module paths available with `-I` / `--include-path`:
+
+```bash
+$ http-nu -I ./lib -I ./vendor :3001 '{|req| use mymod.nu; ...}'
+```
+
+### Runtime Constants
+
+The `$HTTP_NU` const is available in all scripts and reflects the CLI options
+the server was started with:
+
+```nushell
+$HTTP_NU
+# => {dev: false, datastar: true, watch: false, store: "./store", topic: null, expose: null, tls: null, services: false}
+
+$HTTP_NU.store != null  # check if store is available
+$HTTP_NU.dev            # true when --dev was passed
+```
+
+### Evaluating User-Submitted Scripts
+
+The `.run` command parses, compiles, and evaluates a nushell script string. Use
+it to build web UIs that let users submit and run arbitrary commands -- an
+in-browser REPL, for example. Pipeline input is forwarded to the script.
+
+```nushell
+"hello" | .run 'str upcase'              # => HELLO
+[1 2 3] | .run 'math sum'                # => 6
+```
+
+Parse, compile, and runtime errors surface as distinct error types with source
+excerpts pointing at the offending span. Each call runs against a clone of the
+engine state, so any `def`, `let`, or `use` lives only for the call's duration;
+the caller's bindings and environment are also hidden from the script.
+
+> [!WARNING]
+> The submitted script has full access to whatever the http-nu process can do --
+> files, network, the embedded store. Only expose `.run` on localhost or in
+> trusted environments.
+
+### Building and Releases
 
 This project uses [Dagger](https://dagger.io) for cross-platform containerized
 builds that run identically locally and in CI. This means you can test builds on
 your machine before pushing tags to trigger releases.
 
-### Available Build Targets
+#### Available Build Targets
 
 - **Windows** (`windows-build`)
 - **macOS ARM64** (`darwin-build`)
 - **Linux ARM64** (`linux-arm-64-build`)
 - **Linux AMD64** (`linux-amd-64-build`)
 
-### Examples
+#### Examples
 
 Build a Windows binary locally:
 
@@ -1316,13 +1356,13 @@ dagger call windows-env --src upload --src "." terminal
 The `upload` function filters files to avoid uploading everything in your local
 directory.
 
-### GitHub Releases
+#### GitHub Releases
 
 The GitHub workflow automatically builds all platforms and creates releases when
 you push a version tag (e.g., `v1.0.0`). Development tags containing `-dev.` are
 marked as prereleases.
 
-## History
+### History
 
 If you prefer POSIX to [Nushell](https://www.nushell.sh), this project has a
 cousin called [http-sh](https://github.com/cablehead/http-sh).
