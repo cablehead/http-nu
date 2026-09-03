@@ -38,7 +38,15 @@ pub struct BrotliStream<S> {
     out_scratch: Vec<u8>,
     tmp: Vec<u8>,
     finished: bool,
+    /// Byte accounting, so a body that stops mid-event can be attributed:
+    /// `in` is what the nu pipeline handed us, `out` is what reached hyper. If
+    /// `in` runs ahead and stays ahead, the encoder is sitting on the rest.
+    id: u64,
+    bytes_in: u64,
+    bytes_out: u64,
 }
+
+static STREAM_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl<S> BrotliStream<S> {
     pub fn new(inner: S) -> Self {
@@ -56,6 +64,9 @@ impl<S> BrotliStream<S> {
             out_scratch: Vec::with_capacity(OUTBUF_CAP),
             tmp: vec![0u8; OUTBUF_CAP],
             finished: false,
+            id: STREAM_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            bytes_in: 0,
+            bytes_out: 0,
         }
     }
 
@@ -131,8 +142,16 @@ where
         loop {
             match Pin::new(&mut self.inner).poll_next(cx) {
                 Poll::Ready(Some(Ok(chunk))) => {
+                    self.bytes_in += chunk.len() as u64;
+                    let n_in = chunk.len();
                     match self.encode(&chunk, BrotliEncoderOperation::BROTLI_OPERATION_PROCESS) {
-                        Ok(out) => accumulated.extend_from_slice(&out),
+                        Ok(out) => {
+                            eprintln!(
+                                "br{} in +{} in_total={} (process -> {} out)",
+                                self.id, n_in, self.bytes_in, out.len()
+                            );
+                            accumulated.extend_from_slice(&out)
+                        }
                         Err(e) => return Poll::Ready(Some(Err(e))),
                     }
                     drained += 1;
@@ -144,6 +163,11 @@ where
                             Err(e) => return Poll::Ready(Some(Err(e))),
                         }
                         cx.waker().wake_by_ref();
+                        self.bytes_out += accumulated.len() as u64;
+                        eprintln!(
+                            "br{} out +{} out_total={} in_total={} (budget flush)",
+                            self.id, accumulated.len(), self.bytes_out, self.bytes_in
+                        );
                         return Poll::Ready(Some(Ok(Frame::data(Bytes::from(accumulated)))));
                     }
                 }
@@ -157,8 +181,17 @@ where
                         Err(e) => return Poll::Ready(Some(Err(e))),
                     }
                     if accumulated.is_empty() {
+                        eprintln!(
+                            "br{} pending, nothing to flush, in_total={} out_total={}",
+                            self.id, self.bytes_in, self.bytes_out
+                        );
                         return Poll::Pending;
                     }
+                    self.bytes_out += accumulated.len() as u64;
+                    eprintln!(
+                        "br{} out +{} out_total={} in_total={} (idle flush)",
+                        self.id, accumulated.len(), self.bytes_out, self.bytes_in
+                    );
                     return Poll::Ready(Some(Ok(Frame::data(Bytes::from(accumulated)))));
                 }
 
@@ -245,5 +278,117 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("br"));
         assert!(accepts_brotli(&headers));
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    /// Build a chunk of HTML-shaped text. Repeating structure so brotli gets
+    /// a realistic ratio, unique ids so consecutive chunks are not identical.
+    fn html_chunk(seed: usize, target_len: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(target_len + 256);
+        let mut i = 0usize;
+        while out.len() < target_len {
+            let s = format!(
+                "<div class=\"pane\" id=\"p{seed}-{i}\" data-seq=\"{}\"><pre>line {i} of pane \
+                 {seed}: the quick brown fox {} jumps over the lazy dog</pre></div>\n",
+                seed * 1000 + i,
+                (seed * 7919 + i * 104729) % 100003
+            );
+            out.extend_from_slice(s.as_bytes());
+            i += 1;
+        }
+        out
+    }
+
+    /// Three large SSE-sized events arrive ~30ms apart from a source that
+    /// then stays open but idle. Each event's compressed bytes must reach
+    /// the consumer promptly, not be held inside the encoder.
+    #[tokio::test]
+    async fn streaming_flush_releases_each_burst_promptly() {
+        let chunks: Vec<Vec<u8>> = (0..3).map(|i| html_chunk(i, 120 * 1024)).collect();
+        let expected: Vec<u8> = chunks.concat();
+        let boundaries: Vec<usize> = chunks
+            .iter()
+            .scan(0usize, |acc, c| {
+                *acc += c.len();
+                Some(*acc)
+            })
+            .collect();
+
+        let sent_at: Arc<Mutex<Vec<Instant>>> = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = mpsc::channel::<Vec<u8>>(64);
+
+        let producer = {
+            let chunks = chunks.clone();
+            let sent_at = sent_at.clone();
+            tokio::spawn(async move {
+                for c in chunks {
+                    sent_at.lock().unwrap().push(Instant::now());
+                    tx.send(c).await.unwrap();
+                    tokio::time::sleep(Duration::from_millis(30)).await;
+                }
+                // Source stays open but idle, like a long-lived SSE stream.
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                drop(tx);
+            })
+        };
+
+        let inner = ReceiverStream::new(rx).map(Ok::<Vec<u8>, BoxError>);
+        let mut stream = BrotliStream::new(inner);
+
+        let mut decoder = brotli::DecompressorWriter::new(Vec::<u8>::new(), 4096);
+        let mut compressed_total = 0usize;
+        let mut arrived_at: Vec<Instant> = Vec::new();
+
+        while arrived_at.len() < chunks.len() {
+            let frame = tokio::time::timeout(Duration::from_secs(3), stream.next())
+                .await
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "timed out waiting for compressed bytes; {} of {} chunks arrived",
+                        arrived_at.len(),
+                        chunks.len()
+                    )
+                })
+                .expect("stream ended early")
+                .expect("stream errored");
+            let data = frame.into_data().expect("data frame");
+            compressed_total += data.len();
+            decoder.write_all(&data).unwrap();
+            let decoded = decoder.get_ref();
+            assert!(
+                expected.starts_with(decoded),
+                "decoded output diverged from input"
+            );
+            while arrived_at.len() < boundaries.len() && decoded.len() >= boundaries[arrived_at.len()]
+            {
+                arrived_at.push(Instant::now());
+            }
+        }
+        producer.abort();
+
+        let sent_at = sent_at.lock().unwrap();
+        let latencies: Vec<Duration> = arrived_at
+            .iter()
+            .zip(sent_at.iter())
+            .map(|(a, s)| a.duration_since(*s))
+            .collect();
+        eprintln!(
+            "latencies: {:?}; ratio {:.1}x",
+            latencies,
+            expected.len() as f64 / compressed_total as f64
+        );
+        for (i, l) in latencies.iter().enumerate() {
+            assert!(
+                *l < Duration::from_millis(200),
+                "chunk {i} took {l:?} to come out of the encoder"
+            );
+        }
     }
 }
