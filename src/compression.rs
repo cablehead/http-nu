@@ -284,7 +284,6 @@ mod tests {
 #[cfg(test)]
 mod stream_tests {
     use super::*;
-    use std::io::Write;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
@@ -306,9 +305,74 @@ mod stream_tests {
         out
     }
 
+    /// Streaming decoder that drains everything the encoder has made
+    /// decodable. The brotli decoder reports `NeedsMoreInput` while it still
+    /// holds output that did not fit the caller's buffer, so keep calling with
+    /// no input until a call comes back short. A client that stops at the
+    /// first `NeedsMoreInput` (libcurl does) sits on the tail of a large event
+    /// until the next network read arrives; that is a client bug, not ours,
+    /// and this helper must not reproduce it.
+    struct Decoder {
+        state: brotli::BrotliState<StandardAlloc, StandardAlloc, StandardAlloc>,
+        out: Vec<u8>,
+        finished: bool,
+    }
+
+    impl Decoder {
+        fn new() -> Self {
+            Self {
+                state: brotli::BrotliState::new(
+                    StandardAlloc::default(),
+                    StandardAlloc::default(),
+                    StandardAlloc::default(),
+                ),
+                out: Vec::new(),
+                finished: false,
+            }
+        }
+
+        fn feed(&mut self, input: &[u8]) {
+            let mut avail_in = input.len();
+            let mut in_off = 0usize;
+            let mut buf = vec![0u8; 64 * 1024];
+            loop {
+                let mut avail_out = buf.len();
+                let mut out_off = 0usize;
+                let mut total = 0usize;
+                let r = brotli::BrotliDecompressStream(
+                    &mut avail_in,
+                    &mut in_off,
+                    input,
+                    &mut avail_out,
+                    &mut out_off,
+                    &mut buf,
+                    &mut total,
+                    &mut self.state,
+                );
+                self.out.extend_from_slice(&buf[..out_off]);
+                match r {
+                    brotli::BrotliResult::NeedsMoreOutput => continue,
+                    brotli::BrotliResult::NeedsMoreInput => {
+                        if out_off == buf.len() {
+                            continue;
+                        }
+                        break;
+                    }
+                    brotli::BrotliResult::ResultSuccess => {
+                        self.finished = true;
+                        break;
+                    }
+                    brotli::BrotliResult::ResultFailure => panic!("brotli decode failed"),
+                }
+            }
+        }
+    }
+
     /// Three large SSE-sized events arrive ~30ms apart from a source that
-    /// then stays open but idle. Each event's compressed bytes must reach
-    /// the consumer promptly, not be held inside the encoder.
+    /// then idles before closing. Each event must be fully decodable from the
+    /// frames emitted by the time the source goes idle, not held inside the
+    /// encoder; the whole stream must round-trip; and batching per burst must
+    /// keep the ratio well above what a flush-per-write policy would give.
     #[tokio::test]
     async fn streaming_flush_releases_each_burst_promptly() {
         let chunks: Vec<Vec<u8>> = (0..3).map(|i| html_chunk(i, 120 * 1024)).collect();
@@ -333,8 +397,9 @@ mod stream_tests {
                     tx.send(c).await.unwrap();
                     tokio::time::sleep(Duration::from_millis(30)).await;
                 }
-                // Source stays open but idle, like a long-lived SSE stream.
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                // Source stays open but idle for a while, like a quiet SSE
+                // stream, then closes.
+                tokio::time::sleep(Duration::from_millis(300)).await;
                 drop(tx);
             })
         };
@@ -342,11 +407,11 @@ mod stream_tests {
         let inner = ReceiverStream::new(rx).map(Ok::<Vec<u8>, BoxError>);
         let mut stream = BrotliStream::new(inner);
 
-        let mut decoder = brotli::DecompressorWriter::new(Vec::<u8>::new(), 4096);
+        let mut decoder = Decoder::new();
         let mut compressed_total = 0usize;
         let mut arrived_at: Vec<Instant> = Vec::new();
 
-        while arrived_at.len() < chunks.len() {
+        loop {
             let frame = tokio::time::timeout(Duration::from_secs(3), stream.next())
                 .await
                 .unwrap_or_else(|_| {
@@ -355,40 +420,43 @@ mod stream_tests {
                         arrived_at.len(),
                         chunks.len()
                     )
-                })
-                .expect("stream ended early")
-                .expect("stream errored");
-            let data = frame.into_data().expect("data frame");
+                });
+            let Some(frame) = frame else { break };
+            let data = frame.expect("stream errored").into_data().expect("data frame");
             compressed_total += data.len();
-            decoder.write_all(&data).unwrap();
-            let decoded = decoder.get_ref();
+            decoder.feed(&data);
             assert!(
-                expected.starts_with(decoded),
+                expected.starts_with(&decoder.out),
                 "decoded output diverged from input"
             );
-            while arrived_at.len() < boundaries.len() && decoded.len() >= boundaries[arrived_at.len()]
+            while arrived_at.len() < boundaries.len()
+                && decoder.out.len() >= boundaries[arrived_at.len()]
             {
                 arrived_at.push(Instant::now());
             }
         }
-        producer.abort();
+        producer.await.unwrap();
+
+        assert!(decoder.finished, "stream ended without a brotli FINISH");
+        assert_eq!(decoder.out, expected, "round trip mismatch");
 
         let sent_at = sent_at.lock().unwrap();
+        assert_eq!(arrived_at.len(), chunks.len());
         let latencies: Vec<Duration> = arrived_at
             .iter()
             .zip(sent_at.iter())
             .map(|(a, s)| a.duration_since(*s))
             .collect();
-        eprintln!(
-            "latencies: {:?}; ratio {:.1}x",
-            latencies,
-            expected.len() as f64 / compressed_total as f64
-        );
+        let ratio = expected.len() as f64 / compressed_total as f64;
+        eprintln!("latencies: {latencies:?}; ratio {ratio:.1}x");
         for (i, l) in latencies.iter().enumerate() {
             assert!(
                 *l < Duration::from_millis(200),
                 "chunk {i} took {l:?} to come out of the encoder"
             );
         }
+        // Measured ~14.7x for this synthetic input with one flush per burst.
+        // A flush per small write would land far below this.
+        assert!(ratio > 8.0, "compression ratio collapsed to {ratio:.1}x");
     }
 }
