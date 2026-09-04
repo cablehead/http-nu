@@ -387,7 +387,10 @@ mod stream_tests {
                     )
                 });
             let Some(frame) = frame else { break };
-            let data = frame.expect("stream errored").into_data().expect("data frame");
+            let data = frame
+                .expect("stream errored")
+                .into_data()
+                .expect("data frame");
             compressed_total += data.len();
             decoder.feed(&data);
             assert!(
