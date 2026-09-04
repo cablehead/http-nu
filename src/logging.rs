@@ -468,9 +468,10 @@ impl ActiveZone {
         if !active_ids.is_empty() {
             println!("· · ·  ✈ in flight  · · ·");
             self.line_count += 1;
+            let width = line_width();
             for id in active_ids {
                 if let Some(state) = requests.get(id) {
-                    let line = format_active_line(state);
+                    let line = format_active_line(state, width);
                     println!("{line}");
                     self.line_count += 1;
                 }
@@ -480,35 +481,57 @@ impl ActiveZone {
     }
 }
 
-fn format_active_line(state: &RequestState) -> String {
+/// Narrowest terminal the log lays out for. A completed line is exactly this
+/// wide there, and wider terminals give the extra columns to the path.
+const MIN_LINE_WIDTH: usize = 96;
+/// Every column of a completed line except the path, separators included.
+const FIXED_WIDTH: usize = 65;
+
+/// Width to lay a line out for. Read per line so a resize takes effect at
+/// the next request. Off a tty there is nothing to wrap, so the floor applies.
+fn line_width() -> usize {
+    terminal::size()
+        .map(|(c, _)| c as usize)
+        .unwrap_or(MIN_LINE_WIDTH)
+        .max(MIN_LINE_WIDTH)
+}
+
+fn format_active_line(state: &RequestState, width: usize) -> String {
     let timestamp = Local::now().format("%H:%M:%S%.3f");
     let ip = state.trusted_ip.as_deref().unwrap_or("-");
     let method = &state.method;
-    let path = truncate_middle(&state.path, 40);
+    let w = width.max(MIN_LINE_WIDTH) - FIXED_WIDTH;
+    let path = truncate_middle(&state.path, w);
     let elapsed = state.start_time.elapsed().as_secs_f64();
 
     match (state.status, state.latency_ms) {
         (Some(status), Some(latency)) => {
             format!(
-                "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms {elapsed:>6.1}s"
+                "{timestamp} {ip:>15} {method:<6} {path:<w$} {status} {latency:>5}ms {elapsed:>6.1}s"
             )
         }
         _ => {
-            format!("{timestamp} {ip:>15} {method:<6} {path:<40} ... {elapsed:>6.1}s")
+            format!("{timestamp} {ip:>15} {method:<6} {path:<w$} ... {elapsed:>6.1}s")
         }
     }
 }
 
-fn format_complete_line(state: &RequestState, duration_ms: u64, bytes: u64) -> String {
+fn format_complete_line(
+    state: &RequestState,
+    duration_ms: u64,
+    bytes: u64,
+    width: usize,
+) -> String {
     let timestamp = Local::now().format("%H:%M:%S%.3f");
     let ip = state.trusted_ip.as_deref().unwrap_or("-");
     let method = &state.method;
-    let path = truncate_middle(&state.path, 40);
+    let w = width.max(MIN_LINE_WIDTH) - FIXED_WIDTH;
+    let path = truncate_middle(&state.path, w);
     let status = state.status.unwrap_or(0);
     let latency = state.latency_ms.unwrap_or(0);
 
     format!(
-        "{timestamp} {ip:>15} {method:<6} {path:<40} {status} {latency:>6}ms {duration_ms:>6}ms {bytes:>8}b"
+        "{timestamp} {ip:>15} {method:<6} {path:<w$} {status} {latency:>5}ms {duration_ms:>5}ms {bytes:>7}b"
     )
 }
 
@@ -688,7 +711,7 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                     let id = request_id.to_string();
                     if let Some(state) = requests.remove(&id) {
                         active_ids.retain(|x| x != &id);
-                        let line = format_complete_line(&state, duration_ms, bytes);
+                        let line = format_complete_line(&state, duration_ms, bytes, line_width());
                         zone.print_permanent(&line);
                         zone.redraw(&active_ids, &requests);
                     }
@@ -789,6 +812,56 @@ where
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    fn request(path: &str) -> RequestState {
+        RequestState {
+            method: "POST".into(),
+            path: path.into(),
+            trusted_ip: Some("127.0.0.1".into()),
+            start_time: Instant::now(),
+            status: Some(204),
+            latency_ms: Some(2),
+        }
+    }
+
+    #[test]
+    fn complete_line_fills_the_width_exactly() {
+        let state = request("/ping");
+        for width in [MIN_LINE_WIDTH, 97, 140] {
+            let line = format_complete_line(&state, 2, 0, width);
+            assert_eq!(line.chars().count(), width, "{line:?}");
+        }
+    }
+
+    #[test]
+    fn narrow_terminal_gets_the_floor() {
+        let state = request("/ping");
+        let line = format_complete_line(&state, 2, 0, 40);
+        assert_eq!(line.chars().count(), MIN_LINE_WIDTH);
+    }
+
+    #[test]
+    fn long_path_is_truncated_to_the_column() {
+        let long = format!("/{}", "a".repeat(200));
+        let state = request(&long);
+        let line = format_complete_line(&state, 2, 0, 120);
+        assert_eq!(line.chars().count(), 120);
+        assert!(line.contains("..."));
+        // Wider terminal, more of the path survives.
+        let wide = format_complete_line(&state, 2, 0, 200);
+        assert!(wide.matches('a').count() > line.matches('a').count());
+    }
+
+    #[test]
+    fn active_line_columns_align_with_complete_line() {
+        let state = request("/ping");
+        let done = format_complete_line(&state, 2, 0, 100);
+        let active = format_active_line(&state, 100);
+        // Everything through the latency column is laid out the same way.
+        // Skip the timestamps: the two calls can straddle a millisecond.
+        let cut = done.find("ms ").unwrap() + 2;
+        assert_eq!(&done[12..cut], &active[12..cut]);
+    }
 
     #[test]
     fn token_bucket_allows_burst() {
