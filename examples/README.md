@@ -34,6 +34,7 @@ Each example can also be run standalone.
 | datastar-counter | `http-nu --datastar :3001 examples/datastar-counter/serve.nu` | Client-side reactive counter |
 | datastar-sdk | `http-nu --datastar :3001 examples/datastar-sdk/serve.nu` | Datastar SDK feature demo |
 | mermaid-editor | `http-nu --datastar :3001 examples/mermaid-editor/serve.nu` | Live Mermaid diagram editor |
+| markdown-mermaid | `http-nu :3001 examples/markdown-mermaid/serve.nu` | Markdown via `.md` with Mermaid fences rendered client-side |
 | templates | `http-nu --datastar --store ./store :3001 examples/templates/serve.nu` | `.mj` file, inline, and topic modes |
 | quotes | `http-nu --datastar --store ./store :3001 examples/quotes/serve.nu` | Live quotes board with SSE |
 | tao | `http-nu --datastar --dev -w :3001 examples/tao/serve.nu` | The Tao of Datastar |

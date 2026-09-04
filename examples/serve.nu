@@ -11,6 +11,7 @@ let stor_example = source stor.nu
 let counter = source datastar-counter/serve.nu
 let sdk = source datastar-sdk/serve.nu
 let mermaid = source mermaid-editor/serve.nu
+let markdown_mermaid = source markdown-mermaid/serve.nu
 let templates = source templates/serve.nu
 let quotes = source quotes/serve.nu
 let blog = source blog/serve.nu
@@ -45,6 +46,7 @@ li { margin: 0.5rem 0; }
     (example-link "./datastar-counter/" "datastar-counter" "reactive counter")
     (example-link "./datastar-sdk/" "datastar-sdk" "SDK feature demo")
     (example-link "./mermaid-editor/" "mermaid-editor" "live diagram editor")
+    (example-link "./markdown-mermaid/" "markdown-mermaid" "markdown with mermaid fences")
     (example-link "./templates/" "templates" ".mj template modes")
     (example-link "./quotes/" "quotes" "live quotes board" --disabled=(not $has_store))
     (example-link "./blog/" "blog" "routing, layouts, HTML composition")
@@ -56,6 +58,7 @@ li { margin: 0.5rem 0; }
   (mount "/datastar-counter" $counter)
   (mount "/datastar-sdk" $sdk)
   (mount "/mermaid-editor" $mermaid)
+  (mount "/markdown-mermaid" $markdown_mermaid)
   (mount "/templates" $templates)
   (mount "/blog" $blog)
   ...(

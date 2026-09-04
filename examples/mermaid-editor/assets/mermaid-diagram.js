@@ -46,6 +46,7 @@ class MermaidDiagram extends HTMLElement {
   static #mermaid;
   static #loading;
   static #queue = Promise.resolve();
+  static #seq = 0;
 
   #container;
   #observer;
@@ -105,7 +106,9 @@ class MermaidDiagram extends HTMLElement {
         ...MermaidDiagram.config,
       });
 
-      const id = `md-${crypto.randomUUID().slice(0, 8)}`;
+      // A counter rather than crypto.randomUUID(), which is only defined
+      // in secure contexts (https or localhost).
+      const id = `md-${++MermaidDiagram.#seq}`;
       const { svg } = await mermaid.render(id, source);
 
       if (!this.#connected) return;
