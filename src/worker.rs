@@ -7,15 +7,39 @@ use crate::response::{
 };
 use nu_protocol::{
     engine::{Job, StateWorkingSet, ThreadJob},
-    format_cli_error, PipelineData, Value,
+    format_cli_error, PipelineData, Signals, Value,
 };
 use std::io::Read;
+use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc};
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
 
 /// Check if a value is a record without __html field
 fn is_jsonl_record(value: &Value) -> bool {
     matches!(value, Value::Record { val, .. } if val.get("__html").is_none())
+}
+
+/// Kill this request's job once its response channel has no receiver left --
+/// the client disconnected, or the response finished and hyper dropped the
+/// body. Either way there is nothing left to protect; `job.kill()` after a
+/// normal finish is a harmless no-op (the job is already done, nothing
+/// downstream inspects `signals.interrupted()` after the fact).
+///
+/// `job.kill()` triggers this request's own `Signals` (see spawn_eval_thread:
+/// each request gets its own, not a clone of the engine's process-wide one),
+/// so a `.cat --follow`/`.last --follow` blocked in `Store::blocking_recv`
+/// notices and returns instead of leaking its thread for the life of the
+/// server. It also reaps any external-command PIDs this request's closure
+/// spawned, via the same path Ctrl-C already used.
+fn watch_disconnect(
+    runtime: &tokio::runtime::Handle,
+    tx: tokio_mpsc::Sender<Vec<u8>>,
+    job: ThreadJob,
+) {
+    runtime.spawn(async move {
+        tx.closed().await;
+        let _ = job.kill();
+    });
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -40,6 +64,8 @@ pub fn spawn_eval_thread(
         stream: nu_protocol::ByteStream,
         meta_tx: oneshot::Sender<Response>,
         body_tx: oneshot::Sender<PipelineResult>,
+        runtime: tokio::runtime::Handle,
+        job: ThreadJob,
     ) -> Result<(), BoxError> {
         RESPONSE_TX.with(|tx| {
             *tx.borrow_mut() = Some(meta_tx);
@@ -121,6 +147,7 @@ pub fn spawn_eval_thread(
             PipelineData::ListStream(stream, meta) => {
                 let http_meta = extract_http_response_meta(meta.as_ref());
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
+                watch_disconnect(&runtime, stream_tx.clone(), job.clone());
                 let mut iter = stream.into_inner();
 
                 // Peek first value to determine mode
@@ -179,6 +206,7 @@ pub fn spawn_eval_thread(
             PipelineData::ByteStream(stream, meta) => {
                 let http_meta = extract_http_response_meta(meta.as_ref());
                 let (stream_tx, stream_rx) = tokio_mpsc::channel(32);
+                watch_disconnect(&runtime, stream_tx.clone(), job.clone());
                 let content_type = meta
                     .as_ref()
                     .and_then(|m| m.content_type.clone())
@@ -220,16 +248,30 @@ pub fn spawn_eval_thread(
         }
     }
 
+    // Each request gets its own interrupt flag, not a clone of the engine's
+    // process-wide `engine.state.signals()`. With the process-wide one,
+    // killing any single request's job -- including the per-connection
+    // disconnect kill added below -- trips every other concurrent request's
+    // signals too. Ctrl-C still stops everything: it kills every job in the
+    // table (main.rs's setup_ctrlc_handler), one `ThreadJob::kill()` call
+    // per job, each tripping its own request's flag.
+    let interrupt = Arc::new(AtomicBool::new(false));
+    let signals = Signals::new(interrupt);
+
     // Create a thread job for this evaluation
     let (sender, _receiver) = mpsc::channel();
-    let signals = engine.state.signals().clone();
-    let job = ThreadJob::new(signals, Some("HTTP Request".to_string()), sender);
+    let job = ThreadJob::new(signals.clone(), Some("HTTP Request".to_string()), sender);
 
     // Add the job to the engine's job table
     let job_id = {
         let mut jobs = engine.state.jobs.lock().expect("jobs mutex poisoned");
         jobs.add_job(Job::Thread(job.clone()))
     };
+
+    // Captured here, on the async caller's thread, so it's usable from
+    // `inner`'s plain std::thread (which has no tokio context of its own) to
+    // spawn the disconnect watcher below.
+    let runtime = tokio::runtime::Handle::current();
 
     std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
         let mut meta_tx_opt = Some(meta_tx);
@@ -239,7 +281,12 @@ pub fn spawn_eval_thread(
         // async runtime and we can still send a response back to the caller.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut local_engine = (*engine).clone();
-            local_engine.state.current_job.background_thread_job = Some(job);
+            local_engine.state.current_job.background_thread_job = Some(job.clone());
+            // Route this request's own Signals to the engine the closure
+            // actually runs on, not just the ThreadJob in the jobs table --
+            // .cat/.last and any other signal-aware command check
+            // engine_state.signals(), not the job table.
+            local_engine.state.set_signals(signals.clone());
 
             // Take the senders for the inner call. If the evaluation completes
             // successfully, these senders will have been consumed. Otherwise we
@@ -250,6 +297,8 @@ pub fn spawn_eval_thread(
                 stream,
                 meta_tx_opt.take().unwrap(),
                 body_tx_opt.take().unwrap(),
+                runtime,
+                job,
             )
         }));
 

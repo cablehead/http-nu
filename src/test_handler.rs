@@ -6,7 +6,9 @@ use http_body_util::{BodyExt, Empty, Full};
 use hyper::{body::Bytes, Request};
 use tokio::time::Duration;
 
-use crate::commands::{MjCommand, PrintCommand, StaticCommand, ToSse};
+use crate::commands::{
+    BusPubCommand, BusSubCommand, MjCommand, PrintCommand, StaticCommand, ToSse,
+};
 use crate::handler::{handle, AppConfig};
 
 fn default_config() -> Arc<AppConfig> {
@@ -257,6 +259,197 @@ async fn test_sse_brotli_cancel_signals_error_to_client() {
                  client treats this as success and will not retry"
             ),
         }
+    }
+}
+
+/// `.bus sub` blocks in a signal-aware `recv_timeout` loop with nothing
+/// published to it -- genuinely idle, the same shape as an idle `.cat
+/// --follow`. Used instead of a timer-driven generator (`1.. | each { sleep
+/// ...}`) because a generator that produces on its own eventually discovers
+/// a dropped receiver via the existing `tx.send` failure regardless of this
+/// fix, silently hiding the leak the same way live traffic does on the real
+/// harness (see task doc's "method note that cost an hour").
+const IDLE_SSE_SCRIPT: &str = r#"{|req|
+    .bus sub "task4b" | each {|e| {data: $e.value} } | to sse
+}"#;
+
+/// `test_engine` does not register `.bus sub`/`.bus pub` (no existing test
+/// needs the bus), so build the engine directly rather than extending that
+/// shared helper's command list for every other test.
+fn idle_sse_engine() -> crate::Engine {
+    let mut engine = crate::Engine::new().unwrap();
+    engine
+        .add_commands(vec![
+            Box::new(ToSse {}),
+            Box::new(BusSubCommand::new(engine.bus.clone())),
+            Box::new(BusPubCommand::new(engine.bus.clone())),
+        ])
+        .unwrap();
+    engine
+        .set_http_nu_const(&crate::engine::HttpNuOptions::default())
+        .unwrap();
+    // Matches production (main.rs's setup_ctrlc_handler wires a real
+    // interrupt onto the engine): a non-empty Signals here means
+    // `.trigger()` actually does something, so a test that shares this
+    // process-wide flag across requests (the pre-fix bug) has a real signal
+    // to cross-trip, not a no-op `Signals::empty()`.
+    engine.set_signals(Arc::new(std::sync::atomic::AtomicBool::new(false)));
+    engine.parse_closure(IDLE_SSE_SCRIPT, None).unwrap();
+    engine
+}
+
+/// Publish until `body` yields a data frame, retrying the publish each time:
+/// `.bus sub` subscribes to a broadcast channel with no backlog, on a thread
+/// spun up inside the request's own eval thread, so a publish made before
+/// that subscription exists is simply missed.
+async fn publish_until_received(
+    bus: &crate::bus::Bus,
+    body: &mut http_body_util::combinators::BoxBody<
+        Bytes,
+        Box<dyn std::error::Error + Send + Sync>,
+    >,
+) -> hyper::body::Frame<Bytes> {
+    loop {
+        bus.publish(
+            "task4b",
+            nu_protocol::Value::string("hi", nu_protocol::Span::unknown()),
+        );
+        match tokio::time::timeout(Duration::from_millis(50), body.frame()).await {
+            Ok(Some(Ok(frame))) if frame.is_data() => return frame,
+            Ok(other) => panic!("expected SSE data frame, got: {other:?}"),
+            Err(_) => continue, // no subscriber registered yet; publish again
+        }
+    }
+}
+
+/// A client that goes away (body dropped without a graceful close -- what a
+/// killed curl looks like server-side) must free the request's job. Before
+/// the per-connection Signals fix, nothing ever cancelled it: the job sat in
+/// the table, its thread parked in a `.cat`/`.last`-equivalent blocking
+/// read, for the life of the server.
+#[tokio::test]
+async fn test_client_disconnect_kills_job() {
+    let engine = idle_sse_engine();
+    let jobs = engine.state.jobs.clone();
+    let bus = engine.bus.clone();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/sse")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp = handle(
+        Arc::new(ArcSwap::from_pointee(engine)),
+        None,
+        default_config(),
+        req,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let mut body = resp.into_body();
+
+    // Confirm the job is live and streaming, not just registered.
+    publish_until_received(&bus, &mut body).await;
+
+    assert_eq!(
+        jobs.lock().unwrap().iter().count(),
+        1,
+        "job should be registered while the request streams"
+    );
+
+    // Simulate the client going away: drop the body without draining to
+    // completion or closing gracefully. Nothing more is published, so
+    // `.bus sub` is now genuinely idle -- parked in its own signal-aware
+    // wait, same as an idle `.cat --follow`.
+    drop(body);
+
+    // The disconnect watcher notices `stream_tx.closed()` and kills the job
+    // asynchronously (a tokio task, not synchronous with the drop above);
+    // poll briefly rather than assume a fixed delay.
+    for _ in 0..50 {
+        if jobs.lock().unwrap().iter().count() == 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("job was not removed from the jobs table after the client disconnected");
+}
+
+/// The per-request Signals must not cross-trip: killing one request's job on
+/// disconnect must not interrupt a different, still-connected request. Before
+/// the fix, every request's `ThreadJob` shared `engine.state.signals()`, so
+/// this would have stopped both.
+#[tokio::test]
+async fn test_client_disconnect_does_not_interrupt_other_requests() {
+    let engine = idle_sse_engine();
+    let bus = engine.bus.clone();
+    let engine = Arc::new(ArcSwap::from_pointee(engine));
+
+    let req_a = Request::builder()
+        .method("GET")
+        .uri("/sse")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let req_b = Request::builder()
+        .method("GET")
+        .uri("/sse")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+
+    let resp_a = handle(engine.clone(), None, default_config(), req_a)
+        .await
+        .unwrap();
+    let resp_b = handle(engine.clone(), None, default_config(), req_b)
+        .await
+        .unwrap();
+
+    let mut body_a = resp_a.into_body();
+    let mut body_b = resp_b.into_body();
+
+    // Both requests subscribe to the same topic and both must receive the
+    // confirmation publish before either is considered "live".
+    let mut a_ready = false;
+    let mut b_ready = false;
+    while !(a_ready && b_ready) {
+        bus.publish(
+            "task4b",
+            nu_protocol::Value::string("hi", nu_protocol::Span::unknown()),
+        );
+        if !a_ready {
+            if let Ok(Some(Ok(frame))) =
+                tokio::time::timeout(Duration::from_millis(50), body_a.frame()).await
+            {
+                assert!(frame.is_data());
+                a_ready = true;
+            }
+        }
+        if !b_ready {
+            if let Ok(Some(Ok(frame))) =
+                tokio::time::timeout(Duration::from_millis(50), body_b.frame()).await
+            {
+                assert!(frame.is_data());
+                b_ready = true;
+            }
+        }
+    }
+
+    // A disconnects; B stays connected and idle (nothing published) in
+    // between, same as the leak scenario.
+    drop(body_a);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // B must still be alive: publish once more and confirm B receives it,
+    // not an error or a clean end from A's disconnect crossing over.
+    bus.publish(
+        "task4b",
+        nu_protocol::Value::string("still alive", nu_protocol::Span::unknown()),
+    );
+    match tokio::time::timeout(Duration::from_secs(1), body_b.frame()).await {
+        Ok(Some(Ok(frame))) if frame.is_data() => {}
+        other => panic!("request B was interrupted by A's disconnect: {other:?}"),
     }
 }
 
