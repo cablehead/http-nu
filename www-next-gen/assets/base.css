@@ -1,0 +1,1050 @@
+/*
+ * base.css - semantic HTML on stellar variables.
+ *
+ * Layer 1 styles raw elements only, so plain semantic markup gets good
+ * typography with no classes. Layer 2 is a small set of utility classes
+ * for the bits element selectors cannot cover.
+ *
+ * Pairs with stellar.css (regenerate with: stellar gen, with stellar.key
+ * next to stellar.config.json). Light/dark is handled by stellar's
+ * :root.dark variable overrides; toggle the `dark` class on <html>.
+ */
+
+/* ------------------------------------------------------------------ */
+/* MPA view transitions: opt into the browser's default cross-fade on   */
+/* same-origin navigations (Themes -> Reference, etc). Progressive      */
+/* enhancement - unsupported browsers just navigate instantly.          */
+/* ------------------------------------------------------------------ */
+@view-transition {
+  navigation: auto;
+}
+/* the root cross-fade, tuned live by the dialog in vt-tuner.js via these custom
+   properties and classes on <html> (persisted to localStorage). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--vt-duration, var(--anim-duration-fast));
+  animation-timing-function: var(--vt-ease, var(--anim-ease-standard));
+}
+/* off: swap with no fade */
+:root.vt-off::view-transition-old(root),
+:root.vt-off::view-transition-new(root) {
+  animation: none;
+}
+/* fade-in only: hold the outgoing page, fade the new one in over it */
+:root.vt-fadein::view-transition-old(root) {
+  animation: none;
+}
+/* slide: the new page rises as it fades in */
+:root.vt-slide::view-transition-new(root) {
+  animation-name: vt-slide-in;
+}
+@keyframes vt-slide-in {
+  from { opacity: 0; transform: translateY(0.8rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* scope: name the nav and main so they are their own groups; the page chrome
+   stays put while only the content cross-fades. */
+:root.vt-scope .nav { view-transition-name: vt-nav; }
+:root.vt-scope main { view-transition-name: vt-main; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0s;
+  }
+}
+
+/* the tuner: launched from a toolbox button in the nav, opens this dialog. */
+.vt-toggle iconify-icon {
+  display: block;
+  transition: transform var(--anim-duration-base) var(--anim-ease-bounce);
+}
+.vt-toggle:hover iconify-icon { transform: rotate(-9deg) scale(1.14); }
+.vt-toggle[aria-pressed="true"] iconify-icon { transform: rotate(-6deg); }
+#vt-tuner {
+  border: var(--border-width-1) solid var(--neutral-5);
+  border-radius: var(--border-radius-2);
+  background: var(--surface);
+  color: var(--surface-on);
+  padding: var(--size-1) var(--size-2);
+  max-width: min(92vw, 24rem);
+  font-size: var(--font-size--1);
+}
+/* open as a non-modal panel docked to the right edge, so the page transition
+   stays visible behind it; named so it holds steady through the transition. */
+#vt-tuner[open] {
+  position: fixed;
+  inset: auto var(--size-1) auto auto;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  max-height: 92vh;
+  overflow: auto;
+  view-transition-name: vt-panel;
+}
+#vt-tuner h2 { margin: 0 0 var(--size-0); font-size: var(--font-size-1); }
+.vt-note {
+  margin: calc(-1 * var(--size--2)) 0 var(--size-0);
+  max-width: 34ch;
+  font-size: var(--font-size--2);
+  opacity: 0.72;
+}
+.vt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-1);
+  margin-block: var(--size-0);
+}
+.vt-row input[type="range"] { flex: 1; }
+.vt-row select,
+.vt-row input,
+#vt-tuner button { font: inherit; }
+.vt-hint { margin: var(--size-1) 0 var(--size-0); opacity: 0.7; }
+.vt-tryto { display: flex; gap: var(--size-1); flex-wrap: wrap; }
+.vt-tryto a {
+  text-decoration: none;
+  border: var(--border-width-1) solid var(--neutral-5);
+  border-radius: var(--border-radius-1);
+  padding: 0.1em 0.7em;
+  color: inherit;
+}
+.vt-tryto a:hover { background: var(--named-ocean-1); }
+.vt-actions { display: flex; gap: var(--size-1); justify-content: flex-end; margin-top: var(--size-1); }
+
+/* ------------------------------------------------------------------ */
+/* Fonts: self-hosted, names must match the stellar --font-* tokens.    */
+/* Source Sans 3 for prose (--font-sans); Iosevka X for code            */
+/* (--font-mono) - a custom no-ligature build with box-drawing glyphs,  */
+/* so Nushell tables and ASCII line up (Source Code Pro lacked them).   */
+/* 400 + 700 only; subset to Latin + punctuation + box/blocks/shapes.   */
+/* ------------------------------------------------------------------ */
+
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/assets/source-sans-3-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Sans 3";
+  src: url("/assets/source-sans-3-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iosevka X";
+  src: url("/assets/iosevka-x-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iosevka X";
+  src: url("/assets/iosevka-x-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Layer 1: elements                                                   */
+/* ------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-0);
+  line-height: var(--font-line-height-2);
+  background: var(--neutral-1);
+  color: var(--neutral-1-on);
+  -webkit-text-size-adjust: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: inherit;
+  line-height: var(--font-line-height-0);
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--font-size-5);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--font-letter-spacing--1);
+  margin: var(--size-3) 0 var(--size-1);
+}
+
+h2 {
+  font-size: var(--font-size-3);
+  font-weight: var(--font-weight-semi-bold);
+  margin: var(--size-3) 0 var(--size-1);
+}
+
+h3 {
+  font-size: var(--font-size-2);
+  font-weight: var(--font-weight-semi-bold);
+  margin: var(--size-2) 0 var(--size-0);
+}
+
+h4 {
+  font-size: var(--font-size-1);
+  font-weight: var(--font-weight-semi-bold);
+  margin: var(--size-1) 0 var(--size-0);
+}
+
+h5,
+h6 {
+  font-size: var(--font-size-0);
+  font-weight: var(--font-weight-semi-bold);
+  margin: var(--size-1) 0 var(--size-0);
+}
+
+/* Headings that are themselves links read as headings (no underline); they
+   inherit the heading color from the core `a` rule below. */
+h1 a,
+h2 a,
+h3 a,
+h4 a,
+h5 a,
+h6 a {
+  text-decoration: none;
+}
+
+h1 a:hover,
+h2 a:hover,
+h3 a:hover,
+h4 a:hover,
+h5 a:hover,
+h6 a:hover {
+  text-decoration: underline;
+}
+
+p {
+  margin: var(--size--2) 0;
+}
+
+/* a paragraph that introduces a list hugs it, so a "label:" + its list read as
+   one unit. 0.4em is a justified literal - below the stellar size floor. */
+p:has(+ ul),
+p:has(+ ol) {
+  margin-bottom: 0.4em;
+}
+p + ul,
+p + ol {
+  margin-top: 0;
+}
+
+/* links ride the surrounding text color, set apart by their underline; this
+   works on any surface (neutral or a brand blue), so no per-surface color */
+a {
+  color: inherit;
+  text-underline-offset: 0.15em;
+  /* the font's own (thin) underline metric; border-width tokens are too heavy
+     for a text underline. Thickens to a token on hover. */
+  text-decoration-thickness: from-font;
+}
+
+a:hover {
+  text-decoration-thickness: var(--border-width-1);
+}
+
+strong {
+  font-weight: var(--font-weight-bold);
+}
+
+small {
+  font-size: var(--font-size--1);
+  color: var(--neutral-1-dim);
+}
+
+mark {
+  background: var(--tertiary-4);
+  color: var(--tertiary-4-on);
+}
+
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+code {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  /* justified literal: stellar's spacing scale is viewport-fluid and floors at
+     ~13px, too wide for an inline chip, so it can't express tight text-relative
+     padding. em keeps it proportional to the text; the vertical stays small so
+     the chip doesn't blow out the prose line-height. */
+  padding: 0.2em 0.45em;
+  border-radius: var(--border-radius-1);
+  /* keep short code spans whole - don't break a token like --topic at its hyphen */
+  white-space: nowrap;
+}
+
+kbd {
+  background: var(--neutral-3);
+  color: var(--neutral-3-on);
+  border: var(--border-width-1) solid var(--neutral-5);
+  border-bottom-width: var(--border-width-2);
+  border-radius: var(--border-radius-1);
+  padding: var(--size--2) var(--size--1);
+}
+
+/* code line-height: a tight terminal ratio so stacked box-drawing glyphs
+   (Nushell tables) join into continuous lines. A unitless literal on purpose -
+   stellar's line-heights are absolute rems tuned for prose (~1.5 on the code
+   font), too loose to connect box-drawing; this is the named exception. */
+:root {
+  --code-line-height: 1.25;
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  line-height: var(--code-line-height);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: var(--border-width-1) solid var(--code-border);
+  border-radius: var(--border-radius-1);
+  padding: var(--size--2) var(--size--1);
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  margin: var(--size--1) 0;
+}
+
+pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  /* block code keeps the pre's preserved newlines; the inline `code` nowrap
+     must not collapse a fenced block onto one line */
+  white-space: pre;
+}
+
+ul,
+ol {
+  margin: var(--size--2) 0;
+  padding-left: var(--size-3);
+  line-height: var(--font-line-height-0);
+}
+
+li {
+  /* tight item spacing; --size--2 (the floor, ~13px) is far too padded for a
+     list. em-relative, justified literal like the other tight component gaps. */
+  margin: 0.35em 0;
+}
+
+li > ul,
+li > ol {
+  margin: var(--size--2) 0;
+}
+
+dl {
+  margin: var(--size-0) 0;
+}
+
+dt {
+  font-weight: var(--font-weight-semi-bold);
+}
+
+dd {
+  margin: 0 0 var(--size--1) var(--size-2);
+}
+
+blockquote {
+  margin: var(--size-1) 0;
+  padding: var(--size--2) var(--size-2);
+  border-left: var(--border-width-3) solid var(--neutral-4);
+  color: var(--neutral-1-dim);
+}
+
+blockquote > :first-child {
+  margin-top: 0;
+}
+
+blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--size-1) 0;
+}
+
+th {
+  background: var(--neutral-3);
+  color: var(--neutral-3-on);
+  font-weight: var(--font-weight-semi-bold);
+  text-align: left;
+}
+
+th,
+td {
+  /* tight fixed cell padding: stellar's size scale floors at ~13px and is
+     viewport-fluid (layout spacing), too loose for compact table cells - the
+     same justified-literal case as inline code. */
+  padding: 0.2rem 0.55rem;
+  border: var(--border-width-1) solid var(--neutral-4);
+}
+
+hr {
+  border: none;
+  border-top: var(--border-width-1) solid var(--neutral-4);
+  margin: var(--size-2) 0;
+}
+
+img,
+video {
+  max-width: 100%;
+  height: auto;
+}
+
+img {
+  border-radius: var(--border-radius-1);
+}
+
+/* long-form content column: cap the reading measure (was the .prose utility) */
+article {
+  max-width: 99ch;
+}
+
+figure {
+  margin: var(--size-1) 0;
+}
+
+figcaption {
+  font-size: var(--font-size--1);
+  color: var(--neutral-1-dim);
+  text-align: center;
+  margin-top: var(--size--2);
+}
+
+details {
+  margin: var(--size-0) 0;
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-1);
+  padding: var(--size--1) var(--size-0);
+}
+
+summary {
+  cursor: pointer;
+  font-weight: var(--font-weight-semi-bold);
+}
+
+/* one button: a mono, currentColor-outlined action that reads on any surface.
+   variants .btn-go (lit primary) and .btn-tab (segmented) live in brand.css. */
+button {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  color: inherit;
+  background: transparent;
+  border: var(--border-width-1) solid color-mix(in oklch, currentColor 35%, transparent);
+  border-radius: var(--border-radius-1);
+  padding: 0.1em 0.6em;
+  cursor: pointer;
+  transition: background var(--anim-duration-fast) var(--anim-ease-standard),
+    border-color var(--anim-duration-fast) var(--anim-ease-standard);
+}
+button:hover {
+  background: color-mix(in oklch, currentColor 12%, transparent);
+  border-color: currentColor;
+}
+button:active { transform: translateY(1px); }
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--neutral-2-on);
+  background: var(--neutral-2);
+  border: var(--border-width-1) solid var(--neutral-5);
+  border-radius: var(--border-radius-1);
+  padding: var(--size--2) var(--size-0);
+}
+
+:focus-visible {
+  outline: var(--border-width-2) solid var(--primary-9);
+  outline-offset: 2px;
+}
+
+/* Syntax tokens emitted by .highlight / .md code blocks. */
+
+pre .source {
+  color: var(--code-fg);
+}
+
+pre .comment {
+  color: var(--code-comment);
+}
+
+pre .string {
+  color: var(--code-string);
+}
+
+pre .constant.numeric {
+  color: var(--code-number);
+}
+
+pre .constant.language {
+  color: var(--code-keyword-const);
+}
+
+pre .constant.character {
+  color: var(--code-string-escape);
+}
+
+pre .keyword {
+  color: var(--code-keyword);
+}
+
+pre .keyword.operator {
+  color: var(--code-operator);
+}
+
+pre .storage,
+pre .storage.type {
+  color: var(--code-keyword-decl);
+}
+
+pre .entity.name.function {
+  color: var(--code-name-function);
+}
+
+pre .entity.name.type,
+pre .entity.name.class {
+  color: var(--code-name-class);
+}
+
+pre .entity.name.tag {
+  color: var(--code-name-tag);
+}
+
+pre .entity.other.attribute-name {
+  color: var(--code-name-attribute);
+}
+
+pre .variable {
+  color: var(--code-name-variable);
+}
+
+pre .variable.other.member {
+  color: var(--code-name-property);
+}
+
+pre .variable.parameter.option {
+  color: var(--code-name-label);
+}
+
+pre .support.function {
+  color: var(--code-name-builtin);
+}
+
+pre .support.function.keywords {
+  color: var(--code-keyword-namespace);
+}
+
+pre .support.type,
+pre .support.class {
+  color: var(--code-type);
+}
+
+pre .punctuation {
+  color: var(--code-fg);
+}
+
+pre .punctuation.definition.string {
+  color: var(--code-string-delim);
+}
+
+pre .punctuation.definition.comment {
+  color: var(--code-comment);
+}
+
+pre .meta.function-call {
+  color: var(--code-name);
+}
+
+pre .meta.string {
+  color: var(--code-string);
+}
+
+/* type-like definitions (rust struct/trait/impl) */
+pre .entity.name.struct,
+pre .entity.name.trait,
+pre .entity.name.impl {
+  color: var(--code-name-class);
+}
+
+pre .entity.name.label {
+  color: var(--code-name-label);
+}
+
+/* rust macros invoke like functions */
+pre .support.macro {
+  color: var(--code-name-function);
+}
+
+pre .constant.other {
+  color: var(--code-name-constant);
+}
+
+/* format-string placeholders ({} / {name}) read as special string content */
+pre .constant.other.placeholder {
+  color: var(--code-string-escape);
+}
+
+/* syntax errors (e.g. invalid variable names) */
+pre .invalid {
+  color: var(--code-error);
+}
+
+/* ------------------------------------------------------------------ */
+/* Layer 2: utilities (atomic, single purpose, composed in markup)     */
+/* ------------------------------------------------------------------ */
+
+.container { width: 100%; max-width: 1200px; margin-inline: auto; padding-inline: var(--size-2); }
+.center { text-align: center; }
+.muted { color: var(--neutral-1-dim); }
+.mx-auto { margin-inline: auto; }
+.upper { text-transform: uppercase; letter-spacing: var(--font-letter-spacing-1); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--size-2); }
+
+/* ------------------------------------------------------------------ */
+/* Layer 3: components (a small, composable set)                       */
+/* ------------------------------------------------------------------ */
+
+/* nav: brand left, links right; colors inherit from the surrounding context */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-1);
+  max-width: 1200px;
+  margin-inline: auto;
+  padding: var(--size-1) var(--size-2);
+}
+
+.nav a { text-decoration: none; }
+.nav a:hover { text-decoration: underline; }
+.nav .brand { font-weight: var(--font-weight-bold); }
+.nav .links { display: flex; align-items: center; gap: var(--size-2); }
+
+/* structure only; the surface comes from a `.panel` utility composed in markup */
+.card {
+  display: block;
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-2);
+  padding: var(--size-1);
+  box-shadow: var(--shadow-2);
+  text-decoration: none;
+  transition-property: transform, box-shadow, background;
+  transition-duration: var(--anim-duration-fast);
+  transition-timing-function: var(--anim-ease-standard);
+}
+
+/* sub-text inside a card dims the card's own color, not the page surface */
+.card :is(small, .muted) {
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* sidebar layout: a flex row that stacks on small screens */
+.with-sidebar { display: flex; gap: var(--size-3); align-items: flex-start; }
+.with-sidebar > * { min-width: 0; }
+
+/* docs menu: a sticky sidebar on desktop, a collapsible disclosure on narrow
+   screens, the page list collapses behind a toggle driven by a Datastar `nav`
+   signal (the toggle button only shows on mobile; the sidebar itself is the
+   `.docs-side` nav). */
+.docs-toggle {
+  font: inherit;
+  font-weight: var(--font-weight-semi-bold);
+  background: none;
+  border: none;
+  border-bottom: var(--border-width-1) solid var(--line, var(--neutral-4));
+  border-radius: 0;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  padding: var(--size--1) 0;
+}
+.docs-toggle:hover { background: none; }
+.docs-toggle::after { content: " \25be"; }
+.docs-menu.open .docs-toggle::after { content: " \25b4"; }
+
+/* 940px: below this, the sidebar would squeeze the reading column under 72ch,
+   so collapse it to the toggle and give the article the full width. */
+@media (min-width: 941px) {
+  .docs-menu {
+    flex-shrink: 0;
+    width: 210px;
+    position: sticky;
+    top: var(--size-2);
+    max-height: calc(100vh - var(--size-3));
+    overflow-y: auto;
+  }
+  .docs-toggle { display: none; }
+}
+
+@media (max-width: 940px) {
+  /* stretch (not flex-start) so the stacked article fills the column and
+     shrinks to the viewport; wide code then scrolls inside its own block
+     instead of pushing the page wider */
+  .with-sidebar { flex-direction: column; align-items: stretch; }
+  .docs-menu { width: 100%; }
+  .docs-side { display: none; }
+  .docs-menu.open .docs-side { display: block; }
+}
+
+/* toc: nav list with group labels and an active item */
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc ul ul { padding-left: var(--size-1); }
+.toc li { margin: var(--size--2) 0; }
+.toc a { color: var(--neutral-1-dim); text-decoration: none; }
+.toc a:hover { color: var(--neutral-1-on); text-decoration: underline; }
+.toc a.active { color: var(--neutral-1-on); font-weight: var(--font-weight-semi-bold); }
+.toc-group {
+  display: block;
+  font-size: var(--font-size--1);
+  font-weight: var(--font-weight-semi-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--font-letter-spacing-1);
+  color: var(--neutral-1-dim);
+  margin: var(--size-1) 0 var(--size--2);
+}
+
+/* pager: prev / next cards beneath a doc page. Two columns so the next card
+   stays right even when there is no prev; each is a panel that lifts on hover. */
+.pager {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--size-1);
+  margin-top: var(--size-3);
+}
+.pager-link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  /* compact; the stellar size floor is too padded for a small nav card */
+  padding: 0.5rem 0.85rem;
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-1);
+  text-decoration: none;
+  transition-property: transform, box-shadow, background;
+  transition-duration: var(--anim-duration-fast);
+  transition-timing-function: var(--anim-ease-standard);
+}
+.pager-link:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-3);
+}
+.pager-prev {
+  grid-column: 1;
+  align-items: flex-start;
+}
+.pager-next {
+  grid-column: 2;
+  align-items: flex-end;
+  text-align: right;
+}
+.pager-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-size: var(--font-size--1);
+  text-transform: uppercase;
+  letter-spacing: var(--font-letter-spacing-1);
+}
+.pager-page {
+  font-weight: var(--font-weight-semi-bold);
+}
+
+/* code block with a copy button (markup from inject-copy-btns) */
+.code-block { position: relative; }
+.copy-btn {
+  position: absolute;
+  top: var(--size--1);
+  right: var(--size--1);
+  background: var(--code-bg);
+  border: var(--border-width-1) solid var(--code-border);
+  color: var(--code-fg);
+  cursor: pointer;
+  opacity: 0;
+  padding: 0.35rem;
+  border-radius: var(--border-radius-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  z-index: 1;
+}
+
+.code-block:hover .copy-btn {
+  opacity: 0.7;
+  transition: opacity var(--anim-duration-fast) var(--anim-ease-standard);
+}
+
+.copy-btn:hover {
+  opacity: 1;
+  background: var(--primary-6);
+  color: var(--primary-6-on);
+}
+
+/* --- theme namespace: facet nav, playground, chips ------------------ */
+
+/* facet switcher (Overview | Reference | Example) under the theme title */
+.facets {
+  display: flex;
+  gap: var(--size-1);
+  margin: var(--size--1) 0 var(--size-2);
+  border-bottom: var(--border-width-1) solid var(--neutral-4);
+}
+.facets a {
+  text-decoration: none;
+  padding: var(--size--2) 0;
+  font-weight: var(--font-weight-medium);
+  border-bottom: var(--border-width-2) solid transparent;
+  margin-bottom: calc(-1 * var(--border-width-1));
+}
+.facets a.active {
+  border-bottom-color: currentColor;
+}
+
+/* the .mj playground: two source panes, preset chips, a live output */
+.playground {
+  margin: var(--size-1) 0 var(--size-3);
+}
+.pg-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--size-0);
+}
+.pg-field,
+.pg-output {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size--2);
+}
+.pg-field label,
+.pg-output label,
+.pg-presets {
+  font-size: var(--font-size--1);
+  text-transform: uppercase;
+  letter-spacing: var(--font-letter-spacing-1);
+}
+.playground textarea {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  line-height: var(--code-line-height);
+  padding: var(--size--1);
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-1);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  resize: vertical;
+  outline: none;
+}
+.pg-presets {
+  display: flex;
+  align-items: center;
+  gap: var(--size--2);
+  margin: var(--size-0) 0;
+}
+.pg-output {
+  margin-top: var(--size-1);
+}
+.tpl-out {
+  padding: var(--size--1) var(--size-0);
+  border: var(--border-width-1) dashed var(--neutral-4);
+  border-radius: var(--border-radius-1);
+  min-height: 2.5em;
+}
+.tpl-out.is-err {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  color: var(--code-error);
+}
+
+/* streaming theme: a live SSE row (buttons that patch in place) */
+.pg-live {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--size-0);
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+}
+.pg-val {
+  font-weight: var(--font-weight-bold);
+}
+
+/* storage theme: the guestbook input + list */
+.pg-input {
+  font-family: var(--font-mono);
+  font-size: var(--font-size--1);
+  padding: 0.2em 0.6em;
+  border: var(--border-width-1) solid var(--neutral-4);
+  border-radius: var(--border-radius-1);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  outline: none;
+}
+.guestbook ul {
+  margin: var(--size--1) 0 0;
+}
+
+/* playground stays within narrow viewports: let grid cells shrink, stack inputs */
+.pg-field,
+.pg-output {
+  min-width: 0;
+}
+.playground textarea {
+  width: 100%;
+}
+@media (max-width: 540px) {
+  .pg-inputs {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* narrow screens: let the top nav wrap instead of overflowing */
+@media (max-width: 540px) {
+  .nav {
+    flex-wrap: wrap;
+  }
+  .nav .links {
+    gap: var(--size-0);
+  }
+}
+
+/* let the preset chips wrap rather than overflow on narrow screens */
+.pg-presets {
+  flex-wrap: wrap;
+}
+
+/* shared site footer */
+.site-footer {
+  margin-top: var(--size-5);
+  padding: var(--size-2) 0;
+  border-top: var(--border-width-1) solid var(--neutral-4);
+  font-size: var(--font-size--1);
+}
+
+/* hello-world tutorial: reuse the splash .terminal, two windows broken out to
+   full viewport width with economical chrome, so the log lines fit with little
+   scroll */
+.terminal-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-1);
+  margin-block: var(--size-2);
+}
+.terminal-row .terminal {
+  margin-block: 0;
+}
+.term-cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--size--2);
+  flex-wrap: wrap;
+}
+
+/* design section: brand palette table */
+.pal-table { border-collapse: collapse; width: 100%; max-width: 46rem; margin-block: var(--size-2); }
+.pal-table th {
+  text-align: left;
+  font-size: var(--font-size--1);
+  font-weight: var(--font-weight-semi-bold);
+  color: var(--neutral-1-dim);
+  padding: var(--size--2) var(--size-0);
+  border-bottom: var(--border-width-2) solid var(--neutral-4);
+}
+.pal-table td {
+  padding: var(--size--2) var(--size-0);
+  border-bottom: var(--border-width-1) solid var(--neutral-3);
+  vertical-align: middle;
+}
+.pal-cell {
+  width: 2.6rem;
+  height: 1.4rem;
+  border-radius: var(--border-radius-1);
+  border: var(--border-width-1) solid var(--neutral-4);
+}
+.pal-name { font-weight: var(--font-weight-bold); }
+.pal-ramp { display: flex; gap: var(--size--2); }
+.pal-ramp .pal-cell { width: 3.2rem; }
+
+/* design section: component breakdown with per-part tokens */
+.dz-example { margin: var(--size-1) 0 var(--size-3); }
+.dz-btns { display: flex; gap: var(--size-0); align-items: center; flex-wrap: wrap; }
+.dz-part { margin-block: var(--size-2); }
+.dz-part h3 { margin-bottom: var(--size--2); }
+.dz-demo { margin: var(--size-0) 0; }
+.dz-tokens { display: flex; flex-direction: column; gap: var(--size--2); font-size: var(--font-size--1); }
+.tok { display: flex; align-items: center; gap: var(--size-0); }
+.tok-label { min-width: 7em; color: var(--neutral-1-dim); }
+.tok-sw {
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  border-radius: var(--border-radius-1);
+  border: var(--border-width-1) solid var(--neutral-4);
+}
+.tok-sw-none { border: 0; visibility: hidden; }
+.terminal-title {
+  display: flex;
+  align-items: center;
+  gap: var(--size--1);
+}
+.terminal-action {
+  margin-left: auto;
+}
+.terminal-body code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  white-space: pre;
+}
+.terminal-body pre {
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  white-space: pre;
+}
+.term-out {
+  white-space: pre;
+  overflow-x: auto;
+}
+/* on wide viewports the splash demo runs server + client side by side; the
+   tutorial page keeps them stacked in its narrower reading column. */
+@media (min-width: 900px) {
+  .demo-wide .terminal-row { display: grid; grid-template-columns: 1fr 1fr; align-items: start; }
+  .demo-wide .terminal-row > * { min-width: 0; }
+}
