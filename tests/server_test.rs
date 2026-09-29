@@ -1338,33 +1338,32 @@ async fn test_plugin_loading() {
 }
 
 /// Tests that plugin process is shared across requests (not spawned per-request).
-/// The test plugin has a 100ms startup delay. If plugins were spawned per-request,
-/// 10 requests would take at least 1000ms. With shared plugins, it should complete
-/// well under 200ms total.
+/// The plugin reports its own process id, so every request must see the same
+/// one. Checked directly rather than by timing, which flaked on CI runners.
 #[tokio::test]
 async fn test_plugin_process_shared_across_requests() {
     let plugin_path = workspace_bin("nu_plugin_test");
     let server = TestServer::new_with_plugins(
         "127.0.0.1:0",
-        "{|req| test-plugin-cmd}",
+        "{|req| test-plugin-pid | into string}",
         false,
         &[plugin_path],
     )
     .await;
 
-    let start = std::time::Instant::now();
-
+    let mut pids = std::collections::HashSet::new();
     for _ in 0..10 {
         let output = server.curl("/").await;
         assert!(output.status.success());
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(stdout.trim(), "PLUGIN_WORKS");
+        let pid: u32 = stdout.trim().parse().expect("plugin pid");
+        pids.insert(pid);
     }
 
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_millis(400),
-        "10 requests took {elapsed:?}, expected < 400ms (plugin should be shared, not spawned per-request)"
+    assert_eq!(
+        pids.len(),
+        1,
+        "requests saw plugin pids {pids:?}; the plugin should be shared, not spawned per-request"
     );
 }
 
