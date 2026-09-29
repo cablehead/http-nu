@@ -66,7 +66,7 @@ def svg-bottom [] {
 # Components
 
 def section-header [title: string ...children] {
-  let slug = $title | str downcase | str replace -a ' ' '-'
+  let slug = $title | str lowercase | str replace -a ' ' '-'
   DIV {id: $slug class: [text-3xl mb-4 font-mono font-bold text-header flex items-center gap-4]} [
     (A {href: $"#($slug)"} $title)
     ...$children

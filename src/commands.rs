@@ -450,7 +450,7 @@ impl Command for ReverseProxyCommand {
             .required("target_url", SyntaxShape::String, "backend URL to proxy to")
             .optional(
                 "config",
-                SyntaxShape::Record(vec![]),
+                SyntaxShape::Record(Default::default()),
                 "optional configuration (headers, preserve_host, strip_prefix, query)",
             )
             .input_output_types(vec![(Type::Any, Type::Nothing)])

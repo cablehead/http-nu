@@ -373,7 +373,7 @@ impl Engine {
             state: std::mem::replace(&mut self.state, EngineState::new()),
         };
         let res = xs::nu::add_core_commands(&mut xe, store)
-            .and_then(|()| xs::nu::add_read_commands(&mut xe, store, xs::nu::ReadMode::Stream))
+            .and_then(|()| xs::nu::add_read_commands(&mut xe, store))
             .and_then(|()| xs::nu::add_write_commands(&mut xe, store, xs::nu::AppendMode::Direct));
         self.state = xe.state;
         res.map_err(|e| Error::from(e.to_string()))
@@ -389,6 +389,21 @@ impl Engine {
     }
 }
 
+/// Runs `f`, which may evaluate Nushell, without stalling the tokio runtime.
+///
+/// xs's `.cat` and `.last` park the calling thread on `blocking_recv`, which
+/// panics on a runtime worker. Scripts are loaded from async context (startup,
+/// hot reload, `eval`), and a script's top level can call either command, so
+/// on a multi-threaded runtime `f` runs via `block_in_place`. Elsewhere (plain
+/// threads, handler workers, current-thread runtimes) it runs directly.
+pub fn off_runtime<R>(f: impl FnOnce() -> R) -> R {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == RuntimeFlavor::MultiThread => tokio::task::block_in_place(f),
+        _ => f(),
+    }
+}
+
 /// Creates an engine from a script by cloning a base engine and parsing the closure.
 /// On error, prints to stderr and emits JSON to stdout, returning None.
 pub fn script_to_engine(base: &Engine, script: &str, file: Option<&Path>) -> Option<Engine> {
@@ -396,7 +411,7 @@ pub fn script_to_engine(base: &Engine, script: &str, file: Option<&Path>) -> Opt
     // Fresh cancellation token for this engine instance
     engine.sse_cancel_token = CancellationToken::new();
 
-    if let Err(e) = engine.parse_closure(script, file) {
+    if let Err(e) = off_runtime(|| engine.parse_closure(script, file)) {
         log_error(&nu_utils::strip_ansi_string_likely(e.to_string()));
         return None;
     }

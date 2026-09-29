@@ -277,7 +277,7 @@ let design = source design/serve.nu
             # signal per game, the WC reads everything.
             let state = $new_meta.state
             let lmid = $new_meta | get last_move_id? | default $changed_id
-            let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+            let played_ms = $lmid | .id unpack | get ts_ms
             let wc_state = $state | state-for-wc | upsert playedMs $played_ms
             let signal_patch = ({
               games: {$changed_id: $wc_state}
@@ -519,7 +519,7 @@ let design = source design/serve.nu
         let snap = .last $"game.snapshot.($e.game_id)"
         if $snap == null { null } else {
           let lmid = $snap.meta | get last_move_id? | default $e.game_id
-          let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+          let played_ms = $lmid | .id unpack | get ts_ms
           let state = $snap.meta.state | state-for-wc | upsert playedMs $played_ms
           {entry: $e, state: $state}
         }
@@ -590,7 +590,7 @@ let design = source design/serve.nu
       let games_signal = $games | reduce -f {} {|f acc|
         let resumed = game-head $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
-        let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+        let played_ms = $lmid | .id unpack | get ts_ms
         let state = $resumed.state | state-for-wc | upsert playedMs $played_ms
         $acc | upsert $f.id $state
       }
@@ -691,7 +691,7 @@ let design = source design/serve.nu
       let games_signal = $games | reduce -f {} {|f acc|
         let resumed = game-head $f.id
         let lmid = $resumed | get follow_from_id? | default $f.id
-        let played_ms = (.id unpack $lmid | get timestamp | into int) / 1_000_000 | into int
+        let played_ms = $lmid | .id unpack | get ts_ms
         let state = $resumed.state | state-for-wc | upsert playedMs $played_ms
         $acc | upsert $f.id $state
       }

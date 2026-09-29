@@ -198,7 +198,7 @@ fn spawn_topic_watcher(
             .maybe_after(after)
             .build();
 
-        let mut receiver = store.read(options).await;
+        let mut receiver = store.read(options);
 
         while let Some(frame) = receiver.recv().await {
             if frame.topic != topic {

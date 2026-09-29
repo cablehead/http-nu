@@ -9,7 +9,7 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use clap::Parser;
 use http_nu::{
-    engine::{script_to_engine, HttpNuOptions},
+    engine::{off_runtime, script_to_engine, HttpNuOptions},
     handler::{handle, AppConfig},
     listener::TlsConfig,
     logging::{
@@ -629,7 +629,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         engine.set_signals(interrupt.clone());
 
-        let exit_code = match engine.eval(&script, script_path.as_deref()) {
+        let exit_code = match off_runtime(|| engine.eval(&script, script_path.as_deref())) {
             Ok(value) => {
                 let output = value.to_expanded_string(" ", &engine.state.config);
                 if !output.is_empty() {

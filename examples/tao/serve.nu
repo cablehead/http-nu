@@ -43,7 +43,7 @@ def nav-js [slide: record reps: int] {
 def render-slide [req: record name: string] {
   let slide = $slides | get $name
   let cookies = $req | cookie parse
-  let reps = $cookies | get -i reps | default "0" | into int
+  let reps = $cookies | get -o reps | default "0" | into int
 
   # each full reading, the world gets a little brighter.
   let reps = $reps | if ($name == "state") { [($in + 10) 100] | math min } else { $in }

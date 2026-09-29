@@ -858,7 +858,7 @@ it to build web UIs that let users submit and run arbitrary commands -- an
 in-browser REPL, for example. Pipeline input is forwarded to the script.
 
 ```nushell
-"hello" | .run 'str upcase'              # => HELLO
+"hello" | .run 'str uppercase'            # => HELLO
 [1 2 3] | .run 'math sum'                # => 6
 ```
 

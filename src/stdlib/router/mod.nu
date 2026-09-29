@@ -132,7 +132,7 @@ export def route [
 } --result {}
 export def path-matches [
   pattern: string # Path pattern with optional :param segments
-]: record -> record {
+]: record -> oneof<record, nothing> {
   let path = ($in.path | str trim --right --char '/')
   let pattern_segments = ($pattern | str trim --right --char '/' | split row '/')
   let path_segments = ($path | split row '/')
@@ -180,11 +180,11 @@ export def has-header [
   header_name: string # Header name to check (case-insensitive)
   value: string # Value to look for in the header
 ]: record -> bool {
-  let normalized_name = ($header_name | str downcase)
+  let normalized_name = ($header_name | str lowercase)
 
   $in.headers
   | transpose name value
-  | where { $in.name | str downcase | $in == $normalized_name }
+  | where { $in.name | str lowercase | $in == $normalized_name }
   | get -o value.0
   | default ""
   | split row ","

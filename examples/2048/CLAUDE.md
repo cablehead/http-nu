@@ -25,7 +25,7 @@ caught the live `/sse-wc` hang once we wired test-sse.nu in.
   `.get` is different: it raises a `ShellError` on miss, so
   `try { .get $id } catch { null }` is correct there. When in doubt, read
   the command's source before adding defensive `try`.
-- Use `get -i` (or `get foo?`) for optional record fields rather than
+- Use `get -o` (or `get foo?`) for optional record fields rather than
   `try { $r.foo } catch { null }`.
 - For chained `.last "topic" | get meta.field` where the topic may be
   empty AND the field may be missing, guard the empty pipeline first:

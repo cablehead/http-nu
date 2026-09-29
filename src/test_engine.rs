@@ -333,7 +333,7 @@ fn test_md_record_without_html_errors() {
 fn test_run_happy_path() {
     let mut engine = eval_engine();
     let result = engine
-        .eval(r#""hello" | .run '$in | str upcase'"#, None)
+        .eval(r#""hello" | .run '$in | str uppercase'"#, None)
         .unwrap();
     assert_eq!(result.as_str().unwrap(), "HELLO");
 }

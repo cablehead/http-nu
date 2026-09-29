@@ -1938,6 +1938,31 @@ async fn test_store_cat_follow_receives_appended_frames() {
     let _ = stream_child.kill().await;
 }
 
+/// Regression: a script whose top level reads the store is evaluated from
+/// async context at load. xs's `.cat` / `.last` park the calling thread, which
+/// panicked the server on a tokio worker before loads moved off the runtime.
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_store_read_at_script_top_level() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    let server = TestServer::new_with_store(
+        "127.0.0.1:0",
+        r#"
+        let n = .cat -T ping | length
+        let last = .last ping
+        {|req| $"cat=($n) last=($last == null)" }
+        "#,
+        &store_path,
+    )
+    .await;
+
+    let output = server.curl("/").await;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "cat=0 last=true");
+}
+
 /// Tests that --services enables xs handlers
 #[cfg(feature = "cross-stream")]
 #[tokio::test]

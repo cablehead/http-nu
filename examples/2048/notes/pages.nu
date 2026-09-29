@@ -5,7 +5,7 @@
 # Slugify a heading: lowercase, non-alphanumeric runs become single
 # hyphens, trim leading/trailing hyphens.
 export def slugify [s: string]: nothing -> string {
-  $s | str downcase | str replace -ar '[^a-z0-9]+' '-' | str trim --char '-'
+  $s | str lowercase | str replace -ar '[^a-z0-9]+' '-' | str trim --char '-'
 }
 
 # Split a markdown file on h1 boundaries. Returns [{slug, title, body}].
