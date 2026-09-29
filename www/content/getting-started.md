@@ -152,7 +152,7 @@ def page [messages: list] {
 {|req|
   dispatch $req [
     (route {method: "GET" path: "/"} {|req ctx|
-      let messages = try { .cat messages } catch { [] }
+      let messages = try { .cat -T messages } catch { [] }
         | each { $in.meta }
       page $messages
     })
@@ -246,7 +246,7 @@ def page [messages: list] {
 {|req|
   dispatch $req [
     (route {method: "GET" path: "/"} {|req ctx|
-      let messages = try { .cat messages } catch { [] }
+      let messages = try { .cat -T messages } catch { [] }
         | each { $in.meta }
       page $messages
     })
@@ -259,7 +259,7 @@ def page [messages: list] {
     })
 
     (route {method: "GET" path: "/feed"} {|req ctx|
-      .cat messages --follow --new
+      .cat -T messages --follow --new
       | each {|frame|
         message-card $frame.meta
         | to datastar-patch-elements --selector "#messages" --mode append
@@ -283,7 +283,7 @@ Here is what is happening:
 - **Live feed**: `data-on:load` opens an SSE connection to `/feed`.
   New messages stream through `to datastar-patch-elements`, which tells
   Datastar exactly which DOM element to update and how (`append` mode).
-- **Streaming**: `.cat messages --follow --new` is a long-lived stream.
+- **Streaming**: `.cat -T messages --follow --new` is a long-lived stream.
   Each new entry flows through `each`, gets wrapped as an SSE event, and
   reaches the browser immediately.
 
