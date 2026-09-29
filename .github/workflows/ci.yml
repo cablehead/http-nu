@@ -13,8 +13,9 @@ jobs:
   test:
     name: Test - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
+      # run every platform even if one fails, but still fail the workflow
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
