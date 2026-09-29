@@ -1782,39 +1782,45 @@ yields only events whose topic matches. `*` matches any run of characters includ
 
         let mut sub = self.bus.subscribe(pattern);
 
-        let (tx, rx) = std::sync::mpsc::channel::<crate::bus::BusEvent>();
-        std::thread::spawn(move || {
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(_) => return,
-            };
-            rt.block_on(async move {
-                while let Some(ev) = sub.recv().await {
-                    if tx.send(ev).is_err() {
-                        break;
-                    }
-                }
-            });
-        });
+        // Wait on the subscription from the stream's own thread, in 100ms
+        // slices, checking for interruption between them. No helper thread:
+        // one parked in recv() outlives its request until the next matching
+        // publish, and a multi-thread runtime per subscriber costs a worker
+        // per core. recv() on a broadcast receiver is cancel safe, so timing
+        // it out loses nothing. When the stream is dropped, so is `sub`.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .map_err(|e| {
+                ShellError::Generic(GenericError::new(
+                    "Failed to subscribe",
+                    e.to_string(),
+                    span,
+                ))
+            })?;
 
         let stream = ListStream::new(
             std::iter::from_fn(move || {
-                use std::sync::mpsc::RecvTimeoutError;
                 use std::time::Duration;
                 loop {
                     if signals.interrupted() {
                         return None;
                     }
-                    match rx.recv_timeout(Duration::from_millis(100)) {
-                        Ok(ev) => {
+                    // the timer must be created inside the runtime
+                    let next = rt.block_on(async {
+                        tokio::time::timeout(Duration::from_millis(100), sub.recv()).await
+                    });
+                    match next {
+                        Ok(Some(ev)) => {
                             let rec = record! {
                                 "topic" => Value::string(ev.topic, span),
                                 "value" => ev.value,
                             };
                             return Some(Value::record(rec, span));
                         }
-                        Err(RecvTimeoutError::Timeout) => continue,
-                        Err(RecvTimeoutError::Disconnected) => return None,
+                        // lagged or closed: end the stream, the client reconnects
+                        Ok(None) => return None,
+                        Err(_elapsed) => continue,
                     }
                 }
             }),

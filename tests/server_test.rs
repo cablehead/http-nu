@@ -3134,3 +3134,97 @@ async fn test_bus_sub_glob_filters_unmatching() {
         .expect("sub task panicked");
     assert_eq!(topic, "tab-abc.compose.close");
 }
+
+/// Threads in a process, from /proc (Linux only).
+#[cfg(target_os = "linux")]
+fn thread_count(pid: u32) -> usize {
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .expect("read /proc status")
+        .lines()
+        .find_map(|l| l.strip_prefix("Threads:"))
+        .and_then(|n| n.trim().parse().ok())
+        .expect("Threads: line")
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn test_bus_sub_released_when_client_disconnects() {
+    // A subscriber whose client has gone must not linger until the next
+    // matching publish. Nothing is published here, so any thread a
+    // subscription left behind would still be counted at the end.
+    let closure =
+        r#"{|req| .bus sub "nobody.publishes.*" | each {|e| {data: $e.topic} } | to sse }"#;
+    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+    let pid = server.child.id().expect("server pid");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // warm up: one stream in and out, so the baseline includes whatever a
+    // request needs regardless of this bug
+    let url = server.address.clone();
+    // Each client hangs up after 1s. A live subscriber sends nothing, so curl
+    // must end on its own timeout (exit 28): a stream that errored or ended
+    // early would pass the thread count without testing anything.
+    let open = |n: usize| {
+        let url = url.clone();
+        async move {
+            let mut clients = Vec::new();
+            for _ in 0..n {
+                clients.push(
+                    tokio::process::Command::new("curl")
+                        .args(["-sN", "--max-time", "1", &url])
+                        .output(),
+                );
+            }
+            for out in futures_util::future::join_all(clients).await {
+                let out = out.expect("curl");
+                assert_eq!(
+                    out.status.code(),
+                    Some(28),
+                    "subscriber was not live for the whole second: {}",
+                    String::from_utf8_lossy(&out.stdout)
+                );
+            }
+        }
+    };
+    open(1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let before = thread_count(pid);
+
+    open(10).await; // ten subscribers, each dropped after 1s
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let after = thread_count(pid);
+
+    assert!(
+        after <= before + 2,
+        "threads {before} -> {after} after 10 subscribers disconnected: subscriptions are leaking"
+    );
+}
+
+#[tokio::test]
+async fn test_finite_streams_end() {
+    // A response that streams and then finishes must close once the closure
+    // is done, for a list stream and a byte stream alike. curl waits for the
+    // end of the body; a response left open ends on its timeout (exit 28).
+    let closure = r#"{|req|
+        if $req.path == "/list" { 1..3 | each {|n| $"($n)\n" } } else { ^printf "a\nb\n" }
+    }"#;
+    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+    for (path, want) in [("/list", "1\n2\n3\n"), ("/bytes", "a\nb\n")] {
+        let out = tokio::process::Command::new("curl")
+            .args([
+                "-sN",
+                "--max-time",
+                "5",
+                &format!("{}{path}", server.address),
+            ])
+            .output()
+            .await
+            .expect("curl");
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{path}: the response never ended (curl exit 28 is its timeout)"
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stdout), want, "{path}");
+    }
+}
