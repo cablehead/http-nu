@@ -422,12 +422,17 @@ struct RequestState {
     latency_ms: Option<u64>,
 }
 
+/// Counts chars, not bytes: a path is client input, and slicing it at a byte
+/// offset can land inside a multi-byte char and panic the log thread.
 fn truncate_middle(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+    let len = s.chars().count();
+    if len <= max_len {
         return s.to_string();
     }
     let keep = (max_len - 3) / 2;
-    format!("{}...{}", &s[..keep], &s[s.len() - keep..])
+    let head: String = s.chars().take(keep).collect();
+    let tail: String = s.chars().skip(len - keep).collect();
+    format!("{head}...{tail}")
 }
 
 struct ActiveZone {
@@ -850,6 +855,17 @@ mod tests {
         // Wider terminal, more of the path survives.
         let wide = format_complete_line(&state, 2, 0, 200);
         assert!(wide.matches('a').count() > line.matches('a').count());
+    }
+
+    #[test]
+    fn multibyte_path_is_truncated_on_char_boundaries() {
+        let long = format!("/{}", "\u{e9}".repeat(200));
+        let state = request(&long);
+        let line = format_complete_line(&state, 2, 0, 120);
+        assert_eq!(line.chars().count(), 120);
+        assert!(line.contains("..."));
+        let active = format_active_line(&state, 120);
+        assert!(active.contains("..."));
     }
 
     #[test]
