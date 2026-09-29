@@ -66,6 +66,16 @@ impl Engine {
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
 
+        // xs's `.append` stamps `$env.XS_APPEND_META` onto every frame, and xs
+        // sets it per processor instance. One inherited from the parent (an
+        // http-nu started from an xs service, or from a shell inside one)
+        // would stamp that foreign identity on frames appended here. xs strips
+        // it from its own engines for the same reason.
+        let append_meta = nu_protocol::engine::EnvName::from("XS_APPEND_META".to_string());
+        for vars in Arc::make_mut(&mut engine_state.env_vars).values_mut() {
+            vars.remove(&append_meta);
+        }
+
         Ok(Self {
             state: engine_state,
             closure: None,

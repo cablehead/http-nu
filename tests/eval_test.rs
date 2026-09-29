@@ -304,6 +304,27 @@ fn test_eval_store_append_and_cat() {
         .stdout("hi\n");
 }
 
+/// An `XS_APPEND_META` inherited from the parent (e.g. http-nu launched from
+/// an xs service) must not be stamped on frames appended here.
+#[test]
+fn test_eval_store_ignores_inherited_append_meta() {
+    let dir = TempDir::new().unwrap();
+    let store_path = dir.path().to_str().unwrap();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .env("XS_APPEND_META", r#"{"service_id":"foreign"}"#)
+        .args([
+            "eval",
+            "--store",
+            store_path,
+            "-c",
+            r#""x" | .append t; .last t | get meta | to nuon"#,
+        ])
+        .assert()
+        .success()
+        .stdout("{}\n");
+}
+
 #[test]
 fn test_eval_store_sets_http_nu_const() {
     let dir = TempDir::new().unwrap();
