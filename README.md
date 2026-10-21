@@ -921,9 +921,9 @@ $ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c '1 | inc'
 2
 ```
 
-Nushell's plugin management commands (`plugin list`, `plugin stop`, `plugin use`,
-`plugin add`, `plugin rm`) are available. `plugin list --engine` shows the
-plugins loaded with `--plugin`, including the process id when running:
+Nushell's plugin management commands (`plugin list`, `plugin stop`,
+`plugin use`, `plugin add`, `plugin rm`) are available. `plugin list --engine`
+shows the plugins loaded with `--plugin`, including the process id when running:
 
 ```bash
 $ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c 'plugin list --engine | select name status pid'
