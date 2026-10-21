@@ -59,6 +59,7 @@ impl Engine {
         engine_state = add_shell_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
         engine_state = nu_cmd_extra::extra::add_extra_command_context(engine_state);
+        engine_state = nu_cmd_plugin::add_plugin_command_context(engine_state);
 
         load_http_nu_stdlib(&mut engine_state)?;
         nu_std::load_standard_library(&mut engine_state)?;

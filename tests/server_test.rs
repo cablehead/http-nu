@@ -1367,6 +1367,32 @@ async fn test_plugin_process_shared_across_requests() {
     );
 }
 
+/// Tests that `plugin list --engine` is available to served scripts and reports
+/// the running plugin's pid, matching the pid the plugin reports for itself.
+#[tokio::test]
+async fn test_plugin_list_engine() {
+    let plugin_path = workspace_bin("nu_plugin_test");
+    let server = TestServer::new_with_plugins(
+        "127.0.0.1:0",
+        r#"{|req|
+            let own = test-plugin-pid
+            let listed = plugin list --engine | where name == test | get pid.0
+            {own: $own, listed: $listed, status: (plugin list --engine | get status.0)} | to json -r
+        }"#,
+        false,
+        &[plugin_path],
+    )
+    .await;
+
+    let output = server.curl("/").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).expect("json response");
+    assert_eq!(v["status"], "running");
+    assert!(v["own"].as_i64().is_some(), "missing plugin pid: {v}");
+    assert_eq!(v["own"], v["listed"]);
+}
+
 // ============================================================================
 // Watch mode tests (-w/--watch)
 // ============================================================================
