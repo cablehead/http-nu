@@ -3196,22 +3196,19 @@ fn thread_count(pid: u32) -> usize {
         .expect("Threads: line")
 }
 
+/// Opens ten streams that each hang up after 1s, then checks the server's
+/// thread count is back near its baseline. Nothing is published or appended
+/// here, so any thread a disconnected stream left behind would still be
+/// counted at the end.
 #[cfg(target_os = "linux")]
-#[tokio::test]
-async fn test_bus_sub_released_when_client_disconnects() {
-    // A subscriber whose client has gone must not linger until the next
-    // matching publish. Nothing is published here, so any thread a
-    // subscription left behind would still be counted at the end.
-    let closure =
-        r#"{|req| .bus sub "nobody.publishes.*" | each {|e| {data: $e.topic} } | to sse }"#;
-    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+async fn assert_streams_released_on_disconnect(server: &TestServer, what: &str) {
     let pid = server.child.id().expect("server pid");
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // warm up: one stream in and out, so the baseline includes whatever a
     // request needs regardless of this bug
     let url = server.address.clone();
-    // Each client hangs up after 1s. A live subscriber sends nothing, so curl
+    // Each client hangs up after 1s. A live stream sends nothing, so curl
     // must end on its own timeout (exit 28): a stream that errored or ended
     // early would pass the thread count without testing anything.
     let open = |n: usize| {
@@ -3230,7 +3227,7 @@ async fn test_bus_sub_released_when_client_disconnects() {
                 assert_eq!(
                     out.status.code(),
                     Some(28),
-                    "subscriber was not live for the whole second: {}",
+                    "{what} was not live for the whole second: {}",
                     String::from_utf8_lossy(&out.stdout)
                 );
             }
@@ -3240,14 +3237,52 @@ async fn test_bus_sub_released_when_client_disconnects() {
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     let before = thread_count(pid);
 
-    open(10).await; // ten subscribers, each dropped after 1s
+    open(10).await; // ten streams, each dropped after 1s
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     let after = thread_count(pid);
 
     assert!(
         after <= before + 2,
-        "threads {before} -> {after} after 10 subscribers disconnected: subscriptions are leaking"
+        "threads {before} -> {after} after 10 {what} streams disconnected: they are leaking"
     );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn test_bus_sub_released_when_client_disconnects() {
+    // A subscriber whose client has gone must not linger until the next
+    // matching publish.
+    let closure =
+        r#"{|req| .bus sub "nobody.publishes.*" | each {|e| {data: $e.topic} } | to sse }"#;
+    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+    assert_streams_released_on_disconnect(&server, ".bus sub").await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn test_cat_follow_released_when_client_disconnects() {
+    // A follower whose client has gone must not park until the next frame on
+    // its topic (cablehead/xs#164, fixed in cross-stream 0.14.1).
+    let tmp = tempfile::tempdir().unwrap();
+    let closure = r#"{|req|
+        .cat --follow -T "nobody.appends" | each {|f| {data: $f.topic} } | to sse
+    }"#;
+    let server =
+        TestServer::new_with_store("127.0.0.1:0", closure, &tmp.path().join("store")).await;
+    assert_streams_released_on_disconnect(&server, ".cat --follow").await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn test_last_follow_released_when_client_disconnects() {
+    // `.last --follow` has the same follow loop as `.cat --follow`.
+    let tmp = tempfile::tempdir().unwrap();
+    let closure = r#"{|req|
+        .last "nobody.appends" --follow | each {|f| {data: $f.topic} } | to sse
+    }"#;
+    let server =
+        TestServer::new_with_store("127.0.0.1:0", closure, &tmp.path().join("store")).await;
+    assert_streams_released_on_disconnect(&server, ".last --follow").await;
 }
 
 #[tokio::test]
