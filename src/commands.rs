@@ -447,7 +447,11 @@ impl Command for ReverseProxyCommand {
 
     fn signature(&self) -> Signature {
         Signature::build(".reverse-proxy")
-            .required("target_url", SyntaxShape::String, "backend URL to proxy to")
+            .required(
+                "target_url",
+                SyntaxShape::String,
+                "backend URL to proxy to, or unix:<path> for a server on a UNIX domain socket",
+            )
             .optional(
                 "config",
                 SyntaxShape::Record(Default::default()),

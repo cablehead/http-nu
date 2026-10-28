@@ -721,6 +721,13 @@ $ http-nu :3001 -c '{|req|
 # Request to /api/v1/users becomes /users at the backend
 ```
 
+**Proxy to a server on a UNIX domain socket:**
+
+```bash
+$ http-nu ./backend.sock -c '{|req| $"Path: ($req.path)"}'
+$ http-nu :3001 -c '{|req| .reverse-proxy "unix:./backend.sock"}'
+```
+
 **Forward original request body:**
 
 ```bash
