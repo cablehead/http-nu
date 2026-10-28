@@ -721,6 +721,8 @@ async fn test_server_unix_graceful_shutdown() {
     server.send_ctrl_c();
     let status = server.wait_for_exit().await;
     assert!(status.success());
+    // The socket's file goes with the server.
+    assert!(!socket_path.exists());
 }
 
 /// Tests that inflight requests complete during graceful shutdown.
