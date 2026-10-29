@@ -406,6 +406,38 @@ async fn test_server_reverse_proxy() {
     assert_eq!(stdout.trim(), "Backend: GET /test bar proxy-added");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn test_server_reverse_proxy_unix_socket() {
+    // Start a backend server on a UNIX domain socket.
+    let tmp = tempfile::tempdir().unwrap();
+    let socket_path = tmp.path().join("backend.sock");
+    let socket_path_str = socket_path.to_str().unwrap();
+    let backend = TestServer::new(
+        socket_path_str,
+        r#"{|req| $"Backend: ($req.method) ($req.path) ($req.query.foo) ($in)"}"#,
+        false,
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start a proxy server that forwards to it with a unix: target.
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "unix:{}" }}"#, backend.address);
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // The path, query and body reach the backend.
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-d")
+        .arg("hello")
+        .arg(format!("{}/test?foo=bar", proxy.address));
+    let output = cmd.output().await.unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "Backend: POST /test bar hello");
+}
+
 #[tokio::test]
 async fn test_server_reverse_proxy_strip_prefix() {
     // Start a backend server that returns the request path.
@@ -689,6 +721,8 @@ async fn test_server_unix_graceful_shutdown() {
     server.send_ctrl_c();
     let status = server.wait_for_exit().await;
     assert!(status.success());
+    // The socket's file goes with the server.
+    assert!(!socket_path.exists());
 }
 
 /// Tests that inflight requests complete during graceful shutdown.

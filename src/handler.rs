@@ -273,6 +273,15 @@ where
                 format!("/{path}")
             };
 
+            // A "unix:<path>" target is a server on a UNIX domain socket: the
+            // request goes to it in origin form, the path alone.
+            let socket = target_url.strip_prefix("unix:");
+            let base = if socket.is_some() {
+                ""
+            } else {
+                target_url.as_str()
+            };
+
             // Build target URI
             let target_uri = {
                 let query_string = if let Some(custom_query) = query {
@@ -288,9 +297,9 @@ where
                 };
 
                 if query_string.is_empty() {
-                    format!("{target_url}{path}")
+                    format!("{base}{path}")
                 } else {
-                    format!("{target_url}{path}?{query_string}")
+                    format!("{base}{path}?{query_string}")
                 }
             };
 
@@ -329,7 +338,12 @@ where
 
             // Handle preserve_host
             if !preserve_host {
-                if let Ok(target_uri) = target_url.parse::<hyper::Uri>() {
+                if socket.is_some() {
+                    header_map.insert(
+                        hyper::header::HOST,
+                        hyper::header::HeaderValue::from_static("localhost"),
+                    );
+                } else if let Ok(target_uri) = target_url.parse::<hyper::Uri>() {
                     if let Some(authority) = target_uri.authority() {
                         header_map.insert(
                             hyper::header::HOST,
@@ -341,12 +355,19 @@ where
 
             *proxy_req.headers_mut() = header_map;
 
-            // Create a simple HTTP client and forward the request
-            let client =
-                hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-                    .build_http();
+            // Forward the request: over the socket, or with a simple HTTP client
+            let result = match socket {
+                Some(socket) => send_unix(socket, proxy_req).await,
+                None => hyper_util::client::legacy::Client::builder(
+                    hyper_util::rt::TokioExecutor::new(),
+                )
+                .build_http()
+                .request(proxy_req)
+                .await
+                .map_err(|e| Box::new(e) as BoxError),
+            };
 
-            match client.request(proxy_req).await {
+            match result {
                 Ok(response) => {
                     let (res_parts, body) = response.into_parts();
                     log_response(
@@ -538,4 +559,18 @@ async fn build_normal_response(
     // Wrap with LoggingBody for phase 3 (complete) logging
     let logging_body = LoggingBody::new(inner_body, guard);
     Ok(builder.body(logging_body.boxed())?)
+}
+
+/// Send `req` to the HTTP/1 server listening on the UNIX domain socket at `path`.
+async fn send_unix(
+    path: &str,
+    req: hyper::Request<Full<Bytes>>,
+) -> Result<hyper::Response<hyper::body::Incoming>, BoxError> {
+    let stream = crate::listener::connect_unix(path).await?;
+    let (mut sender, conn) =
+        hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream)).await?;
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    Ok(sender.send_request(req).await?)
 }
