@@ -337,13 +337,13 @@ where
             }
 
             // Handle preserve_host
-            if !preserve_host && socket.is_some() {
-                header_map.insert(
-                    hyper::header::HOST,
-                    hyper::header::HeaderValue::from_static("localhost"),
-                );
-            } else if !preserve_host {
-                if let Ok(target_uri) = target_url.parse::<hyper::Uri>() {
+            if !preserve_host {
+                if socket.is_some() {
+                    header_map.insert(
+                        hyper::header::HOST,
+                        hyper::header::HeaderValue::from_static("localhost"),
+                    );
+                } else if let Ok(target_uri) = target_url.parse::<hyper::Uri>() {
                     if let Some(authority) = target_uri.authority() {
                         header_map.insert(
                             hyper::header::HOST,
@@ -562,24 +562,15 @@ async fn build_normal_response(
 }
 
 /// Send `req` to the HTTP/1 server listening on the UNIX domain socket at `path`.
-#[cfg(unix)]
 async fn send_unix(
     path: &str,
     req: hyper::Request<Full<Bytes>>,
 ) -> Result<hyper::Response<hyper::body::Incoming>, BoxError> {
-    let stream = tokio::net::UnixStream::connect(path).await?;
+    let stream = crate::listener::connect_unix(path).await?;
     let (mut sender, conn) =
         hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream)).await?;
     tokio::spawn(async move {
         let _ = conn.await;
     });
     Ok(sender.send_request(req).await?)
-}
-
-#[cfg(not(unix))]
-async fn send_unix(
-    _path: &str,
-    _req: hyper::Request<Full<Bytes>>,
-) -> Result<hyper::Response<hyper::body::Incoming>, BoxError> {
-    Err("unix: proxy targets need a unix platform".into())
 }

@@ -267,6 +267,35 @@ impl Listener {
             }
         }
     }
+
+    /// Path of the Unix socket this listener owns, if any. `None` for TCP.
+    pub fn socket_path(&self) -> Option<std::path::PathBuf> {
+        match self {
+            Listener::Tcp { .. } => None,
+            #[cfg(unix)]
+            Listener::Unix(listener) => listener
+                .local_addr()
+                .ok()?
+                .as_pathname()
+                .map(|p| p.to_path_buf()),
+            #[cfg(windows)]
+            Listener::Unix(listener) => listener.local_addr().ok(),
+        }
+    }
+}
+
+/// Connect to an HTTP/1 server listening on the Unix domain socket at `path`.
+/// Uses the same platform shim as the serve side, so it works on Windows too.
+#[cfg(unix)]
+pub async fn connect_unix(path: &str) -> io::Result<AsyncReadWriteBox> {
+    Ok(Box::new(tokio::net::UnixStream::connect(path).await?))
+}
+
+#[cfg(windows)]
+pub async fn connect_unix(path: &str) -> io::Result<AsyncReadWriteBox> {
+    Ok(Box::new(
+        win_uds_compat::WinUnixStream::connect(path).await?,
+    ))
 }
 
 impl Clone for Listener {

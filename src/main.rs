@@ -439,16 +439,8 @@ async fn serve(
 
     // A UNIX socket's file outlives its listener: remove it, so the path no
     // longer looks like a server that's running.
-    #[cfg(unix)]
-    if let Listener::Unix(unix) = &listener {
-        if let Some(path) = unix
-            .local_addr()
-            .ok()
-            .as_ref()
-            .and_then(|a| a.as_pathname())
-        {
-            let _ = std::fs::remove_file(path);
-        }
+    if let Some(path) = listener.socket_path() {
+        let _ = std::fs::remove_file(path);
     }
 
     // Cancel SSE streams so they don't hold connections open.
