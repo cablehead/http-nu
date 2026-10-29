@@ -2756,7 +2756,7 @@ dependencies = [
 
 [[package]]
 name = "http-nu"
-version = "0.18.3"
+version = "0.18.4-dev"
 dependencies = [
  "arc-swap",
  "assert_cmd",
