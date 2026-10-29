@@ -251,8 +251,7 @@ mod tests {
 #[cfg(test)]
 mod stream_tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     /// Build a chunk of HTML-shaped text. Repeating structure so brotli gets
     /// a realistic ratio, unique ids so consecutive chunks are not identical.
@@ -333,14 +332,20 @@ mod stream_tests {
         }
     }
 
-    /// Three large SSE-sized events arrive ~30ms apart from a source that
-    /// then idles before closing. Each event must be fully decodable from the
-    /// frames emitted by the time the source goes idle, not held inside the
-    /// encoder; the whole stream must round-trip; and batching per burst must
-    /// keep the ratio well above what a flush-per-write policy would give.
+    /// Three large SSE-sized events are pushed into the encoder, but each is
+    /// held back until the previous one has come all the way out the far side.
+    /// If the encoder releases each burst promptly the handshake runs to the
+    /// end; if it holds a burst waiting for more input the consumer never acks,
+    /// the producer never sends the next burst, nothing closes the source, and
+    /// the pipeline stalls -- which the outer timeout turns into a failure.
+    /// This is the promptness check without a wall clock: a loaded machine just
+    /// runs the handshake slower, it does not fail it. The stream must also
+    /// round-trip, and batching per burst must keep the ratio well above what a
+    /// flush-per-write policy would give.
     #[tokio::test]
     async fn streaming_flush_releases_each_burst_promptly() {
         let chunks: Vec<Vec<u8>> = (0..3).map(|i| html_chunk(i, 120 * 1024)).collect();
+        let n = chunks.len();
         let expected: Vec<u8> = chunks.concat();
         let boundaries: Vec<usize> = chunks
             .iter()
@@ -350,79 +355,61 @@ mod stream_tests {
             })
             .collect();
 
-        let sent_at: Arc<Mutex<Vec<Instant>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel::<Vec<u8>>(64);
+        // The consumer acks each burst by index once it has fully emerged from
+        // the encoder; the producer waits for that ack before sending the next,
+        // so burst N must be recoverable before burst N+1 is ever written.
+        let (ack_tx, mut ack_rx) = mpsc::channel::<usize>(1);
 
-        let producer = {
-            let chunks = chunks.clone();
-            let sent_at = sent_at.clone();
-            tokio::spawn(async move {
-                for c in chunks {
-                    sent_at.lock().unwrap().push(Instant::now());
-                    tx.send(c).await.unwrap();
-                    tokio::time::sleep(Duration::from_millis(30)).await;
-                }
-                // Source stays open but idle for a while, like a quiet SSE
-                // stream, then closes.
-                tokio::time::sleep(Duration::from_millis(300)).await;
-                drop(tx);
-            })
-        };
+        let producer = tokio::spawn(async move {
+            for (i, c) in chunks.into_iter().enumerate() {
+                tx.send(c).await.unwrap();
+                assert_eq!(
+                    ack_rx.recv().await.expect("consumer dropped before acking"),
+                    i
+                );
+            }
+            // Every burst acknowledged; closing the source lets the stream end.
+            drop(tx);
+        });
 
         let inner = ReceiverStream::new(rx).map(Ok::<Vec<u8>, BoxError>);
         let mut stream = BrotliStream::new(inner);
 
         let mut decoder = Decoder::new();
         let mut compressed_total = 0usize;
-        let mut arrived_at: Vec<Instant> = Vec::new();
+        let mut acked = 0usize;
 
-        loop {
-            let frame = tokio::time::timeout(Duration::from_secs(3), stream.next())
-                .await
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "timed out waiting for compressed bytes; {} of {} chunks arrived",
-                        arrived_at.len(),
-                        chunks.len()
-                    )
-                });
-            let Some(frame) = frame else { break };
-            let data = frame
-                .expect("stream errored")
-                .into_data()
-                .expect("data frame");
-            compressed_total += data.len();
-            decoder.feed(&data);
-            assert!(
-                expected.starts_with(&decoder.out),
-                "decoded output diverged from input"
-            );
-            while arrived_at.len() < boundaries.len()
-                && decoder.out.len() >= boundaries[arrived_at.len()]
-            {
-                arrived_at.push(Instant::now());
+        let consume = async {
+            while let Some(frame) = stream.next().await {
+                let data = frame
+                    .expect("stream errored")
+                    .into_data()
+                    .expect("data frame");
+                compressed_total += data.len();
+                decoder.feed(&data);
+                assert!(
+                    expected.starts_with(&decoder.out),
+                    "decoded output diverged from input"
+                );
+                while acked < boundaries.len() && decoder.out.len() >= boundaries[acked] {
+                    ack_tx.send(acked).await.expect("producer dropped");
+                    acked += 1;
+                }
             }
-        }
+        };
+
+        tokio::time::timeout(Duration::from_secs(5), consume)
+            .await
+            .expect("encoder held a burst instead of flushing it promptly");
+
         producer.await.unwrap();
 
+        assert_eq!(acked, n, "a burst never emerged before the next was needed");
         assert!(decoder.finished, "stream ended without a brotli FINISH");
         assert_eq!(decoder.out, expected, "round trip mismatch");
-
-        let sent_at = sent_at.lock().unwrap();
-        assert_eq!(arrived_at.len(), chunks.len());
-        let latencies: Vec<Duration> = arrived_at
-            .iter()
-            .zip(sent_at.iter())
-            .map(|(a, s)| a.duration_since(*s))
-            .collect();
         let ratio = expected.len() as f64 / compressed_total as f64;
-        eprintln!("latencies: {latencies:?}; ratio {ratio:.1}x");
-        for (i, l) in latencies.iter().enumerate() {
-            assert!(
-                *l < Duration::from_millis(200),
-                "chunk {i} took {l:?} to come out of the encoder"
-            );
-        }
+        eprintln!("ratio {ratio:.1}x");
         // Measured ~14.7x for this synthetic input with one flush per burst.
         // A flush per small write would land far below this.
         assert!(ratio > 8.0, "compression ratio collapsed to {ratio:.1}x");
