@@ -1,6 +1,7 @@
 ## Git Commit Style Preferences
 
-**NEVER commit unless explicitly asked by the user.**
+At the end of each stable turn (it builds and the checks pass), commit and push
+to a feature branch. Never commit to or push `main` without being asked.
 
 When committing: review `git diff`
 
