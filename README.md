@@ -1095,7 +1095,7 @@ interactions. Follows the
 [SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md).
 
 Use `--datastar` to serve the embedded JS bundle at `$DATASTAR_JS_PATH`
-(`/datastar@1.0.2.js`) with immutable cache headers:
+(`/datastar@1.0.4.js`) with immutable cache headers:
 
 ```bash
 $ http-nu --datastar :3001 ./serve.nu

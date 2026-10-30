@@ -36,6 +36,13 @@ All of these carry the literal version (e.g. `1.0.1`) and must change together:
 | `src/handler.rs` | `DATASTAR_JS_PATH` const + both `include_bytes!` paths |
 | `src/logging.rs` | `DATASTAR_VERSION` const (used in startup banner and version output) |
 
+The Rocket bundle served under `--datastar-rocket` follows the same steps with
+its own names: `datastar-rocket@<ver>.js` and `.js.br` (fetched from
+`bundles/datastar-rocket.js`), `DATASTAR_ROCKET_CDN_URL` and
+`DATASTAR_ROCKET_JS_PATH` in `mod.nu`, `DATASTAR_ROCKET_JS_PATH` and its
+`include_bytes!` paths in `handler.rs`, and `DATASTAR_ROCKET_VERSION` in
+`logging.rs`. Bump both bundles together, so the two differ only by Rocket.
+
 Grep to confirm you caught them all:
 
 ```bash
