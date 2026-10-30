@@ -102,6 +102,11 @@ struct Args {
     #[clap(long)]
     datastar: bool,
 
+    /// Serve the embedded Datastar bundle that includes Rocket, at
+    /// /datastar-rocket@<version>.js, in place of --datastar's
+    #[clap(long, conflicts_with = "datastar")]
+    datastar_rocket: bool,
+
     /// Trust proxies from these CIDR ranges for X-Forwarded-For parsing
     #[clap(long = "trust-proxy", value_name = "CIDR")]
     trust_proxies: Vec<ipnet::IpNet>,
@@ -143,6 +148,10 @@ enum Command {
         /// Define $DATASTAR_JS_PATH and related Datastar consts
         #[clap(long)]
         datastar: bool,
+
+        /// Report the Rocket bundle in $HTTP_NU, as --datastar-rocket does
+        #[clap(long, conflicts_with = "datastar")]
+        datastar_rocket: bool,
     },
 }
 
@@ -565,6 +574,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         #[cfg(feature = "cross-stream")]
         services,
         datastar,
+        datastar_rocket,
     }) = args.command
     {
         let (script, script_path) = match (&file, &commands) {
@@ -600,6 +610,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         engine.set_http_nu_const(&HttpNuOptions {
             dev: args.dev,
             datastar,
+            datastar_rocket,
             store: store_path,
             ..Default::default()
         })?;
@@ -679,6 +690,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let http_nu_options = HttpNuOptions {
         dev: args.dev,
         datastar: args.datastar,
+        datastar_rocket: args.datastar_rocket,
         watch: args.watch,
         tls: args.tls.as_ref().map(|p| p.display().to_string()),
         #[cfg(feature = "cross-stream")]
@@ -777,6 +789,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         #[cfg(not(feature = "cross-stream"))]
         services: false,
         datastar: args.datastar,
+        datastar_rocket: args.datastar_rocket,
     };
 
     serve(
@@ -787,6 +800,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         AppConfig {
             trusted_proxies: args.trust_proxies,
             datastar: args.datastar,
+            datastar_rocket: args.datastar_rocket,
             dev: args.dev,
         },
         start_time,

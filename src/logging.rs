@@ -18,6 +18,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Datastar SDK version (matches CDN URL in stdlib)
 pub const DATASTAR_VERSION: &str = "1.0.2";
+pub const DATASTAR_ROCKET_VERSION: &str = "1.0.4";
 
 /// Startup options to display in preamble
 #[derive(Clone, Default)]
@@ -29,6 +30,7 @@ pub struct StartupOptions {
     pub expose: Option<String>,
     pub services: bool,
     pub datastar: bool,
+    pub datastar_rocket: bool,
 }
 
 // --- Token bucket rate limiter ---
@@ -609,6 +611,9 @@ pub fn run_human_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHan
                     }
                     if options.datastar {
                         versions.push(format!("datastar {DATASTAR_VERSION}"));
+                    }
+                    if options.datastar_rocket {
+                        versions.push(format!("datastar-rocket {DATASTAR_ROCKET_VERSION}"));
                     }
                     let versions_str = versions.join(" · ");
 

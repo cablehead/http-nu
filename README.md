@@ -246,7 +246,7 @@ Set HTTP response status and headers using nushell's pipeline metadata:
 Header values can be strings or lists of strings. Multiple values (e.g.,
 Set-Cookie) are sent as separate HTTP headers per RFC 6265.
 
-```
+```bash
 $ http-nu :3001 -c '{|req| "sorry, eh" | metadata set { merge {"http.response": {status: 404}} }}'
 $ curl -si localhost:3001
 HTTP/1.1 404 Not Found
@@ -936,7 +936,7 @@ the server was started with:
 
 ```nushell
 $HTTP_NU
-# => {dev: false, datastar: true, watch: false, store: "./store", topic: null, expose: null, tls: null, services: false}
+# => {dev: false, datastar: true, datastar_rocket: false, watch: false, store: "./store", topic: null, expose: null, tls: null, services: false}
 
 $HTTP_NU.store != null  # check if store is available
 $HTTP_NU.dev            # true when --dev was passed
@@ -1122,6 +1122,20 @@ use http-nu/html *
     )
   )
 }
+```
+
+For pages that use [Rocket](https://data-star.dev/reference/rocket) web
+components, use `--datastar-rocket` instead. It serves the bundle that carries
+Datastar and Rocket together at `$DATASTAR_ROCKET_JS_PATH`
+(`/datastar-rocket@1.0.4.js`); load it with `SCRIPT-DATASTAR-ROCKET`, first in
+the head. That also writes an import map naming the bundle `datastar`, so a
+component shipped as its own module can `import { rocket } from "datastar"` and
+share the page's copy. The two flags are mutually exclusive: the Rocket bundle
+includes all of Datastar, and a page that loads both runs two copies over the
+same DOM.
+
+```bash
+$ http-nu --datastar-rocket :3001 ./serve.nu
 ```
 
 Commands return records that pipe to `to sse` for streaming output.

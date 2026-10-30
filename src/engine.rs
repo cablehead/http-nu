@@ -34,6 +34,7 @@ use crate::Error;
 pub struct HttpNuOptions {
     pub dev: bool,
     pub datastar: bool,
+    pub datastar_rocket: bool,
     pub watch: bool,
     pub store: Option<String>,
     pub topic: Option<String>,
@@ -85,6 +86,7 @@ impl Engine {
             nu_protocol::record! {
                 "dev" => Value::bool(options.dev, span),
                 "datastar" => Value::bool(options.datastar, span),
+                "datastar_rocket" => Value::bool(options.datastar_rocket, span),
                 "watch" => Value::bool(options.watch, span),
                 "store" => opt_str(&options.store),
                 "topic" => opt_str(&options.topic),

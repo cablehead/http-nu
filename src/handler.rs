@@ -26,10 +26,17 @@ type HTTPResult = Result<hyper::Response<BoxBody<Bytes, BoxError>>, BoxError>;
 const DATASTAR_JS_PATH: &str = "/datastar@1.0.2.js";
 const DATASTAR_JS: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.2.js");
 const DATASTAR_JS_BROTLI: &[u8] = include_bytes!("stdlib/datastar/datastar@1.0.2.js.br");
+const DATASTAR_ROCKET_JS_PATH: &str = "/datastar-rocket@1.0.4.js";
+const DATASTAR_ROCKET_JS: &[u8] = include_bytes!("stdlib/datastar/datastar-rocket@1.0.4.js");
+const DATASTAR_ROCKET_JS_BROTLI: &[u8] =
+    include_bytes!("stdlib/datastar/datastar-rocket@1.0.4.js.br");
 
 pub struct AppConfig {
     pub trusted_proxies: Vec<ipnet::IpNet>,
     pub datastar: bool,
+    /// Serve the Datastar bundle that includes Rocket instead of core
+    /// Datastar; the CLI makes the two flags mutually exclusive.
+    pub datastar_rocket: bool,
     pub dev: bool,
 }
 
@@ -145,8 +152,16 @@ where
     // Phase 1: Log request
     log_request(request_id, &request);
 
-    // Built-in route: serve embedded Datastar JS bundle (requires --datastar flag)
-    if config.datastar && request.path == DATASTAR_JS_PATH {
+    // Built-in route: serve the embedded Datastar JS bundle (--datastar), or
+    // the one that includes Rocket (--datastar-rocket)
+    let bundle = if config.datastar && request.path == DATASTAR_JS_PATH {
+        Some((DATASTAR_JS, DATASTAR_JS_BROTLI))
+    } else if config.datastar_rocket && request.path == DATASTAR_ROCKET_JS_PATH {
+        Some((DATASTAR_ROCKET_JS, DATASTAR_ROCKET_JS_BROTLI))
+    } else {
+        None
+    };
+    if let Some((js, js_brotli)) = bundle {
         let use_brotli = compression::accepts_brotli(&parts.headers);
         let mut header_map = hyper::header::HeaderMap::new();
         header_map.insert(
@@ -166,11 +181,11 @@ where
                 hyper::header::VARY,
                 hyper::header::HeaderValue::from_static("accept-encoding"),
             );
-            Full::new(Bytes::from_static(DATASTAR_JS_BROTLI))
+            Full::new(Bytes::from_static(js_brotli))
                 .map_err(|never| match never {})
                 .boxed()
         } else {
-            Full::new(Bytes::from_static(DATASTAR_JS))
+            Full::new(Bytes::from_static(js))
                 .map_err(|never| match never {})
                 .boxed()
         };
