@@ -100,7 +100,7 @@ export def leaderboard [--since: duration = 7day, --limit: int = 5] {
     .cat -T $"player.($p.player).games" | each {|f|
       let snap = .last $"game.snapshot.($f.id)"
       if $snap == null { return null }
-      let when = $snap.id | .id unpack | get timestamp
+      let when = $snap.id | .id unpack | get when
       if $when < $cutoff { return null }
       {
         game: ($f.id | str substring 0..7)
@@ -135,7 +135,7 @@ export def top-players [--limit: int = 10] {
   | each {|f|
       let snap = .last $"game.snapshot.($f.id)"
       if $snap == null { return null }
-      let when = try { $snap.id | .id unpack | get timestamp } catch { null }
+      let when = try { $snap.id | .id unpack | get when } catch { null }
       {
         game_id: $f.id
         when: $when

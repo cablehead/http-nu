@@ -164,7 +164,7 @@ export def control-pad []: nothing -> record {
 # beyond that it's "Xm ago" / "Xh ago" / "Xd ago" / "Xw ago".
 # `.id unpack` is the http-nu builtin (no subprocess).
 def last-active-from-id [id: string]: nothing -> string {
-  let ts = .id unpack $id | get timestamp
+  let ts = $id | .id unpack | get when
   let diff = ((date now) - $ts | into int) / 1_000_000_000 | math floor
   if $diff < 60 { "in play"
   } else if $diff < 3600 { $"(($diff / 60) | into int)m ago"

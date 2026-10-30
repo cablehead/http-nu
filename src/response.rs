@@ -131,7 +131,7 @@ pub fn value_to_bytes(value: Value) -> Vec<u8> {
         Value::String { val, .. } => val.into_bytes(),
         Value::Int { val, .. } => val.to_string().into_bytes(),
         Value::Float { val, .. } => val.to_string().into_bytes(),
-        Value::Binary { val, .. } => val,
+        Value::Binary { val, .. } => val.into_owned(),
         Value::Bool { val, .. } => val.to_string().into_bytes(),
 
         // Records with __html field are unwrapped to HTML string

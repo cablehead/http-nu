@@ -12,7 +12,7 @@ impl Plugin for TestPlugin {
     }
 
     fn commands(&self) -> Vec<Box<dyn PluginCommand<Plugin = Self>>> {
-        vec![Box::new(TestCommand)]
+        vec![Box::new(TestCommand), Box::new(PidCommand)]
     }
 }
 
@@ -45,8 +45,37 @@ impl SimplePluginCommand for TestCommand {
     }
 }
 
+/// Reports the plugin's process id, so a test can tell whether requests
+/// share one plugin process.
+struct PidCommand;
+
+impl SimplePluginCommand for PidCommand {
+    type Plugin = TestPlugin;
+
+    fn name(&self) -> &str {
+        "test-plugin-pid"
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build("test-plugin-pid")
+            .input_output_type(nu_protocol::Type::Any, nu_protocol::Type::Int)
+    }
+
+    fn description(&self) -> &str {
+        "The test plugin's process id"
+    }
+
+    fn run(
+        &self,
+        _plugin: &TestPlugin,
+        _engine: &EngineInterface,
+        _call: &EvaluatedCall,
+        _input: &Value,
+    ) -> Result<Value, LabeledError> {
+        Ok(Value::int(std::process::id() as i64, Span::unknown()))
+    }
+}
+
 fn main() {
-    // Simulate slow plugin startup to verify plugin process is shared across requests
-    std::thread::sleep(std::time::Duration::from_millis(100));
     serve_plugin(&TestPlugin, MsgPackSerializer)
 }

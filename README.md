@@ -721,6 +721,13 @@ $ http-nu :3001 -c '{|req|
 # Request to /api/v1/users becomes /users at the backend
 ```
 
+**Proxy to a server on a UNIX domain socket:**
+
+```bash
+$ http-nu ./backend.sock -c '{|req| $"Path: ($req.path)"}'
+$ http-nu :3001 -c '{|req| .reverse-proxy "unix:./backend.sock"}'
+```
+
 **Forward original request body:**
 
 ```bash
@@ -858,7 +865,7 @@ it to build web UIs that let users submit and run arbitrary commands -- an
 in-browser REPL, for example. Pipeline input is forwarded to the script.
 
 ```nushell
-"hello" | .run 'str upcase'              # => HELLO
+"hello" | .run 'str uppercase'            # => HELLO
 [1 2 3] | .run 'math sum'                # => 6
 ```
 
@@ -919,6 +926,14 @@ Works with eval:
 ```bash
 $ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c '1 | inc'
 2
+```
+
+Nushell's plugin management commands (`plugin list`, `plugin stop`,
+`plugin use`, `plugin add`, `plugin rm`) are available. `plugin list --engine`
+shows the plugins loaded with `--plugin`, including the process id when running:
+
+```bash
+$ http-nu --plugin ~/.cargo/bin/nu_plugin_inc eval -c 'plugin list --engine | select name status pid'
 ```
 
 ### Module Paths

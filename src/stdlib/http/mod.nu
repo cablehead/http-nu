@@ -47,9 +47,9 @@ export def "cookie set" [
       (if $max_age != null { $"Max-Age=($max_age)" })
       (if $domain != null { $"Domain=($domain)" })
     ] | compact | str join "; ")
-    let resp = $m | get -i "http.response" | default {}
-    let headers = $resp | get -i headers | default {}
-    let cookies = $headers | get -i Set-Cookie | default [] | append $header
+    let resp = $m | get -o "http.response" | default {}
+    let headers = $resp | get -o headers | default {}
+    let cookies = $headers | get -o Set-Cookie | default [] | append $header
     $m | upsert "http.response" ($resp | upsert headers ($headers | upsert Set-Cookie $cookies))
   }
 }
@@ -72,9 +72,9 @@ export def "cookie delete" [
       "Max-Age=0"
       (if $domain != null { $"Domain=($domain)" })
     ] | compact | str join "; ")
-    let resp = $m | get -i "http.response" | default {}
-    let headers = $resp | get -i headers | default {}
-    let cookies = $headers | get -i Set-Cookie | default [] | append $header
+    let resp = $m | get -o "http.response" | default {}
+    let headers = $resp | get -o headers | default {}
+    let cookies = $headers | get -o Set-Cookie | default [] | append $header
     $m | upsert "http.response" ($resp | upsert headers ($headers | upsert Set-Cookie $cookies))
   }
 }

@@ -46,6 +46,7 @@ func (m *HttpNu) DarwinBuild(ctx context.Context, src *dagger.Directory, version
 		WithExec([]string{"./scripts/cross-build-darwin.sh", "--release"})
 
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/http-nu-` + version + `
 		cp /app/target/aarch64-apple-darwin/release/http-nu /tmp/http-nu-` + version + `/
 		cd /tmp
@@ -87,6 +88,7 @@ func (m *HttpNu) WindowsBuild(ctx context.Context, src *dagger.Directory, versio
 		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-pc-windows-gnu"})
 
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/http-nu-` + version + `
 		cp /app/target/x86_64-pc-windows-gnu/release/http-nu.exe /tmp/http-nu-` + version + `/
 		cd /tmp
@@ -113,6 +115,7 @@ func (m *HttpNu) LinuxArm64Build(ctx context.Context, src *dagger.Directory, ver
 		WithExec([]string{"cargo", "build", "--release", "--target", "aarch64-unknown-linux-musl"})
 
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/http-nu-` + version + `
 		cp /app/target/aarch64-unknown-linux-musl/release/http-nu /tmp/http-nu-` + version + `/
 		cd /tmp
@@ -139,6 +142,7 @@ func (m *HttpNu) LinuxAmd64Build(ctx context.Context, src *dagger.Directory, ver
 		WithExec([]string{"cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl"})
 
 	container = container.WithExec([]string{"sh", "-c", `
+		set -e
 		mkdir -p /tmp/http-nu-` + version + `
 		cp /app/target/x86_64-unknown-linux-musl/release/http-nu /tmp/http-nu-` + version + `/
 		cd /tmp

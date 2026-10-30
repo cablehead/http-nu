@@ -144,6 +144,22 @@ fn test_eval_with_plugin() {
 }
 
 #[test]
+fn test_eval_plugin_stop_respawns() {
+    let plugin_path = workspace_bin("nu_plugin_test");
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args([
+            "eval",
+            "--plugin",
+            plugin_path.to_str().unwrap(),
+            "-c",
+            "let a = test-plugin-pid; plugin stop test; let b = test-plugin-pid; [($a != $b) ($b == (plugin list --engine | get pid.0))] | to nuon",
+        ])
+        .assert()
+        .success()
+        .stdout("[true, true]\n");
+}
+
+#[test]
 fn test_eval_include_path() {
     let dir = TempDir::new().unwrap();
     let module_path = dir.path().join("mymod.nu");
@@ -302,6 +318,27 @@ fn test_eval_store_append_and_cat() {
         .assert()
         .success()
         .stdout("hi\n");
+}
+
+/// An `XS_APPEND_META` inherited from the parent (e.g. http-nu launched from
+/// an xs service) must not be stamped on frames appended here.
+#[test]
+fn test_eval_store_ignores_inherited_append_meta() {
+    let dir = TempDir::new().unwrap();
+    let store_path = dir.path().to_str().unwrap();
+
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .env("XS_APPEND_META", r#"{"service_id":"foreign"}"#)
+        .args([
+            "eval",
+            "--store",
+            store_path,
+            "-c",
+            r#""x" | .append t; .last t | get meta | to nuon"#,
+        ])
+        .assert()
+        .success()
+        .stdout("{}\n");
 }
 
 #[test]

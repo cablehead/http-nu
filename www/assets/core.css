@@ -142,6 +142,46 @@ strong {
   color: var(--color-text-header);
 }
 
+/* A heading that links to itself. */
+h2 > a {
+  text-decoration: none;
+}
+
+/* Contents: a collapsed <details> at the top of a docs page when narrow, a
+   sticky sidebar beside the article when wide. The body is capped at 1020px,
+   so the sidebar stays narrow to leave the article room. */
+nav[aria-label="contents"] summary {
+  cursor: pointer;
+  color: var(--color-text-header);
+  font-weight: 700;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+nav[aria-label="contents"] ul {
+  list-style: none;
+  padding-left: 0;
+}
+nav[aria-label="contents"] a {
+  text-decoration: none;
+}
+@media (min-width: 64rem) {
+  main:has(> nav[aria-label="contents"]) {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 48rem);
+    gap: 2rem;
+  }
+  nav[aria-label="contents"] {
+    position: sticky;
+    top: 2rem;
+    align-self: start;
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+  }
+  nav[aria-label="contents"] summary {
+    display: none;
+  }
+}
+
 /* ==========================================================================
    3. UTILITY CLASSES
    Single-purpose classes following Tailwind conventions

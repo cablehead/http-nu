@@ -60,12 +60,23 @@ impl Engine {
         engine_state = add_shell_command_context(engine_state);
         engine_state = add_cli_context(engine_state);
         engine_state = nu_cmd_extra::extra::add_extra_command_context(engine_state);
+        engine_state = nu_cmd_plugin::add_plugin_command_context(engine_state);
 
         load_http_nu_stdlib(&mut engine_state)?;
         nu_std::load_standard_library(&mut engine_state)?;
 
         let init_cwd = std::env::current_dir()?;
         gather_parent_env_vars(&mut engine_state, init_cwd.as_ref());
+
+        // xs's `.append` stamps `$env.XS_APPEND_META` onto every frame, and xs
+        // sets it per processor instance. One inherited from the parent (an
+        // http-nu started from an xs service, or from a shell inside one)
+        // would stamp that foreign identity on frames appended here. xs strips
+        // it from its own engines for the same reason.
+        let append_meta = nu_protocol::engine::EnvName::from("XS_APPEND_META".to_string());
+        for vars in Arc::make_mut(&mut engine_state.env_vars).values_mut() {
+            vars.remove(&append_meta);
+        }
 
         Ok(Self {
             state: engine_state,
@@ -375,7 +386,7 @@ impl Engine {
             state: std::mem::replace(&mut self.state, EngineState::new()),
         };
         let res = xs::nu::add_core_commands(&mut xe, store)
-            .and_then(|()| xs::nu::add_read_commands(&mut xe, store, xs::nu::ReadMode::Stream))
+            .and_then(|()| xs::nu::add_read_commands(&mut xe, store))
             .and_then(|()| xs::nu::add_write_commands(&mut xe, store, xs::nu::AppendMode::Direct));
         self.state = xe.state;
         res.map_err(|e| Error::from(e.to_string()))
@@ -389,6 +400,37 @@ impl Engine {
             Box::new(MjCompileCommand::with_store(store.clone())),
         ])
     }
+
+    /// Add http-nu's `.mj` (store-backed), `.md`, and highlight commands to this
+    /// engine, to use as an xs processor base via `Store::with_base_engine` so
+    /// actors, services, and actions can use them. See xs ADR 0007.
+    #[cfg(feature = "cross-stream")]
+    pub fn add_processor_commands(&mut self, store: &xs::store::Store) -> Result<(), Error> {
+        self.add_commands(vec![
+            Box::new(MjCommand::with_store(store.clone())),
+            Box::new(MjCompileCommand::with_store(store.clone())),
+            Box::new(MjRenderCommand::new()),
+            Box::new(MdCommand::new()),
+            Box::new(HighlightCommand::new()),
+            Box::new(HighlightThemeCommand::new()),
+            Box::new(HighlightLangCommand::new()),
+        ])
+    }
+}
+
+/// Runs `f`, which may evaluate Nushell, without stalling the tokio runtime.
+///
+/// xs's `.cat` and `.last` park the calling thread on `blocking_recv`, which
+/// panics on a runtime worker. Scripts are loaded from async context (startup,
+/// hot reload, `eval`), and a script's top level can call either command, so
+/// on a multi-threaded runtime `f` runs via `block_in_place`. Elsewhere (plain
+/// threads, handler workers, current-thread runtimes) it runs directly.
+pub fn off_runtime<R>(f: impl FnOnce() -> R) -> R {
+    use tokio::runtime::{Handle, RuntimeFlavor};
+    match Handle::try_current() {
+        Ok(h) if h.runtime_flavor() == RuntimeFlavor::MultiThread => tokio::task::block_in_place(f),
+        _ => f(),
+    }
 }
 
 /// Creates an engine from a script by cloning a base engine and parsing the closure.
@@ -398,7 +440,7 @@ pub fn script_to_engine(base: &Engine, script: &str, file: Option<&Path>) -> Opt
     // Fresh cancellation token for this engine instance
     engine.sse_cancel_token = CancellationToken::new();
 
-    if let Err(e) = engine.parse_closure(script, file) {
+    if let Err(e) = off_runtime(|| engine.parse_closure(script, file)) {
         log_error(&nu_utils::strip_ansi_string_likely(e.to_string()));
         return None;
     }

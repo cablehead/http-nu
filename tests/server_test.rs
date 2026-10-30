@@ -406,6 +406,38 @@ async fn test_server_reverse_proxy() {
     assert_eq!(stdout.trim(), "Backend: GET /test bar proxy-added");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn test_server_reverse_proxy_unix_socket() {
+    // Start a backend server on a UNIX domain socket.
+    let tmp = tempfile::tempdir().unwrap();
+    let socket_path = tmp.path().join("backend.sock");
+    let socket_path_str = socket_path.to_str().unwrap();
+    let backend = TestServer::new(
+        socket_path_str,
+        r#"{|req| $"Backend: ($req.method) ($req.path) ($req.query.foo) ($in)"}"#,
+        false,
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Start a proxy server that forwards to it with a unix: target.
+    let proxy_closure = format!(r#"{{|req| .reverse-proxy "unix:{}" }}"#, backend.address);
+    let proxy = TestServer::new("127.0.0.1:0", &proxy_closure, false).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // The path, query and body reach the backend.
+    let mut cmd = tokio::process::Command::new("curl");
+    cmd.arg("-s")
+        .arg("-d")
+        .arg("hello")
+        .arg(format!("{}/test?foo=bar", proxy.address));
+    let output = cmd.output().await.unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "Backend: POST /test bar hello");
+}
+
 #[tokio::test]
 async fn test_server_reverse_proxy_strip_prefix() {
     // Start a backend server that returns the request path.
@@ -689,6 +721,8 @@ async fn test_server_unix_graceful_shutdown() {
     server.send_ctrl_c();
     let status = server.wait_for_exit().await;
     assert!(status.success());
+    // The socket's file goes with the server.
+    assert!(!socket_path.exists());
 }
 
 /// Tests that inflight requests complete during graceful shutdown.
@@ -1338,34 +1372,59 @@ async fn test_plugin_loading() {
 }
 
 /// Tests that plugin process is shared across requests (not spawned per-request).
-/// The test plugin has a 100ms startup delay. If plugins were spawned per-request,
-/// 10 requests would take at least 1000ms. With shared plugins, it should complete
-/// well under 200ms total.
+/// The plugin reports its own process id, so every request must see the same
+/// one. Checked directly rather than by timing, which flaked on CI runners.
 #[tokio::test]
 async fn test_plugin_process_shared_across_requests() {
     let plugin_path = workspace_bin("nu_plugin_test");
     let server = TestServer::new_with_plugins(
         "127.0.0.1:0",
-        "{|req| test-plugin-cmd}",
+        "{|req| test-plugin-pid | into string}",
         false,
         &[plugin_path],
     )
     .await;
 
-    let start = std::time::Instant::now();
-
+    let mut pids = std::collections::HashSet::new();
     for _ in 0..10 {
         let output = server.curl("/").await;
         assert!(output.status.success());
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert_eq!(stdout.trim(), "PLUGIN_WORKS");
+        let pid: u32 = stdout.trim().parse().expect("plugin pid");
+        pids.insert(pid);
     }
 
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_millis(400),
-        "10 requests took {elapsed:?}, expected < 400ms (plugin should be shared, not spawned per-request)"
+    assert_eq!(
+        pids.len(),
+        1,
+        "requests saw plugin pids {pids:?}; the plugin should be shared, not spawned per-request"
     );
+}
+
+/// Tests that `plugin list --engine` is available to served scripts and reports
+/// the running plugin's pid, matching the pid the plugin reports for itself.
+#[tokio::test]
+async fn test_plugin_list_engine() {
+    let plugin_path = workspace_bin("nu_plugin_test");
+    let server = TestServer::new_with_plugins(
+        "127.0.0.1:0",
+        r#"{|req|
+            let own = test-plugin-pid
+            let listed = plugin list --engine | where name == test | get pid.0
+            {own: $own, listed: $listed, status: (plugin list --engine | get status.0)} | to json -r
+        }"#,
+        false,
+        &[plugin_path],
+    )
+    .await;
+
+    let output = server.curl("/").await;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).expect("json response");
+    assert_eq!(v["status"], "running");
+    assert!(v["own"].as_i64().is_some(), "missing plugin pid: {v}");
+    assert_eq!(v["own"], v["listed"]);
 }
 
 // ============================================================================
@@ -1936,6 +1995,31 @@ async fn test_store_cat_follow_receives_appended_frames() {
 
     // Clean up
     let _ = stream_child.kill().await;
+}
+
+/// Regression: a script whose top level reads the store is evaluated from
+/// async context at load. xs's `.cat` / `.last` park the calling thread, which
+/// panicked the server on a tokio worker before loads moved off the runtime.
+#[cfg(feature = "cross-stream")]
+#[tokio::test]
+async fn test_store_read_at_script_top_level() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store_path = tmp.path().join("store");
+
+    let server = TestServer::new_with_store(
+        "127.0.0.1:0",
+        r#"
+        let n = .cat -T ping | length
+        let last = .last ping
+        {|req| $"cat=($n) last=($last == null)" }
+        "#,
+        &store_path,
+    )
+    .await;
+
+    let output = server.curl("/").await;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "cat=0 last=true");
 }
 
 /// Tests that --services enables xs handlers
@@ -3133,4 +3217,133 @@ async fn test_bus_sub_glob_filters_unmatching() {
         .expect("sub timed out")
         .expect("sub task panicked");
     assert_eq!(topic, "tab-abc.compose.close");
+}
+
+/// Threads in a process, from /proc (Linux only).
+#[cfg(target_os = "linux")]
+fn thread_count(pid: u32) -> usize {
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .expect("read /proc status")
+        .lines()
+        .find_map(|l| l.strip_prefix("Threads:"))
+        .and_then(|n| n.trim().parse().ok())
+        .expect("Threads: line")
+}
+
+/// Opens ten streams that each hang up after 1s, then checks the server's
+/// thread count is back near its baseline. Nothing is published or appended
+/// here, so any thread a disconnected stream left behind would still be
+/// counted at the end.
+#[cfg(target_os = "linux")]
+async fn assert_streams_released_on_disconnect(server: &TestServer, what: &str) {
+    let pid = server.child.id().expect("server pid");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // warm up: one stream in and out, so the baseline includes whatever a
+    // request needs regardless of this bug
+    let url = server.address.clone();
+    // Each client hangs up after 1s. A live stream sends nothing, so curl
+    // must end on its own timeout (exit 28): a stream that errored or ended
+    // early would pass the thread count without testing anything.
+    let open = |n: usize| {
+        let url = url.clone();
+        async move {
+            let mut clients = Vec::new();
+            for _ in 0..n {
+                clients.push(
+                    tokio::process::Command::new("curl")
+                        .args(["-sN", "--max-time", "1", &url])
+                        .output(),
+                );
+            }
+            for out in futures_util::future::join_all(clients).await {
+                let out = out.expect("curl");
+                assert_eq!(
+                    out.status.code(),
+                    Some(28),
+                    "{what} was not live for the whole second: {}",
+                    String::from_utf8_lossy(&out.stdout)
+                );
+            }
+        }
+    };
+    open(1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let before = thread_count(pid);
+
+    open(10).await; // ten streams, each dropped after 1s
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let after = thread_count(pid);
+
+    assert!(
+        after <= before + 2,
+        "threads {before} -> {after} after 10 {what} streams disconnected: they are leaking"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn test_bus_sub_released_when_client_disconnects() {
+    // A subscriber whose client has gone must not linger until the next
+    // matching publish.
+    let closure =
+        r#"{|req| .bus sub "nobody.publishes.*" | each {|e| {data: $e.topic} } | to sse }"#;
+    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+    assert_streams_released_on_disconnect(&server, ".bus sub").await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn test_cat_follow_released_when_client_disconnects() {
+    // A follower whose client has gone must not park until the next frame on
+    // its topic (cablehead/xs#164, fixed in cross-stream 0.14.1).
+    let tmp = tempfile::tempdir().unwrap();
+    let closure = r#"{|req|
+        .cat --follow -T "nobody.appends" | each {|f| {data: $f.topic} } | to sse
+    }"#;
+    let server =
+        TestServer::new_with_store("127.0.0.1:0", closure, &tmp.path().join("store")).await;
+    assert_streams_released_on_disconnect(&server, ".cat --follow").await;
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn test_last_follow_released_when_client_disconnects() {
+    // `.last --follow` has the same follow loop as `.cat --follow`.
+    let tmp = tempfile::tempdir().unwrap();
+    let closure = r#"{|req|
+        .last "nobody.appends" --follow | each {|f| {data: $f.topic} } | to sse
+    }"#;
+    let server =
+        TestServer::new_with_store("127.0.0.1:0", closure, &tmp.path().join("store")).await;
+    assert_streams_released_on_disconnect(&server, ".last --follow").await;
+}
+
+#[tokio::test]
+async fn test_finite_streams_end() {
+    // A response that streams and then finishes must close once the closure
+    // is done, for a list stream and a byte stream alike. curl waits for the
+    // end of the body; a response left open ends on its timeout (exit 28).
+    let closure = r#"{|req|
+        if $req.path == "/list" { 1..3 | each {|n| $"($n)\n" } } else { ^printf "a\nb\n" }
+    }"#;
+    let server = TestServer::new("127.0.0.1:0", closure, false).await;
+    for (path, want) in [("/list", "1\n2\n3\n"), ("/bytes", "a\nb\n")] {
+        let out = tokio::process::Command::new("curl")
+            .args([
+                "-sN",
+                "--max-time",
+                "5",
+                &format!("{}{path}", server.address),
+            ])
+            .output()
+            .await
+            .expect("curl");
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{path}: the response never ended (curl exit 28 is its timeout)"
+        );
+        assert_eq!(String::from_utf8_lossy(&out.stdout), want, "{path}");
+    }
 }

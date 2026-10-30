@@ -13,8 +13,9 @@ jobs:
   test:
     name: Test - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     strategy:
+      # run every platform even if one fails, but still fail the workflow
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
@@ -29,7 +30,7 @@ jobs:
     - name: Install Nushell
       uses: hustcer/setup-nu@v3
       with:
-        version: "0.113.1"
+        version: "0.116.0"
 
     - name: Install Rust
       run: |

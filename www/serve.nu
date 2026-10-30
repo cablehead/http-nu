@@ -66,7 +66,7 @@ def svg-bottom [] {
 # Components
 
 def section-header [title: string ...children] {
-  let slug = $title | str downcase | str replace -a ' ' '-'
+  let slug = $title | str lowercase | str replace -a ' ' '-'
   DIV {id: $slug class: [text-3xl mb-4 font-mono font-bold text-header flex items-center gap-4]} [
     (A {href: $"#($slug)"} $title)
     ...$children
@@ -168,6 +168,57 @@ def copy-script [] {
 def inject-copy-btns []: record -> record {
   let btn = (copy-btn).__html
   {__html: ($in.__html | str replace -a '<pre>' $'<pre>($btn)')}
+}
+
+# Cache-buster for a file in assets/: a short hash of its contents, so a URL
+# with ?v=<rev> changes exactly when the file does.
+def asset-rev [file: string]: nothing -> string {
+  open --raw ($script_dir | path join assets $file) | hash md5 | str substring 0..7
+}
+
+# A heading's id: its title, lowercase, with each run of other characters as one -.
+def heading-slug []: string -> string {
+  str downcase | str replace -a -r '[^a-z0-9]+' '-' | str trim --char '-'
+}
+
+# Give each h2 an id and a link to itself, and list them as {title, id} for
+# the contents nav.
+def anchor-sections []: record -> record {
+  let html = $in.__html
+  let sections = $html | parse -r '<h2>(?<title>.*?)</h2>' | each {|h| {title: $h.title id: ($h.title | heading-slug)} }
+  let html = $sections | reduce --fold $html {|s, acc|
+    $acc | str replace $"<h2>($s.title)</h2>" $"<h2 id=\"($s.id)\"><a href=\"#($s.id)\">($s.title)</a></h2>"
+  }
+  {content: {__html: $html} sections: $sections}
+}
+
+# The contents: a sticky sidebar when the page is wide, always open, and a
+# collapsed <details> at the top when narrow, closing again once a section is
+# picked. The script runs before the article, so the page is first shown with
+# the contents already open or closed.
+def contents-nav [sections: list] {
+  [
+    (
+      NAV {aria-label: "contents"} (
+        DETAILS [
+          (SUMMARY "Contents")
+          (UL { $sections | each {|s| LI (A {href: $"#($s.id)"} {__html: $s.title}) } })
+        ]
+      )
+    )
+    {__html: r#'<script>
+(function() {
+  var contents = document.querySelector('nav[aria-label="contents"] details');
+  var wide = window.matchMedia('(min-width: 64rem)');
+  var fit = function() { contents.open = wide.matches; };
+  wide.addEventListener('change', fit);
+  fit();
+  contents.addEventListener('click', function(e) {
+    if (!wide.matches && e.target.closest('a')) contents.open = false;
+  });
+})();
+</script>'#}
+  ]
 }
 
 def code-block [] {
@@ -383,7 +434,7 @@ def install-section [] {
   ]
 }
 
-def docs-page [title: string content] {
+def docs-page [title: string content sections: list] {
   HTML [
     (
       HEAD [
@@ -393,14 +444,19 @@ def docs-page [title: string content] {
         (LINK {rel: "preconnect" href: "https://fonts.googleapis.com"})
         (LINK {rel: "preconnect" href: "https://fonts.gstatic.com" crossorigin: true})
         (LINK {rel: "stylesheet" href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap"})
-        (LINK {rel: "stylesheet" href: "/core.css"})
+        (LINK {rel: "stylesheet" href: $"/core.css?v=(asset-rev core.css)"})
         (LINK {rel: "stylesheet" href: "/syntax.css"})
       ]
     )
     (
       BODY {class: [p-2 md:p-8]} [
         (header-bar)
-        (ARTICLE {class: [max-w-3xl mt-8]} $content)
+        (
+          MAIN {class: "mt-8"} [
+            ...(contents-nav $sections)
+            (ARTICLE {class: "max-w-3xl"} $content)
+          ]
+        )
         (copy-script)
       ]
     )
@@ -436,7 +492,7 @@ let examples = source ../examples/serve.nu
               (LINK {rel: "preconnect" href: "https://fonts.googleapis.com"})
               (LINK {rel: "preconnect" href: "https://fonts.gstatic.com" crossorigin: true})
               (LINK {rel: "stylesheet" href: "https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;700&family=Source+Sans+3:wght@400;700&display=swap"})
-              (LINK {rel: "stylesheet" href: "/core.css"})
+              (LINK {rel: "stylesheet" href: $"/core.css?v=(asset-rev core.css)"})
               (LINK {rel: "stylesheet" href: "/syntax.css"})
               (SCRIPT {type: "module" src: $DATASTAR_JS_PATH})
               (SCRIPT {src: "https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"})
@@ -502,8 +558,8 @@ let examples = source ../examples/serve.nu
 
     (
       route {method: GET path: "/docs/getting-started"} {|req ctx|
-        let content = open --raw ($script_dir | path join content/getting-started.md) | decode utf-8 | .md | inject-copy-btns
-        docs-page "Getting Started" $content
+        let page = open --raw ($script_dir | path join content/getting-started.md) | decode utf-8 | .md | inject-copy-btns | anchor-sections
+        docs-page "Getting Started" $page.content $page.sections
       }
     )
 
