@@ -11,6 +11,22 @@ export def SCRIPT-DATASTAR []: nothing -> record {
   {__html: $'<script type="module" src="($DATASTAR_JS_PATH)"></script>'}
 }
 
+# The bundle that includes Rocket, Datastar's web-component API, served under
+# --datastar-rocket in place of the core bundle above. A page loads one or the
+# other, never both: the Rocket bundle carries all of Datastar.
+export const DATASTAR_ROCKET_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar-rocket.js"
+export const DATASTAR_ROCKET_JS_PATH = "/datastar-rocket@1.0.4.js"
+
+# Loads the bundle, after an import map that names it `datastar`. A component
+# shipped as its own module (ptyZZZ's <pty-term>, say) then writes
+# `import { rocket } from "datastar"` and shares this one copy, without knowing
+# where the page serves it. The import map must come before any module script,
+# so put this first in the head.
+export def SCRIPT-DATASTAR-ROCKET []: nothing -> record {
+  let imports = {imports: {datastar: $DATASTAR_ROCKET_JS_PATH}} | to json --raw
+  {__html: $'<script type="importmap">($imports)</script><script type="module" src="($DATASTAR_ROCKET_JS_PATH)"></script>'}
+}
+
 # Patch HTML elements via SSE
 #
 # Returns a record for `to sse`. Pipe the result to `to sse` for output.

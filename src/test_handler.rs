@@ -15,6 +15,7 @@ fn default_config() -> Arc<AppConfig> {
     Arc::new(AppConfig {
         trusted_proxies: vec![],
         datastar: false,
+        datastar_rocket: false,
         dev: false,
     })
 }
