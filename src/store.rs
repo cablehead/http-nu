@@ -30,33 +30,25 @@ impl Store {
     }
 
     /// Create the store and spawn the API server and optional services.
+    ///
+    /// `base` is the engine the processors (actors, services, actions) start
+    /// from: pass one with the --plugin plugins already loaded, and its
+    /// clones share their processes.
     pub async fn init(
         path: std::path::PathBuf,
         services: bool,
         expose: Option<String>,
-        plugins: &[std::path::PathBuf],
+        mut base: crate::Engine,
     ) -> Result<Self, xs::store::StoreError> {
         let inner = xs::store::Store::new(path.clone())?;
 
         // Hand the processors a base engine with http-nu's `.mj`, `.md`, and
-        // highlight commands, and the --plugin plugins, so actors, services,
-        // and actions can use them, not just HTTP handlers. prepared_base
-        // clones this base per spawn. See xs ADR 0007. Set before any clone
-        // so all share it.
-        let inner = {
-            let mut base = crate::Engine::new().expect("Failed to build processor base engine");
-            base.add_processor_commands(&inner)
-                .expect("Failed to register processor base commands");
-            for plugin in plugins {
-                base.load_plugin(plugin).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to load plugin {} for processors: {e}",
-                        plugin.display()
-                    )
-                });
-            }
-            inner.with_base_engine(base.state)
-        };
+        // highlight commands so actors, services, and actions can use them, not
+        // just HTTP handlers. prepared_base clones this base per spawn. See xs
+        // ADR 0007. Set before any clone so all share it.
+        base.add_processor_commands(&inner)
+            .expect("Failed to register processor base commands");
+        let inner = inner.with_base_engine(base.state);
 
         // API server
         let store_for_api = inner.clone();

@@ -187,6 +187,18 @@ if $out == null { error make {msg: $"no output; the actor's last frame: (.cat | 
         .stdout("PLUGIN_WORKS\n");
 }
 
+/// A plugin that cannot load stops startup with an error naming its path.
+#[test]
+fn test_eval_plugin_missing() {
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "--plugin", "/nope/nu_plugin_missing", "-c", "1"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "failed to load plugin /nope/nu_plugin_missing",
+        ));
+}
+
 #[test]
 fn test_eval_plugin_stop_respawns() {
     let plugin_path = workspace_bin("nu_plugin_test");

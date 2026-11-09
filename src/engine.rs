@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{atomic::AtomicBool, Arc};
 
 use tokio_util::sync::CancellationToken;
@@ -123,42 +123,30 @@ impl Engine {
         Ok(())
     }
 
-    /// Load a Nushell plugin from the given path
-    pub fn load_plugin(&mut self, path: &Path) -> Result<(), Error> {
-        // Canonicalize the path
-        let path = path.canonicalize().map_err(|e| {
-            Error::from(format!("Failed to canonicalize plugin path {path:?}: {e}"))
-        })?;
-
-        // Create the plugin identity
-        let identity = PluginIdentity::new(&path, None).map_err(|_| {
-            Error::from(format!(
-                "Invalid plugin path {path:?}: must be named nu_plugin_*"
-            ))
-        })?;
-
+    /// Register Nushell plugin binaries (`nu_plugin_*`) in one working set and
+    /// one merge. Each plugin is spawned once to read its signatures, so a bad
+    /// path or an incompatible plugin fails here, naming the path. Clones of
+    /// this engine share one process per plugin.
+    pub fn load_plugins(&mut self, paths: &[PathBuf]) -> Result<(), Error> {
         let mut working_set = StateWorkingSet::new(&self.state);
-
-        // Add plugin to working set and get handle
-        let plugin = nu_plugin_engine::add_plugin_to_working_set(&mut working_set, &identity)?;
-
-        // Merge working set to make plugin available
-        self.state.merge_delta(working_set.render())?;
-
-        // Spawn the plugin to get its signatures
-        let interface = plugin.clone().get_plugin(None)?;
-
-        // Set plugin metadata
-        plugin.set_metadata(Some(interface.get_metadata()?));
-
-        // Add command declarations from plugin signatures
-        let mut working_set = StateWorkingSet::new(&self.state);
-        for signature in interface.get_signature()? {
-            let decl = PluginDeclaration::new(plugin.clone(), signature);
-            working_set.add_decl(Box::new(decl));
+        for path in paths {
+            let mut load = || -> Result<(), Error> {
+                let filename = path.canonicalize()?;
+                let identity = PluginIdentity::new(&filename, None)
+                    .map_err(|_| "file name must start with nu_plugin_")?;
+                let plugin =
+                    nu_plugin_engine::add_plugin_to_working_set(&mut working_set, &identity)?;
+                let interface = plugin.clone().get_plugin(None)?;
+                plugin.set_metadata(Some(interface.get_metadata()?));
+                for signature in interface.get_signature()? {
+                    working_set
+                        .add_decl(Box::new(PluginDeclaration::new(plugin.clone(), signature)));
+                }
+                Ok(())
+            };
+            load().map_err(|e| format!("failed to load plugin {}: {e}", path.display()))?;
         }
         self.state.merge_delta(working_set.render())?;
-
         Ok(())
     }
 
