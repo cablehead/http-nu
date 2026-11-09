@@ -629,7 +629,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // eval. Without --store this flag is a no-op (we never enter
             // this branch); the dispatcher needs a real keyspace.
             let eval_store = if services {
-                Store::init(path.clone(), true, args.expose.clone()).await?
+                Store::init(path.clone(), true, args.expose.clone(), &args.plugins).await?
             } else {
                 let xs_store = xs::store::Store::new(path.clone())?;
                 Store::from_inner(xs_store, path.clone())
@@ -679,7 +679,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     #[cfg(feature = "cross-stream")]
     let mut store = match args.store {
         Some(ref path) => {
-            match Store::init(path.clone(), args.services, args.expose.clone()).await {
+            match Store::init(
+                path.clone(),
+                args.services,
+                args.expose.clone(),
+                &args.plugins,
+            )
+            .await
+            {
                 Ok(store) => Some(store),
                 Err(e) => {
                     eprintln!("Failed to open store at {}: {e}", path.display());
