@@ -158,19 +158,14 @@ enum Command {
 /// Creates and configures the base engine with all commands, signals, and ctrlc handler.
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
-    plugins: &[PathBuf],
+    mut engine: Engine,
     include_paths: &[PathBuf],
     store: Option<&Store>,
     options: &HttpNuOptions,
 ) -> Result<Engine, Box<dyn std::error::Error + Send + Sync>> {
-    let mut engine = Engine::new()?;
     engine.add_custom_commands()?;
     engine.set_lib_dirs(include_paths)?;
     engine.set_http_nu_const(options)?;
-
-    for plugin_path in plugins {
-        engine.load_plugin(plugin_path)?;
-    }
 
     if let Some(store) = store {
         store.configure_engine(&mut engine)?;
@@ -604,7 +599,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             (None, Some(cmd)) => (cmd.clone(), None),
         };
 
+        // Plugins load once; the processors' base engine is a clone.
         let mut engine = Engine::new()?;
+        engine.load_plugins(&args.plugins)?;
+        #[cfg(feature = "cross-stream")]
+        let plugin_engine = engine.clone();
         engine.add_custom_commands()?;
         engine.set_lib_dirs(&args.include_paths)?;
 
@@ -629,7 +628,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // eval. Without --store this flag is a no-op (we never enter
             // this branch); the dispatcher needs a real keyspace.
             let eval_store = if services {
-                Store::init(path.clone(), true, args.expose.clone()).await?
+                Store::init(path.clone(), true, args.expose.clone(), plugin_engine).await?
             } else {
                 let xs_store = xs::store::Store::new(path.clone())?;
                 Store::from_inner(xs_store, path.clone())
@@ -638,10 +637,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         } else if services {
             eprintln!("Error: --services requires --store");
             std::process::exit(1);
-        }
-
-        for plugin_path in &args.plugins {
-            engine.load_plugin(plugin_path)?;
         }
 
         engine.set_signals(interrupt.clone());
@@ -675,11 +670,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create channel for engines
     let (tx, rx) = mpsc::channel::<Engine>(1);
 
+    // Plugins load once. The handler engine and the store's processors both
+    // start from clones of this engine, so they share one process per plugin.
+    let mut plugin_engine = Engine::new()?;
+    plugin_engine.load_plugins(&args.plugins)?;
+
     // Create cross.stream store if --store is specified
     #[cfg(feature = "cross-stream")]
     let mut store = match args.store {
         Some(ref path) => {
-            match Store::init(path.clone(), args.services, args.expose.clone()).await {
+            match Store::init(
+                path.clone(),
+                args.services,
+                args.expose.clone(),
+                plugin_engine.clone(),
+            )
+            .await
+            {
                 Ok(store) => Some(store),
                 Err(e) => {
                     eprintln!("Failed to open store at {}: {e}", path.display());
@@ -726,7 +733,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Create base engine with commands, signals, and plugins
     let base_engine = create_base_engine(
         interrupt.clone(),
-        &args.plugins,
+        plugin_engine,
         &args.include_paths,
         store.as_ref(),
         &http_nu_options,

@@ -143,6 +143,62 @@ fn test_eval_with_plugin() {
         .stdout("PLUGIN_WORKS\n");
 }
 
+/// A --plugin command works inside an actor too, not only in the script:
+/// the processors' base engine loads the same plugins.
+#[cfg(feature = "cross-stream")]
+#[test]
+fn test_eval_plugin_in_actor() {
+    let plugin_path = workspace_bin("nu_plugin_test");
+    let dir = TempDir::new().unwrap();
+    let store = dir.path().join("store");
+    let script = r##"
+r#'{run: {|frame, state| test-plugin-cmd | .append p.out}}'# | .append xs.actor.p.create | ignore
+mut started: any = null
+for _ in 1..100 {
+  $started = (.last xs.actor.p.active | default (.last xs.actor.p.invalid))
+  if $started != null { break }
+  sleep 50ms
+}
+if $started.topic != "xs.actor.p.active" { error make {msg: $"actor did not start: ($started | to nuon)"} }
+.append go | ignore
+mut out: any = null
+for _ in 1..100 {
+  $out = (.last p.out)
+  if $out != null { break }
+  sleep 50ms
+}
+if $out == null { error make {msg: $"no output; the actor's last frame: (.cat | where topic starts-with 'xs.actor.p' | last | to nuon)"} }
+.cas $out.hash
+"##;
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args([
+            "eval",
+            "--store",
+            store.to_str().unwrap(),
+            "--services",
+            "--plugin",
+            plugin_path.to_str().unwrap(),
+            "-c",
+            script,
+        ])
+        .timeout(std::time::Duration::from_secs(60))
+        .assert()
+        .success()
+        .stdout("PLUGIN_WORKS\n");
+}
+
+/// A plugin that cannot load stops startup with an error naming its path.
+#[test]
+fn test_eval_plugin_missing() {
+    Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["eval", "--plugin", "/nope/nu_plugin_missing", "-c", "1"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "failed to load plugin /nope/nu_plugin_missing",
+        ));
+}
+
 #[test]
 fn test_eval_plugin_stop_respawns() {
     let plugin_path = workspace_bin("nu_plugin_test");

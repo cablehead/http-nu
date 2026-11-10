@@ -30,10 +30,15 @@ impl Store {
     }
 
     /// Create the store and spawn the API server and optional services.
+    ///
+    /// `base` is the engine the processors (actors, services, actions) start
+    /// from: pass one with the --plugin plugins already loaded, and its
+    /// clones share their processes.
     pub async fn init(
         path: std::path::PathBuf,
         services: bool,
         expose: Option<String>,
+        mut base: crate::Engine,
     ) -> Result<Self, xs::store::StoreError> {
         let inner = xs::store::Store::new(path.clone())?;
 
@@ -41,12 +46,9 @@ impl Store {
         // highlight commands so actors, services, and actions can use them, not
         // just HTTP handlers. prepared_base clones this base per spawn. See xs
         // ADR 0007. Set before any clone so all share it.
-        let inner = {
-            let mut base = crate::Engine::new().expect("Failed to build processor base engine");
-            base.add_processor_commands(&inner)
-                .expect("Failed to register processor base commands");
-            inner.with_base_engine(base.state)
-        };
+        base.add_processor_commands(&inner)
+            .expect("Failed to register processor base commands");
+        let inner = inner.with_base_engine(base.state);
 
         // API server
         let store_for_api = inner.clone();
