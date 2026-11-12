@@ -1,9 +1,6 @@
 use std::io::Read;
 use std::path::PathBuf;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
@@ -155,7 +152,7 @@ enum Command {
     },
 }
 
-/// Creates and configures the base engine with all commands, signals, and ctrlc handler.
+/// Creates and configures the base engine with all commands and signals.
 fn create_base_engine(
     interrupt: Arc<AtomicBool>,
     mut engine: Engine,
@@ -171,8 +168,7 @@ fn create_base_engine(
         store.configure_engine(&mut engine)?;
     }
 
-    engine.set_signals(interrupt.clone());
-    setup_ctrlc_handler(&engine, interrupt)?;
+    engine.set_signals(interrupt);
     Ok(engine)
 }
 
@@ -458,15 +454,20 @@ async fn serve(
     if inflight > 0 {
         log_stopping(inflight);
 
+        // Ctrl-C drains like SIGTERM; a second Ctrl-C stops the wait.
         tokio::select! {
             _ = graceful.shutdown() => {}
             _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                timed_out = true;
+            }
+            _ = signal::ctrl_c() => {
                 timed_out = true;
             }
         }
     }
 
     if timed_out {
+        kill_jobs(&engine.load());
         log_stop_timed_out();
     } else {
         log_stopped();
@@ -499,27 +500,16 @@ async fn shutdown_signal() {
     }
 }
 
-/// Sets up Ctrl-C handling
-fn setup_ctrlc_handler(
-    engine: &Engine,
-    interrupt: Arc<AtomicBool>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    ctrlc::set_handler({
-        let interrupt = interrupt.clone();
-        let engine_state = engine.state.clone();
-        move || {
-            interrupt.store(true, Ordering::Relaxed);
-            // Kill all active jobs
-            if let Ok(mut jobs) = engine_state.jobs.lock() {
-                let job_ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
-                for id in job_ids {
-                    let _ = jobs.kill_and_remove(id);
-                }
-            }
+/// Stop whatever is still running once shutdown stops waiting: interrupt the
+/// engine and kill every job, which ends each request still in flight.
+fn kill_jobs(engine: &Engine) {
+    engine.state.signals().trigger();
+    if let Ok(mut jobs) = engine.state.jobs.lock() {
+        let job_ids: Vec<_> = jobs.iter().map(|(id, _)| id).collect();
+        for id in job_ids {
+            let _ = jobs.kill_and_remove(id);
         }
-    })?;
-
-    Ok(())
+    }
 }
 
 #[tokio::main]

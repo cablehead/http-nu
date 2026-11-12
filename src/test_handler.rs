@@ -289,7 +289,7 @@ fn idle_sse_engine() -> crate::Engine {
     engine
         .set_http_nu_const(&crate::engine::HttpNuOptions::default())
         .unwrap();
-    // Matches production (main.rs's setup_ctrlc_handler wires a real
+    // Matches production (main.rs's create_base_engine wires a real
     // interrupt onto the engine): a non-empty Signals here means
     // `.trigger()` actually does something, so a test that shares this
     // process-wide flag across requests (the pre-fix bug) has a real signal
