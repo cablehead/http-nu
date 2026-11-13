@@ -4,11 +4,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::time::timeout;
 
-/// Get path to a workspace member binary (uses deprecated function because
-/// CARGO_BIN_EXE_* env vars only work for same-package binaries)
-#[allow(deprecated)]
+/// Path to a binary built by another workspace member, such as nu_plugin_test.
+/// Cargo only names this package's own binaries (CARGO_BIN_EXE_*), and they
+/// sit in the same folder as the other members' binaries.
 fn workspace_bin(name: &str) -> PathBuf {
-    assert_cmd::cargo::cargo_bin(name)
+    PathBuf::from(env!("CARGO_BIN_EXE_http-nu"))
+        .with_file_name(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 struct TestServer {
