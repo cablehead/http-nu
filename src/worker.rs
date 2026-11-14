@@ -264,9 +264,9 @@ pub fn spawn_eval_thread(
     // process-wide `engine.state.signals()`. With the process-wide one,
     // killing any single request's job -- including the per-connection
     // disconnect kill added below -- trips every other concurrent request's
-    // signals too. Ctrl-C still stops everything: it kills every job in the
-    // table (main.rs's setup_ctrlc_handler), one `ThreadJob::kill()` call
-    // per job, each tripping its own request's flag.
+    // signals too. Shutdown still stops everything once it stops waiting: it
+    // kills every job in the table (main.rs's kill_jobs), one
+    // `ThreadJob::kill()` call per job, each tripping its own request's flag.
     let interrupt = Arc::new(AtomicBool::new(false));
     let signals = Signals::new(interrupt);
 
