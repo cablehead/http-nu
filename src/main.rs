@@ -328,12 +328,11 @@ async fn serve(
     addr: String,
     tls: Option<PathBuf>,
     mut rx: mpsc::Receiver<Engine>,
-    interrupt: Arc<AtomicBool>,
     config: AppConfig,
     start_time: std::time::Instant,
     startup_options: StartupOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let shutdown = shutdown_signal(interrupt.clone());
+    let shutdown = shutdown_signal();
     tokio::pin!(shutdown);
 
     // Wait for first valid engine from source, but allow shutdown to interrupt
@@ -476,9 +475,7 @@ async fn serve(
     Ok(())
 }
 
-async fn shutdown_signal(interrupt: Arc<AtomicBool>) {
-    use tokio::time::{interval, Duration};
-
+async fn shutdown_signal() {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -496,20 +493,9 @@ async fn shutdown_signal(interrupt: Arc<AtomicBool>) {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
-    let interrupt_check = async {
-        let mut interval = interval(Duration::from_millis(100));
-        loop {
-            interval.tick().await;
-            if interrupt.load(Ordering::Relaxed) {
-                break;
-            }
-        }
-    };
-
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
-        _ = interrupt_check => {},
     }
 }
 
@@ -809,7 +795,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         addr,
         args.tls,
         rx,
-        interrupt,
         AppConfig {
             trusted_proxies: args.trust_proxies,
             datastar: args.datastar,
