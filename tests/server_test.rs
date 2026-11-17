@@ -3348,3 +3348,85 @@ async fn test_finite_streams_end() {
         assert_eq!(String::from_utf8_lossy(&out.stdout), want, "{path}");
     }
 }
+
+/// The next jsonl log line, parsed; fails if one doesn't come within 5s.
+async fn next_log_line(
+    lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+) -> serde_json::Value {
+    let line = timeout(std::time::Duration::from_secs(5), lines.next_line())
+        .await
+        .expect("no log line within 5s")
+        .unwrap()
+        .expect("stdout closed");
+    serde_json::from_str(&line).unwrap_or_else(|_| panic!("stdout line is not JSON: {line}"))
+}
+
+/// With `--log-format jsonl`, an error running the handler goes to stdout as a
+/// JSON line, like every other log event, and nothing goes to stderr.
+#[tokio::test]
+async fn test_jsonl_handler_error_is_a_log_line() {
+    let mut child = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["--log-format", "jsonl", "127.0.0.1:0", "-c"])
+        .arg(r#"{|req| error make {msg: "boom"}}"#)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start http-nu");
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut stderr = child.stderr.take().unwrap();
+
+    let started = next_log_line(&mut lines).await;
+    let address = started["address"].as_str().unwrap().to_string();
+    let out = tokio::process::Command::new("curl")
+        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", &address])
+        .output()
+        .await
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "500");
+
+    let mut errors = Vec::new();
+    while errors.len() < 2 {
+        let event = next_log_line(&mut lines).await;
+        if event["message"] == "error" {
+            errors.push(event["error"].as_str().unwrap().to_string());
+        }
+    }
+    // The script's own error and the request's failure, in either order.
+    assert!(errors.iter().any(|e| e.contains("boom")), "{errors:?}");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.starts_with("Error handling request")),
+        "{errors:?}"
+    );
+
+    child.kill().await.unwrap();
+    let mut err = String::new();
+    tokio::io::AsyncReadExt::read_to_string(&mut stderr, &mut err)
+        .await
+        .unwrap();
+    assert_eq!(err, "", "nothing should reach stderr");
+}
+
+/// A script that can't be read ends the server, and with `--log-format jsonl`
+/// the reason is the last line on stdout, written before it exits.
+#[tokio::test]
+async fn test_jsonl_fatal_error_is_logged_before_exit() {
+    let output = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"))
+        .args(["--log-format", "jsonl", "127.0.0.1:0", "/no/such/script.nu"])
+        .output()
+        .await
+        .expect("Failed to run http-nu");
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let last: serde_json::Value = serde_json::from_str(stdout.lines().last().unwrap()).unwrap();
+    assert_eq!(last["message"], "error");
+    assert!(
+        last["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Error reading /no/such/script.nu"),
+        "{last}"
+    );
+}

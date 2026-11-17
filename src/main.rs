@@ -10,8 +10,8 @@ use http_nu::{
     handler::{handle, AppConfig},
     listener::TlsConfig,
     logging::{
-        init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped, log_stopping,
-        run_human_handler, run_jsonl_handler, shutdown, StartupOptions,
+        self, init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped,
+        log_stopping, run_human_handler, run_jsonl_handler, StartupOptions,
     },
     store::Store,
     Engine, Listener,
@@ -181,15 +181,12 @@ async fn file_source(
     base_engine: Engine,
     tx: mpsc::Sender<Engine>,
 ) {
-    let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
-        eprintln!("Error reading {path}: {e}");
-        std::process::exit(1);
-    });
+    let content = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| logging::exit_with_error(&format!("Error reading {path}: {e}")));
 
-    let script_path = PathBuf::from(path).canonicalize().unwrap_or_else(|e| {
-        eprintln!("Error resolving {path}: {e}");
-        std::process::exit(1);
-    });
+    let script_path = PathBuf::from(path)
+        .canonicalize()
+        .unwrap_or_else(|e| logging::exit_with_error(&format!("Error resolving {path}: {e}")));
 
     if let Some(engine) = script_to_engine(&base_engine, &content, Some(&script_path)) {
         tx.send(engine).await.expect("channel closed unexpectedly");
@@ -237,7 +234,7 @@ async fn file_source(
                         }
                     }
                     Ok(Err(e)) => {
-                        eprintln!("Watch error: {e:?}");
+                        logging::log_error(&format!("Watch error: {e:?}"));
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                         if pending_reload {
@@ -253,7 +250,7 @@ async fn file_source(
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("Error reading script file: {e}");
+                                    logging::log_error(&format!("Error reading script file: {e}"));
                                 }
                             }
                         }
@@ -290,7 +287,7 @@ async fn stdin_source(watch: bool, base_engine: Engine, tx: mpsc::Sender<Engine>
                             buffer.push(byte[0]);
                         }
                         Err(e) => {
-                            eprintln!("Error reading stdin: {e}");
+                            logging::log_error(&format!("Error reading stdin: {e}"));
                             return;
                         }
                     }
@@ -333,9 +330,9 @@ async fn serve(
 
     // Wait for first valid engine from source, but allow shutdown to interrupt
     let first_engine = tokio::select! {
-        engine = rx.recv() => {
-            engine.expect("no engine received - source closed without providing a valid engine")
-        }
+        engine = rx.recv() => engine.unwrap_or_else(|| {
+            logging::exit_with_error("no engine received - source closed without providing a valid engine")
+        }),
         _ = &mut shutdown => {
             log_stopped();
             return Ok(());
@@ -420,12 +417,12 @@ async fn serve(
                                         return;
                                     }
                                 }
-                                eprintln!("Connection error: {err}");
+                                logging::log_error(&format!("Connection error: {err}"));
                             }
                         });
                     }
                     Err(err) => {
-                        eprintln!("Error accepting connection: {err}");
+                        logging::log_error(&format!("Error accepting connection: {err}"));
                         continue;
                     }
                 }
@@ -518,10 +515,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Set up logging handler based on log format (both spawn dedicated threads)
     let rx = init_broadcast();
-    let log_handle = match args.log_format {
+    logging::hold(match args.log_format {
         LogFormat::Human => run_human_handler(rx),
         LogFormat::Jsonl => run_jsonl_handler(rx),
-    };
+    });
+    logging::log_panics();
 
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -630,8 +628,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 1
             }
         };
-        shutdown();
-        log_handle.join().ok();
+        logging::finish();
         std::process::exit(exit_code);
     }
 
@@ -664,10 +661,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .await
             {
                 Ok(store) => Some(store),
-                Err(e) => {
-                    eprintln!("Failed to open store at {}: {e}", path.display());
-                    std::process::exit(1);
-                }
+                Err(e) => logging::exit_with_error(&format!(
+                    "Failed to open store at {}: {e}",
+                    path.display()
+                )),
             }
         }
         None => None,
@@ -800,7 +797,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         store.shutdown().await;
     }
 
-    shutdown();
-    log_handle.join().ok();
+    logging::finish();
     Ok(())
 }

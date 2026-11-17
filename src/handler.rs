@@ -56,7 +56,7 @@ where
     match handle_inner(engine, addr, config, req).await {
         Ok(response) => Ok(response),
         Err(err) => {
-            eprintln!("Error handling request: {err}");
+            crate::logging::log_error(&format!("Error handling request: {err}"));
             let response = hyper::Response::builder().status(500).body(
                 Full::new(format!("Script error: {err}").into())
                     .map_err(|never| match never {})

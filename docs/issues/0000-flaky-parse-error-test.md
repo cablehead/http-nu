@@ -46,6 +46,8 @@ process.
 
 ## Status
 
-Known issue, low priority. The error handling works correctly in practice—the
-race only manifests in the specific test scenario where parse fails on the only
-script provided via CLI argument.
+Fixed by option 2. `logging::exit_with_error` logs the error, waits for the
+log thread to write everything sent so far, then exits with status 1. The
+first-engine `.expect()` now calls it, so the parse error is always written
+before the process ends. A panic on the main thread waits for the log the same
+way, through the hook `logging::log_panics` installs.

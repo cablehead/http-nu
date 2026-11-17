@@ -372,6 +372,12 @@ Lifecycle events: `started`, `reloaded`, `stopping`, `stopped`, `stop_timed_out`
 The `print` command outputs to the logging system (appears as `message: "print"`
 in JSONL).
 
+Errors are log events too (`message: "error"`): a script that fails to load or
+to handle a request, connection and store failures, and panics. With
+`--log-format jsonl` they are JSON lines on stdout like everything else, so
+stderr is left for bad command-line flags. An error the server can't run past
+is written out before it exits.
+
 ### Trusted Proxies
 
 When behind a reverse proxy, use `--trust-proxy` to extract client IP from

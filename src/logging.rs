@@ -237,6 +237,41 @@ pub fn shutdown() {
     emit(Event::Shutdown);
 }
 
+static WRITER: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(None);
+
+/// Keeps the log writer thread, so `finish` can wait for it to drain.
+pub fn hold(writer: std::thread::JoinHandle<()>) {
+    *WRITER.lock().unwrap() = Some(writer);
+}
+
+/// Stops the log writer once everything sent so far is written.
+pub fn finish() {
+    shutdown();
+    if let Some(writer) = WRITER.lock().unwrap().take() {
+        let _ = writer.join();
+    }
+}
+
+/// Logs an error the server can't run past, waits for it to be written, and
+/// exits with status 1.
+pub fn exit_with_error(error: &str) -> ! {
+    log_error(error);
+    finish();
+    std::process::exit(1)
+}
+
+/// Sends panics to the log as errors, so with `--log-format jsonl` they are a
+/// JSON line like everything else. A panic on the main thread ends the
+/// process, so the log is drained first.
+pub fn log_panics() {
+    std::panic::set_hook(Box::new(|info| {
+        log_error(&format!("panic: {info}"));
+        if std::thread::current().name() == Some("main") {
+            finish();
+        }
+    }));
+}
+
 // --- JSONL handler (dedicated writer thread does serialization + IO) ---
 
 pub fn run_jsonl_handler(rx: broadcast::Receiver<Event>) -> std::thread::JoinHandle<()> {

@@ -55,7 +55,7 @@ impl Store {
         tokio::spawn(async move {
             let engine = xs::nu::Engine::new().expect("Failed to create xs nu::Engine");
             if let Err(e) = xs::api::serve(store_for_api, engine, expose).await {
-                eprintln!("Store API server error: {e}");
+                crate::logging::log_error(&format!("Store API server error: {e}"));
             }
         });
 
@@ -65,21 +65,21 @@ impl Store {
             let s = inner.clone();
             tokio::spawn(async move {
                 if let Err(e) = xs::processor::actor::run(s).await {
-                    eprintln!("Actor processor error: {e}");
+                    crate::logging::log_error(&format!("Actor processor error: {e}"));
                 }
             });
 
             let s = inner.clone();
             service_handle = Some(tokio::spawn(async move {
                 if let Err(e) = xs::processor::service::run(s).await {
-                    eprintln!("Service processor error: {e}");
+                    crate::logging::log_error(&format!("Service processor error: {e}"));
                 }
             }));
 
             let s = inner.clone();
             tokio::spawn(async move {
                 if let Err(e) = xs::processor::action::run(s).await {
-                    eprintln!("Action processor error: {e}");
+                    crate::logging::log_error(&format!("Action processor error: {e}"));
                 }
             });
         }
@@ -104,7 +104,7 @@ impl Store {
             .inner
             .append(xs::store::Frame::builder("xs.stopping").build())
         {
-            eprintln!("Error appending xs.stopping frame: {e}");
+            crate::logging::log_error(&format!("Error appending xs.stopping frame: {e}"));
             handle.abort();
             return;
         }
@@ -113,7 +113,7 @@ impl Store {
             .await
             .is_err()
         {
-            eprintln!("Service processor did not stop within timeout");
+            crate::logging::log_error("Service processor did not stop within timeout");
         }
     }
 
@@ -183,7 +183,7 @@ fn enrich_engine(
     if let Some(id) = as_of {
         let modules = store.nu_modules_at(id);
         if let Err(e) = xs::nu::load_modules(&mut engine.state, store, &modules) {
-            eprintln!("Error loading stream modules: {e}");
+            crate::logging::log_error(&format!("Error loading stream modules: {e}"));
         }
     }
     engine
@@ -226,12 +226,12 @@ fn spawn_topic_watcher(
                 Ok(bytes) => match String::from_utf8(bytes) {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("Error decoding topic content: {e}");
+                        crate::logging::log_error(&format!("Error decoding topic content: {e}"));
                         continue;
                     }
                 },
                 Err(e) => {
-                    eprintln!("Error reading topic content: {e}");
+                    crate::logging::log_error(&format!("Error reading topic content: {e}"));
                     continue;
                 }
             };
