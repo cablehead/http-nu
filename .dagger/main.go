@@ -104,6 +104,11 @@ func (m *HttpNu) LinuxArm64Env(
 	return m.withCaches(
 		dag.Container().
 			From("messense/rust-musl-cross:aarch64-musl").
+			// The image's own Rust can lag what nushell needs: update it,
+			// as the darwin and windows builds do.
+			WithExec([]string{"rustup", "update", "stable"}).
+			WithExec([]string{"rustup", "default", "stable"}).
+			WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-arm64",
@@ -131,6 +136,11 @@ func (m *HttpNu) LinuxAmd64Env(
 	return m.withCaches(
 		dag.Container().
 			From("messense/rust-musl-cross:x86_64-musl").
+			// The image's own Rust can lag what nushell needs: update it,
+			// as the darwin and windows builds do.
+			WithExec([]string{"rustup", "update", "stable"}).
+			WithExec([]string{"rustup", "default", "stable"}).
+			WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-amd64",
