@@ -40,6 +40,11 @@ pub struct AppConfig {
     pub dev: bool,
 }
 
+/// Request extension: cancelled once the request's connection has closed, so
+/// the request's job can be killed even while nothing is being written.
+#[derive(Clone)]
+pub struct ConnectionClosed(pub CancellationToken);
+
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
     addr: Option<SocketAddr>,
@@ -199,7 +204,11 @@ where
     }
 
     let sse_cancel_token = engine.sse_cancel_token.clone();
-    let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream);
+    let conn_closed = parts
+        .extensions
+        .get::<ConnectionClosed>()
+        .map(|closed| closed.0.clone());
+    let (meta_rx, bridged_body) = spawn_eval_thread(engine, request, stream, conn_closed);
 
     // Wait for both:
     // 1. Special response (from .static or .reverse-proxy) - None if normal response

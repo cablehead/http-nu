@@ -7,7 +7,7 @@ use arc_swap::ArcSwap;
 use clap::Parser;
 use http_nu::{
     engine::{off_runtime, script_to_engine, HttpNuOptions},
-    handler::{handle, AppConfig},
+    handler::{handle, AppConfig, ConnectionClosed},
     listener::TlsConfig,
     logging::{
         self, init_broadcast, log_reloaded, log_started, log_stop_timed_out, log_stopped,
@@ -23,6 +23,7 @@ use hyper_util::server::graceful::GracefulShutdown;
 use notify::{RecursiveMode, Watcher};
 use tokio::signal;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser, Debug)]
 #[clap(version)]
@@ -397,7 +398,15 @@ async fn serve(
                         let engine = engine.clone();
                         let config = config.clone();
 
-                        let service = service_fn(move |req| {
+                        // Cancelled once hyper is done with this connection,
+                        // including when the client hangs up mid-request:
+                        // kills whatever its requests are still running.
+                        let closed = CancellationToken::new();
+                        let conn_closed = closed.clone();
+
+                        let service = service_fn(move |mut req: hyper::Request<_>| {
+                            req.extensions_mut()
+                                .insert(ConnectionClosed(conn_closed.clone()));
                             handle(engine.clone(), remote_addr, config.clone(), req)
                         });
 
@@ -408,6 +417,7 @@ async fn serve(
                         let conn = graceful.watch(conn.into_owned());
 
                         tokio::task::spawn(async move {
+                            let _closed = closed.drop_guard();
                             if let Err(err) = conn.await {
                                 // Suppress errors normal for client disconnect
                                 if let Some(hyper_err) = err.downcast_ref::<hyper::Error>() {
