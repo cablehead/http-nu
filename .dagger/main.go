@@ -104,11 +104,11 @@ func (m *HttpNu) LinuxArm64Env(
 	return m.withCaches(
 		dag.Container().
 			From("messense/rust-musl-cross:aarch64-musl").
-			// The image's own Rust can lag what nushell needs: update it,
-			// as the darwin and windows builds do.
-			WithExec([]string{"rustup", "update", "stable"}).
-			WithExec([]string{"rustup", "default", "stable"}).
-			WithExec([]string{"rustup", "target", "add", "aarch64-unknown-linux-musl"}).
+			// The image's own Rust can lag what nushell needs, and its stable
+			// toolchain fails to update in place, so install the minimum
+			// (Cargo.toml's rust-version) beside it.
+			WithExec([]string{"rustup", "toolchain", "install", "1.97.1", "--profile", "minimal", "--target", "aarch64-unknown-linux-musl"}).
+			WithExec([]string{"rustup", "default", "1.97.1"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-arm64",
@@ -136,11 +136,11 @@ func (m *HttpNu) LinuxAmd64Env(
 	return m.withCaches(
 		dag.Container().
 			From("messense/rust-musl-cross:x86_64-musl").
-			// The image's own Rust can lag what nushell needs: update it,
-			// as the darwin and windows builds do.
-			WithExec([]string{"rustup", "update", "stable"}).
-			WithExec([]string{"rustup", "default", "stable"}).
-			WithExec([]string{"rustup", "target", "add", "x86_64-unknown-linux-musl"}).
+			// The image's own Rust can lag what nushell needs, and its stable
+			// toolchain fails to update in place, so install the minimum
+			// (Cargo.toml's rust-version) beside it.
+			WithExec([]string{"rustup", "toolchain", "install", "1.97.1", "--profile", "minimal", "--target", "x86_64-unknown-linux-musl"}).
+			WithExec([]string{"rustup", "default", "1.97.1"}).
 			WithMountedDirectory("/app", src).
 			WithWorkdir("/app"),
 		"linux-amd64",
