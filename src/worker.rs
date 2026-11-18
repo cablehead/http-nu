@@ -272,7 +272,14 @@ pub fn spawn_eval_thread(
 
     // Create a thread job for this evaluation
     let (sender, _receiver) = mpsc::channel();
-    let job = ThreadJob::new(signals.clone(), Some("HTTP Request".to_string()), sender);
+    // auto_kill: an internal job, ended with the request; nushell may kill it
+    // on exit without a background-job warning.
+    let job = ThreadJob::new(
+        signals.clone(),
+        Some("HTTP Request".to_string()),
+        true,
+        sender,
+    );
 
     // Add the job to the engine's job table
     let job_id = {
