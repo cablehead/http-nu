@@ -1116,7 +1116,7 @@ interactions. Follows the
 [SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md).
 
 Use `--datastar` to serve the embedded JS bundle at `$DATASTAR_JS_PATH`
-(`/datastar@1.0.4.js`) with immutable cache headers:
+(`/datastar@1.0.5.js`) with immutable cache headers:
 
 ```bash
 $ http-nu --datastar :3001 ./serve.nu
@@ -1148,7 +1148,7 @@ use http-nu/html *
 For pages that use [Rocket](https://data-star.dev/reference/rocket) web
 components, use `--datastar-rocket` instead. It serves the bundle that carries
 Datastar and Rocket together at `$DATASTAR_ROCKET_JS_PATH`
-(`/datastar-rocket@1.0.4.js`); load it with `SCRIPT-DATASTAR-ROCKET`, first in
+(`/datastar-rocket@1.0.5.js`); load it with `SCRIPT-DATASTAR-ROCKET`, first in
 the head. That also writes an import map naming the bundle `datastar`, so a
 component shipped as its own module can `import { rocket } from "datastar"` and
 share the page's copy. The two flags are mutually exclusive: the Rocket bundle

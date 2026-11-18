@@ -37,15 +37,15 @@ futures-util = "0.3"
 bytes = "1.6.0"
 url = "2.5.0"
 
-nu-cli = "0.116.0"
-nu-cmd-lang = "0.116.0"
-nu-cmd-plugin = "0.116.0"
-nu-cmd-extra = "0.116.0"
-nu-command = { version = "0.116.0", features = ["sqlite"] }
-nu-engine = "0.116.0"
-nu-parser = "0.116.0"
-nu-plugin-engine = "0.116.0"
-nu-protocol = { version = "0.116.0", features = ["plugin"] }
+nu-cli = "0.117.0"
+nu-cmd-lang = "0.117.0"
+nu-cmd-plugin = "0.117.0"
+nu-cmd-extra = "0.117.0"
+nu-command = { version = "0.117.0", features = ["sqlite"] }
+nu-engine = "0.117.0"
+nu-parser = "0.117.0"
+nu-plugin-engine = "0.117.0"
+nu-protocol = { version = "0.117.0", features = ["plugin"] }
 arc-swap = "1.7"
 rustls = { version = "0.23.28", features = ["aws_lc_rs"] }
 rustls-pemfile = "2.1.0"
@@ -62,8 +62,8 @@ http_encoding_headers = "0.2.0"
 headers = "0.4.1"
 minijinja = { version = "2", features = ["json", "urlencode", "loop_controls", "loader"] }
 v_htmlescape = "0.15"
-nu-std = "0.116.0"
-nu-utils = "0.116.0"
+nu-std = "0.117.0"
+nu-utils = "0.117.0"
 typetag = "0.2"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 syntect = "5.3.0"
@@ -72,7 +72,9 @@ pulldown-cmark = "0.12.2"
 notify = "8"
 
 [dependencies.cross-stream]
-version = "0.14.2"
+# xs main, for nushell 0.117: no cross-stream release supports it yet.
+git = "https://github.com/cablehead/xs"
+rev = "11b6be0c99fd2332357cdb53173859724fd90928"
 optional = true
 
 [features]

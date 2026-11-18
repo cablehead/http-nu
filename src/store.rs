@@ -205,43 +205,62 @@ fn spawn_topic_watcher(
     tx: mpsc::Sender<crate::Engine>,
 ) {
     tokio::spawn(async move {
-        let options = xs::store::ReadOptions::builder()
-            .follow(xs::store::FollowOption::On)
-            .topic(topic.clone())
-            .maybe_after(after)
-            .build();
+        let mut after = after;
+        // A follow that falls too far behind the live stream ends with
+        // ReadError::Lagged (xs ADR 0008). Follow again from the last frame
+        // seen, so a burst on the store never stops script reloads.
+        'follow: loop {
+            let options = xs::store::ReadOptions::builder()
+                .follow(xs::store::FollowOption::On)
+                .topic(topic.clone())
+                .maybe_after(after)
+                .build();
 
-        let mut receiver = store.read(options);
+            let mut receiver = store.read(options);
 
-        while let Some(frame) = receiver.recv().await {
-            if frame.topic != topic {
-                continue;
-            }
-
-            let Some(hash) = frame.hash else {
-                continue;
-            };
-
-            let script = match store.cas_read(&hash).await {
-                Ok(bytes) => match String::from_utf8(bytes) {
-                    Ok(s) => s,
+            while let Some(item) = receiver.recv().await {
+                let frame = match item {
+                    Ok(frame) => frame,
                     Err(e) => {
-                        crate::logging::log_error(&format!("Error decoding topic content: {e}"));
-                        continue;
+                        crate::logging::log_error(&format!(
+                            "Topic watcher for {topic}: {e}; following again"
+                        ));
+                        continue 'follow;
                     }
-                },
-                Err(e) => {
-                    crate::logging::log_error(&format!("Error reading topic content: {e}"));
+                };
+                after = Some(frame.id);
+                if frame.topic != topic {
                     continue;
                 }
-            };
 
-            let enriched = enrich_engine(&base_engine, &store, Some(&frame.id));
-            if let Some(engine) = crate::engine::script_to_engine(&enriched, &script, None) {
-                if tx.send(engine).await.is_err() {
-                    break;
+                let Some(hash) = frame.hash else {
+                    continue;
+                };
+
+                let script = match store.cas_read(&hash).await {
+                    Ok(bytes) => match String::from_utf8(bytes) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            crate::logging::log_error(&format!(
+                                "Error decoding topic content: {e}"
+                            ));
+                            continue;
+                        }
+                    },
+                    Err(e) => {
+                        crate::logging::log_error(&format!("Error reading topic content: {e}"));
+                        continue;
+                    }
+                };
+
+                let enriched = enrich_engine(&base_engine, &store, Some(&frame.id));
+                if let Some(engine) = crate::engine::script_to_engine(&enriched, &script, None) {
+                    if tx.send(engine).await.is_err() {
+                        break 'follow;
+                    }
                 }
             }
+            break;
         }
     });
 }

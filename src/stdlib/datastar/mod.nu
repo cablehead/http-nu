@@ -4,8 +4,8 @@
 # Pipe output to `to sse` for streaming.
 # Follows https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 
-export const DATASTAR_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar.js"
-export const DATASTAR_JS_PATH = "/datastar@1.0.4.js"
+export const DATASTAR_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.5/bundles/datastar.js"
+export const DATASTAR_JS_PATH = "/datastar@1.0.5.js"
 
 export def SCRIPT-DATASTAR []: nothing -> record {
   {__html: $'<script type="module" src="($DATASTAR_JS_PATH)"></script>'}
@@ -14,8 +14,8 @@ export def SCRIPT-DATASTAR []: nothing -> record {
 # The bundle that includes Rocket, Datastar's web-component API, served under
 # --datastar-rocket in place of the core bundle above. A page loads one or the
 # other, never both: the Rocket bundle carries all of Datastar.
-export const DATASTAR_ROCKET_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.4/bundles/datastar-rocket.js"
-export const DATASTAR_ROCKET_JS_PATH = "/datastar-rocket@1.0.4.js"
+export const DATASTAR_ROCKET_CDN_URL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.5/bundles/datastar-rocket.js"
+export const DATASTAR_ROCKET_JS_PATH = "/datastar-rocket@1.0.5.js"
 
 # Loads the bundle, after an import map that names it `datastar`. A component
 # shipped as its own module (ptyZZZ's <pty-term>, say) then writes
