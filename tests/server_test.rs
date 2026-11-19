@@ -3321,6 +3321,32 @@ async fn test_last_follow_released_when_client_disconnects() {
 }
 
 #[tokio::test]
+async fn test_request_killed_when_client_hangs_up_before_response() {
+    // The client leaves while the closure is still running and nothing has
+    // been written: the request must be killed, not run on to completion.
+    let tmp = tempfile::tempdir().unwrap();
+    let marker = tmp.path().join("marker");
+    let closure = format!(
+        r#"{{|req| sleep 2sec; "ran" | save -f '{}'; "done" }}"#,
+        marker.display()
+    );
+    let server = TestServer::new("127.0.0.1:0", &closure, false).await;
+
+    let out = tokio::process::Command::new("curl")
+        .args(["-s", "--max-time", "0.5", &server.address])
+        .output()
+        .await
+        .expect("curl");
+    assert_eq!(out.status.code(), Some(28), "curl should time out");
+
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    assert!(
+        !marker.exists(),
+        "the closure ran to completion after its client hung up"
+    );
+}
+
+#[tokio::test]
 async fn test_finite_streams_end() {
     // A response that streams and then finishes must close once the closure
     // is done, for a list stream and a byte stream alike. curl waits for the

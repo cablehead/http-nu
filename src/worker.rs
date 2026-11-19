@@ -13,6 +13,7 @@ use std::io::Read;
 use std::sync::atomic::AtomicBool;
 use std::sync::{mpsc, Arc};
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 /// Check if a value is a record without __html field
 fn is_jsonl_record(value: &Value) -> bool {
@@ -41,13 +42,42 @@ fn watch_disconnect(
     tx: tokio_mpsc::Sender<Vec<u8>>,
     job: ThreadJob,
 ) -> oneshot::Sender<()> {
+    kill_on(runtime, async move { tx.closed().await }, job)
+}
+
+/// Kill this request's job if its connection closes before the job is done.
+///
+/// hyper notices a client hanging up mid-request (an EOF on the read half)
+/// even while nothing is being written, and ends the connection. That covers
+/// the stretch `watch_disconnect` can't see: before the body channel reaches
+/// hyper, e.g. while the closure is still running or a stream's first value
+/// is being peeked.
+///
+/// Returns a guard, as `watch_disconnect` does: hold it for as long as the
+/// job runs.
+#[must_use = "dropping the guard stops watching the connection"]
+fn watch_connection(
+    runtime: &tokio::runtime::Handle,
+    closed: CancellationToken,
+    job: ThreadJob,
+) -> oneshot::Sender<()> {
+    kill_on(runtime, closed.cancelled_owned(), job)
+}
+
+/// Kill `job` when `gone` resolves, unless the returned guard is dropped (or
+/// used) first.
+fn kill_on(
+    runtime: &tokio::runtime::Handle,
+    gone: impl std::future::Future<Output = ()> + Send + 'static,
+    job: ThreadJob,
+) -> oneshot::Sender<()> {
     let (done_tx, done_rx) = oneshot::channel();
     runtime.spawn(async move {
         tokio::select! {
-            _ = tx.closed() => {
+            _ = gone => {
                 let _ = job.kill();
             }
-            // the producer is done: drop our sender so the body can end
+            // the producer is done: drop whatever `gone` holds
             _ = done_rx => {}
         }
     });
@@ -63,6 +93,7 @@ pub fn spawn_eval_thread(
     engine: Arc<crate::Engine>,
     request: Request,
     stream: nu_protocol::ByteStream,
+    conn_closed: Option<CancellationToken>,
 ) -> (
     oneshot::Receiver<Response>,
     oneshot::Receiver<PipelineResult>,
@@ -292,7 +323,11 @@ pub fn spawn_eval_thread(
     // spawn the disconnect watcher below.
     let runtime = tokio::runtime::Handle::current();
 
+    let conn_watch = conn_closed.map(|closed| watch_connection(&runtime, closed, job.clone()));
+
     std::thread::spawn(move || -> Result<(), std::convert::Infallible> {
+        // held for the whole run, see watch_connection
+        let _conn_watch = conn_watch;
         let mut meta_tx_opt = Some(meta_tx);
         let mut body_tx_opt = Some(body_tx);
 
