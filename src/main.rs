@@ -61,6 +61,12 @@ struct Args {
     #[clap(long, default_value = "human")]
     log_format: LogFormat,
 
+    /// Headers the log keeps, comma separated; every other header is left
+    /// out [default: host,user-agent,accept,content-type,content-length,
+    /// content-encoding,cache-control]
+    #[clap(long, value_delimiter = ',')]
+    log_headers: Option<Vec<String>>,
+
     /// Path to store directory (enables .cat, .append, .cas commands)
     #[cfg(feature = "cross-stream")]
     #[clap(long, help_heading = "cross.stream")]
@@ -524,6 +530,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
 
     // Set up logging handler based on log format (both spawn dedicated threads)
+    if let Some(names) = args.log_headers.clone() {
+        logging::set_log_headers(names);
+    }
     let rx = init_broadcast();
     logging::hold(match args.log_format {
         LogFormat::Human => run_human_handler(rx),
