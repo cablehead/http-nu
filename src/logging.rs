@@ -66,6 +66,62 @@ impl TokenBucket {
     }
 }
 
+// --- What the log keeps of a request ---
+
+/// Headers the log keeps unless `--log-headers` sets others. Other headers are
+/// not logged.
+pub const DEFAULT_LOG_HEADERS: &[&str] = &[
+    "host",
+    "user-agent",
+    "accept",
+    "content-type",
+    "content-length",
+    "content-encoding",
+    "cache-control",
+];
+
+static LOG_HEADERS: OnceLock<Vec<String>> = OnceLock::new();
+
+/// Sets the headers the log keeps. Call it once, before the server starts.
+pub fn set_log_headers(names: Vec<String>) {
+    let names = names
+        .into_iter()
+        .map(|n| n.trim().to_ascii_lowercase())
+        .filter(|n| !n.is_empty())
+        .collect();
+    let _ = LOG_HEADERS.set(names);
+}
+
+fn keeps_header(name: &str) -> bool {
+    match LOG_HEADERS.get() {
+        Some(names) => names.iter().any(|n| n == name),
+        None => DEFAULT_LOG_HEADERS.contains(&name),
+    }
+}
+
+fn logged_headers(headers: &HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter(|(k, _)| keeps_header(k.as_str()))
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect()
+}
+
+/// The request's path and query, with each query value logged empty.
+fn logged_uri(uri: &http::Uri) -> String {
+    match uri.query() {
+        None => uri.path().to_string(),
+        Some(q) => {
+            let keys: Vec<String> = q
+                .split('&')
+                .filter(|p| !p.is_empty())
+                .map(|p| format!("{}=", p.split('=').next().unwrap_or("")))
+                .collect();
+            format!("{}?{}", uri.path(), keys.join("&"))
+        }
+    }
+}
+
 // --- Event enum: owned data for async broadcast ---
 
 #[derive(Clone, Serialize)]
@@ -89,14 +145,14 @@ impl From<&Request> for RequestData {
             remote_ip: req.remote_ip.map(|ip| ip.to_string()),
             remote_port: req.remote_port,
             trusted_ip: req.trusted_ip.map(|ip| ip.to_string()),
-            headers: req
-                .headers
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-                .collect(),
-            uri: req.uri.to_string(),
+            headers: logged_headers(&req.headers),
+            uri: logged_uri(&req.uri),
             path: req.path.clone(),
-            query: req.query.clone(),
+            query: req
+                .query
+                .keys()
+                .map(|k| (k.clone(), String::new()))
+                .collect(),
         }
     }
 }
@@ -176,10 +232,7 @@ pub fn log_response(
     headers: &HeaderMap,
     start_time: Instant,
 ) {
-    let headers_map: HashMap<String, String> = headers
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
+    let headers_map = logged_headers(headers);
 
     emit(Event::Response {
         request_id,

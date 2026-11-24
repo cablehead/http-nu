@@ -369,6 +369,15 @@ $ http-nu --log-format jsonl :3001 '{|req| "hello"}'
 
 Lifecycle events: `started`, `reloaded`, `stopping`, `stopped`, `stop_timed_out`
 
+Only these headers are logged, for both requests and responses: `host`,
+`user-agent`, `accept`, `content-type`, `content-length`, `content-encoding`,
+`cache-control`. Query values are logged empty: `/p?token=abc&page=2` is logged
+as `/p?token=&page=`. `--log-headers` sets a different list:
+
+```bash
+$ http-nu --log-format jsonl --log-headers host,user-agent,x-request-id :3001 ./serve.nu
+```
+
 The `print` command outputs to the logging system (appears as `message: "print"`
 in JSONL).
 

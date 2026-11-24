@@ -3456,3 +3456,74 @@ async fn test_jsonl_fatal_error_is_logged_before_exit() {
         "{last}"
     );
 }
+
+/// The JSON log has only the allowed headers, and empty query values.
+#[tokio::test]
+async fn test_log_leaves_out_secrets() {
+    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));
+    cmd.arg("--log-format")
+        .arg("jsonl")
+        .arg("127.0.0.1:0")
+        .arg("-c")
+        .arg(r#"{|req| "ok" | metadata set { merge {'http.response': {headers: {"set-cookie": "s=SECRET-SET-COOKIE"}}} } }"#);
+
+    let mut child = cmd
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to start http-nu server");
+
+    let stdout = child.stdout.take().unwrap();
+    let (addr_tx, addr_rx) = tokio::sync::oneshot::channel();
+    let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let mut addr_tx = Some(addr_tx);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if addr_tx.is_some() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Some(addr_str) = json.get("address").and_then(|a| a.as_str()) {
+                        if let Some(tx) = addr_tx.take() {
+                            let _ = tx.send(addr_str.trim().to_string());
+                        }
+                    }
+                }
+            }
+            let _ = line_tx.send(line);
+        }
+    });
+
+    let address = timeout(std::time::Duration::from_secs(5), addr_rx)
+        .await
+        .expect("Failed to get address")
+        .expect("Channel closed");
+
+    let output = tokio::process::Command::new("curl")
+        .arg("-s")
+        .arg("-u")
+        .arg("SECRET-KEY:")
+        .arg("-H")
+        .arg("Cookie: s=SECRET-COOKIE")
+        .arg("-H")
+        .arg("X-Api-Key: SECRET-API-KEY")
+        .arg(format!("{address}/p?token=SECRET-TOKEN&page=2"))
+        .output()
+        .await
+        .expect("curl failed");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "ok");
+
+    let mut lines = Vec::new();
+    while let Ok(Some(line)) = timeout(std::time::Duration::from_millis(500), line_rx.recv()).await
+    {
+        lines.push(line);
+    }
+    let _ = child.kill().await;
+
+    let log = lines.join("\n");
+    assert!(
+        log.contains("\"message\":\"request\""),
+        "no request event: {log}"
+    );
+    assert!(!log.contains("SECRET"), "a secret reached the log: {log}");
+    assert!(log.contains("/p?token=&page="), "query keys kept: {log}");
+}
