@@ -3457,8 +3457,7 @@ async fn test_jsonl_fatal_error_is_logged_before_exit() {
     );
 }
 
-/// The JSON log keeps only safe headers and blanks query values, so a key, a
-/// cookie or a token in the address never reaches it.
+/// The JSON log has only the allowed headers, and empty query values.
 #[tokio::test]
 async fn test_log_leaves_out_secrets() {
     let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin!("http-nu"));

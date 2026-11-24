@@ -68,9 +68,8 @@ impl TokenBucket {
 
 // --- What the log keeps of a request ---
 
-/// Headers the log keeps when `--log-headers` isn't given. Every other header
-/// is left out, so a secret one (authorization, cookie, set-cookie, or one an
-/// app invents) never reaches the log unless it is named.
+/// Headers the log keeps unless `--log-headers` sets others. Other headers are
+/// not logged.
 pub const DEFAULT_LOG_HEADERS: &[&str] = &[
     "host",
     "user-agent",
@@ -83,8 +82,7 @@ pub const DEFAULT_LOG_HEADERS: &[&str] = &[
 
 static LOG_HEADERS: OnceLock<Vec<String>> = OnceLock::new();
 
-/// Sets the headers the log keeps, in place of `DEFAULT_LOG_HEADERS`. Call it
-/// once, before the server starts.
+/// Sets the headers the log keeps. Call it once, before the server starts.
 pub fn set_log_headers(names: Vec<String>) {
     let names = names
         .into_iter()
@@ -109,8 +107,7 @@ fn logged_headers(headers: &HeaderMap) -> HashMap<String, String> {
         .collect()
 }
 
-/// The request's path and query with every query value blanked: the keys say
-/// what was asked, and a value can be a token.
+/// The request's path and query, with each query value logged empty.
 fn logged_uri(uri: &http::Uri) -> String {
     match uri.query() {
         None => uri.path().to_string(),
