@@ -38,4 +38,7 @@ Use `/release [version]` command to execute the automated release workflow. See
 
 When bumping the embedded Nushell (the `nu-*` crate versions in `Cargo.toml`),
 update `hustcer/setup-nu`'s `version` in `.github/workflows/ci.yml` to match, so
-the `tests/*.nu` suites run on the same engine the binary bundles.
+the `tests/*.nu` suites run on the same engine the binary bundles. Also set the
+`nushell` input's tag in `flake.nix` to the new version and run
+`nix flake lock`: it supplies the dev shell's `nu`, and the flake refuses to
+evaluate while it disagrees with `Cargo.lock`.

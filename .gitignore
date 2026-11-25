@@ -1,4 +1,5 @@
 /target
+/result
 .cargo/
 store
 www/assets/_/

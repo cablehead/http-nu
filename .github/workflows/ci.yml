@@ -39,3 +39,40 @@ jobs:
 
     - name: Run checks
       run: ./scripts/check.sh
+
+  nix:
+    name: Nix - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    env:
+      CACHIX_CACHE_NAME: ${{ vars.CACHIX_CACHE_NAME }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - uses: cachix/install-nix-action@v31
+
+    - name: Configure Cachix
+      if: env.CACHIX_CACHE_NAME != ''
+      uses: cachix/cachix-action@v17
+      with:
+        name: ${{ env.CACHIX_CACHE_NAME }}
+        authToken: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
+        skipPush: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+
+    # Builds checks.<system>: http-nu, the dev shell (and the nushell it
+    # pins), and the Datastar version consistency check.
+    - name: Flake check
+      run: nix flake check --no-update-lock-file -L
+
+    - name: Smoke test
+      run: |
+        nix run --no-update-lock-file . -- --version
+        nix develop --no-update-lock-file --command nu --version
