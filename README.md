@@ -416,8 +416,9 @@ $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
 $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
 ```
 
-The content type comes from the file's extension, with `charset=utf-8` for text.
-A request for a directory gets its `index.html`.
+`.static` sets the content type from the file's extension, and adds
+`charset=utf-8` for text. `/docs/` serves `docs/index.html`, with or without
+`--fallback`, and `/docs` redirects to `docs/`.
 
 Every response carries an `etag` with the xxh3 hash of the file. A request with
 a matching `if-none-match` gets `304 Not Modified`. Text files are sent
