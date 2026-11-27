@@ -55,8 +55,6 @@ miette = "7"
 crossterm = "0.29"
 chrono = "0.4"
 ipnet = "2"
-tower-http = { version = "0.6.6", features = ["fs"] }
-tower = { version = "0.5.2", features = ["util"] }
 brotli = "8"
 http_encoding_headers = "0.2.0"
 headers = "0.4.1"
@@ -66,6 +64,8 @@ nu-std = "0.117.0"
 nu-utils = "0.117.0"
 typetag = "0.2"
 xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+mime_guess = "2.0.5"
+percent-encoding = "2.3"
 syntect = "5.3.0"
 syntect-assets = "0.23.6"
 pulldown-cmark = "0.12.2"

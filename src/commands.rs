@@ -123,19 +123,6 @@ impl CustomValue for CompiledTemplate {
     }
 }
 
-/// Hash the file with xxh3 and return the first 8 hex digits, or None if it
-/// can't be read. `.static-href` adds this to a URL as `?v=`, and `.static`
-/// compares it with the request's `?v=` to pick the cache header.
-pub fn static_version(file: &std::path::Path) -> Option<String> {
-    let data = std::fs::read(file).ok()?;
-    Some(format!("{:016x}", xxhash_rust::xxh3::xxh3_64(&data))[..8].to_string())
-}
-
-/// Join a request path to root.
-pub fn static_file(root: &std::path::Path, path: &str) -> PathBuf {
-    root.join(path.trim_start_matches('/'))
-}
-
 thread_local! {
     pub static RESPONSE_TX: RefCell<Option<oneshot::Sender<Response>>> = const { RefCell::new(None) };
 }
@@ -272,7 +259,7 @@ impl Command for StaticHrefCommand {
     ) -> Result<PipelineData, ShellError> {
         let root: String = call.req(engine_state, stack, 0)?;
         let path: String = call.req(engine_state, stack, 1)?;
-        let href = match static_version(&static_file(std::path::Path::new(&root), &path)) {
+        let href = match crate::static_files::version(std::path::Path::new(&root), &path) {
             Some(v) => format!("{path}?v={v}"),
             None => path,
         };

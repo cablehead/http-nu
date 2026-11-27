@@ -8,6 +8,7 @@ pub mod listener;
 pub mod logging;
 pub mod request;
 pub mod response;
+pub mod static_files;
 pub mod stdlib;
 pub mod store;
 pub mod worker;

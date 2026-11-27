@@ -2778,6 +2778,7 @@ dependencies = [
  "hyper-util",
  "ipnet",
  "miette 7.6.0",
+ "mime_guess",
  "minijinja",
  "nix 0.30.1",
  "notify 8.2.0",
@@ -2792,6 +2793,7 @@ dependencies = [
  "nu-protocol",
  "nu-std",
  "nu-utils",
+ "percent-encoding",
  "predicates",
  "pulldown-cmark",
  "rustls",
@@ -2807,20 +2809,12 @@ dependencies = [
  "tokio-rustls",
  "tokio-stream",
  "tokio-util",
- "tower",
- "tower-http",
  "typetag",
  "url",
  "v_htmlescape 0.15.8",
  "win_uds",
  "xxhash-rust",
 ]
-
-[[package]]
-name = "http-range-header"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
 
 [[package]]
 name = "http-serde"
@@ -7874,24 +7868,14 @@ checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",
- "futures-core",
  "futures-util",
  "http",
  "http-body",
- "http-body-util",
- "http-range-header",
- "httpdate",
  "iri-string",
- "mime",
- "mime_guess",
- "percent-encoding",
  "pin-project-lite",
- "tokio",
- "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
