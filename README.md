@@ -408,8 +408,9 @@ stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
 #### `.static <root> <path> [--fallback <file>]`
 
 Serves the file at `<path>` under `<root>`. Output after `.static` in the
-closure is ignored. With `--fallback`, a request for a file that isn't there
-gets `<file>` instead, for single page applications.
+closure is ignored. `--fallback index.html` serves `index.html` for any path
+with no file behind it, such as `/settings` in a single page application, so the
+app's own router can handle it.
 
 ```bash
 $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
@@ -418,7 +419,7 @@ $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "i
 
 `.static` sets the content type from the file's extension, and adds
 `charset=utf-8` for text. `/docs/` serves `docs/index.html`, with or without
-`--fallback`, and `/docs` redirects to `docs/`.
+`--fallback`, and `/docs` redirects to `/docs/`.
 
 Every response carries an `etag` with the xxh3 hash of the file. A request with
 a matching `if-none-match` gets `304 Not Modified`. Text files are sent
