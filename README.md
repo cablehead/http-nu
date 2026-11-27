@@ -425,6 +425,16 @@ For single page applications you can provide a fallback file:
 $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
 ```
 
+`.static-href` gives a file's address with its version, `?v=` and the first 8
+hex digits of the file's xxh3 hash. Link a file with it, and `.static` serves a
+request whose `?v=` matches the file with
+`cache-control: public, max-age=31536000, immutable`, and any other request with
+`no-cache`. A changed file gets a new address, so browsers fetch it at once.
+
+```nushell
+$"<link rel=stylesheet href=(.static-href $dir /site.css)>"   # /site.css?v=8f3a2c1d
+```
+
 ### Streaming responses
 
 Values returned by streaming pipelines (like `generate`) are sent to the client

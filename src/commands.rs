@@ -123,6 +123,19 @@ impl CustomValue for CompiledTemplate {
     }
 }
 
+/// A static file's version: the first 8 hex digits of the xxh3 hash of its
+/// contents, read fresh on each call. `.static-href` puts it on a file's
+/// address as `?v=`, and `.static` checks it there to choose the cache header.
+pub fn static_version(file: &std::path::Path) -> Option<String> {
+    let data = std::fs::read(file).ok()?;
+    Some(format!("{:016x}", xxhash_rust::xxh3::xxh3_64(&data))[..8].to_string())
+}
+
+/// The file a static request path names under root.
+pub fn static_file(root: &std::path::Path, path: &str) -> PathBuf {
+    root.join(path.trim_start_matches('/'))
+}
+
 thread_local! {
     pub static RESPONSE_TX: RefCell<Option<oneshot::Sender<Response>>> = const { RefCell::new(None) };
 }
@@ -205,6 +218,71 @@ impl Command for StaticCommand {
 }
 
 const LINE_ENDING: &str = "\n";
+
+#[derive(Clone)]
+pub struct StaticHrefCommand;
+
+impl Default for StaticHrefCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StaticHrefCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for StaticHrefCommand {
+    fn name(&self) -> &str {
+        ".static-href"
+    }
+
+    fn description(&self) -> &str {
+        "A static file's address with its version, for .static to cache for good"
+    }
+
+    fn extra_description(&self) -> &str {
+        "Gives the path with ?v= and the first 8 hex digits of the file's xxh3 hash, read from root. .static serves a request whose ?v= matches the file with a year-long immutable cache header, and any other with no-cache, so a changed file is fetched again at once. A missing file gives the path unchanged."
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".static-href")
+            .required("root", SyntaxShape::String, "root directory path")
+            .required(
+                "path",
+                SyntaxShape::String,
+                "the file's path under root, as the page links it",
+            )
+            .input_output_types(vec![(Type::Nothing, Type::String)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn examples(&self) -> Vec<Example<'_>> {
+        vec![Example {
+            description: "Link a stylesheet that browsers keep until it changes",
+            example: r#"$"<link rel=stylesheet href=(.static-href $dir /site.css)>""#,
+            result: None,
+        }]
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let root: String = call.req(engine_state, stack, 0)?;
+        let path: String = call.req(engine_state, stack, 1)?;
+        let href = match static_version(&static_file(std::path::Path::new(&root), &path)) {
+            Some(v) => format!("{path}?v={v}"),
+            None => path,
+        };
+        Ok(Value::string(href, call.head).into_pipeline_data())
+    }
+}
 
 #[derive(Clone)]
 pub struct ToSse;

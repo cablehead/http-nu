@@ -252,7 +252,27 @@ where
             } else {
                 ServeDir::new(root).call(static_req).await?
             };
-            let (res_parts, body) = res.into_parts();
+            let (mut res_parts, body) = res.into_parts();
+            // A file asked for with its current version (?v=, from .static-href)
+            // is kept for good; any other, no-cache, so the browser checks
+            // again and a changed file arrives at once.
+            if res_parts.status.is_success() || res_parts.status == hyper::StatusCode::NOT_MODIFIED
+            {
+                let asked = parts.uri.query().and_then(|q| {
+                    q.split('&')
+                        .find_map(|kv| kv.strip_prefix("v=").map(str::to_string))
+                });
+                let current =
+                    crate::commands::static_version(&crate::commands::static_file(root, path));
+                let cache = match (asked, current) {
+                    (Some(a), Some(c)) if a == c => "public, max-age=31536000, immutable",
+                    _ => "no-cache",
+                };
+                res_parts.headers.insert(
+                    hyper::header::CACHE_CONTROL,
+                    hyper::header::HeaderValue::from_static(cache),
+                );
+            }
             log_response(
                 request_id,
                 res_parts.status.as_u16(),
