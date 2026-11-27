@@ -405,29 +405,30 @@ stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
 
 ### Serving Static Files
 
-You can serve static files from a directory using the `.static` command. This
-command takes two arguments: the root directory path and the request path.
+#### `.static <root> <path> [--fallback <file>]`
 
-When you call `.static`, it sets the response to serve the specified file, and
-any subsequent output in the closure will be ignored. The content type is
-automatically inferred based on the file extension (e.g., `text/css` for `.css`
-files).
-
-Here's an example:
+Serves the file at `<path>` under `<root>`. Output after `.static` in the
+closure is ignored. With `--fallback`, a request for a file that isn't there
+gets `<file>` instead, for single page applications.
 
 ```bash
 $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
-```
-
-For single page applications you can provide a fallback file:
-
-```bash
 $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
 ```
 
-`.static-href` returns a file's path with `?v=` set to the first 8 hex digits of
-the file's xxh3 hash. When a request's `?v=` matches the file's hash, `.static`
-sends `cache-control: public, max-age=31536000, immutable`. Otherwise it sends
+The content type comes from the file's extension, with `charset=utf-8` for text.
+A request for a directory gets its `index.html`.
+
+Every response carries an `etag` with the xxh3 hash of the file. A request with
+a matching `if-none-match` gets `304 Not Modified`. Text files are sent
+brotli-compressed when the browser accepts it. `range` requests get
+`206 Partial Content`, and several ranges come back as `multipart/byteranges`.
+
+#### `.static-href <root> <path>`
+
+Returns `<path>` with `?v=` set to the first 8 hex digits of the file's xxh3
+hash. When a request's `?v=` matches the file's hash, `.static` sends
+`cache-control: public, max-age=31536000, immutable`. Otherwise it sends
 `no-cache`. When the file changes, its hash changes, so browsers fetch the new
 file.
 
