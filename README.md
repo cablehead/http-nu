@@ -407,8 +407,8 @@ stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
 
 #### `.static <root> <path> [--fallback <file>]`
 
-You can serve the files in a directory with `.static`. It takes the directory
-and the request path, and anything after it in the closure is ignored.
+You can serve the files in a directory with `.static`, giving it the directory
+and the request path:
 
 ```bash
 $ http-nu :3001 -c '{|req| .static ./site $req.path}'
@@ -418,6 +418,8 @@ $ curl -sI localhost:3001/docs
 HTTP/1.1 308 Permanent Redirect
 location: docs/
 ```
+
+`.static` is the response, so anything the closure returns after it is ignored.
 
 For a single page app, `--fallback` serves a file for any path that has nothing
 behind it, so the app's own router can take over:
