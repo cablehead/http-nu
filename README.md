@@ -407,42 +407,53 @@ stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
 
 #### `.static <root> <path> [--fallback <file>]`
 
-Serves the file at `<path>` under `<root>`. Output after `.static` in the
-closure is ignored.
+You can serve the files in a directory with `.static`. It takes the directory
+and the request path, and anything after it in the closure is ignored.
 
-With a folder `./site` holding `index.html`, `style.css` and `docs/index.html`:
+```bash
+$ http-nu :3001 -c '{|req| .static ./site $req.path}'
+$ curl -s localhost:3001/docs/
+<h1>docs</h1>
+$ curl -sI localhost:3001/docs
+HTTP/1.1 308 Permanent Redirect
+location: docs/
+```
+
+For a single page app, `--fallback` serves a file for any path that has nothing
+behind it, so the app's own router can take over:
 
 ```bash
 $ http-nu :3001 -c '{|req| .static ./site $req.path --fallback index.html}'
+$ curl -s localhost:3001/settings
+<h1>home</h1>
 ```
 
-| request      | response                                      |
-| ------------ | --------------------------------------------- |
-| `/`          | `site/index.html`, `text/html; charset=utf-8` |
-| `/style.css` | `site/style.css`, `text/css; charset=utf-8`   |
-| `/docs/`     | `site/docs/index.html`                        |
-| `/docs`      | `308`, redirect to `/docs/`                   |
-| `/settings`  | `site/index.html`, from `--fallback`          |
-
-Without `--fallback`, `/settings` is a `404`. A single page application uses
-`--fallback index.html` so that its own router can draw `/settings`.
-
-Every response carries an `etag` with the xxh3 hash of the file. A request with
-a matching `if-none-match` gets `304 Not Modified`. Text files are sent
-brotli-compressed when the browser accepts it. `range` requests get
-`206 Partial Content`, and several ranges come back as `multipart/byteranges`.
+`.static` sends an ETag, so a browser that already has the file gets a
+`304 Not Modified` back. It also compresses text with brotli when the browser
+asks for it, and answers range requests, which Safari needs to play video.
 
 #### `.static-href <root> <path>`
 
-Returns `<path>` with `?v=` set to the first 8 hex digits of the file's xxh3
-hash. When a request's `?v=` matches the file's hash, `.static` sends
-`cache-control: public, max-age=31536000, immutable`. Otherwise it sends
-`no-cache`. When the file changes, its hash changes, so browsers fetch the new
-file.
+`.static-href` gives you a file's path with a version on the end, taken from a
+hash of the file:
 
-```nushell
-$"<link rel=stylesheet href=(.static-href $dir /site.css)>"   # /site.css?v=8f3a2c1d
+```bash
+$ http-nu :3001 -c '{|req|
+  if $req.path == "/" {
+    $"<link rel=stylesheet href=(.static-href ./site /style.css)>"
+  } else {
+    .static ./site $req.path
+  }
+}'
+$ curl -s localhost:3001/
+<link rel=stylesheet href=/style.css?v=f279778f>
+$ curl -sI 'localhost:3001/style.css?v=f279778f' | grep cache-control
+cache-control: public, max-age=31536000, immutable
 ```
+
+When the version matches, `.static` tells the browser to keep the file for a
+year. Change the file and its version changes too, so the next page load fetches
+the new one.
 
 ### Streaming responses
 
