@@ -697,7 +697,7 @@ async fn test_static_version_cache() {
     let v = crate::commands::static_version(&dir.join("site.css")).unwrap();
     assert_eq!(v.len(), 8);
 
-    // The page's link, from .static-href; the request, served by .static
+    // /href returns the link; any other path is served by .static
     let engine = Arc::new(ArcSwap::from_pointee(test_engine(&format!(
         r#"{{|req| if $req.path == "/href" {{ .static-href '{0}' /site.css }} else {{ .static '{0}' $req.path }} }}"#,
         dir.to_str().unwrap()
@@ -715,12 +715,12 @@ async fn test_static_version_cache() {
         format!("/site.css?v={v}")
     );
 
-    // The current version is kept for good
+    // The current hash is cached for a year
     assert_eq!(
         static_cache(engine.clone(), &format!("/site.css?v={v}")).await,
         (200, "public, max-age=31536000, immutable".to_string())
     );
-    // No version, or a stale one: served, and checked again next time
+    // A missing or stale hash gets no-cache
     assert_eq!(
         static_cache(engine.clone(), "/site.css").await,
         (200, "no-cache".to_string())
@@ -730,7 +730,7 @@ async fn test_static_version_cache() {
         (200, "no-cache".to_string())
     );
 
-    // The file changes: the old version is now stale
+    // After the file changes, the old hash is stale
     std::fs::write(dir.join("site.css"), "body { color: blue; }").unwrap();
     assert_eq!(
         static_cache(engine.clone(), &format!("/site.css?v={v}")).await,

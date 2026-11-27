@@ -253,9 +253,9 @@ where
                 ServeDir::new(root).call(static_req).await?
             };
             let (mut res_parts, body) = res.into_parts();
-            // A file asked for with its current version (?v=, from .static-href)
-            // is kept for good; any other, no-cache, so the browser checks
-            // again and a changed file arrives at once.
+            // If the request's ?v= matches the file's hash, the browser may
+            // cache the file for a year. Otherwise send no-cache, so the
+            // browser checks with the server before using its copy.
             if res_parts.status.is_success() || res_parts.status == hyper::StatusCode::NOT_MODIFIED
             {
                 let asked = parts.uri.query().and_then(|q| {

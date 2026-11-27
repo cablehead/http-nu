@@ -425,11 +425,11 @@ For single page applications you can provide a fallback file:
 $ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
 ```
 
-`.static-href` gives a file's address with its version, `?v=` and the first 8
-hex digits of the file's xxh3 hash. Link a file with it, and `.static` serves a
-request whose `?v=` matches the file with
-`cache-control: public, max-age=31536000, immutable`, and any other request with
-`no-cache`. A changed file gets a new address, so browsers fetch it at once.
+`.static-href` returns a file's path with `?v=` set to the first 8 hex digits of
+the file's xxh3 hash. When a request's `?v=` matches the file's hash, `.static`
+sends `cache-control: public, max-age=31536000, immutable`. Otherwise it sends
+`no-cache`. When the file changes, its hash changes, so browsers fetch the new
+file.
 
 ```nushell
 $"<link rel=stylesheet href=(.static-href $dir /site.css)>"   # /site.css?v=8f3a2c1d
