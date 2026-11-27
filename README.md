@@ -408,19 +408,24 @@ stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
 #### `.static <root> <path> [--fallback <file>]`
 
 Serves the file at `<path>` under `<root>`. Output after `.static` in the
-closure is ignored. `--fallback <file>` serves `<file>`, from under `<root>`,
-for any path with no file behind it. In a single page application,
-`--fallback index.html` sends `/settings` to the app, so its own router can
-handle it.
+closure is ignored.
+
+With a folder `./site` holding `index.html`, `style.css` and `docs/index.html`:
 
 ```bash
-$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
-$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
+$ http-nu :3001 -c '{|req| .static ./site $req.path --fallback index.html}'
 ```
 
-`.static` sets the content type from the file's extension, and adds
-`charset=utf-8` for text. `/docs/` serves `docs/index.html`, and `/docs`
-redirects to `/docs/`.
+| request      | response                                      |
+| ------------ | --------------------------------------------- |
+| `/`          | `site/index.html`, `text/html; charset=utf-8` |
+| `/style.css` | `site/style.css`, `text/css; charset=utf-8`   |
+| `/docs/`     | `site/docs/index.html`                        |
+| `/docs`      | `308`, redirect to `/docs/`                   |
+| `/settings`  | `site/index.html`, from `--fallback`          |
+
+Without `--fallback`, `/settings` is a `404`. A single page application uses
+`--fallback index.html` so that its own router can draw `/settings`.
 
 Every response carries an `etag` with the xxh3 hash of the file. A request with
 a matching `if-none-match` gets `304 Not Modified`. Text files are sent
