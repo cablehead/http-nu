@@ -9,8 +9,6 @@ use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Bytes, Frame};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
-use tower::Service;
-use tower_http::services::{ServeDir, ServeFile};
 
 use nu_protocol::shell_error::generic::GenericError;
 
@@ -44,6 +42,24 @@ pub struct AppConfig {
 /// the request's job can be killed even while nothing is being written.
 #[derive(Clone)]
 pub struct ConnectionClosed(pub CancellationToken);
+
+/// Log a response and wrap its body so the request is logged as done when
+/// the body ends.
+fn logged(
+    res: crate::static_files::StaticResponse,
+    request_id: scru128::Scru128Id,
+    start_time: Instant,
+    guard: RequestGuard,
+) -> hyper::Response<BoxBody<Bytes, BoxError>> {
+    let (parts, body) = res.into_parts();
+    log_response(
+        request_id,
+        parts.status.as_u16(),
+        &parts.headers,
+        start_time,
+    );
+    hyper::Response::from_parts(parts, LoggingBody::new(body, guard).boxed())
+}
 
 pub async fn handle<B>(
     engine: Arc<ArcSwap<crate::Engine>>,
@@ -167,40 +183,19 @@ where
         None
     };
     if let Some((js, js_brotli)) = bundle {
-        let use_brotli = compression::accepts_brotli(&parts.headers);
-        let mut header_map = hyper::header::HeaderMap::new();
-        header_map.insert(
-            hyper::header::CONTENT_TYPE,
-            hyper::header::HeaderValue::from_static("application/javascript"),
-        );
-        header_map.insert(
-            hyper::header::CACHE_CONTROL,
-            hyper::header::HeaderValue::from_static("public, max-age=31536000, immutable"),
-        );
-        let body = if use_brotli {
-            header_map.insert(
-                hyper::header::CONTENT_ENCODING,
-                hyper::header::HeaderValue::from_static("br"),
-            );
-            header_map.insert(
-                hyper::header::VARY,
-                hyper::header::HeaderValue::from_static("accept-encoding"),
-            );
-            Full::new(Bytes::from_static(js_brotli))
-                .map_err(|never| match never {})
-                .boxed()
-        } else {
-            Full::new(Bytes::from_static(js))
-                .map_err(|never| match never {})
-                .boxed()
+        use crate::static_files::{content_type, hash_bytes, respond, Asset, Source, IMMUTABLE};
+        let asset = Asset {
+            source: Source::Embedded {
+                plain: js,
+                brotli: js_brotli,
+            },
+            len: js.len() as u64,
+            hash: hash_bytes(js),
+            content_type: content_type("application/javascript"),
+            cache_control: IMMUTABLE,
         };
-        log_response(request_id, 200, &header_map, start_time);
-        let logging_body = LoggingBody::new(body, guard);
-        let mut response = hyper::Response::builder()
-            .status(200)
-            .body(logging_body.boxed())?;
-        *response.headers_mut() = header_map;
-        return Ok(response);
+        let res = respond(&parts, asset).await?;
+        return Ok(logged(res, request_id, start_time, guard));
     }
 
     let sse_cancel_token = engine.sse_cancel_token.clone();
@@ -238,33 +233,9 @@ where
             path,
             fallback,
         }) => {
-            let mut static_req = hyper::Request::new(Empty::<Bytes>::new());
-            *static_req.uri_mut() = format!("/{path}").parse().unwrap();
-            *static_req.method_mut() = parts.method.clone();
-            *static_req.headers_mut() = parts.headers.clone();
-
-            let res = if let Some(fallback) = fallback {
-                let fp = root.join(fallback);
-                ServeDir::new(root)
-                    .fallback(ServeFile::new(fp))
-                    .call(static_req)
-                    .await?
-            } else {
-                ServeDir::new(root).call(static_req).await?
-            };
-            let (res_parts, body) = res.into_parts();
-            log_response(
-                request_id,
-                res_parts.status.as_u16(),
-                &res_parts.headers,
-                start_time,
-            );
-
-            let bytes = body.collect().await?.to_bytes();
-            let inner_body = Full::new(bytes).map_err(|e| match e {}).boxed();
-            let logging_body = LoggingBody::new(inner_body, guard);
-            let res = hyper::Response::from_parts(res_parts, logging_body.boxed());
-            Ok(res)
+            let res =
+                crate::static_files::serve_path(&parts, root, path, fallback.as_deref()).await?;
+            Ok(logged(res, request_id, start_time, guard))
         }
         Some(ResponseBodyType::ReverseProxy {
             target_url,

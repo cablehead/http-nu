@@ -7,7 +7,7 @@ use hyper::{body::Bytes, Request};
 use tokio::time::Duration;
 
 use crate::commands::{
-    BusPubCommand, BusSubCommand, MjCommand, PrintCommand, StaticCommand, ToSse,
+    BusPubCommand, BusSubCommand, MjCommand, PrintCommand, StaticCommand, StaticHrefCommand, ToSse,
 };
 use crate::handler::{handle, AppConfig};
 
@@ -668,10 +668,251 @@ async fn test_handle_static() {
 
     let resp = handle(engine, None, default_config(), req).await.unwrap();
     assert_eq!(resp.status(), 200);
-    assert_eq!(resp.headers()["content-type"], "text/css");
+    assert_eq!(resp.headers()["content-type"], "text/css; charset=utf-8");
 
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(String::from_utf8(body.to_vec()).unwrap(), css);
+}
+
+/// A request to the engine, with headers: status, headers and body back.
+async fn ask(
+    engine: &Arc<ArcSwap<crate::Engine>>,
+    method: &str,
+    uri: &str,
+    headers: &[(&str, &str)],
+) -> (u16, hyper::HeaderMap, Vec<u8>) {
+    let mut req = Request::builder().method(method).uri(uri);
+    for (k, v) in headers {
+        req = req.header(*k, *v);
+    }
+    let resp = handle(
+        engine.clone(),
+        None,
+        default_config(),
+        req.body(Empty::<Bytes>::new()).unwrap(),
+    )
+    .await
+    .unwrap();
+    let status = resp.status().as_u16();
+    let headers = resp.headers().clone();
+    let body = resp
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .to_vec();
+    (status, headers, body)
+}
+
+fn header<'a>(headers: &'a hyper::HeaderMap, name: &str) -> &'a str {
+    headers.get(name).map(|v| v.to_str().unwrap()).unwrap_or("")
+}
+
+/// A folder with site.css, big.bin and d/index.html, served by .static,
+/// and /href giving .static-href's link to site.css.
+fn static_site() -> (tempfile::TempDir, Arc<ArcSwap<crate::Engine>>) {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("static");
+    std::fs::create_dir_all(dir.join("d")).unwrap();
+    std::fs::write(dir.join("site.css"), "body { color: red; }\n".repeat(100)).unwrap();
+    std::fs::write(dir.join("d/index.html"), "<p>d</p>").unwrap();
+    let big: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(dir.join("big.bin"), big).unwrap();
+    let engine = Arc::new(ArcSwap::from_pointee(test_engine(&format!(
+        r#"{{|req| if $req.path == "/href" {{ .static-href '{0}' /site.css }} else {{ .static '{0}' $req.path --fallback (if $req.path == "/app/x" {{ "d/index.html" }}) }} }}"#,
+        dir.to_str().unwrap()
+    ))));
+    (tmp, engine)
+}
+
+#[tokio::test]
+async fn test_static_version_cache() {
+    let (tmp, engine) = static_site();
+    let (_, _, href) = ask(&engine, "GET", "/href", &[]).await;
+    let href = String::from_utf8(href).unwrap();
+    let v = href.strip_prefix("/site.css?v=").unwrap();
+    assert_eq!(v.len(), 8);
+
+    // The current hash is cached for a year
+    let (status, h, _) = ask(&engine, "GET", &href, &[]).await;
+    assert_eq!(
+        (status, header(&h, "cache-control")),
+        (200, "public, max-age=31536000, immutable")
+    );
+    // A missing or stale hash gets no-cache
+    let (_, h, _) = ask(&engine, "GET", "/site.css", &[]).await;
+    assert_eq!(header(&h, "cache-control"), "no-cache");
+    let (_, h, _) = ask(&engine, "GET", "/site.css?v=00000000", &[]).await;
+    assert_eq!(header(&h, "cache-control"), "no-cache");
+
+    // After the file changes, the old hash is stale
+    std::fs::write(tmp.path().join("static/site.css"), "body { color: blue; }").unwrap();
+    let (_, h, _) = ask(&engine, "GET", &href, &[]).await;
+    assert_eq!(header(&h, "cache-control"), "no-cache");
+}
+
+#[tokio::test]
+async fn test_static_headers() {
+    let (_tmp, engine) = static_site();
+    let (status, h, body) = ask(&engine, "GET", "/site.css", &[]).await;
+    assert_eq!(status, 200);
+    assert_eq!(header(&h, "content-type"), "text/css; charset=utf-8");
+    assert_eq!(header(&h, "x-content-type-options"), "nosniff");
+    assert_eq!(header(&h, "accept-ranges"), "bytes");
+    assert_eq!(header(&h, "vary"), "accept-encoding");
+    assert_eq!(header(&h, "content-length"), body.len().to_string());
+    assert!(header(&h, "last-modified").is_empty());
+    assert_eq!(header(&h, "etag").len(), 18);
+
+    // HEAD: the same headers, no body
+    let (status, head, body) = ask(&engine, "HEAD", "/site.css", &[]).await;
+    assert_eq!(
+        (status, header(&head, "etag"), body.len()),
+        (200, header(&h, "etag"), 0)
+    );
+
+    // Other methods
+    let (status, h, _) = ask(&engine, "POST", "/site.css", &[]).await;
+    assert_eq!((status, header(&h, "allow")), (405, "GET, HEAD"));
+}
+
+#[tokio::test]
+async fn test_static_conditional() {
+    let (_tmp, engine) = static_site();
+    let (_, h, _) = ask(&engine, "GET", "/site.css", &[]).await;
+    let etag = header(&h, "etag").to_string();
+
+    let (status, h, body) = ask(&engine, "GET", "/site.css", &[("if-none-match", &etag)]).await;
+    assert_eq!(
+        (status, header(&h, "etag"), body.len()),
+        (304, etag.as_str(), 0)
+    );
+    let weak = format!("W/{etag}");
+    let (status, _, _) = ask(&engine, "GET", "/site.css", &[("if-none-match", &weak)]).await;
+    assert_eq!(status, 304);
+    let (status, _, _) = ask(
+        &engine,
+        "GET",
+        "/site.css",
+        &[("if-none-match", "\"other\"")],
+    )
+    .await;
+    assert_eq!(status, 200);
+
+    let (status, _, _) = ask(&engine, "GET", "/site.css", &[("if-match", "\"other\"")]).await;
+    assert_eq!(status, 412);
+    let (status, _, _) = ask(&engine, "GET", "/site.css", &[("if-match", &weak)]).await;
+    assert_eq!(status, 412);
+    let (status, _, _) = ask(&engine, "GET", "/site.css", &[("if-match", &etag)]).await;
+    assert_eq!(status, 200);
+}
+
+#[tokio::test]
+async fn test_static_ranges() {
+    let (tmp, engine) = static_site();
+    let big = std::fs::read(tmp.path().join("static/big.bin")).unwrap();
+
+    let (status, h, body) = ask(
+        &engine,
+        "GET",
+        "/big.bin",
+        &[("range", "bytes=100000-100099")],
+    )
+    .await;
+    assert_eq!(status, 206);
+    assert_eq!(header(&h, "content-range"), "bytes 100000-100099/300000");
+    assert_eq!(body, big[100000..100100]);
+
+    let (_, _, body) = ask(&engine, "GET", "/big.bin", &[("range", "bytes=-10")]).await;
+    assert_eq!(body, big[299990..]);
+
+    // Overlapping ranges are merged
+    let (_, h, _) = ask(&engine, "GET", "/big.bin", &[("range", "bytes=0-9,5-19")]).await;
+    assert_eq!(header(&h, "content-range"), "bytes 0-19/300000");
+
+    // Several ranges: multipart/byteranges
+    let (status, h, body) = ask(&engine, "GET", "/big.bin", &[("range", "bytes=0-1,10-11")]).await;
+    assert_eq!(status, 206);
+    assert!(header(&h, "content-type").starts_with("multipart/byteranges; boundary="));
+    assert_eq!(header(&h, "content-length"), body.len().to_string());
+    let body = String::from_utf8_lossy(&body);
+    assert!(body.contains("content-range: bytes 0-1/300000"));
+    assert!(body.contains("content-range: bytes 10-11/300000"));
+
+    // Outside the file
+    let (status, h, _) = ask(&engine, "GET", "/big.bin", &[("range", "bytes=400000-")]).await;
+    assert_eq!(
+        (status, header(&h, "content-range")),
+        (416, "bytes */300000")
+    );
+
+    // If-Range naming another version: the whole file
+    let (status, _, body) = ask(
+        &engine,
+        "GET",
+        "/big.bin",
+        &[("range", "bytes=0-9"), ("if-range", "\"old\"")],
+    )
+    .await;
+    assert_eq!((status, body.len()), (200, 300000));
+
+    // The whole file, streamed
+    let (_, _, body) = ask(&engine, "GET", "/big.bin", &[]).await;
+    assert_eq!(body, big);
+}
+
+#[tokio::test]
+async fn test_static_brotli() {
+    let (tmp, engine) = static_site();
+    let css = std::fs::read(tmp.path().join("static/site.css")).unwrap();
+    let (_, plain, _) = ask(&engine, "GET", "/site.css", &[]).await;
+    assert_eq!(header(&plain, "content-encoding"), "");
+    let (_, refused, _) = ask(
+        &engine,
+        "GET",
+        "/site.css",
+        &[("accept-encoding", "br;q=0, gzip")],
+    )
+    .await;
+    assert_eq!(header(&refused, "content-encoding"), "");
+    let (status, h, body) = ask(&engine, "GET", "/site.css", &[("accept-encoding", "br")]).await;
+    assert_eq!((status, header(&h, "content-encoding")), (200, "br"));
+    let plain_etag = header(&plain, "etag").trim_end_matches('"');
+    assert_eq!(header(&h, "etag"), format!("{plain_etag}-br\""));
+    let mut out = Vec::new();
+    brotli::BrotliDecompress(&mut body.as_slice(), &mut out).unwrap();
+    assert_eq!(out, css);
+    // Not for binary files
+    let (_, h, _) = ask(&engine, "GET", "/big.bin", &[("accept-encoding", "br")]).await;
+    assert_eq!(header(&h, "content-encoding"), "");
+}
+
+#[tokio::test]
+async fn test_static_paths() {
+    let (_tmp, engine) = static_site();
+    // A directory without its slash goes to the slash, relative
+    let (status, h, _) = ask(&engine, "GET", "/d?x=1", &[]).await;
+    assert_eq!((status, header(&h, "location")), (308, "d/?x=1"));
+    let (status, h, body) = ask(&engine, "GET", "/d/", &[]).await;
+    assert_eq!(
+        (status, header(&h, "content-type"), body.as_slice()),
+        (200, "text/html; charset=utf-8", b"<p>d</p>".as_slice())
+    );
+    // Leaving the folder
+    for uri in [
+        "/../site.css",
+        "/%2e%2e/site.css",
+        "/d/%2e%2e/%2e%2e/etc/passwd",
+    ] {
+        let (status, _, _) = ask(&engine, "GET", uri, &[]).await;
+        assert_eq!(status, 404, "{uri}");
+    }
+    // Missing, and the fallback
+    let (status, _, _) = ask(&engine, "GET", "/nope.css", &[]).await;
+    assert_eq!(status, 404);
+    let (status, _, body) = ask(&engine, "GET", "/app/x", &[]).await;
+    assert_eq!((status, body.as_slice()), (200, b"<p>d</p>".as_slice()));
 }
 
 fn test_engine(script: &str) -> crate::Engine {
@@ -683,6 +924,7 @@ fn test_engine_with_dev(script: &str, dev: bool) -> crate::Engine {
     engine
         .add_commands(vec![
             Box::new(StaticCommand::new()),
+            Box::new(StaticHrefCommand::new()),
             Box::new(ToSse {}),
             Box::new(MjCommand::new()),
             Box::new(PrintCommand::new()),

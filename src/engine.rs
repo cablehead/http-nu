@@ -23,7 +23,7 @@ use crate::bus::Bus;
 use crate::commands::{
     BusPubCommand, BusSubCommand, HighlightCommand, HighlightLangCommand, HighlightThemeCommand,
     MdCommand, MjCommand, MjCompileCommand, MjRenderCommand, PrintCommand, ReverseProxyCommand,
-    RunNuCommand, StaticCommand, ToSse,
+    RunNuCommand, StaticCommand, StaticHrefCommand, ToSse,
 };
 use crate::logging::log_error;
 use crate::stdlib::load_http_nu_stdlib;
@@ -343,6 +343,7 @@ impl Engine {
         self.add_commands(vec![
             Box::new(ReverseProxyCommand::new()),
             Box::new(StaticCommand::new()),
+            Box::new(StaticHrefCommand::new()),
             Box::new(ToSse {}),
             Box::new(MjCommand::new()),
             Box::new(MjCompileCommand::new()),

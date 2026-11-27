@@ -405,25 +405,57 @@ stopping at the first IP not in a trusted range. Falls back to `remote_ip` when:
 
 ### Serving Static Files
 
-You can serve static files from a directory using the `.static` command. This
-command takes two arguments: the root directory path and the request path.
+#### `.static <root> <path> [--fallback <file>]`
 
-When you call `.static`, it sets the response to serve the specified file, and
-any subsequent output in the closure will be ignored. The content type is
-automatically inferred based on the file extension (e.g., `text/css` for `.css`
-files).
-
-Here's an example:
+You can serve the files in a directory with `.static`, giving it the directory
+and the request path:
 
 ```bash
-$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path}'
+$ http-nu :3001 -c '{|req| .static ./site $req.path}'
+$ curl -s localhost:3001/docs/
+<h1>docs</h1>
+$ curl -sI localhost:3001/docs
+HTTP/1.1 308 Permanent Redirect
+location: docs/
 ```
 
-For single page applications you can provide a fallback file:
+`.static` is the response, so anything the closure returns after it is ignored.
+
+For a single page app, `--fallback` serves a file for any path that has nothing
+behind it, so the app's own router can take over:
 
 ```bash
-$ http-nu :3001 -c '{|req| .static "/path/to/static/dir" $req.path --fallback "index.html"}'
+$ http-nu :3001 -c '{|req| .static ./site $req.path --fallback index.html}'
+$ curl -s localhost:3001/settings
+<h1>home</h1>
 ```
+
+`.static` sends an ETag, so a browser that already has the file gets a
+`304 Not Modified` back. It also compresses text with brotli when the browser
+asks for it, and answers range requests, which Safari needs to play video.
+
+#### `.static-href <root> <path>`
+
+`.static-href` gives you a file's path with a version on the end, taken from a
+hash of the file:
+
+```bash
+$ http-nu :3001 -c '{|req|
+  if $req.path == "/" {
+    $"<link rel=stylesheet href=(.static-href ./site /style.css)>"
+  } else {
+    .static ./site $req.path
+  }
+}'
+$ curl -s localhost:3001/
+<link rel=stylesheet href=/style.css?v=f279778f>
+$ curl -sI 'localhost:3001/style.css?v=f279778f' | grep cache-control
+cache-control: public, max-age=31536000, immutable
+```
+
+When the version matches, `.static` tells the browser to keep the file for a
+year. Change the file and its version changes too, so the next page load fetches
+the new one.
 
 ### Streaming responses
 

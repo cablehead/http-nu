@@ -207,6 +207,67 @@ impl Command for StaticCommand {
 const LINE_ENDING: &str = "\n";
 
 #[derive(Clone)]
+pub struct StaticHrefCommand;
+
+impl Default for StaticHrefCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StaticHrefCommand {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Command for StaticHrefCommand {
+    fn name(&self) -> &str {
+        ".static-href"
+    }
+
+    fn description(&self) -> &str {
+        "Add a static file's version to its path, as ?v="
+    }
+
+    fn extra_description(&self) -> &str {
+        "Returns the path with ?v= set to the first 8 hex digits of the file's xxh3 hash. The file is read from root. When a request's ?v= matches the file's hash, .static sends cache-control: public, max-age=31536000, immutable. Otherwise it sends no-cache. If the file is missing, the path is returned unchanged."
+    }
+
+    fn signature(&self) -> Signature {
+        Signature::build(".static-href")
+            .required("root", SyntaxShape::String, "root directory path")
+            .required("path", SyntaxShape::String, "path of the file under root")
+            .input_output_types(vec![(Type::Nothing, Type::String)])
+            .category(Category::Custom("http".into()))
+    }
+
+    fn examples(&self) -> Vec<Example<'_>> {
+        vec![Example {
+            description: "Link a stylesheet with its version",
+            example: r#"$"<link rel=stylesheet href=(.static-href $dir /site.css)>""#,
+            result: None,
+        }]
+    }
+
+    fn run(
+        &self,
+        engine_state: &EngineState,
+        stack: &mut Stack,
+        call: &Call,
+        _input: PipelineData,
+    ) -> Result<PipelineData, ShellError> {
+        let root: String = call.req(engine_state, stack, 0)?;
+        let path: String = call.req(engine_state, stack, 1)?;
+        let href = match crate::static_files::version(std::path::Path::new(&root), &path) {
+            Some(v) => format!("{path}?v={v}"),
+            None => path,
+        };
+        Ok(Value::string(href, call.head).into_pipeline_data())
+    }
+}
+
+#[derive(Clone)]
 pub struct ToSse;
 
 impl Command for ToSse {
