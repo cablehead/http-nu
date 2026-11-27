@@ -867,6 +867,15 @@ async fn test_static_brotli() {
     let (tmp, engine) = static_site();
     let css = std::fs::read(tmp.path().join("static/site.css")).unwrap();
     let (_, plain, _) = ask(&engine, "GET", "/site.css", &[]).await;
+    assert_eq!(header(&plain, "content-encoding"), "");
+    let (_, refused, _) = ask(
+        &engine,
+        "GET",
+        "/site.css",
+        &[("accept-encoding", "br;q=0, gzip")],
+    )
+    .await;
+    assert_eq!(header(&refused, "content-encoding"), "");
     let (status, h, body) = ask(&engine, "GET", "/site.css", &[("accept-encoding", "br")]).await;
     assert_eq!((status, header(&h, "content-encoding")), (200, "br"));
     let plain_etag = header(&plain, "etag").trim_end_matches('"');
